@@ -1,22 +1,26 @@
-// Second AssemblyScript test file for parallelization testing
-
-// Declare the coverage trace function (injected by transform)
-@external("env", "__coverage_trace")
-declare function __coverage_trace(funcIdx: i64, blockIdx: i64): void;
-
 /**
- * Subtract function
+ * Math operations test suite
+ * Tests basic arithmetic operations
  */
-export function subtract(a: i32, b: i32): i32 {
-  return a - b;
-}
 
-/**
- * Divide function
- */
-export function divide(a: i32, b: i32): i32 {
-  if (b === 0) {
-    return 0; // Handle divide by zero
-  }
-  return a / b;
-}
+import { test, assert } from '../src/framework';
+
+test("addition works", () => {
+  const sum: i32 = 1 + 1;
+  assert(sum == 2, "1 + 1 should equal 2");
+});
+
+test("subtraction works", () => {
+  const diff: i32 = 5 - 3;
+  assert(diff == 2, "5 - 3 should equal 2");
+});
+
+test("multiplication works", () => {
+  const product: i32 = 2 * 3;
+  assert(product == 6, "2 * 3 should equal 6");
+});
+
+test("division works", () => {
+  const quotient: i32 = 10 / 2;
+  assert(quotient == 5, "10 / 2 should equal 5");
+});
