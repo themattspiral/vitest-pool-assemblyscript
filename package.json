@@ -1,0 +1,15 @@
+{
+  "name": "vitest-pool-assemblyscript",
+  "version": "0.0.1",
+  "description": "Test native AssemblyScript with Vitest - Simple, fast, and familiar, with full coverage output",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.27.31",
+    "vitest": "^2.1.8",
+    "typescript": "^5.7.2"
+  }
+}
