@@ -3,7 +3,7 @@
  * Tests comparison operators and boolean logic
  */
 
-import { test, assert } from '../src/framework';
+import { test, assert } from '../assembly';
 
 test("comparisons work", () => {
   assert(1 < 2, "1 < 2");

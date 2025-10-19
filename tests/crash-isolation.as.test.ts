@@ -3,7 +3,7 @@
  * Verifies that one test crashing doesn't kill subsequent tests
  */
 
-import { test, assert } from '../src/framework';
+import { test, assert } from '../assembly';
 
 test("first test passes", () => {
   assert(true, "first test should pass");

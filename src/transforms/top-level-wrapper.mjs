@@ -48,9 +48,7 @@
 
 import { Transform } from "assemblyscript/transform";
 import { Node, NodeKind, CommonFlags, ArrowKind } from "assemblyscript/dist/assemblyscript.js";
-
-// Debug flag - set to true to enable verbose logging
-const DEBUG = false;
+import { debug, isDebugEnabled } from "../utils/debug.mjs";
 
 class TopLevelWrapperTransform extends Transform {
   /**
@@ -89,10 +87,8 @@ class TopLevelWrapperTransform extends Transform {
     const statements = source.statements;
 
     // Debug logging
-    if (DEBUG) {
-      this.log('[Transform] Processing source:', source.normalizedPath);
-      this.log('[Transform] Statement count:', statements.length);
-    }
+    debug('[ASC TopLevelWrapper] Processing source:', source.normalizedPath);
+    debug('[ASC TopLevelWrapper] Statement count:', statements.length);
 
     // Separate import/export statements from code statements
     const topLevelStatements = [];
@@ -103,10 +99,8 @@ class TopLevelWrapperTransform extends Transform {
       const hasExportFlag = stmt.flags !== undefined && (stmt.flags & CommonFlags.Export) !== 0;
       const hasDeclareFlag = stmt.flags !== undefined && (stmt.flags & CommonFlags.Declare) !== 0;
 
-      if (DEBUG) {
-        this.log('[Transform] Statement kind:', stmt.kind, this.getKindName(stmt.kind),
-                 'export?', hasExportFlag, 'declare?', hasDeclareFlag);
-      }
+      debug('[ASC TopLevelWrapper] Statement kind:', stmt.kind, this.getKindName(stmt.kind),
+            'export?', hasExportFlag, 'declare?', hasDeclareFlag);
 
       // Track framework imports to find the source module path
       if (stmt.kind === NodeKind.Import) {
@@ -114,10 +108,10 @@ class TopLevelWrapperTransform extends Transform {
         // Check if this is importing from the framework
         if (stmt.path && stmt.path.value) {
           const importPath = stmt.path.value;
-          // Look for framework import (ends with 'framework' or 'framework/index')
-          if (importPath.includes('framework')) {
+          // Look for framework import (includes 'framework' or 'assembly')
+          if (importPath.includes('framework') || importPath.includes('assembly')) {
             frameworkImportSource = importPath;
-            if (DEBUG) this.log('[Transform] Found framework import:', importPath);
+            debug('[ASC TopLevelWrapper] Found framework import:', importPath);
           }
         }
       }
@@ -140,15 +134,13 @@ class TopLevelWrapperTransform extends Transform {
       }
     }
 
-    if (DEBUG) {
-      this.log('[Transform] Top-level statements:', topLevelStatements.length);
-      this.log('[Transform] Code statements:', codeStatements.length);
-      this.log('[Transform] Framework import source:', frameworkImportSource);
-    }
+    debug('[ASC TopLevelWrapper] Top-level statements:', topLevelStatements.length);
+    debug('[ASC TopLevelWrapper] Code statements:', codeStatements.length);
+    debug('[ASC TopLevelWrapper] Framework import source:', frameworkImportSource);
 
     // If there's no code to wrap, nothing to do
     if (codeStatements.length === 0) {
-      if (DEBUG) this.log('[Transform] No code to wrap, skipping');
+      debug('[ASC TopLevelWrapper] No code to wrap, skipping');
       return;
     }
 
@@ -186,7 +178,7 @@ class TopLevelWrapperTransform extends Transform {
       range
     );
 
-    if (DEBUG) this.log('[Transform] Created wrapper function');
+    debug('[ASC TopLevelWrapper] Created wrapper function');
 
     // TREE-SHAKING FIX: Re-export framework query functions
     // This prevents the compiler from tree-shaking them away
@@ -215,10 +207,10 @@ class TopLevelWrapperTransform extends Transform {
           range
         );
         reExportStatements.push(reExport);
-        if (DEBUG) this.log('[Transform] Added re-export for:', fnName);
+        debug('[ASC TopLevelWrapper] Added re-export for:', fnName);
       }
     } else {
-      if (DEBUG) this.log('[Transform] WARNING: No framework import found, skipping re-exports');
+      debug('[ASC TopLevelWrapper] WARNING: No framework import found, skipping re-exports');
     }
 
     // Replace source statements with:
@@ -231,7 +223,7 @@ class TopLevelWrapperTransform extends Transform {
       wrapperFunction
     ];
 
-    if (DEBUG) this.log('[Transform] Replaced statements, new count:', source.statements.length);
+    debug('[ASC TopLevelWrapper] Replaced statements, new count:', source.statements.length);
   }
 
   /**

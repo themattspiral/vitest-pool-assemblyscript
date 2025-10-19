@@ -3,7 +3,7 @@
  * Tests string operations from imported module
  */
 
-import { test, assert } from '../src/framework';
+import { test, assert } from '../assembly';
 import { getLength, isEmpty, concat, repeat } from './string-utils';
 
 test("getLength returns string length", () => {

@@ -25,6 +25,7 @@ import {
 } from 'assemblyscript/dist/assemblyscript.js';
 
 import { Transform } from 'assemblyscript/dist/transform.js';
+import { debug } from '../utils/debug.mjs';
 
 // i64_new is a global function provided by AssemblyScript runtime
 // It converts JS numbers to i64 values for AST nodes
@@ -49,7 +50,7 @@ export interface FunctionInfo {
  * Coverage instrumentation transform
  *
  * Usage:
- *   import { CoverageTransform } from './coverage-transform';
+ *   import { CoverageTransform } from './instrumentation';
  *   const transform = new CoverageTransform();
  *   // Pass to asc.main via --transform option
  *   // After compilation, get debug info via transform.getDebugInfo()
@@ -65,7 +66,7 @@ export class CoverageTransform extends Transform {
    * This is where we visit all user source files and inject coverage calls
    */
   afterInitialize(parser: Parser): void {
-    console.log('[CoverageTransform] afterInitialize - visiting sources');
+    debug('[ASC Instrumentation] Initializing - visiting sources');
 
     // Visit all user source files (not stdlib)
     for (const source of parser.sources) {
@@ -79,7 +80,7 @@ export class CoverageTransform extends Transform {
         continue;
       }
 
-      console.log('[CoverageTransform] Visiting source:', source.normalizedPath);
+      debug('[ASC Instrumentation] Visiting source:', source.normalizedPath);
 
       // Register this file
       const fileIdx = this.getOrCreateFileIndex(source.normalizedPath);
@@ -88,7 +89,7 @@ export class CoverageTransform extends Transform {
       this.visitSource(source, fileIdx);
     }
 
-    console.log('[CoverageTransform] Instrumentation complete:', {
+    debug('[ASC Instrumentation] Complete:', {
       totalFunctions: this.functionInfos.length,
       totalFiles: this.files.length,
     });
@@ -123,13 +124,13 @@ export class CoverageTransform extends Transform {
   private visitFunctionDeclaration(node: FunctionDeclaration, fileIdx: number): void {
     // Skip if no body (abstract, ambient, etc.)
     if (!node.body || node.body.statements.length === 0) {
-      console.log('[CoverageTransform] Skipping function (no body):', node.name.text);
+      debug('[ASC Instrumentation] Skipping function (no body):', node.name.text);
       return;
     }
 
     // Skip constructors
     if (node.isConstructor) {
-      console.log('[CoverageTransform] Skipping constructor');
+      debug('[ASC Instrumentation] Skipping constructor');
       return;
     }
 
@@ -151,7 +152,7 @@ export class CoverageTransform extends Transform {
       endLine,
     });
 
-    console.log(`[CoverageTransform] Instrumenting function: ${functionName} (idx=${funcIdx}, lines ${startLine}-${endLine})`);
+    debug(`[ASC Instrumentation] Instrumenting function: ${functionName} (idx=${funcIdx}, lines ${startLine}-${endLine})`);
 
     // Inject coverage trace call at function entry
     // We'll inject: __coverage_trace(funcIdx, 0);
@@ -170,7 +171,7 @@ export class CoverageTransform extends Transform {
     // Insert at the beginning of the function body
     node.body!.statements.unshift(traceCall);
 
-    console.log(`[CoverageTransform] Injected trace call: __coverage_trace(${funcIdx}, ${blockIdx})`);
+    debug(`[ASC Instrumentation] Injected trace call: __coverage_trace(${funcIdx}, ${blockIdx})`);
   }
 
   /**

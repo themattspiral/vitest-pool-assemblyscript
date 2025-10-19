@@ -3,12 +3,12 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     // Use our custom AssemblyScript pool
-    pool: './src/pool.ts',
+    pool: './src/index.ts',
 
     // Pool-specific configuration
     poolOptions: {
       assemblyScript: {
-        // Future: Add AS-specific options here
+        debug: true, // Enable verbose debug logging
       }
     },
 
