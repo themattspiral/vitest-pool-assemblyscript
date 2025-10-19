@@ -159,6 +159,7 @@ export function assert(condition: bool, message: string = "Assertion failed"): v
     __assertion_fail(changetype<usize>(message), message.length);
     // Abort on failure - terminates WASM execution
     // Pool's abort handler will catch this and mark the test as failed
-    abort();
+    // Pass the message to abort so it appears in the error output
+    abort(message);
   }
 }

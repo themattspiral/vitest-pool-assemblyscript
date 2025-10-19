@@ -7,7 +7,7 @@
  * - WASM import object creation
  */
 
-import { createMemory, decodeString, decodeStringNullTerminated } from './utils/wasm-memory.js';
+import { createMemory, decodeString, decodeStringNullTerminated, decodeAbortInfo } from './utils/wasm-memory.js';
 import type { TestResult, ExecutionResults } from './types.js';
 import { debug, debugError } from './utils/debug.mjs';
 
@@ -48,8 +48,10 @@ export async function discoverTests(
 
       // AS runtime imports
       abort(msgPtr: number, filePtr: number, line: number, column: number) {
-        debugError(`[Executor] Abort during discovery at ${filePtr}:${line}:${column}`);
-        throw new Error('AssemblyScript abort during test discovery');
+        const { message, location } = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
+        debugError(`[Executor] Abort during discovery: ${message}${location ? ` at ${location}` : ''}`);
+        const errorMsg = `AssemblyScript abort during test discovery: ${message}${location ? `\n  at ${location}` : ''}`;
+        throw new Error(errorMsg);
       },
     },
   };
@@ -163,10 +165,16 @@ export async function executeTests(
 
         // AS runtime imports
         abort(msgPtr: number, filePtr: number, line: number, column: number) {
-          debugError(`[Executor] Abort at ${filePtr}:${line}:${column}`);
+          const { message, location } = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
+          debugError(`[Executor] Abort: ${message}${location ? ` at ${location}` : ''}`);
+
           if (currentTest) {
             currentTest.passed = false;
-            currentTest.error = new Error(`AssemblyScript abort at ${filePtr}:${line}:${column}`);
+            // Create a clean error with just the assertion message
+            // Stack trace is not useful for WASM errors since it shows executor internals
+            const error = new Error(message);
+            error.stack = message; // Replace stack with just the message
+            currentTest.error = error;
           }
           // CRITICAL: Must throw to halt WASM execution
           // Without throwing, execution would continue and __test_pass() would be called,
