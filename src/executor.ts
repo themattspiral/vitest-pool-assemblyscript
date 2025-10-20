@@ -26,12 +26,12 @@ import { debug, debugError } from './utils/debug.mjs';
  */
 export async function discoverTests(
   binary: Uint8Array,
-  filename: string
+  _filename: string
 ): Promise<string[]> {
   const discoveredTests: string[] = [];
 
   // Compile module
-  const module = await WebAssembly.compile(binary);
+  const module = await WebAssembly.compile(binary as BufferSource);
 
   // Create memory and import object
   const memory = createMemory();
@@ -40,11 +40,11 @@ export async function discoverTests(
       memory: memory,
 
       // Test framework imports (not called during discovery, but required by WASM module)
-      __test_start(namePtr: number, nameLen: number) {},
+      __test_start(_namePtr: number, _nameLen: number) {},
       __test_pass() {},
-      __test_fail(msgPtr: number, msgLen: number) {},
+      __test_fail(_msgPtr: number, _msgLen: number) {},
       __assertion_pass() {},
-      __assertion_fail(msgPtr: number, msgLen: number) {},
+      __assertion_fail(_msgPtr: number, _msgLen: number) {},
 
       // AS runtime imports
       abort(msgPtr: number, filePtr: number, line: number, column: number) {
@@ -97,12 +97,12 @@ export async function discoverTests(
  */
 export async function executeTests(
   binary: Uint8Array,
-  filename: string
+  _filename: string
 ): Promise<ExecutionResults> {
   const tests: TestResult[] = [];
 
   // Compile module once (reused for all test instances)
-  const module = await WebAssembly.compile(binary);
+  const module = await WebAssembly.compile(binary as BufferSource);
 
   // First, discover how many tests we have
   const testCount = await getTestCount(module);
@@ -204,10 +204,13 @@ export async function executeTests(
     } catch (error) {
       debugError('[Executor] Error during test execution:', error);
       // Error should be captured in currentTest via abort handler
-      if (currentTest && currentTest.passed) {
-        // If not already marked as failed, mark it now
-        currentTest.passed = false;
-        currentTest.error = error as Error;
+      if (currentTest !== null) {
+        // TypeScript loses type narrowing on variables mutated in closures - use type assertion
+        if ((currentTest as TestResult).passed) {
+          // If not already marked as failed, mark it now
+          (currentTest as TestResult).passed = false;
+          (currentTest as TestResult).error = error as Error;
+        }
       }
     }
 

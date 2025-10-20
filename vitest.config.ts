@@ -13,7 +13,7 @@ export default defineConfig({
     },
 
     // Test file patterns
-    include: ['tests/**/*.as.test.ts'],
+    include: ['tests/assembly/**/*.as.test.ts'],
     exclude: ['**/node_modules/**'],
 
     globals: false,

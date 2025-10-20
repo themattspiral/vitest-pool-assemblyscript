@@ -1,14 +1,49 @@
 {
   "compilerOptions": {
+    // Target Node.js 18+ (ES2022 features)
     "target": "ES2022",
-    "module": "ES2022",
-    "moduleResolution": "bundler",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],  // DOM needed for WebAssembly types (TS limitation)
+
+    // ESM module format for Node.js (matches package.json "type": "module")
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    // Output configuration (for future production build)
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    // Strict type checking
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+
+    // Module compatibility
     "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+
+    // Performance & compatibility
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*", "tests/**/*"],
-  "exclude": ["node_modules"]
+
+  "include": [
+    "src/**/*",
+    "tests/**/*.test.ts"  // Future TypeScript/JS tests for the pool itself
+  ],
+
+  "exclude": [
+    "node_modules",
+    "dist",
+    "assembly",
+    "tests/assembly",  // AssemblyScript tests (not TypeScript)
+    "debug-tools"
+  ]
 }

@@ -24,7 +24,7 @@ import { debug } from './utils/debug.mjs';
  * @returns Compilation result with binary or error
  */
 export async function compileAssemblyScript(
-  source: string,
+  _source: string,
   filename: string
 ): Promise<CompileResult> {
   const stdoutLines: string[] = [];
@@ -66,8 +66,8 @@ export async function compileAssemblyScript(
     stderr,
     // Let AS read from filesystem for import resolution
     // WASM binary is captured in memory via writeFile callback
-    writeFile: (name: string, contents: Uint8Array) => {
-      if (name.endsWith('.wasm')) {
+    writeFile: (name: string, contents: string | Uint8Array, _baseDir: string) => {
+      if (name.endsWith('.wasm') && contents instanceof Uint8Array) {
         binary = contents;
       }
     },
@@ -89,10 +89,12 @@ export async function compileAssemblyScript(
     };
   }
 
-  debug('[Compiler] Compilation successful, binary size:', binary.length, 'bytes');
+  // Extract to const to help TypeScript narrow the type
+  const wasmBinary: Uint8Array = binary;
+  debug('[Compiler] Compilation successful, binary size:', wasmBinary.length, 'bytes');
 
   return {
-    binary,
+    binary: wasmBinary,
     error: null,
   };
 }

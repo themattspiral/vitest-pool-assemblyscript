@@ -92,8 +92,6 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
               suite: fileTask,
               mode: 'run',
               meta: {},
-              annotations: [],
-              timeout: 0,
               file: fileTask,
             };
             fileTask.tasks.push(testTask);
@@ -187,8 +185,6 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
               suite: fileTask,
               mode: 'run',
               meta: {},
-              annotations: [],
-              timeout: 0,
               file: fileTask,
               result: {
                 state: testResult.passed ? 'pass' : 'fail',
@@ -201,11 +197,12 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
           // 5. Report to Vitest
           ctx.state.collectFiles(project, [fileTask]);
 
-          // Report individual task updates
-          const taskPacks = fileTask.tasks.map(task => [
+          // Report individual task updates (must match TaskResultPack type)
+          const taskPacks = fileTask.tasks.map((task): [string, typeof task.result, typeof task.meta] => [
             task.id,
-            { state: task.result?.state, errors: task.result?.errors }
-          ]) as [string, Partial<{ state: string, errors: any[] }>][];
+            task.result,
+            task.meta
+          ]);
           await ctx.report('onTaskUpdate', taskPacks);
 
           debug('[Pool] Reported test results for:', testFile);

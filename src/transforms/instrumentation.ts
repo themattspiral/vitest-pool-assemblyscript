@@ -13,18 +13,25 @@
 import {
   Parser,
   FunctionDeclaration,
-  SourceKind,
   CallExpression,
   IdentifierExpression,
-  IntegerLiteralExpression,
   Statement,
   ExpressionStatement,
   Source,
   Range,
   Node,
-} from 'assemblyscript/dist/assemblyscript.js';
+  BlockStatement,
+} from 'assemblyscript';
 
-import { Transform } from 'assemblyscript/dist/transform.js';
+// Const enum values - using numeric literals because isolatedModules
+// prevents accessing ambient const enums from assemblyscript package
+// Reference: enum SourceKind { User = 0, UserEntry = 1, Library = 2, LibraryEntry = 3 }
+const SOURCEKIND_USER = 0;
+const SOURCEKIND_USER_ENTRY = 1;
+// Reference: enum CommonFlags { Constructor = 524288, ... }
+const COMMONFLAGS_CONSTRUCTOR = 524288;
+
+import { Transform } from 'assemblyscript/transform';
 import { debug } from '../utils/debug.mjs';
 
 // i64_new is a global function provided by AssemblyScript runtime
@@ -70,8 +77,8 @@ export class CoverageTransform extends Transform {
 
     // Visit all user source files (not stdlib)
     for (const source of parser.sources) {
-      // Skip stdlib files
-      if (source.sourceKind !== SourceKind.User && source.sourceKind !== SourceKind.UserEntry) {
+      // Skip stdlib files (only process user code)
+      if (source.sourceKind !== SOURCEKIND_USER && source.sourceKind !== SOURCEKIND_USER_ENTRY) {
         continue;
       }
 
@@ -123,13 +130,14 @@ export class CoverageTransform extends Transform {
    */
   private visitFunctionDeclaration(node: FunctionDeclaration, fileIdx: number): void {
     // Skip if no body (abstract, ambient, etc.)
-    if (!node.body || node.body.statements.length === 0) {
+    const body = node.body as BlockStatement | null;
+    if (!body || body.statements.length === 0) {
       debug('[ASC Instrumentation] Skipping function (no body):', node.name.text);
       return;
     }
 
-    // Skip constructors
-    if (node.isConstructor) {
+    // Skip constructors (check CommonFlags.Constructor bit)
+    if (node.flags & COMMONFLAGS_CONSTRUCTOR) {
       debug('[ASC Instrumentation] Skipping constructor');
       return;
     }
@@ -157,19 +165,19 @@ export class CoverageTransform extends Transform {
     // Inject coverage trace call at function entry
     // We'll inject: __coverage_trace(funcIdx, 0);
     // where 0 is the basic block index (for now, just function entry)
-    this.injectTraceCall(node, funcIdx, 0);
+    this.injectTraceCall(body, funcIdx, 0, node.range);
   }
 
   /**
    * Inject a coverage trace call at the start of a function
    */
-  private injectTraceCall(node: FunctionDeclaration, funcIdx: number, blockIdx: number): void {
+  private injectTraceCall(body: BlockStatement, funcIdx: number, blockIdx: number, range: Range): void {
     // Create the trace call: __coverage_trace(funcIdx, blockIdx);
     // Reuse the function's range for the injected statement
-    const traceCall = this.createTraceCallStatement(funcIdx, blockIdx, node.range);
+    const traceCall = this.createTraceCallStatement(funcIdx, blockIdx, range);
 
     // Insert at the beginning of the function body
-    node.body!.statements.unshift(traceCall);
+    body.statements.unshift(traceCall);
 
     debug(`[ASC Instrumentation] Injected trace call: __coverage_trace(${funcIdx}, ${blockIdx})`);
   }

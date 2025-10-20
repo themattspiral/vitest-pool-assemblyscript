@@ -3,7 +3,7 @@
  * Tests basic arithmetic operations
  */
 
-import { test, assert } from '../assembly';
+import { test, assert } from '../../assembly';
 
 test("addition works", () => {
   const sum: i32 = 1 + 1;

@@ -18,18 +18,23 @@
  */
 
 // WASM imports that Pool provides (callbacks for test reporting)
+// @ts-ignore: top level decorators are supported in AssemblyScript
 @external("env", "__test_start")
 declare function __test_start(namePtr: usize, nameLen: i32): void;
 
+// @ts-ignore: top level decorators are supported in AssemblyScript
 @external("env", "__test_pass")
 declare function __test_pass(): void;
 
+// @ts-ignore: top level decorators are supported in AssemblyScript
 @external("env", "__test_fail")
 declare function __test_fail(msgPtr: usize, msgLen: i32): void;
 
+// @ts-ignore: top level decorators are supported in AssemblyScript
 @external("env", "__assertion_pass")
 declare function __assertion_pass(): void;
 
+// @ts-ignore: top level decorators are supported in AssemblyScript
 @external("env", "__assertion_fail")
 declare function __assertion_fail(msgPtr: usize, msgLen: i32): void;
 
