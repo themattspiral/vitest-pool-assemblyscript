@@ -31,6 +31,7 @@ export async function compileAssemblyScript(
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
   let binary: Uint8Array | null = null;
+  let sourceMap: string | null = null;
 
   // Use full path as entry file so AS compiler can resolve relative imports
   const entryFile = filename;
@@ -61,15 +62,18 @@ export async function compileAssemblyScript(
     '--runtime', 'stub',              // Minimal runtime (no GC)
     '--importMemory',                 // Import memory from JS (enables imports during WASM start)
     '--debug',                        // Include debug info
+    '--sourceMap',                    // Generate source maps for error reporting
     '--exportStart', '_start',        // Export start function for explicit initialization control
   ], {
     stdout,
     stderr,
     // Let AS read from filesystem for import resolution
-    // WASM binary is captured in memory via writeFile callback
+    // WASM binary and source map are captured in memory via writeFile callback
     writeFile: (name: string, contents: string | Uint8Array, _baseDir: string) => {
       if (name.endsWith('.wasm') && contents instanceof Uint8Array) {
         binary = contents;
+      } else if (name.endsWith('.wasm.map') && typeof contents === 'string') {
+        sourceMap = contents;
       }
     },
   });
@@ -86,6 +90,7 @@ export async function compileAssemblyScript(
 
     return {
       binary: null,
+      sourceMap: null,
       error: enhancedError,
     };
   }
@@ -99,6 +104,7 @@ export async function compileAssemblyScript(
 
     return {
       binary: null,
+      sourceMap: null,
       error: new Error(errorMessage),
     };
   }
@@ -106,6 +112,9 @@ export async function compileAssemblyScript(
   // Extract to const to help TypeScript narrow the type
   const wasmBinary: Uint8Array = binary;
   debug('[ASC Compiler] Compilation successful, binary size:', wasmBinary.length, 'bytes');
+  if (sourceMap) {
+    debug('[ASC Compiler] Source map generated, size:', sourceMap.length, 'bytes');
+  }
 
   // Post-process with Binaryen to inject __execute_function
   // This solves tree-shaking issue where AS compiler removes exports only called from Node.js
@@ -114,6 +123,7 @@ export async function compileAssemblyScript(
 
   return {
     binary: instrumentedBinary,
+    sourceMap: sourceMap,
     error: null,
   };
 }

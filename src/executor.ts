@@ -5,11 +5,14 @@
  * - Test discovery (query test registry)
  * - Test execution (per-test crash isolation)
  * - WASM import object creation
+ * - Error source location mapping (V8 stack traces + source maps)
  */
 
-import { createMemory, decodeString, decodeStringNullTerminated, decodeAbortInfo } from './utils/wasm-memory.js';
+import { createMemory, decodeString, decodeAbortInfo } from './utils/wasm-memory.js';
 import type { TestResult, ExecutionResults } from './types.js';
 import { debug, debugError } from './utils/debug.mjs';
+import { extractCallStack, createWebAssemblyCallSite } from './utils/source-maps.js';
+import type { RawSourceMap } from 'source-map';
 
 /**
  * Discover tests via registration callbacks
@@ -82,17 +85,25 @@ export async function discoverTests(
  * - <1ms overhead per test (negligible)
  *
  * @param binary - Compiled WASM binary
+ * @param sourceMap - Source map JSON string (null if not available)
  * @param filename - Source filename (for error messages)
  * @returns Execution results with all test outcomes
  */
 export async function executeTests(
   binary: Uint8Array,
+  sourceMap: string | null,
   _filename: string
 ): Promise<ExecutionResults> {
   const results: TestResult[] = [];
 
   // Compile module once (reused for all test instances)
   const module = await WebAssembly.compile(binary as BufferSource);
+
+  // Parse source map once (used for all errors in this file)
+  const sourceMapJson: RawSourceMap | null = sourceMap ? JSON.parse(sourceMap) : null;
+  if (sourceMapJson) {
+    debug('[Executor] Source map available for error location mapping');
+  }
 
   // First, discover all tests and their function indices
   const registeredTests = await getRegisteredTests(module);
@@ -135,11 +146,16 @@ export async function executeTests(
 
           if (currentTest) {
             currentTest.passed = false;
-            // Create a clean error with just the assertion message
-            // Stack trace is not useful for WASM errors since it shows executor internals
+
+            // Create error to capture V8 stack trace
             const error = new Error(message);
-            error.stack = message; // Replace stack with just the message
+
+            // Extract V8 call stack BEFORE throwing
+            // This gives us WAT line:column positions that can be mapped to AS source
+            currentTest.rawCallStack = extractCallStack(error);
             currentTest.error = error;
+
+            debug('[Executor] Captured V8 call stack with', currentTest.rawCallStack.length, 'frames');
           }
           // CRITICAL: Must throw to halt WASM execution
           // Without throwing, execution would continue and __test_pass() would be called,
@@ -188,6 +204,42 @@ export async function executeTests(
           (currentTest as TestResult).passed = false;
           (currentTest as TestResult).error = error as Error;
         }
+      }
+    }
+
+    // Map call stack to source locations (async operation)
+    if (currentTest && currentTest.rawCallStack && sourceMapJson) {
+      debug('[Executor] Mapping', currentTest.rawCallStack.length, 'call sites to source locations');
+
+      const mappedStack = await Promise.all(
+        currentTest.rawCallStack.map(callSite =>
+          createWebAssemblyCallSite(callSite, sourceMapJson)
+        )
+      );
+
+      // Filter out null results (non-WASM call sites)
+      currentTest.sourceStack = mappedStack.filter((cs): cs is NonNullable<typeof cs> => cs !== null);
+
+      debug('[Executor] Mapped to', currentTest.sourceStack.length, 'source locations');
+
+      // Format error with source location
+      if (currentTest.error && currentTest.sourceStack.length > 0) {
+        const topFrame = currentTest.sourceStack[0];
+        const originalMessage = currentTest.error.message;
+
+        // Create a new error with enhanced message including source location
+        const enhancedError = new Error(`${originalMessage}\n  → ${topFrame.fileName}:${topFrame.lineNumber}:${topFrame.columnNumber}`);
+
+        // Build a clean stack trace with source locations
+        let stackTrace = `${originalMessage}\n`;
+        for (const frame of currentTest.sourceStack) {
+          stackTrace += `  at ${frame.fileName}:${frame.lineNumber}:${frame.columnNumber}\n`;
+        }
+        enhancedError.stack = stackTrace;
+
+        currentTest.error = enhancedError;
+
+        debug('[Executor] Enhanced error with source location');
       }
     }
 

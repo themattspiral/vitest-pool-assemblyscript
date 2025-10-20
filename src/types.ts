@@ -11,6 +11,16 @@ export interface PoolOptions {
 }
 
 /**
+ * WebAssembly call site with mapped source location
+ */
+export interface WebAssemblyCallSite {
+  functionName: string;
+  fileName: string;
+  lineNumber: number;
+  columnNumber: number;
+}
+
+/**
  * Result of a single test execution
  */
 export interface TestResult {
@@ -24,6 +34,10 @@ export interface TestResult {
   assertionsPassed: number;
   /** Number of assertions that failed */
   assertionsFailed: number;
+  /** Mapped source stack trace (for error reporting) */
+  sourceStack?: WebAssemblyCallSite[];
+  /** Raw V8 call stack (internal, for async source mapping) */
+  rawCallStack?: NodeJS.CallSite[];
 }
 
 /**
@@ -40,6 +54,8 @@ export interface ExecutionResults {
 export interface CompilationResult {
   /** Compiled WASM binary (if successful) */
   binary: Uint8Array;
+  /** Source map JSON (if successful and --sourceMap enabled) */
+  sourceMap: string | null;
   /** Error (if compilation failed) */
   error: null;
 }
@@ -47,6 +63,8 @@ export interface CompilationResult {
 export interface CompilationError {
   /** No binary on error */
   binary: null;
+  /** No source map on error */
+  sourceMap: null;
   /** Compilation error */
   error: Error;
 }

@@ -28,8 +28,12 @@ import { setDebug, debug } from './utils/debug.mjs';
  * - Binaryen post-processing injects __coverage_trace() for coverage (when enabled)
  */
 
-// Cache compiled WASM binaries between collectTests() and runTests()
-const compiledBinaryCache = new Map<string, Uint8Array>();
+// Cache compiled WASM binaries and source maps between collectTests() and runTests()
+interface CachedCompilation {
+  binary: Uint8Array;
+  sourceMap: string | null;
+}
+const compilationCache = new Map<string, CachedCompilation>();
 
 export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   // Read pool options and initialize debug mode
@@ -56,7 +60,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
           const source = await readFile(testFile, 'utf-8');
 
           // 2. Compile AS → WASM
-          const { binary, error } = await compileAssemblyScript(source, testFile);
+          const { binary, sourceMap, error } = await compileAssemblyScript(source, testFile);
 
           if (error) {
             debug('[Pool] Compilation failed:', error.message);
@@ -64,9 +68,9 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
             continue;
           }
 
-          // 3. Cache binary for runTests
-          compiledBinaryCache.set(testFile, binary);
-          debug('[Pool] Cached binary for:', testFile);
+          // 3. Cache binary and source map for runTests
+          compilationCache.set(testFile, { binary, sourceMap });
+          debug('[Pool] Cached compilation for:', testFile);
 
           // 4. Execute WASM to discover test names
           const discoveredTests = await discoverTests(binary, testFile);
@@ -122,8 +126,8 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
       // Clear cache for invalidated files
       if (invalidates) {
         for (const file of invalidates) {
-          if (compiledBinaryCache.has(file)) {
-            compiledBinaryCache.delete(file);
+          if (compilationCache.has(file)) {
+            compilationCache.delete(file);
             debug('[Pool] Cleared cache for:', file);
           }
         }
@@ -134,11 +138,11 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
         debug('[Pool] Running tests in:', testFile);
 
         try {
-          // 1. Get cached binary or compile
-          let binary = compiledBinaryCache.get(testFile);
+          // 1. Get cached compilation or compile
+          let compilation = compilationCache.get(testFile);
 
-          if (!binary) {
-            debug('[Pool] Binary not cached, compiling:', testFile);
+          if (!compilation) {
+            debug('[Pool] Compilation not cached, compiling:', testFile);
             const source = await readFile(testFile, 'utf-8');
             const result = await compileAssemblyScript(source, testFile);
 
@@ -147,14 +151,14 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
               continue;
             }
 
-            binary = result.binary;
-            compiledBinaryCache.set(testFile, binary);
+            compilation = { binary: result.binary, sourceMap: result.sourceMap };
+            compilationCache.set(testFile, compilation);
           } else {
-            debug('[Pool] Using cached binary for:', testFile);
+            debug('[Pool] Using cached compilation for:', testFile);
           }
 
           // 2. Execute tests with full reporting
-          const results = await executeTests(binary, testFile);
+          const results = await executeTests(compilation.binary, compilation.sourceMap, testFile);
 
           debug('[Pool] Test execution results:', {
             file: testFile,
@@ -223,7 +227,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
      */
     async close() {
       debug('[Pool] Closing pool, clearing cache');
-      compiledBinaryCache.clear();
+      compilationCache.clear();
     },
   };
 }
