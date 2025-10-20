@@ -2,17 +2,19 @@
  * AssemblyScript Transform to wrap top-level test calls
  *
  * This transform automatically wraps top-level `test()` and `describe()` calls
- * in an exported `__register_tests()` function, solving AssemblyScript's compiler bugs
- * with top-level code initialization while maintaining clean developer experience.
+ * in an exported `__register_tests()` function, solving AssemblyScript's tree-shaking
+ * and top-level code initialization issues.
  *
  * PROBLEM:
- * AssemblyScript has compiler bugs when using top-level code:
- * - Const-folding fails for complex expressions like `1 + 1 == 2`
- * - Dead code elimination removes globals that aren't directly used by exports
+ * AssemblyScript's aggressive tree-shaking and compiler limitations:
+ * - Dead code elimination removes framework functions (__get_test_count, etc.) as "unused"
+ * - Const-folding can fail for complex expressions like `1 + 1 == 2` at top-level
  * - Top-level initialization order is unreliable
  *
  * SOLUTION:
- * Transform top-level code via AST manipulation to create a wrapper function.
+ * Transform top-level code via AST manipulation:
+ * 1. Wrap test() calls in exported __register_tests() function
+ * 2. Re-export framework query functions to prevent tree-shaking
  *
  * INPUT (what developers write):
  * ```typescript
@@ -33,10 +35,16 @@
  * NOTE: __register_tests() calls test(), which REGISTERS tests (adds to registry).
  * It does NOT execute the test bodies - that happens later via __run_test(index).
  *
+ * KNOWN ISSUE - Compiler Crashes:
+ * ⚠️ Wrapping code in functions can trigger AS compiler bugs with certain variable
+ * reassignment patterns. Example: loop variable reassignment causes "assertion failed"
+ * crash in compileStatement(). This is an upstream AS bug (not fixed in 0.28.9).
+ *
  * How this transform works:
  * - Hooks into `afterParse` lifecycle
  * - Only processes test files (*.as.test.ts, *.as.spec.ts)
  * - Manipulates the AST to wrap non-import statements in `export function __register_tests(): void { ... }`
+ * - Re-exports framework functions to prevent tree-shaking
  * - Preserves exact source ranges for perfect source maps
  *
  * USAGE:

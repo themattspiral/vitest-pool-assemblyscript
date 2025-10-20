@@ -2,10 +2,11 @@ import type { ProcessPool, Vitest } from 'vitest/node';
 import { createFileTask } from '@vitest/runner/utils';
 import type { RunnerTestCase } from 'vitest';
 import { readFile } from 'fs/promises';
+
 import { compileAssemblyScript } from './compiler.js';
 import { discoverTests, executeTests } from './executor.js';
-import { setDebug, debug } from './utils/debug.mjs';
 import type { PoolOptions } from './types.js';
+import { setDebug, debug } from './utils/debug.mjs';
 
 /**
  * AssemblyScript Pool for Vitest
@@ -16,11 +17,11 @@ import type { PoolOptions } from './types.js';
  * 3. Invalidation: Clear cache for changed files
  *
  * Key features:
- * ✅ Per-test isolation: Each test runs in fresh WASM instance (~0.43ms overhead)
- * ✅ Crash safe: One test aborting doesn't kill subsequent tests
- * ✅ Registry-based discovery: Query __get_test_count() / __get_test_name()
- * ✅ No double compilation: Binary cached between collect → run phases
- * ✅ Supports whatever test patterns AS supports (limited by lack of closures)
+ * - Per-test isolation: Each test runs in fresh WASM instance (~0.43ms overhead)
+ * - Crash safe: One test aborting doesn't kill subsequent tests
+ * - Registry-based discovery: Query __get_test_count() / __get_test_name()
+ * - No double compilation: Binary cached between collect → run phases
+ * - Supports whatever test patterns AS supports (limited by lack of closures)
  *
  * Transform integration:
  * - top-level-wrapper.mjs: Wraps test() calls in __register_tests() function
@@ -93,13 +94,14 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
               mode: 'run',
               meta: {},
               file: fileTask,
+              timeout: project.config.testTimeout,
+              annotations: [],
             };
             fileTask.tasks.push(testTask);
           }
 
           // 7. Report to Vitest
           ctx.state.collectFiles(project, [fileTask]);
-          await ctx.report('onCollected', [fileTask]);
           debug('[Pool] Reported file task for:', testFile);
 
         } catch (error) {
@@ -186,6 +188,8 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
               mode: 'run',
               meta: {},
               file: fileTask,
+              timeout: project.config.testTimeout,
+              annotations: [],
               result: {
                 state: testResult.passed ? 'pass' : 'fail',
                 errors: testResult.error ? [testResult.error] : undefined,
@@ -197,13 +201,13 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
           // 5. Report to Vitest
           ctx.state.collectFiles(project, [fileTask]);
 
-          // Report individual task updates (must match TaskResultPack type)
+          // Update individual task results (TaskResultPack format: [id, result, meta])
           const taskPacks = fileTask.tasks.map((task): [string, typeof task.result, typeof task.meta] => [
             task.id,
             task.result,
             task.meta
           ]);
-          await ctx.report('onTaskUpdate', taskPacks);
+          ctx.state.updateTasks(taskPacks);
 
           debug('[Pool] Reported test results for:', testFile);
 

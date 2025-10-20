@@ -35,7 +35,7 @@ export async function compileAssemblyScript(
   const entryFile = filename;
   const outputFile = basename(filename).replace(/\.ts$/, '.wasm');
 
-  debug('[Compiler] Compiling:', basename(filename));
+  debug('[ASC Compiler] Compiling:', basename(filename));
 
   // Capture stdout/stderr (for potential error reporting)
   const stdout = {
@@ -75,23 +75,36 @@ export async function compileAssemblyScript(
 
   // Check for compilation errors
   if (result.error) {
+    // Include stderr output if available for better error messages
+    const errorMessage = stderrLines.length > 0
+      ? `${result.error.message}\n\nASC Compiler output:\n${stderrLines.join('')}`
+      : result.error.message;
+
+    const enhancedError = new Error(errorMessage);
+    enhancedError.stack = result.error.stack;
+
     return {
       binary: null,
-      error: result.error,
+      error: enhancedError,
     };
   }
 
   // Verify binary was generated
   if (!binary) {
+    // Include any stderr output that might explain why
+    const errorMessage = stderrLines.length > 0
+      ? `No WASM binary was generated\n\nASC Compiler output:\n${stderrLines.join('')}`
+      : 'No WASM binary was generated';
+
     return {
       binary: null,
-      error: new Error('No WASM binary was generated'),
+      error: new Error(errorMessage),
     };
   }
 
   // Extract to const to help TypeScript narrow the type
   const wasmBinary: Uint8Array = binary;
-  debug('[Compiler] Compilation successful, binary size:', wasmBinary.length, 'bytes');
+  debug('[ASC Compiler] Compilation successful, binary size:', wasmBinary.length, 'bytes');
 
   return {
     binary: wasmBinary,
