@@ -12,21 +12,20 @@ import { setDebug, debug } from './utils/debug.mjs';
  * AssemblyScript Pool for Vitest
  *
  * Per-Test Crash Isolation Architecture:
- * 1. collectTests(): Compile → Query test registry → Cache binary
+ * 1. collectTests(): Compile → Discover tests via callbacks → Cache binary
  * 2. runTests(): Reuse cached binary → Execute each test in fresh WASM instance
  * 3. Invalidation: Clear cache for changed files
  *
  * Key features:
  * - Per-test isolation: Each test runs in fresh WASM instance (~0.43ms overhead)
  * - Crash safe: One test aborting doesn't kill subsequent tests
- * - Registry-based discovery: Query __get_test_count() / __get_test_name()
+ * - Import-based discovery: Tests register via __register_test callback during _start
  * - No double compilation: Binary cached between collect → run phases
  * - Supports whatever test patterns AS supports (limited by lack of closures)
  *
- * Transform integration:
- * - top-level-wrapper.mjs: Wraps test() calls in __register_tests() function
- * - top-level-wrapper.mjs: Re-exports framework functions to prevent tree-shaking
- * - instrumentation.ts: Injects __coverage_trace() calls
+ * Instrumentation:
+ * - Binaryen post-processing injects __execute_function() for test execution
+ * - Binaryen post-processing injects __coverage_trace() for coverage (when enabled)
  */
 
 // Cache compiled WASM binaries between collectTests() and runTests()

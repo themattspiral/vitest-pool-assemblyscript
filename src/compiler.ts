@@ -9,6 +9,7 @@ import asc from 'assemblyscript/dist/asc.js';
 import { basename } from 'path';
 import type { CompileResult } from './types.js';
 import { debug } from './utils/debug.mjs';
+import { BinaryenTestExecutionInjector } from './binaryen/test-execution.js';
 
 /**
  * Compile AssemblyScript source code to WASM binary
@@ -16,8 +17,8 @@ import { debug } from './utils/debug.mjs';
  * Features:
  * - In-memory compilation (binary captured via writeFile callback)
  * - Filesystem reading enabled (for import resolution)
- * - Applies top-level-wrapper transform automatically
  * - Uses stub runtime and imported memory pattern
+ * - Exports _start function for explicit initialization control
  *
  * @param source - AssemblyScript source code (unused, kept for potential future use)
  * @param filename - Full path to the source file (used as entry point)
@@ -60,7 +61,7 @@ export async function compileAssemblyScript(
     '--runtime', 'stub',              // Minimal runtime (no GC)
     '--importMemory',                 // Import memory from JS (enables imports during WASM start)
     '--debug',                        // Include debug info
-    '--transform', './src/transforms/top-level-wrapper.mjs',  // Wrap tests + prevent tree-shaking
+    '--exportStart', '_start',        // Export start function for explicit initialization control
   ], {
     stdout,
     stderr,
@@ -106,8 +107,13 @@ export async function compileAssemblyScript(
   const wasmBinary: Uint8Array = binary;
   debug('[ASC Compiler] Compilation successful, binary size:', wasmBinary.length, 'bytes');
 
+  // Post-process with Binaryen to inject __execute_function
+  // This solves tree-shaking issue where AS compiler removes exports only called from Node.js
+  const injector = new BinaryenTestExecutionInjector();
+  const instrumentedBinary = injector.inject(wasmBinary);
+
   return {
-    binary: wasmBinary,
+    binary: instrumentedBinary,
     error: null,
   };
 }

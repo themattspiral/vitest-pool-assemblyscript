@@ -16,7 +16,11 @@
     "@types/node": "^24.8.1",
     "@vitest/runner": "^3.2.4",
     "assemblyscript": "^0.28.9",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "binaryen": "^124.0.0"
   }
 }

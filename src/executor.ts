@@ -12,12 +12,12 @@ import type { TestResult, ExecutionResults } from './types.js';
 import { debug, debugError } from './utils/debug.mjs';
 
 /**
- * Discover tests by querying the test registry
+ * Discover tests via registration callbacks
  *
  * Process:
- * 1. Instantiate WASM with minimal imports
- * 2. Call __register_tests() to populate registry
- * 3. Query __get_test_count() and __get_test_name(index)
+ * 1. Instantiate WASM with import callbacks
+ * 2. Call _start() to run top-level code
+ * 3. test() calls invoke __register_test callback with name and function index
  * 4. Return array of test names
  *
  * @param binary - Compiled WASM binary
@@ -28,7 +28,7 @@ export async function discoverTests(
   binary: Uint8Array,
   _filename: string
 ): Promise<string[]> {
-  const discoveredTests: string[] = [];
+  const tests: Array<{name: string, fnIndex: number}> = [];
 
   // Compile module
   const module = await WebAssembly.compile(binary as BufferSource);
@@ -39,10 +39,14 @@ export async function discoverTests(
     env: {
       memory: memory,
 
-      // Test framework imports (not called during discovery, but required by WASM module)
-      __test_start(_namePtr: number, _nameLen: number) {},
-      __test_pass() {},
-      __test_fail(_msgPtr: number, _msgLen: number) {},
+      // Test registration callback
+      __register_test(namePtr: number, nameLen: number, fnIndex: number) {
+        const testName = decodeString(memory, namePtr, nameLen);
+        tests.push({ name: testName, fnIndex });
+        debug('[Executor] Registered test:', testName, 'at function index', fnIndex);
+      },
+
+      // Stub out other imports (not used during discovery)
       __assertion_pass() {},
       __assertion_fail(_msgPtr: number, _msgLen: number) {},
 
@@ -60,27 +64,13 @@ export async function discoverTests(
   const instance = new WebAssembly.Instance(module, importObject);
   const exports = instance.exports as any;
 
-  // Call __register_tests to populate the test registry
-  if (typeof exports.__register_tests === 'function') {
-    exports.__register_tests();
+  // Call _start to run top-level code (registers tests via callbacks)
+  if (typeof exports._start === 'function') {
+    exports._start();
   }
 
-  // Query test count from registry
-  const testCount = exports.__get_test_count ? exports.__get_test_count() : 0;
-  debug('[Executor] Test registry contains', testCount, 'tests');
-
-  // Get test names from registry
-  for (let i = 0; i < testCount; i++) {
-    const namePtr = exports.__get_test_name(i);
-    if (namePtr) {
-      // Read null-terminated string from WASM memory
-      const testName = decodeStringNullTerminated(memory, namePtr);
-      discoveredTests.push(testName);
-      debug('[Executor] Discovered test:', testName);
-    }
-  }
-
-  return discoveredTests;
+  debug('[Executor] Discovered', tests.length, 'tests');
+  return tests.map(t => t.name);
 }
 
 /**
@@ -89,7 +79,7 @@ export async function discoverTests(
  * Each test runs in a fresh WASM instance for maximum safety:
  * - Crashes don't affect subsequent tests
  * - Clean state for each test
- * - ~0.43ms overhead per test (negligible)
+ * - <1ms overhead per test (negligible)
  *
  * @param binary - Compiled WASM binary
  * @param filename - Source filename (for error messages)
@@ -99,17 +89,17 @@ export async function executeTests(
   binary: Uint8Array,
   _filename: string
 ): Promise<ExecutionResults> {
-  const tests: TestResult[] = [];
+  const results: TestResult[] = [];
 
   // Compile module once (reused for all test instances)
   const module = await WebAssembly.compile(binary as BufferSource);
 
-  // First, discover how many tests we have
-  const testCount = await getTestCount(module);
-  debug('[Executor] Executing', testCount, 'tests with per-test isolation');
+  // First, discover all tests and their function indices
+  const registeredTests = await getRegisteredTests(module);
+  debug('[Executor] Executing', registeredTests.length, 'tests with per-test isolation');
 
   // Execute each test in a fresh WASM instance
-  for (let testIndex = 0; testIndex < testCount; testIndex++) {
+  for (const { name: testName, fnIndex } of registeredTests) {
     let currentTest: TestResult | null = null;
 
     // Create fresh memory for this test instance
@@ -120,35 +110,10 @@ export async function executeTests(
       env: {
         memory: memory,
 
-        // Test framework imports (full reporting mode)
-        __test_start(namePtr: number, nameLen: number) {
-          const testName = decodeString(memory, namePtr, nameLen);
-          debug('[Executor] Test started:', testName);
+        // Test registration callback (no-op during execution)
+        __register_test(_namePtr: number, _nameLen: number, _fnIndex: number) {},
 
-          currentTest = {
-            name: testName,
-            passed: true, // Assume passed unless __test_fail is called
-            assertionsPassed: 0,
-            assertionsFailed: 0,
-          };
-        },
-
-        __test_pass() {
-          if (currentTest) {
-            currentTest.passed = true;
-            debug('[Executor] Test passed:', currentTest.name);
-          }
-        },
-
-        __test_fail(msgPtr: number, msgLen: number) {
-          if (currentTest) {
-            const errorMsg = decodeString(memory, msgPtr, msgLen);
-            currentTest.passed = false;
-            currentTest.error = new Error(errorMsg);
-            debug('[Executor] Test failed:', currentTest.name, errorMsg);
-          }
-        },
-
+        // Assertion tracking
         __assertion_pass() {
           if (currentTest) {
             currentTest.assertionsPassed++;
@@ -189,18 +154,30 @@ export async function executeTests(
     const instance = new WebAssembly.Instance(module, importObject);
     const exports = instance.exports as any;
 
-    // Call __register_tests to populate the test registry
-    if (typeof exports.__register_tests === 'function') {
-      exports.__register_tests();
+    // Call _start to run top-level code (registers tests)
+    if (typeof exports._start === 'function') {
+      exports._start();
     }
 
     // Execute only this specific test
     try {
-      if (typeof exports.__run_test === 'function') {
-        exports.__run_test(testIndex);
+      // Create test result object
+      currentTest = {
+        name: testName,
+        passed: true,
+        assertionsPassed: 0,
+        assertionsFailed: 0,
+      };
+
+      // Execute test function
+      if (typeof exports.__execute_function === 'function') {
+        exports.__execute_function(fnIndex);
       } else {
-        throw new Error('__run_test function not found in WASM exports');
+        throw new Error('__execute_function not found in WASM exports');
       }
+
+      // If we reach here, test passed (no abort occurred)
+
     } catch (error) {
       debugError('[Executor] Error during test execution:', error);
       // Error should be captured in currentTest via abort handler
@@ -216,11 +193,11 @@ export async function executeTests(
 
     // Add test result (even if it crashed)
     if (currentTest) {
-      tests.push(currentTest);
+      results.push(currentTest);
     } else {
       // Test crashed before __test_start was called
-      tests.push({
-        name: `Test ${testIndex}`,
+      results.push({
+        name: testName,
         passed: false,
         error: new Error('Test crashed during initialization'),
         assertionsPassed: 0,
@@ -229,22 +206,28 @@ export async function executeTests(
     }
   }
 
-  return { tests };
+  return { tests: results };
 }
 
 /**
- * Get test count from WASM module
+ * Get registered tests from WASM module
  *
- * Helper function used by executeTests to determine how many tests to run.
+ * Helper function used by executeTests to collect test names and function indices.
  *
  * @param module - Compiled WASM module
- * @returns Number of tests in the registry
+ * @returns Array of registered tests with names and function indices
  */
-async function getTestCount(module: WebAssembly.Module): Promise<number> {
+async function getRegisteredTests(module: WebAssembly.Module): Promise<Array<{name: string, fnIndex: number}>> {
+  const tests: Array<{name: string, fnIndex: number}> = [];
   const memory = createMemory();
+
   const importObject = {
     env: {
       memory,
+      __register_test(namePtr: number, nameLen: number, fnIndex: number) {
+        const testName = decodeString(memory, namePtr, nameLen);
+        tests.push({ name: testName, fnIndex });
+      },
       __test_start() {},
       __test_pass() {},
       __test_fail() {},
@@ -257,12 +240,11 @@ async function getTestCount(module: WebAssembly.Module): Promise<number> {
   const instance = new WebAssembly.Instance(module, importObject);
   const exports = instance.exports as any;
 
-  // Register tests
-  if (typeof exports.__register_tests === 'function') {
-    exports.__register_tests();
+  // Call _start to run top-level code and register tests
+  if (typeof exports._start === 'function') {
+    exports._start();
   }
 
-  // Get count
-  return exports.__get_test_count ? exports.__get_test_count() : 0;
+  return tests;
 }
 

@@ -20,7 +20,7 @@ const result = await asc.main([
   '--runtime', 'stub',
   '--importMemory',
   '--debug',
-  '--transform', './src/transforms/top-level-wrapper.mjs',
+  '--exportStart', '_start',
 ], {
   stdout: { write: () => {} },
   stderr: { write: (msg) => console.error('STDERR:', msg) },
