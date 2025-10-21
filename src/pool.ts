@@ -5,8 +5,10 @@ import { readFile } from 'fs/promises';
 
 import { compileAssemblyScript } from './compiler.js';
 import { discoverTests, executeTests } from './executor.js';
-import type { PoolOptions } from './types.js';
+import type { PoolOptions, CachedCompilation, FileCoverageData } from './types.js';
 import { setDebug, debug } from './utils/debug.mjs';
+import { aggregateCoverage, generateMultiFileLCOV } from './coverage/lcov-reporter.js';
+import { writeFile, mkdir } from 'fs/promises';
 
 /**
  * AssemblyScript Pool for Vitest
@@ -23,17 +25,21 @@ import { setDebug, debug } from './utils/debug.mjs';
  * - No double compilation: Binary cached between collect → run phases
  * - Supports whatever test patterns AS supports (limited by lack of closures)
  *
+ * Coverage modes:
+ * - false: No coverage - Fast, accurate errors
+ * - true: Coverage only - Fast, broken errors on failure
+ * - 'dual': Both coverage AND accurate errors - Slower (2x)
+ *
  * Instrumentation:
- * - Binaryen post-processing injects __execute_function() for test execution
- * - Binaryen post-processing injects __coverage_trace() for coverage (when enabled)
+ * - Test execution via --exportTable (function table export)
+ * - Coverage via Binaryen __coverage_trace() injection (when enabled)
  */
 
 // Cache compiled WASM binaries and source maps between collectTests() and runTests()
-interface CachedCompilation {
-  binary: Uint8Array;
-  sourceMap: string | null;
-}
 const compilationCache = new Map<string, CachedCompilation>();
+
+// Accumulate coverage data across all test files for single LCOV report
+const coverageMap = new Map<string, FileCoverageData>();
 
 export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   // Read pool options and initialize debug mode
@@ -59,17 +65,21 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
           // 1. Read source
           const source = await readFile(testFile, 'utf-8');
 
-          // 2. Compile AS → WASM
-          const { binary, sourceMap, error } = await compileAssemblyScript(source, testFile);
+          // 2. Compile AS → WASM (with coverage if enabled)
+          const result = await compileAssemblyScript(source, testFile, {
+            coverage: options.coverage ?? 'dual',
+          });
 
-          if (error) {
-            debug('[Pool] Compilation failed:', error.message);
+          if (result.error) {
+            debug('[Pool] Compilation failed:', result.error.message);
             // TODO: Report compilation error to Vitest
             continue;
           }
 
-          // 3. Cache binary and source map for runTests
-          compilationCache.set(testFile, { binary, sourceMap });
+          const { binary, sourceMap, coverageBinary, debugInfo } = result;
+
+          // 3. Cache binary, source map, coverage binary, and debug info for runTests
+          compilationCache.set(testFile, { binary, sourceMap, coverageBinary, debugInfo });
           debug('[Pool] Cached compilation for:', testFile);
 
           // 4. Execute WASM to discover test names
@@ -144,21 +154,28 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
           if (!compilation) {
             debug('[Pool] Compilation not cached, compiling:', testFile);
             const source = await readFile(testFile, 'utf-8');
-            const result = await compileAssemblyScript(source, testFile);
+            const result = await compileAssemblyScript(source, testFile, {
+              coverage: options.coverage ?? 'dual',
+            });
 
             if (result.error) {
               debug('[Pool] Compilation failed:', result.error.message);
               continue;
             }
 
-            compilation = { binary: result.binary, sourceMap: result.sourceMap };
+            compilation = { binary: result.binary, sourceMap: result.sourceMap, coverageBinary: result.coverageBinary, debugInfo: result.debugInfo };
             compilationCache.set(testFile, compilation);
           } else {
             debug('[Pool] Using cached compilation for:', testFile);
           }
 
-          // 2. Execute tests with full reporting
-          const results = await executeTests(compilation.binary, compilation.sourceMap, testFile);
+          // 2. Execute tests with full reporting (pass coverageBinary for dual mode)
+          const results = await executeTests(
+            compilation.binary,
+            compilation.sourceMap,
+            compilation.coverageBinary ?? null,
+            testFile
+          );
 
           debug('[Pool] Test execution results:', {
             file: testFile,
@@ -214,9 +231,42 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
 
           debug('[Pool] Reported test results for:', testFile);
 
+          // 6. Accumulate coverage data for this file (will write single LCOV at end)
+          if (options.coverage && compilation.debugInfo) {
+            const coverageDataList = results.tests
+              .map(t => t.coverage)
+              .filter((c): c is NonNullable<typeof c> => c !== undefined);
+
+            if (coverageDataList.length > 0) {
+              debug('[Pool] Accumulating coverage for:', testFile);
+
+              const aggregated = aggregateCoverage(coverageDataList);
+              coverageMap.set(testFile, {
+                coverage: aggregated,
+                debugInfo: compilation.debugInfo,
+              });
+            }
+          }
+
         } catch (error) {
           debug('[Pool] Error running tests in', testFile, ':', error);
         }
+      }
+
+      // 7. Write single LCOV file with all coverage data
+      if (options.coverage && coverageMap.size > 0) {
+        debug('[Pool] Writing combined LCOV report for', coverageMap.size, 'files');
+
+        const lcov = generateMultiFileLCOV(coverageMap);
+
+        // Write to standard coverage directory
+        const coverageDir = 'coverage';
+        const lcovPath = `${coverageDir}/lcov.info`;
+
+        await mkdir(coverageDir, { recursive: true });
+        await writeFile(lcovPath, lcov, 'utf-8');
+
+        debug('[Pool] LCOV report written to:', lcovPath);
       }
 
       debug('[Pool] runTests completed');
@@ -228,6 +278,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
     async close() {
       debug('[Pool] Closing pool, clearing cache');
       compilationCache.clear();
+      coverageMap.clear();
     },
   };
 }

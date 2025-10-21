@@ -1,6 +1,13 @@
 /**
  * Shared TypeScript types and interfaces
+ *
+ * This file contains all type definitions used across the vitest-pool-assemblyscript codebase.
+ * Types are organized into logical sections for better maintainability.
  */
+
+// ============================================================================
+// Configuration & Options
+// ============================================================================
 
 /**
  * Pool configuration options
@@ -8,17 +15,80 @@
 export interface PoolOptions {
   /** Enable verbose debug logging */
   debug?: boolean;
+  /**
+   * Coverage mode:
+   * - false: No coverage - Fast, accurate errors
+   * - true: Coverage only - Fast, broken errors when tests fail
+   * - 'dual': Both coverage AND accurate errors - Slower (2x compile/execute) (default)
+   */
+  coverage?: boolean | 'dual';
 }
 
 /**
- * WebAssembly call site with mapped source location
+ * Compilation options
  */
-export interface WebAssemblyCallSite {
-  functionName: string;
-  fileName: string;
-  lineNumber: number;
-  columnNumber: number;
+export interface CompilerOptions {
+  /**
+   * Coverage mode:
+   * - false: No coverage (fast, accurate errors)
+   * - true: Coverage only (fast, broken errors when tests fail)
+   * - 'dual': Both coverage AND accurate errors (slower, 2x compile/execute)
+   */
+  coverage?: boolean | 'dual';
 }
+
+// ============================================================================
+// Compilation & Results
+// ============================================================================
+
+/**
+ * Result of compiling AssemblyScript source (success case)
+ */
+export interface CompilationResult {
+  /** Compiled WASM binary (if successful) */
+  binary: Uint8Array;
+  /** Source map JSON (if successful and --sourceMap enabled) */
+  sourceMap: string | null;
+  /** Debug info for coverage reporting (if coverage enabled) */
+  debugInfo: DebugInfo | null;
+  /** Instrumented coverage binary (only when coverage: 'dual') */
+  coverageBinary?: Uint8Array;
+  /** Error (null on success) */
+  error: null;
+}
+
+/**
+ * Result of compiling AssemblyScript source (error case)
+ */
+export interface CompilationError {
+  /** No binary on error */
+  binary: null;
+  /** No source map on error */
+  sourceMap: null;
+  /** No debug info on error */
+  debugInfo: null;
+  /** Compilation error */
+  error: Error;
+}
+
+/**
+ * Union type for compilation results
+ */
+export type CompileResult = CompilationResult | CompilationError;
+
+/**
+ * Cached compilation data (shared between collectTests and runTests)
+ */
+export interface CachedCompilation {
+  binary: Uint8Array;
+  sourceMap: string | null;
+  coverageBinary?: Uint8Array;
+  debugInfo: DebugInfo | null;
+}
+
+// ============================================================================
+// Test Execution & Results
+// ============================================================================
 
 /**
  * Result of a single test execution
@@ -38,6 +108,8 @@ export interface TestResult {
   sourceStack?: WebAssemblyCallSite[];
   /** Raw V8 call stack (internal, for async source mapping) */
   rawCallStack?: NodeJS.CallSite[];
+  /** Coverage data collected during this test */
+  coverage?: CoverageData;
 }
 
 /**
@@ -48,28 +120,101 @@ export interface ExecutionResults {
   tests: TestResult[];
 }
 
-/**
- * Result of compiling AssemblyScript source
- */
-export interface CompilationResult {
-  /** Compiled WASM binary (if successful) */
-  binary: Uint8Array;
-  /** Source map JSON (if successful and --sourceMap enabled) */
-  sourceMap: string | null;
-  /** Error (if compilation failed) */
-  error: null;
-}
+// ============================================================================
+// Source Mapping & Error Locations
+// ============================================================================
 
-export interface CompilationError {
-  /** No binary on error */
-  binary: null;
-  /** No source map on error */
-  sourceMap: null;
-  /** Compilation error */
-  error: Error;
+/**
+ * Source location in original AssemblyScript code
+ */
+export interface SourceLocation {
+  fileName: string;
+  lineNumber: number;
+  columnNumber: number;
 }
 
 /**
- * Union type for compilation results
+ * WebAssembly call site with mapped source location
  */
-export type CompileResult = CompilationResult | CompilationError;
+export interface WebAssemblyCallSite {
+  functionName: string;
+  fileName: string;
+  lineNumber: number;
+  columnNumber: number;
+}
+
+// ============================================================================
+// Coverage Data & Reporting
+// ============================================================================
+
+/**
+ * Coverage data collected during test execution
+ */
+export interface CoverageData {
+  /** Map of funcIdx to number of times executed */
+  functions: Map<number, number>;
+  /** Map of funcIdx:blockIdx to number of times executed */
+  blocks: Map<string, number>;
+}
+
+/**
+ * Aggregated coverage data across multiple tests
+ */
+export interface AggregatedCoverage {
+  /** Map of funcIdx to total hit count across all tests */
+  functions: Map<number, number>;
+  /** Map of blockKey (funcIdx:blockIdx) to total hit count */
+  blocks: Map<string, number>;
+}
+
+/**
+ * Coverage data for a single file (used in pool aggregation)
+ */
+export interface FileCoverageData {
+  coverage: AggregatedCoverage;
+  debugInfo: DebugInfo;
+}
+
+// ============================================================================
+// Debug Info & Function Metadata
+// ============================================================================
+
+/**
+ * Debug info structure that maps function indices to source locations
+ */
+export interface DebugInfo {
+  /** File paths indexed by fileIdx */
+  files: string[];
+  /** Function info indexed by funcIdx */
+  functions: FunctionInfo[];
+}
+
+/**
+ * Function information for coverage and debugging
+ */
+export interface FunctionInfo {
+  name: string;
+  fileIdx: number;
+  startLine: number;
+  endLine: number;
+}
+
+/**
+ * Function metadata extracted by AS transform
+ */
+export interface FunctionMetadata {
+  name: string;
+  startLine: number;
+  endLine: number;
+}
+
+/**
+ * Global metadata storage (populated by AS transform during compilation)
+ *
+ * The AS transform (src/transforms/extract-function-metadata.mjs) populates this
+ * global variable with function metadata during compilation. The Binaryen coverage
+ * instrumenter then reads this data to map function indices to source locations.
+ */
+declare global {
+  var __functionMetadata: Map<string, FunctionMetadata[]> | undefined;
+}

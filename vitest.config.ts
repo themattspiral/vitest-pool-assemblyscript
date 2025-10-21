@@ -9,6 +9,15 @@ export default defineConfig({
     poolOptions: {
       assemblyScript: {
         debug: true, // Enable verbose debug logging
+        /**
+         * Coverage mode:
+         * - false: No coverage (fast, accurate errors) - Use for rapid TDD
+         * - true: Coverage only (fast, broken errors on failure) - Use for CI when tests pass
+         * - 'dual': Both coverage AND accurate errors (slower, 2x) - Use for debugging failures with coverage
+         *
+         * Default: 'dual' (prioritizes correctness over speed)
+         */
+        coverage: 'dual',
       }
     },
 

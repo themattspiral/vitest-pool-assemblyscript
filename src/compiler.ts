@@ -7,9 +7,9 @@
 
 import asc from 'assemblyscript/dist/asc.js';
 import { basename } from 'path';
-import type { CompileResult } from './types.js';
+import type { CompileResult, CompilerOptions } from './types.js';
 import { debug } from './utils/debug.mjs';
-import { BinaryenTestExecutionInjector } from './binaryen/test-execution.js';
+import { BinaryenCoverageInstrumenter } from './coverage/instrumentation.js';
 
 /**
  * Compile AssemblyScript source code to WASM binary
@@ -19,14 +19,18 @@ import { BinaryenTestExecutionInjector } from './binaryen/test-execution.js';
  * - Filesystem reading enabled (for import resolution)
  * - Uses stub runtime and imported memory pattern
  * - Exports _start function for explicit initialization control
+ * - Configurable coverage modes (false, true, 'dual')
+ * - Dual-mode produces both clean and instrumented binaries
  *
  * @param source - AssemblyScript source code (unused, kept for potential future use)
  * @param filename - Full path to the source file (used as entry point)
- * @returns Compilation result with binary or error
+ * @param options - Compilation options (coverage mode, etc.)
+ * @returns Compilation result with binary (and optional coverage binary) or error
  */
 export async function compileAssemblyScript(
   _source: string,
-  filename: string
+  filename: string,
+  options: CompilerOptions = {}
 ): Promise<CompileResult> {
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
@@ -35,9 +39,12 @@ export async function compileAssemblyScript(
 
   // Use full path as entry file so AS compiler can resolve relative imports
   const entryFile = filename;
-  const outputFile = basename(filename).replace(/\.ts$/, '.wasm');
+  // Use simple output name to avoid AS compiler prepending it to source map paths
+  const outputFile = 'output.wasm';
 
   debug('[ASC Compiler] Compiling:', basename(filename));
+  debug('[ASC Compiler] Entry file:', entryFile);
+  debug('[ASC Compiler] Output file:', outputFile);
 
   // Capture stdout/stderr (for potential error reporting)
   const stdout = {
@@ -54,8 +61,8 @@ export async function compileAssemblyScript(
     }
   };
 
-  // Compile with AssemblyScript compiler
-  const result = await asc.main([
+  // Build compiler flags
+  const compilerFlags = [
     entryFile,
     '--outFile', outputFile,
     '--optimizeLevel', '0',           // No optimization for easier debugging
@@ -64,7 +71,20 @@ export async function compileAssemblyScript(
     '--debug',                        // Include debug info
     '--sourceMap',                    // Generate source maps for error reporting
     '--exportStart', '_start',        // Export start function for explicit initialization control
-  ], {
+    '--exportTable',                  // Export function table for direct test execution
+  ];
+
+  // Add transform for coverage metadata extraction if coverage enabled (true or 'dual')
+  const needsCoverage = options.coverage === true || options.coverage === 'dual';
+  if (needsCoverage) {
+    compilerFlags.push(
+      '--transform', './src/transforms/extract-function-metadata.mjs'
+    );
+    debug('[ASC Compiler] Coverage enabled - adding metadata extraction transform');
+  }
+
+  // Compile with AssemblyScript compiler
+  const result = await asc.main(compilerFlags, {
     stdout,
     stderr,
     // Let AS read from filesystem for import resolution
@@ -91,6 +111,7 @@ export async function compileAssemblyScript(
     return {
       binary: null,
       sourceMap: null,
+      debugInfo: null,
       error: enhancedError,
     };
   }
@@ -105,25 +126,58 @@ export async function compileAssemblyScript(
     return {
       binary: null,
       sourceMap: null,
+      debugInfo: null,
       error: new Error(errorMessage),
     };
   }
 
   // Extract to const to help TypeScript narrow the type
   const wasmBinary: Uint8Array = binary;
+  const wasmSourceMap: string | null = sourceMap;
+
   debug('[ASC Compiler] Compilation successful, binary size:', wasmBinary.length, 'bytes');
-  if (sourceMap) {
-    debug('[ASC Compiler] Source map generated, size:', sourceMap.length, 'bytes');
+  if (wasmSourceMap !== null) {
+    debug('[ASC Compiler] Source map generated, size:', (wasmSourceMap as string).length, 'bytes');
   }
 
-  // Post-process with Binaryen to inject __execute_function
-  // This solves tree-shaking issue where AS compiler removes exports only called from Node.js
-  const injector = new BinaryenTestExecutionInjector();
-  const instrumentedBinary = injector.inject(wasmBinary);
+  // Post-process with Binaryen based on coverage mode
+  let finalBinary: Uint8Array;
+  let coverageBinary: Uint8Array | undefined;
+  let debugInfo = null;
+
+  if (options.coverage === 'dual') {
+    // Dual mode: Keep clean binary for execution, create instrumented binary for coverage
+    debug('[Compiler] Dual coverage mode - compiling both clean and instrumented binaries');
+
+    // Clean binary for accurate error locations
+    finalBinary = wasmBinary;
+
+    // Instrumented binary for coverage collection
+    const coverageInstrumenter = new BinaryenCoverageInstrumenter();
+    const result = coverageInstrumenter.instrument(wasmBinary, filename);
+    coverageBinary = result.binary;
+    debugInfo = result.debugInfo;
+
+    debug('[Compiler] Dual mode complete - clean binary:', finalBinary.length, 'bytes, coverage binary:', coverageBinary.length, 'bytes');
+  } else if (options.coverage === true) {
+    // Single instrumented binary mode: Fast but broken error locations
+    debug('[Compiler] Single-binary coverage mode - instrumented binary only');
+    const coverageInstrumenter = new BinaryenCoverageInstrumenter();
+    const result = coverageInstrumenter.instrument(wasmBinary, filename);
+    finalBinary = result.binary;
+    debugInfo = result.debugInfo;
+    debug('[Compiler] Coverage instrumentation complete');
+  } else {
+    // No coverage mode: Clean binary only
+    debug('[Compiler] No coverage mode - clean binary only');
+    finalBinary = wasmBinary;
+  }
 
   return {
-    binary: instrumentedBinary,
-    sourceMap: sourceMap,
+    binary: finalBinary,
+    sourceMap: wasmSourceMap,
+    debugInfo: debugInfo,
+    coverageBinary: coverageBinary,
     error: null,
   };
 }

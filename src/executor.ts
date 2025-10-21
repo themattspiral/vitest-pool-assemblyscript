@@ -9,7 +9,7 @@
  */
 
 import { createMemory, decodeString, decodeAbortInfo } from './utils/wasm-memory.js';
-import type { TestResult, ExecutionResults } from './types.js';
+import type { TestResult, ExecutionResults, CoverageData } from './types.js';
 import { debug, debugError } from './utils/debug.mjs';
 import { extractCallStack, createWebAssemblyCallSite } from './utils/source-maps.js';
 import type { RawSourceMap } from 'source-map';
@@ -50,6 +50,7 @@ export async function discoverTests(
       },
 
       // Stub out other imports (not used during discovery)
+      __coverage_trace() {}, // No-op during test discovery
       __assertion_pass() {},
       __assertion_fail(_msgPtr: number, _msgLen: number) {},
 
@@ -84,20 +85,32 @@ export async function discoverTests(
  * - Clean state for each test
  * - <1ms overhead per test (negligible)
  *
- * @param binary - Compiled WASM binary
+ * Supports dual-binary mode for accurate errors + coverage:
+ * - Execute tests on clean binary (accurate error locations)
+ * - Collect coverage from instrumented binary (if provided)
+ *
+ * @param binary - Compiled WASM binary (clean or instrumented)
  * @param sourceMap - Source map JSON string (null if not available)
+ * @param coverageBinary - Optional instrumented binary for coverage collection (dual mode)
  * @param filename - Source filename (for error messages)
  * @returns Execution results with all test outcomes
  */
 export async function executeTests(
   binary: Uint8Array,
   sourceMap: string | null,
+  coverageBinary: Uint8Array | null | undefined,
   _filename: string
 ): Promise<ExecutionResults> {
   const results: TestResult[] = [];
 
-  // Compile module once (reused for all test instances)
+  // Compile main binary module once (reused for all test instances)
   const module = await WebAssembly.compile(binary as BufferSource);
+
+  // Compile coverage binary module if provided (dual mode)
+  const coverageModule = coverageBinary ? await WebAssembly.compile(coverageBinary as BufferSource) : null;
+  if (coverageModule) {
+    debug('[Executor] Dual mode: Using clean binary for execution, coverage binary for coverage collection');
+  }
 
   // Parse source map once (used for all errors in this file)
   const sourceMapJson: RawSourceMap | null = sourceMap ? JSON.parse(sourceMap) : null;
@@ -116,6 +129,12 @@ export async function executeTests(
     // Create fresh memory for this test instance
     const memory = createMemory();
 
+    // Create coverage tracking for this test
+    const coverage: CoverageData = {
+      functions: new Map<number, number>(),
+      blocks: new Map<string, number>(),
+    };
+
     // Create import object that captures currentTest via closure
     const importObject = {
       env: {
@@ -123,6 +142,18 @@ export async function executeTests(
 
         // Test registration callback (no-op during execution)
         __register_test(_namePtr: number, _nameLen: number, _fnIndex: number) {},
+
+        // Coverage tracking callback
+        __coverage_trace(funcIdx: number, blockIdx: number) {
+          // Track function-level coverage
+          const funcCount = coverage.functions.get(funcIdx) || 0;
+          coverage.functions.set(funcIdx, funcCount + 1);
+
+          // Track block-level coverage
+          const blockKey = `${funcIdx}:${blockIdx}`;
+          const blockCount = coverage.blocks.get(blockKey) || 0;
+          coverage.blocks.set(blockKey, blockCount + 1);
+        },
 
         // Assertion tracking
         __assertion_pass() {
@@ -185,11 +216,16 @@ export async function executeTests(
         assertionsFailed: 0,
       };
 
-      // Execute test function
-      if (typeof exports.__execute_function === 'function') {
-        exports.__execute_function(fnIndex);
+      // Execute test function via function table
+      // Uses --exportTable flag instead of Binaryen __execute_function injection
+      if (exports.table && typeof exports.table.get === 'function') {
+        const testFn = exports.table.get(fnIndex);
+        if (!testFn) {
+          throw new Error(`Test function at index ${fnIndex} not found in function table`);
+        }
+        testFn();
       } else {
-        throw new Error('__execute_function not found in WASM exports');
+        throw new Error('Function table not found in WASM exports (missing --exportTable flag?)');
       }
 
       // If we reach here, test passed (no abort occurred)
@@ -224,7 +260,7 @@ export async function executeTests(
 
       // Format error with source location
       if (currentTest.error && currentTest.sourceStack.length > 0) {
-        const topFrame = currentTest.sourceStack[0];
+        const topFrame = currentTest.sourceStack[0]!; // Safe: length > 0
         const originalMessage = currentTest.error.message;
 
         // Create a new error with enhanced message including source location
@@ -243,6 +279,22 @@ export async function executeTests(
       }
     }
 
+    // Collect coverage from instrumented binary if in dual mode
+    if (coverageModule) {
+      debug('[Executor] Dual mode: Collecting coverage from instrumented binary for test:', testName);
+      const coverageData = await collectCoverageForTest(coverageModule, fnIndex);
+
+      // Merge coverage data into current test (prioritize dual-mode coverage)
+      if (currentTest) {
+        currentTest.coverage = coverageData;
+      }
+    } else {
+      // Single binary mode: use coverage from main execution
+      if (currentTest) {
+        currentTest.coverage = coverage;
+      }
+    }
+
     // Add test result (even if it crashed)
     if (currentTest) {
       results.push(currentTest);
@@ -254,11 +306,80 @@ export async function executeTests(
         error: new Error('Test crashed during initialization'),
         assertionsPassed: 0,
         assertionsFailed: 0,
+        coverage: coverageModule ? await collectCoverageForTest(coverageModule, fnIndex) : coverage,
       });
     }
   }
 
   return { tests: results };
+}
+
+/**
+ * Collect coverage for a single test from instrumented binary
+ *
+ * Executes a single test on the instrumented binary to collect coverage data.
+ * Used in dual mode to get accurate coverage while keeping errors accurate.
+ *
+ * @param coverageModule - Compiled instrumented WASM module
+ * @param fnIndex - Function index of the test to execute
+ * @returns Coverage data for this test
+ */
+async function collectCoverageForTest(
+  coverageModule: WebAssembly.Module,
+  fnIndex: number
+): Promise<CoverageData> {
+  const coverage: CoverageData = {
+    functions: new Map<number, number>(),
+    blocks: new Map<string, number>(),
+  };
+
+  const memory = createMemory();
+
+  const importObject = {
+    env: {
+      memory,
+      __register_test(_namePtr: number, _nameLen: number, _fnIndex: number) {},
+      __coverage_trace(funcIdx: number, blockIdx: number) {
+        // Track function-level coverage
+        const funcCount = coverage.functions.get(funcIdx) || 0;
+        coverage.functions.set(funcIdx, funcCount + 1);
+
+        // Track block-level coverage
+        const blockKey = `${funcIdx}:${blockIdx}`;
+        const blockCount = coverage.blocks.get(blockKey) || 0;
+        coverage.blocks.set(blockKey, blockCount + 1);
+      },
+      __assertion_pass() {},
+      __assertion_fail(_msgPtr: number, _msgLen: number) {},
+      abort(_msgPtr: number, _filePtr: number, _line: number, _column: number) {
+        // Silently ignore aborts during coverage collection
+        // We only care about coverage, not test results
+        throw new Error('Coverage collection abort (expected)');
+      },
+    },
+  };
+
+  try {
+    const instance = new WebAssembly.Instance(coverageModule, importObject);
+    const exports = instance.exports as any;
+
+    // Call _start to register tests
+    if (typeof exports._start === 'function') {
+      exports._start();
+    }
+
+    // Execute test via function table
+    if (exports.table && typeof exports.table.get === 'function') {
+      const testFn = exports.table.get(fnIndex);
+      if (testFn) {
+        testFn();
+      }
+    }
+  } catch (error) {
+    // Ignore errors during coverage collection (test may fail, we just want coverage)
+  }
+
+  return coverage;
 }
 
 /**
@@ -280,6 +401,7 @@ async function getRegisteredTests(module: WebAssembly.Module): Promise<Array<{na
         const testName = decodeString(memory, namePtr, nameLen);
         tests.push({ name: testName, fnIndex });
       },
+      __coverage_trace() {}, // No-op during test discovery
       __test_start() {},
       __test_pass() {},
       __test_fail() {},

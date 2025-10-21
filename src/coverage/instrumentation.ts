@@ -5,30 +5,16 @@
  * This is an alternative to AS transform-based coverage instrumentation.
  *
  * Architecture:
- * 1. AS Compiler generates WASM binary
- * 2. Binaryen reads binary and manipulates WASM module
- * 3. Inject __coverage_trace(funcIdx, blockIdx) calls at function entry
- * 4. Extract debug info mapping (funcIdx → {name, file, lines})
+ * 1. AS Transform extracts function metadata (name, source lines) during compilation
+ * 2. AS Compiler generates WASM binary
+ * 3. Binaryen reads binary and manipulates WASM module
+ * 4. Inject __coverage_trace(funcIdx, blockIdx) calls at function entry
+ * 5. Use metadata to map funcIdx → {name, file, lines} in debug info
  */
 
 import binaryen from 'binaryen';
 import { debug } from '../utils/debug.mjs';
-
-/**
- * Debug info structure that maps function indices to source locations
- * This matches the format from the AS transform for compatibility
- */
-export interface DebugInfo {
-  files: string[]; // File paths indexed by fileIdx
-  functions: FunctionInfo[]; // Function info indexed by funcIdx
-}
-
-export interface FunctionInfo {
-  name: string;
-  fileIdx: number;
-  startLine: number;
-  endLine: number;
-}
+import type { DebugInfo, FunctionInfo, FunctionMetadata } from '../types.js';
 
 /**
  * Coverage instrumenter using Binaryen
@@ -45,10 +31,12 @@ export class BinaryenCoverageInstrumenter {
    * Instrument WASM binary with coverage tracing
    *
    * @param wasmBuffer - Compiled WASM binary from AS compiler
+   * @param sourceFile - Source file path (for metadata lookup)
    * @returns Object with instrumented binary and debug info
    */
   instrument(
-    wasmBuffer: Uint8Array
+    wasmBuffer: Uint8Array,
+    sourceFile: string
   ): { binary: Uint8Array; debugInfo: DebugInfo } {
     debug('[Binaryen Coverage] Starting coverage instrumentation');
     const startTime = performance.now();
@@ -61,7 +49,7 @@ export class BinaryenCoverageInstrumenter {
     module.setFeatures(currentFeatures | binaryen.Features.BulkMemoryOpt);
 
     // Inject coverage tracing
-    this.injectCoverageTracing(module);
+    this.injectCoverageTracing(module, sourceFile);
 
     // Validate the module after instrumentation
     const isValid = module.validate();
@@ -90,13 +78,36 @@ export class BinaryenCoverageInstrumenter {
    *
    * For each function:
    * 1. Inject __coverage_trace(funcIdx, 0) at function entry
-   * 2. Extract debug info (name, file, lines)
+   * 2. Extract debug info (name, file, lines) from AS transform metadata
    */
-  private injectCoverageTracing(module: binaryen.Module): void {
+  private injectCoverageTracing(module: binaryen.Module, sourceFile: string): void {
     debug('[Binaryen Coverage] Injecting coverage trace calls');
 
     // Ensure __coverage_trace import exists
     this.ensureCoverageTraceImport(module);
+
+    // Load function metadata from AS transform
+    // The transform stores paths as AS sees them (relative), but we receive absolute paths
+    // Try both absolute and relative lookups
+    let metadata = globalThis.__functionMetadata?.get(sourceFile);
+
+    if (!metadata) {
+      // Try finding by checking if any stored key is a suffix of our sourceFile
+      for (const [key, value] of globalThis.__functionMetadata?.entries() || []) {
+        if (sourceFile.endsWith(key)) {
+          metadata = value;
+          debug(`[Binaryen Coverage] Found metadata using suffix match: ${key}`);
+          break;
+        }
+      }
+    }
+
+    const metadataArray = metadata || [];
+    debug(`[Binaryen Coverage] Loaded metadata for ${metadataArray.length} functions from transform`);
+
+    // Since arrow functions don't have names in the AST, we can't match by name
+    // Instead, we'll match by index - the order should be consistent
+    let metadataIndex = 0;
 
     const numFunctions = module.getNumFunctions();
     debug(`[Binaryen Coverage] Found ${numFunctions} functions in module`);
@@ -139,8 +150,12 @@ export class BinaryenCoverageInstrumenter {
         continue;
       }
 
+      // Get metadata for this function (match by index)
+      const meta: FunctionMetadata | null = metadataIndex < metadataArray.length ? metadataArray[metadataIndex]! : null;
+      metadataIndex++;
+
       // Instrument this function
-      this.instrumentFunction(module, funcRef, funcInfo, instrumentedCount);
+      this.instrumentFunction(module, funcInfo, instrumentedCount, meta, sourceFile);
       instrumentedCount++;
     }
 
@@ -152,22 +167,33 @@ export class BinaryenCoverageInstrumenter {
    */
   private instrumentFunction(
     module: binaryen.Module,
-    funcRef: binaryen.FunctionRef,
     funcInfo: binaryen.FunctionInfo,
-    funcIdx: number
+    funcIdx: number,
+    meta: FunctionMetadata | null,
+    sourceFile: string
   ): void {
-    // Extract debug info from the function name
-    // For now, we don't have access to source locations in WASM
-    // So we'll use placeholder values and rely on the function name
-    const fileIdx = this.getOrCreateFileIndex('<unknown>');
+    // Get file index
+    const fileIdx = this.getOrCreateFileIndex(sourceFile);
 
-    // Store function debug info
-    this.functionInfos.push({
-      name: funcInfo.name,
-      fileIdx,
-      startLine: 0, // TODO: Extract from debug info if available
-      endLine: 0,
-    });
+    // Store function debug info with real line numbers from metadata
+    if (meta) {
+      this.functionInfos.push({
+        name: funcInfo.name,
+        fileIdx,
+        startLine: meta.startLine,
+        endLine: meta.endLine,
+      });
+      debug(`[Binaryen Coverage] Function ${funcInfo.name}: lines ${meta.startLine}-${meta.endLine}`);
+    } else {
+      // Fallback to placeholder if no metadata found
+      this.functionInfos.push({
+        name: funcInfo.name,
+        fileIdx,
+        startLine: 0,
+        endLine: 0,
+      });
+      debug(`[Binaryen Coverage] Function ${funcInfo.name}: no metadata found, using placeholders`);
+    }
 
     // Create trace call: __coverage_trace(funcIdx, 0)
     const traceCall = module.call(

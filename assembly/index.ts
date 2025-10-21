@@ -52,7 +52,6 @@ export function test(name: string, fn: () => void): void {
  * - When the test passes (when this returns without aborting)
  * - When the test fails (when abort is called)
  *
- * Pattern based on assemblyscript-unittest-framework's executeTestFunction.
  */
 export function __execute_function(fnIndex: u32): void {
   // Retrieve the function from the function table and execute it
@@ -75,7 +74,6 @@ export function __execute_function(fnIndex: u32): void {
  *   assert(sum == 2, "math works");
  *
  * Always assign arithmetic expressions to typed variables before comparison.
- * See detailed bug report: .claude/plans/assemblyscript_const_fold_bug.md
  */
 export function assert(condition: bool, message: string = "Assertion failed"): void {
   if (condition) {

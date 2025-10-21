@@ -8,8 +8,6 @@ import { test, assert } from '../../assembly';
  * - Breaking into steps: `const x = 1 + 1; x == 2` evaluates to TRUE (correct)
  *
  * This is NOT caused by our test framework - verified by compiling directly with AS compiler.
- * See detailed bug report: .claude/plans/assemblyscript_const_fold_bug.md
- * See reproduction: debug-tools/test-const-fold-direct.mjs
  *
  * TODO: Re-enable these tests once the AS compiler bug is fixed.
  */

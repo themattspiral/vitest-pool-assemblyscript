@@ -9,25 +9,7 @@
 
 import { SourceMapConsumer, type RawSourceMap } from 'source-map';
 import { debug } from './debug.mjs';
-
-/**
- * Source location in original AssemblyScript code
- */
-export interface SourceLocation {
-  fileName: string;
-  lineNumber: number;
-  columnNumber: number;
-}
-
-/**
- * WebAssembly call site with mapped source location
- */
-export interface WebAssemblyCallSite {
-  functionName: string;
-  fileName: string;
-  lineNumber: number;
-  columnNumber: number;
-}
+import type { SourceLocation, WebAssemblyCallSite } from '../types.js';
 
 /**
  * Extract structured call stack from V8 using Error.prepareStackTrace
@@ -47,8 +29,8 @@ export function extractCallStack(error: Error): NodeJS.CallSite[] {
     return ''; // Return empty string to avoid modifying error.stack
   };
 
-  // Access error.stack to trigger prepareStackTrace
-  const _ = error.stack;
+  // Access error.stack to trigger prepareStackTrace (result unused, just triggers callback)
+  error.stack;
 
   // Restore original
   Error.prepareStackTrace = originalPrepareStackTrace;
