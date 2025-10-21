@@ -7,7 +7,9 @@
  * Format specification: http://ltp.sourceforge.net/coverage/lcov/geninfo.1.php
  */
 
+import { writeFile, mkdir } from 'fs/promises';
 import type { CoverageData, DebugInfo, AggregatedCoverage } from '../types.js';
+import { debug } from '../utils/debug.mjs';
 
 /**
  * Aggregate coverage data from multiple tests
@@ -145,4 +147,33 @@ export function generateMultiFileLCOV(
   }
 
   return reports.join('\n');
+}
+
+/**
+ * Write coverage report to file
+ *
+ * Generates LCOV report from collected coverage data and writes to specified path.
+ * Creates parent directory if needed.
+ *
+ * @param coverageMap - Map of source file path to { coverage, debugInfo }
+ * @param outputPath - Path to write LCOV file (e.g., 'coverage/lcov.info')
+ */
+export async function writeCoverageReport(
+  coverageMap: Map<string, { coverage: AggregatedCoverage; debugInfo: DebugInfo }>,
+  outputPath: string
+): Promise<void> {
+  debug('[Coverage] Writing combined LCOV report for', coverageMap.size, 'files');
+
+  const lcov = generateMultiFileLCOV(coverageMap);
+
+  // Extract directory path and create if needed
+  const lastSlash = outputPath.lastIndexOf('/');
+  if (lastSlash !== -1) {
+    const dir = outputPath.substring(0, lastSlash);
+    await mkdir(dir, { recursive: true });
+  }
+
+  await writeFile(outputPath, lcov, 'utf-8');
+
+  debug('[Coverage] LCOV report written to:', outputPath);
 }

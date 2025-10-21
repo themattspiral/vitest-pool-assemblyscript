@@ -84,11 +84,22 @@ export interface CachedCompilation {
   sourceMap: string | null;
   coverageBinary?: Uint8Array;
   debugInfo: DebugInfo | null;
+  discoveredTests: DiscoveredTest[];
 }
 
 // ============================================================================
 // Test Execution & Results
 // ============================================================================
+
+/**
+ * Discovered test metadata (from registration phase)
+ */
+export interface DiscoveredTest {
+  /** Test name */
+  name: string;
+  /** Function table index for this test */
+  fnIndex: number;
+}
 
 /**
  * Result of a single test execution

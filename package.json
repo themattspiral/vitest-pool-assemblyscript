@@ -10,7 +10,8 @@
   },
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "tc": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^24.8.1",

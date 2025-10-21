@@ -1,14 +1,12 @@
-import type { ProcessPool, Vitest } from 'vitest/node';
+import type { ProcessPool, Vitest, TestProject, TestSpecification, RunnerTestCase, RunnerTestFile } from 'vitest/node';
+import type { TaskResultPack } from '@vitest/runner';
 import { createFileTask } from '@vitest/runner/utils';
-import type { RunnerTestCase } from 'vitest';
-import { readFile } from 'fs/promises';
 
+import type { PoolOptions, CachedCompilation, FileCoverageData, TestResult } from './types.js';
 import { compileAssemblyScript } from './compiler.js';
-import { discoverTests, executeTests } from './executor.js';
-import type { PoolOptions, CachedCompilation, FileCoverageData } from './types.js';
+import { discoverTests, executeTestsAndCollectCoverage } from './executor.js';
 import { setDebug, debug } from './utils/debug.mjs';
-import { aggregateCoverage, generateMultiFileLCOV } from './coverage/lcov-reporter.js';
-import { writeFile, mkdir } from 'fs/promises';
+import { aggregateCoverage, writeCoverageReport } from './coverage/lcov-reporter.js';
 
 /**
  * AssemblyScript Pool for Vitest
@@ -35,11 +33,290 @@ import { writeFile, mkdir } from 'fs/promises';
  * - Coverage via Binaryen __coverage_trace() injection (when enabled)
  */
 
+// Pool name used for Vitest file tasks
+const POOL_NAME = 'assemblyscript';
+
 // Cache compiled WASM binaries and source maps between collectTests() and runTests()
 const compilationCache = new Map<string, CachedCompilation>();
 
 // Accumulate coverage data across all test files for single LCOV report
 const coverageMap = new Map<string, FileCoverageData>();
+
+/**
+ * Create a Vitest test case for a single test
+ *
+ * @param testName - Name of the test
+ * @param fileTask - Parent file task
+ * @param project - Vitest project
+ * @param testResult - Optional test result (for runTests phase)
+ * @returns Configured test case
+ */
+function createTestCase(
+  testName: string,
+  fileTask: RunnerTestFile,
+  project: TestProject,
+  testResult?: TestResult
+): RunnerTestCase {
+  const testTask: RunnerTestCase = {
+    type: 'test',
+    name: testName,
+    id: `${fileTask.id}_${testName}`,
+    context: {} as any,
+    suite: fileTask,
+    mode: 'run',
+    meta: {},
+    file: fileTask,
+    timeout: project.config.testTimeout,
+    annotations: [],
+  };
+
+  // Add result if provided (runTests phase)
+  if (testResult) {
+    testTask.result = {
+      state: testResult.passed ? 'pass' : 'fail',
+      errors: testResult.error ? [testResult.error] : undefined,
+    };
+  }
+
+  return testTask;
+}
+
+/**
+ * Get cached compilation or compile if not cached
+ *
+ * @param testFile - Path to test file
+ * @param options - Pool options (for coverage mode)
+ * @returns Compilation result or error (union type for consistency with compileAssemblyScript)
+ */
+async function getOrCompileCachedModule(
+  testFile: string,
+  options: PoolOptions
+): Promise<{ compilation: CachedCompilation } | { error: Error }> {
+  const cached = compilationCache.get(testFile);
+
+  if (cached) {
+    debug('[Pool] Using cached compilation for:', testFile);
+    return { compilation: cached };
+  }
+
+  debug('[Pool] Compilation not cached, compiling:', testFile);
+  const result = await compileAssemblyScript(testFile, {
+    coverage: options.coverage ?? 'dual',
+  });
+
+  if (result.error) {
+    debug('[Pool] Compilation failed:', result.error.message);
+    return { error: result.error };
+  }
+
+  const compilation: CachedCompilation = {
+    binary: result.binary,
+    sourceMap: result.sourceMap,
+    coverageBinary: result.coverageBinary,
+    debugInfo: result.debugInfo,
+    discoveredTests: []
+  };
+
+  compilationCache.set(testFile, compilation);
+  return { compilation };
+}
+
+/**
+ * Clear compilation cache for invalidated files
+ *
+ * @param invalidates - List of invalidated file paths
+ */
+function handleCacheInvalidations(invalidates: string[] | undefined): void {
+  if (!invalidates) return;
+
+  for (const file of invalidates) {
+    if (compilationCache.has(file)) {
+      compilationCache.delete(file);
+      debug('[Pool] Cleared cache for:', file);
+    }
+  }
+}
+
+/**
+ * Accumulate coverage data for a single file
+ *
+ * @param results - Test execution results
+ * @param compilation - Cached compilation with debug info
+ * @param testFile - Path to test file
+ * @param options - Pool options
+ */
+function accumulateFileCoverage(
+  results: { tests: TestResult[] },
+  compilation: CachedCompilation,
+  testFile: string,
+  options: PoolOptions
+): void {
+  if (!options.coverage || !compilation.debugInfo) return;
+
+  const coverageDataList = results.tests
+    .map(t => t.coverage)
+    .filter((c): c is NonNullable<typeof c> => c !== undefined);
+
+  if (coverageDataList.length > 0) {
+    debug('[Pool] Accumulating coverage for:', testFile);
+
+    const aggregated = aggregateCoverage(coverageDataList);
+    coverageMap.set(testFile, {
+      coverage: aggregated,
+      debugInfo: compilation.debugInfo,
+    });
+  }
+}
+
+/**
+ * Report test results to Vitest
+ *
+ * @param fileTask - File task with test results
+ * @param project - Vitest project
+ * @param ctx - Vitest context
+ */
+function reportTestResults(fileTask: RunnerTestFile, project: TestProject, ctx: Vitest): void {
+  ctx.state.collectFiles(project, [fileTask]);
+
+  // Update individual task results (TaskResultPack format: [id, result, meta])
+  const taskPacks: TaskResultPack[] = fileTask.tasks.map(task => {
+    return [task.id, task.result, task.meta];
+  });
+  ctx.state.updateTasks(taskPacks);
+
+  debug('[Pool] Reported test results for:', fileTask.filepath);
+}
+
+/**
+ * Collect tests from a single file
+ *
+ * Compiles AssemblyScript, discovers tests, creates Vitest file task structure,
+ * and reports to Vitest for the collect phase.
+ *
+ * @param project - Vitest project
+ * @param testFile - Path to test file
+ * @param options - Pool options
+ * @param ctx - Vitest context
+ */
+async function collectTestsFromFile(
+  project: TestProject,
+  testFile: string,
+  options: PoolOptions,
+  ctx: Vitest
+): Promise<void> {
+  // 1. Compile AS → WASM (with coverage if enabled)
+  // cache is empty during collect phase, so will always compile
+  const compilationResult = await getOrCompileCachedModule(testFile, options);
+  if ('error' in compilationResult) {
+    debug('[Pool] Skipping file due to compilation error:', testFile);
+    // TODO: Report compilation error to Vitest
+    return;
+  }
+
+  const compilation = compilationResult.compilation;
+
+  // 2. Execute WASM to discover test names (and cache for runTests phase)
+  const discoveredTests = await discoverTests(compilation.binary, testFile);
+  compilation.discoveredTests = discoveredTests; // Cache for runTests phase
+  debug('[Pool] Discovered', discoveredTests.length, 'tests:', discoveredTests.map(t => t.name));
+
+  // 3. Create Vitest file task structure (container for test cases)
+  const fileTask = createFileTask(
+    testFile,
+    project.config.root,
+    project.name,
+    POOL_NAME
+  );
+
+  fileTask.mode = 'run';
+
+  // 4. Add test tasks
+  for (const test of discoveredTests) {
+    const testTask = createTestCase(test.name, fileTask, project);
+    fileTask.tasks.push(testTask);
+  }
+
+  // 5. Report to Vitest
+  ctx.state.collectFiles(project, [fileTask]);
+  debug('[Pool] Reported file task for:', testFile);
+}
+
+/**
+ * Run tests in a single file
+ *
+ * Gets cached compilation, executes tests, creates file task with results,
+ * and reports to Vitest for the run phase. Accumulates coverage if enabled.
+ *
+ * @param project - Vitest project
+ * @param testFile - Path to test file
+ * @param options - Pool options
+ * @param ctx - Vitest context
+ */
+async function runTestsInFile(
+  project: TestProject,
+  testFile: string,
+  options: PoolOptions,
+  ctx: Vitest
+): Promise<void> {
+  // 1. Compile (or get cached) AS → WASM (with coverage if enabled)
+  const compilationResult = await getOrCompileCachedModule(testFile, options);
+  if ('error' in compilationResult) {
+    debug('[Pool] Skipping file due to compilation error:', testFile);
+    // TODO: Report compilation error to Vitest
+    return;
+  }
+
+  const compilation = compilationResult.compilation;
+
+  // 2. Discover tests (cached from collectTests if available, otherwise discover now)
+  // Both collectTests and runTests must discover - collectTests reports without executing,
+  // runTests discovers and executes. Cache optimizes when both phases run (watch mode).
+  if (compilation.discoveredTests.length === 0) {
+    compilation.discoveredTests = await discoverTests(compilation.binary, testFile);
+    debug('[Pool] Discovered', compilation.discoveredTests.length, 'tests');
+  }
+
+  // 3. Execute tests with full reporting
+  const results = await executeTestsAndCollectCoverage(
+    compilation.binary,
+    compilation.sourceMap,
+    compilation.coverageBinary ?? null,
+    compilation.discoveredTests,
+    testFile
+  );
+
+  debug('[Pool] Test execution results:', {
+    file: testFile,
+    tests: results.tests.length,
+    passed: results.tests.filter((t: TestResult) => t.passed).length,
+    failed: results.tests.filter((t: TestResult) => !t.passed).length,
+  });
+
+  // 4. Create Vitest file task structure (container for test cases)
+  const fileTask = createFileTask(
+    testFile,
+    project.config.root,
+    project.name,
+    POOL_NAME
+  );
+
+  fileTask.mode = 'run';
+  fileTask.result = {
+    state: results.tests.every((t: TestResult) => t.passed) ? 'pass' : 'fail',
+  };
+
+  // 5. Add test results
+  for (const testResult of results.tests) {
+    const testTask = createTestCase(testResult.name, fileTask, project, testResult);
+    fileTask.tasks.push(testTask);
+  }
+
+  // 6. Report to Vitest
+  reportTestResults(fileTask, project, ctx);
+
+  // 7. Accumulate coverage data for this file (will write single LCOV at end)
+  accumulateFileCoverage(results, compilation, testFile, options);
+}
 
 export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   // Read pool options and initialize debug mode
@@ -53,70 +330,16 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
 
     /**
      * Discover tests by compiling and executing WASM
-     * Called for `vitest list` and before `runTests`
+     * Called for `vitest list` command and in watch mode
      */
-    async collectTests(specs) {
+    async collectTests(specs: TestSpecification[]) {
       debug('[Pool] collectTests called for', specs.length, 'specs');
 
       for (const [project, testFile] of specs) {
         debug('[Pool] Collecting tests from:', testFile);
 
         try {
-          // 1. Read source
-          const source = await readFile(testFile, 'utf-8');
-
-          // 2. Compile AS → WASM (with coverage if enabled)
-          const result = await compileAssemblyScript(source, testFile, {
-            coverage: options.coverage ?? 'dual',
-          });
-
-          if (result.error) {
-            debug('[Pool] Compilation failed:', result.error.message);
-            // TODO: Report compilation error to Vitest
-            continue;
-          }
-
-          const { binary, sourceMap, coverageBinary, debugInfo } = result;
-
-          // 3. Cache binary, source map, coverage binary, and debug info for runTests
-          compilationCache.set(testFile, { binary, sourceMap, coverageBinary, debugInfo });
-          debug('[Pool] Cached compilation for:', testFile);
-
-          // 4. Execute WASM to discover test names
-          const discoveredTests = await discoverTests(binary, testFile);
-          debug('[Pool] Discovered', discoveredTests.length, 'tests:', discoveredTests);
-
-          // 5. Create file task structure
-          const fileTask = createFileTask(
-            testFile,
-            project.config.root,
-            project.getName(),
-            'assemblyscript'
-          );
-
-          fileTask.mode = 'run';
-
-          // 6. Add test tasks
-          for (const testName of discoveredTests) {
-            const testTask: RunnerTestCase = {
-              type: 'test',
-              name: testName,
-              id: `${fileTask.id}_${testName}`,
-              context: {} as any,
-              suite: fileTask,
-              mode: 'run',
-              meta: {},
-              file: fileTask,
-              timeout: project.config.testTimeout,
-              annotations: [],
-            };
-            fileTask.tasks.push(testTask);
-          }
-
-          // 7. Report to Vitest
-          ctx.state.collectFiles(project, [fileTask]);
-          debug('[Pool] Reported file task for:', testFile);
-
+          await collectTestsFromFile(project, testFile, options, ctx);
         } catch (error) {
           debug('[Pool] Error collecting tests from', testFile, ':', error);
         }
@@ -129,144 +352,27 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
      * Run tests using cached binaries
      * Executes with full imports for real-time reporting
      */
-    async runTests(specs, invalidates) {
+    async runTests(specs: TestSpecification[], invalidates?: string[]) {
       debug('[Pool] runTests called for', specs.length, 'specs');
       debug('[Pool] Invalidated files:', invalidates?.length ?? 0);
 
       // Clear cache for invalidated files
-      if (invalidates) {
-        for (const file of invalidates) {
-          if (compilationCache.has(file)) {
-            compilationCache.delete(file);
-            debug('[Pool] Cleared cache for:', file);
-          }
-        }
-      }
+      handleCacheInvalidations(invalidates);
 
       // Process each test file
       for (const [project, testFile] of specs) {
         debug('[Pool] Running tests in:', testFile);
 
         try {
-          // 1. Get cached compilation or compile
-          let compilation = compilationCache.get(testFile);
-
-          if (!compilation) {
-            debug('[Pool] Compilation not cached, compiling:', testFile);
-            const source = await readFile(testFile, 'utf-8');
-            const result = await compileAssemblyScript(source, testFile, {
-              coverage: options.coverage ?? 'dual',
-            });
-
-            if (result.error) {
-              debug('[Pool] Compilation failed:', result.error.message);
-              continue;
-            }
-
-            compilation = { binary: result.binary, sourceMap: result.sourceMap, coverageBinary: result.coverageBinary, debugInfo: result.debugInfo };
-            compilationCache.set(testFile, compilation);
-          } else {
-            debug('[Pool] Using cached compilation for:', testFile);
-          }
-
-          // 2. Execute tests with full reporting (pass coverageBinary for dual mode)
-          const results = await executeTests(
-            compilation.binary,
-            compilation.sourceMap,
-            compilation.coverageBinary ?? null,
-            testFile
-          );
-
-          debug('[Pool] Test execution results:', {
-            file: testFile,
-            tests: results.tests.length,
-            passed: results.tests.filter(t => t.passed).length,
-            failed: results.tests.filter(t => !t.passed).length,
-          });
-
-          // 3. Create file task with results
-          const fileTask = createFileTask(
-            testFile,
-            project.config.root,
-            project.getName(),
-            'assemblyscript'
-          );
-
-          fileTask.mode = 'run';
-          fileTask.result = {
-            state: results.tests.every(t => t.passed) ? 'pass' : 'fail',
-          };
-
-          // 4. Add test results
-          for (const testResult of results.tests) {
-            const testTask: RunnerTestCase = {
-              type: 'test',
-              name: testResult.name,
-              id: `${fileTask.id}_${testResult.name}`,
-              context: {} as any,
-              suite: fileTask,
-              mode: 'run',
-              meta: {},
-              file: fileTask,
-              timeout: project.config.testTimeout,
-              annotations: [],
-              result: {
-                state: testResult.passed ? 'pass' : 'fail',
-                errors: testResult.error ? [testResult.error] : undefined,
-              },
-            };
-            fileTask.tasks.push(testTask);
-          }
-
-          // 5. Report to Vitest
-          ctx.state.collectFiles(project, [fileTask]);
-
-          // Update individual task results (TaskResultPack format: [id, result, meta])
-          const taskPacks = fileTask.tasks.map((task): [string, typeof task.result, typeof task.meta] => [
-            task.id,
-            task.result,
-            task.meta
-          ]);
-          ctx.state.updateTasks(taskPacks);
-
-          debug('[Pool] Reported test results for:', testFile);
-
-          // 6. Accumulate coverage data for this file (will write single LCOV at end)
-          if (options.coverage && compilation.debugInfo) {
-            const coverageDataList = results.tests
-              .map(t => t.coverage)
-              .filter((c): c is NonNullable<typeof c> => c !== undefined);
-
-            if (coverageDataList.length > 0) {
-              debug('[Pool] Accumulating coverage for:', testFile);
-
-              const aggregated = aggregateCoverage(coverageDataList);
-              coverageMap.set(testFile, {
-                coverage: aggregated,
-                debugInfo: compilation.debugInfo,
-              });
-            }
-          }
-
+          await runTestsInFile(project, testFile, options, ctx);
         } catch (error) {
           debug('[Pool] Error running tests in', testFile, ':', error);
         }
       }
 
-      // 7. Write single LCOV file with all coverage data
+      // Write single LCOV file with all coverage data
       if (options.coverage && coverageMap.size > 0) {
-        debug('[Pool] Writing combined LCOV report for', coverageMap.size, 'files');
-
-        const lcov = generateMultiFileLCOV(coverageMap);
-
-        // Write to standard coverage directory
-        const coverageDir = 'coverage';
-        const lcovPath = `${coverageDir}/lcov.info`;
-
-        await mkdir(coverageDir, { recursive: true });
-        await writeFile(lcovPath, lcov, 'utf-8');
-
-        debug('[Pool] LCOV report written to:', lcovPath);
+        await writeCoverageReport(coverageMap, 'coverage/lcov.info');
       }
 
       debug('[Pool] runTests completed');
