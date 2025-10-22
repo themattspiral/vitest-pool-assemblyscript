@@ -11,7 +11,7 @@
 import asc from 'assemblyscript/dist/asc.js';
 import { extractCallStack, createWebAssemblyCallSite } from '../src/utils/source-maps.ts';
 
-const TEST_FILE = '/home/matt/vitest-pool-assemblyscript/tests/assembly/crash-isolation.as.test.ts';
+const TEST_FILE = '~/code/vitest-pool-assemblyscript/tests/assembly/crash-isolation.as.test.ts';
 
 async function compileWithExportTable() {
   console.log('\n=== SOLUTION: Compiling with --exportTable (NO Binaryen) ===\n');

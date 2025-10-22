@@ -10,7 +10,7 @@ import asc from 'assemblyscript/dist/asc.js';
 import { BinaryenTestExecutionInjector } from '../src/binaryen/test-execution.ts';
 import { extractCallStack, createWebAssemblyCallSite } from '../src/utils/source-maps.ts';
 
-const TEST_FILE = '/home/matt/vitest-pool-assemblyscript/tests/assembly/crash-isolation.as.test.ts';
+const TEST_FILE = '~/code/vitest-pool-assemblyscript/tests/assembly/crash-isolation.as.test.ts';
 
 async function compileWithBinaryen() {
   console.log('\n=== REPRODUCTION: Compiling with Binaryen modification ===\n');
