@@ -13,7 +13,7 @@ AssemblyScript lacks exception handling (no try/catch), making testing challengi
 - **Limited coverage**: No per-test tracking or LCOV output
 - **No parallelization**: Sequential execution only
 
-This pool solves these problems by integrating AssemblyScript testing directly into Vitest's infrastructure.
+This pool solves these problems by leveraging Vitest's ecosystem - its runner infrastructure, reporters, watch mode, and UI - while adding AssemblyScript-specific test execution and crash isolation.
 
 ## Planned Features
 
@@ -31,15 +31,15 @@ This pool solves these problems by integrating AssemblyScript testing directly i
 
 ### Performance
 
-- **Parallel test execution**: Leverage Vitest's built-in parallelization
 - **Binary caching**: Compile once, reuse for all test runs
 - **Fast iteration**: Watch mode with incremental compilation
+- **Parallel test execution** (planned): Worker pool for concurrent test file execution
 
 ### Developer Experience
 
-- **Vitest integration**: Use Vitest's UI, reporters, watch mode, and ecosystem
-- **Rich matchers**: `toBe()`, `toEqual()`, `toBeGreaterThan()`, `toBeCloseTo()`, etc.
-- **Test organization**: Nested `describe()` blocks with lifecycle hooks
+- **Vitest ecosystem integration**: Leverages Vitest's runner, reporters, watch mode, and UI
+- **Rich matchers** (planned): `toBe()`, `toEqual()`, `toBeGreaterThan()`, `toBeCloseTo()`, etc.
+- **Test organization** (planned): Nested `describe()` blocks with lifecycle hooks
 
 ## Current Status (October 2025)
 
@@ -80,11 +80,20 @@ export default defineConfig({
 
 ## Architecture
 
-Built on Vitest's [`ProcessPool` API](https://vitest.dev/advanced/pool) for alternative runtime execution:
+Built using Vitest's [`ProcessPool` API](https://vitest.dev/advanced/pool) for alternative runtime execution:
 
-1. **Test Discovery**: Compile AS → WASM, query test registry, cache binary
-2. **Test Execution**: Reuse cached binary, run each test in fresh WASM instance
-3. **Result Reporting**: Collect results via WASM imports, report to Vitest
+### What We Leverage from Vitest
+
+- **Runner infrastructure**: Test task structure, result reporting, state management
+- **Watch mode**: File watching and incremental re-runs
+- **Reporters**: Terminal output, UI, coverage reports
+- **Configuration**: Standard Vitest config for test patterns, timeouts, etc.
+
+### How It Works
+
+1. **Test Discovery**: Compile AS → WASM, execute to query test registry, cache binary
+2. **Test Execution**: Reuse cached binary, run each test in fresh WASM instance for crash isolation
+3. **Result Reporting**: Collect results via WASM imports, report through Vitest's task structure
 
 ## Contributing
 
