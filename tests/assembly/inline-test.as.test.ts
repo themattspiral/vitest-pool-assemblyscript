@@ -56,7 +56,7 @@ test('inline functions are called', (): void => {
 @inline
 function throwsError(shouldFail: boolean): i32 {
   if (shouldFail) {
-    assert(false, 'error inside inline function at AS source line 56...');
+    assert(false, 'error inside inline function at AS source line 59...');
   }
   return 42;
 }
