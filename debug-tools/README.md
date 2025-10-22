@@ -35,6 +35,12 @@ Scripts exploring different architectural approaches during the discovery phase:
 
 - **FINAL-why-binaryen-sourcemaps-are-impractical.mjs** - Proof that Binaryen's source map generation doesn't work for our use case, documenting why we can't rely on Binaryen to preserve AssemblyScript source maps.
 
+**@inline Stripping Research:**
+
+- **test-binaryen-inline.mjs** - Proves Binaryen cannot access @inline decorators (they're AST metadata lost after compilation). Validates architectural decision to use AS Transform for @inline stripping.
+
+- **analyze-ast-decorator-positions.mjs** - Proves removing decorators from AST doesn't change node range positions. Key research validating why source maps remain accurate when @inline decorators are stripped. Documents that decorators are metadata entries, not structural AST nodes.
+
 ## Diagnostics (diagnostics/)
 
 Tools for debugging specific issues, validating assumptions, and performance benchmarking:
@@ -50,6 +56,8 @@ Tools for debugging specific issues, validating assumptions, and performance ben
 - **inspect-sourcemap.mjs** - Inspects AS compiler source map output, explores mappings structure, and tests position lookups. Useful for debugging source map issues and understanding the mapping format.
 
 - **test-sourcemap-bug.mjs** - Reproduces and diagnoses the source map corruption bug when Binaryen instruments WASM. Documents the exact nature of the problem that dual-binary solves.
+
+- **compare-source-maps.mjs** - Compares source maps generated with and without @inline stripping. Saves both maps to `output/` for manual inspection and validates that mappings differ (as expected) when decorators are stripped.
 
 **Architecture Validation:**
 - **test-which-binary-v8-uses.mjs** - Proves that V8 uses the binary passed to `WebAssembly.instantiate()`, not any cached version. Critical for understanding dual-binary execution.
@@ -69,10 +77,11 @@ Tools for debugging specific issues, validating assumptions, and performance ben
 ## Relationship to Production Code
 
 The techniques validated in these scripts are implemented in:
-- `src/compiler.ts` - Dual-binary compilation (coverage modes)
+- `src/compiler.ts` - Dual-binary compilation (coverage modes), transform integration
 - `src/executor.ts` - Test execution via `--exportTable`, coverage collection
 - `src/binaryen/coverage-instrumentation.ts` - Binaryen-based coverage instrumentation
 - `src/transforms/extract-function-metadata.mjs` - Function metadata extraction for coverage
+- `src/transforms/strip-inline.mjs` - @inline decorator stripping for coverage accuracy
 - `src/coverage/lcov-reporter.js` - LCOV report generation
 - `src/pool.ts` - Complete integration of all components
 

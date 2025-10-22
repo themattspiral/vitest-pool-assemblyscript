@@ -18,6 +18,15 @@ export default defineConfig({
          * Default: 'dual' (prioritizes correctness over speed)
          */
         coverage: 'dual',
+        /**
+         * Strip @inline decorators for better coverage accuracy
+         * - true (default): @inline decorators removed, functions visible in coverage
+         * - false: @inline functions are inlined, missing from coverage
+         *
+         * Trade-offs: Complete coverage, slightly slower execution
+         * Only applies when coverage is enabled.
+         */
+        stripInline: false,
       }
     },
 

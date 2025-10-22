@@ -102,6 +102,7 @@ async function getOrCompileCachedModule(
   debug('[Pool] Compilation not cached, compiling:', testFile);
   const result = await compileAssemblyScript(testFile, {
     coverage: options.coverage ?? 'dual',
+    stripInline: options.stripInline ?? true,
   });
 
   if (result.error) {

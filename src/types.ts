@@ -22,6 +22,22 @@ export interface PoolOptions {
    * - 'dual': Both coverage AND accurate errors - Slower (2x compile/execute) (default)
    */
   coverage?: boolean | 'dual';
+  /**
+   * Strip @inline decorators during compilation to improve coverage accuracy
+   *
+   * - When true (default): @inline decorators removed, functions become visible in coverage
+   * - When false: @inline functions are inlined by compiler, missing from coverage
+   *
+   * Trade-offs:
+   * - Coverage: Complete function-level coverage including @inline functions
+   * - Source maps: Remain 100% accurate (decorators are metadata, not structural)
+   * - Performance: Slightly slower execution (functions not inlined)
+   *
+   * Only applies when coverage is enabled. Ignored when coverage is false.
+   *
+   * @default true
+   */
+  stripInline?: boolean;
 }
 
 /**
@@ -35,6 +51,11 @@ export interface CompilerOptions {
    * - 'dual': Both coverage AND accurate errors (slower, 2x compile/execute)
    */
   coverage?: boolean | 'dual';
+  /**
+   * Strip @inline decorators during compilation
+   * Only applies when coverage is enabled
+   */
+  stripInline?: boolean;
 }
 
 // ============================================================================

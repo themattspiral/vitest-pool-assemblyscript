@@ -140,6 +140,18 @@ export async function compileAssemblyScript(
     debug('[ASC Compiler] Coverage enabled - adding metadata extraction transform');
   }
 
+  // Add transform to strip @inline decorators if requested
+  // This improves coverage accuracy by preventing functions from being inlined
+  // Only applies when coverage is enabled.
+  const needsInlineStripping = needsCoverage && options.stripInline === true;
+  if (needsInlineStripping) {
+    compilerFlags.push(
+      '--transform', './src/transforms/strip-inline.mjs'
+    );
+    debug('[ASC Compiler] Stripping @inline decorators for coverage accuracy');
+  }
+
+
   // Compile with AssemblyScript compiler
   const result = await asc.main(compilerFlags, {
     stdout,
