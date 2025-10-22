@@ -14,6 +14,7 @@
 import { test, assert } from '../../assembly/index';
 
 // Helper function WITH @inline decorator
+// @ts-ignore: top level decorators are supported in AssemblyScript
 @inline
 function addInlined(a: i32, b: i32): i32 {
   return a + b;
@@ -25,6 +26,7 @@ function addNormal(a: i32, b: i32): i32 {
 }
 
 // Another @inline function
+// @ts-ignore: top level decorators are supported in AssemblyScript
 @inline
 function multiplyInlined(a: i32, b: i32): i32 {
   return a * b;
@@ -49,10 +51,16 @@ test('inline functions are called', (): void => {
   assert(prod2 == 20, 'normal multiplication works');
 });
 
-// Test with error to validate source map accuracy
-test('inline function with error', (): void => {
-  const result: i32 = addInlined(10, 20);
-  assert(result == 30, 'this should pass');
-  // Uncomment to test error location:
-  // assert(false, 'intentional failure in inline test');
+// Test with error inside @inline function to validate source map accuracy
+// @ts-ignore: top level decorators are supported in AssemblyScript
+@inline
+function throwsError(shouldFail: boolean): i32 {
+  if (shouldFail) {
+    assert(false, 'error inside inline function at AS source line 56...');
+  }
+  return 42;
+}
+
+test('error inside inline function shows correct line', (): void => {
+  throwsError(true);
 });

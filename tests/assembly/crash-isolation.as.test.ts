@@ -10,7 +10,7 @@ test("first test passes", () => {
 });
 
 test("second test crashes", () => {
-  assert(false, "this assertion fails and causes abort");
+  assert(false, "this assertion fails and causes abort from AS source line 13...");
 });
 
 test("third test should still run", () => {

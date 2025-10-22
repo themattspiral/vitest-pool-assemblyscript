@@ -217,10 +217,12 @@ function createCoverageCollectionImports(
  *
  * @param currentTest - Test result with raw call stack
  * @param sourceMapJson - Parsed source map
+ * @param testFileName - Name of the test file being executed (used to find primary error location)
  */
 async function enhanceErrorWithSourceMap(
   currentTest: TestResult,
-  sourceMapJson: RawSourceMap
+  sourceMapJson: RawSourceMap,
+  testFileName: string
 ): Promise<void> {
   if (!currentTest.rawCallStack || currentTest.rawCallStack.length === 0) {
     return;
@@ -241,16 +243,40 @@ async function enhanceErrorWithSourceMap(
 
   // Format error with source location
   if (currentTest.error && currentTest.sourceStack.length > 0) {
-    const topFrame = currentTest.sourceStack[0]!; // Safe: length > 0
     const originalMessage = currentTest.error.message;
 
-    // Create a new error with enhanced message including source location
-    const enhancedError = new Error(`${originalMessage}\n  → ${topFrame.fileName}:${topFrame.lineNumber}:${topFrame.columnNumber}`);
+    // Extract basename from test file path for matching
+    // testFileName is absolute like /path/to/file.as.test.ts
+    // frame.fileName from source maps is relative like output/tests/assembly/file.as.test.ts
+    const testFileBasename = testFileName.split('/').pop() || testFileName;
 
-    // Build a clean stack trace with source locations
-    let stackTrace = `${originalMessage}\n`;
+    // Find the first frame from the test file being executed
+    // This is the actual user code location, not framework/runtime code
+    const primaryFrame = currentTest.sourceStack.find(frame => {
+      const frameBasename = frame.fileName.split('/').pop();
+      return frameBasename === testFileBasename;
+    }) || currentTest.sourceStack[0]!; // Fallback to first frame if no match
+
+    // Extract short function name from AS's namespace format
+    // "assembly/index/assert" -> "assert"
+    // "tests/assembly/file.as.test/myFunction" -> "myFunction"
+    const getShortFunctionName = (fullName: string): string => {
+      const parts = fullName.split('/');
+      return parts[parts.length - 1] || fullName;
+    };
+
+    const primaryFunctionName = getShortFunctionName(primaryFrame.functionName);
+
+    // Create a new error with enhanced message including function name and source location
+    const enhancedError = new Error(`${originalMessage}\n → ${primaryFunctionName} (${primaryFrame.fileName}:${primaryFrame.lineNumber}:${primaryFrame.columnNumber})\n`);
+
+    // Build a clean stack trace with source locations and short function names
+    // Format: "Error: message\n    at functionName (file:line:column)\n    at ..."
+    // This matches standard Node.js stack trace format
+    let stackTrace = `Error: ${originalMessage}\n`;
     for (const frame of currentTest.sourceStack) {
-      stackTrace += `  at ${frame.fileName}:${frame.lineNumber}:${frame.columnNumber}\n`;
+      const shortName = getShortFunctionName(frame.functionName);
+      stackTrace += `    at ${shortName} (${frame.fileName}:${frame.lineNumber}:${frame.columnNumber})\n`;
     }
     enhancedError.stack = stackTrace;
 
@@ -319,6 +345,7 @@ async function executeCoveragePass(
  * @param sourceMapJson - Parsed source map (null if not available)
  * @param coverageModule - Instrumented WASM module (null if not in dual mode)
  * @param fnIndex - Function index of the test
+ * @param testFileName - Name of the test file being executed (for error location filtering)
  * @returns Finalized test result
  */
 async function finalizeTestResult(
@@ -326,11 +353,12 @@ async function finalizeTestResult(
   singleModeCoverage: CoverageData,
   sourceMapJson: RawSourceMap | null,
   coverageModule: WebAssembly.Module | null,
-  fnIndex: number
+  fnIndex: number,
+  testFileName: string
 ): Promise<TestResult> {
   // Map call stack to source locations if available
   if (sourceMapJson && testResult.rawCallStack) {
-    await enhanceErrorWithSourceMap(testResult, sourceMapJson);
+    await enhanceErrorWithSourceMap(testResult, sourceMapJson, testFileName);
   }
 
   // Collect coverage: dual mode re-runs test on instrumented binary, single mode uses existing data
@@ -431,7 +459,7 @@ export async function executeTestsAndCollectCoverage(
   sourceMap: string | null,
   coverageBinary: Uint8Array | null | undefined,
   discoveredTests: DiscoveredTest[],
-  _filename: string
+  filename: string
 ): Promise<ExecutionResults> {
   const results: TestResult[] = [];
 
@@ -515,7 +543,7 @@ export async function executeTestsAndCollectCoverage(
 
     // Finalize test result: source maps + coverage
     const finalResult = currentTestRef.value
-      ? await finalizeTestResult(currentTestRef.value, singleModeCoverage, sourceMapJson, coverageModule, fnIndex)
+      ? await finalizeTestResult(currentTestRef.value, singleModeCoverage, sourceMapJson, coverageModule, fnIndex, filename)
       : createInitializationCrashResult(testName, singleModeCoverage);
 
     results.push(finalResult);
