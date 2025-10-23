@@ -189,7 +189,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   // Worker path resolution
   // Workers must be pre-compiled JavaScript
   // Use `npm run build` or `npm run dev` (watch mode) before testing
-  const workerPath = resolve(__dirname, 'worker.js');
+  const workerPath = resolve(__dirname, 'worker/index.js');
 
   if (!existsSync(workerPath)) {
     throw new Error(

@@ -84,6 +84,18 @@ export interface CompilerOptions {
   stripInline?: boolean;
 }
 
+/**
+ * Phase timings for duration metadata
+ */
+export interface PhaseTimings {
+  /** Worker initialization start time */
+  workerStart: number;
+  /** Compilation end time */
+  compileEnd: number;
+  /** Test discovery end time */
+  discoverEnd: number;
+}
+
 // ============================================================================
 // Compilation & Results
 // ============================================================================
@@ -192,6 +204,16 @@ export interface TestResult {
 export interface ExecutionResults {
   /** Array of test results */
   tests: TestResult[];
+}
+
+/**
+ * Callbacks for per-test lifecycle reporting
+ */
+export interface TestExecutionCallbacks {
+  /** Called before a test starts execution */
+  onTestStart?: (testName: string, testIndex: number) => Promise<void>;
+  /** Called after a test finishes execution */
+  onTestFinished?: (testName: string, testIndex: number, result: TestResult) => Promise<void>;
 }
 
 // ============================================================================

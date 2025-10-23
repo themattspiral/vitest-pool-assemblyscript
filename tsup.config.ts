@@ -1,7 +1,10 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/worker.ts'],
+  entry: [
+    'src/index.ts',
+    'src/worker/index.ts'
+  ],
   format: ['esm'],
   outDir: 'dist', // Explicitly set output directory
   dts: true, // Generate .d.ts automatically
