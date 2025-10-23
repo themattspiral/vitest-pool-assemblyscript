@@ -47,6 +47,12 @@ export async function enhanceErrorWithSourceMap(
   if (currentTest.error && currentTest.sourceStack.length > 0) {
     const originalMessage = currentTest.error.message;
 
+    // Determine error type based on whether assertions failed
+    // assertionsFailed > 0 means this was an assert() failure
+    // assertionsFailed === 0 means this was a runtime crash (bounds, null, etc.)
+    const isAssertionFailure = currentTest.assertionsFailed > 0;
+    currentTest.errorType = isAssertionFailure ? 'assertion' : 'runtime';
+
     // Extract basename from test file path for matching
     // testFileName is absolute like /path/to/file.as.test.ts
     // frame.fileName from source maps is relative like output/tests/assembly/file.as.test.ts
@@ -69,13 +75,17 @@ export async function enhanceErrorWithSourceMap(
 
     const primaryFunctionName = getShortFunctionName(primaryFrame.functionName);
 
+    // Format error message based on error type
+    const errorPrefix = isAssertionFailure ? 'Assertion failed' : 'Runtime error';
+    const enhancedMessage = `${errorPrefix}: ${originalMessage}\n → ${primaryFunctionName} (${primaryFrame.fileName}:${primaryFrame.lineNumber}:${primaryFrame.columnNumber})\n`;
+
     // Create a new error with enhanced message including function name and source location
-    const enhancedError = new Error(`${originalMessage}\n → ${primaryFunctionName} (${primaryFrame.fileName}:${primaryFrame.lineNumber}:${primaryFrame.columnNumber})\n`);
+    const enhancedError = new Error(enhancedMessage);
 
     // Build a clean stack trace with source locations and short function names
     // Format: "Error: message\n    at functionName (file:line:column)\n    at ..."
     // This matches standard Node.js stack trace format
-    let stackTrace = `Error: ${originalMessage}\n`;
+    let stackTrace = `${errorPrefix}: ${originalMessage}\n`;
     for (const frame of currentTest.sourceStack) {
       const shortName = getShortFunctionName(frame.functionName);
       stackTrace += `    at ${shortName} (${frame.fileName}:${frame.lineNumber}:${frame.columnNumber})\n`;
@@ -84,6 +94,6 @@ export async function enhanceErrorWithSourceMap(
 
     currentTest.error = enhancedError;
 
-    debug('[Executor] Enhanced error with source location');
+    debug(`[Executor] Enhanced error with source location (type: ${currentTest.errorType})`);
   }
 }

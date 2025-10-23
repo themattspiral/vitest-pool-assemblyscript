@@ -182,6 +182,8 @@ export interface TestResult {
   passed: boolean;
   /** Error if the test failed */
   error?: Error;
+  /** Type of error: 'assertion' for assert() failures, 'runtime' for crashes (bounds, null, etc.) */
+  errorType?: 'assertion' | 'runtime';
   /** Number of assertions that passed */
   assertionsPassed: number;
   /** Number of assertions that failed */
