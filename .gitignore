@@ -3,3 +3,4 @@ node_modules/
 
 # coverage output (root level only, not src/coverage/)
 /coverage/
+dist/

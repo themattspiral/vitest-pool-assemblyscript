@@ -19,21 +19,19 @@ import { debug } from '../utils/debug.mjs';
  */
 export function aggregateCoverage(coverageDataList: CoverageData[]): AggregatedCoverage {
   const aggregated: AggregatedCoverage = {
-    functions: new Map(),
-    blocks: new Map(),
+    functions: {},
+    blocks: {},
   };
 
   for (const coverage of coverageDataList) {
     // Aggregate function coverage
-    for (const [funcIdx, count] of coverage.functions.entries()) {
-      const current = aggregated.functions.get(funcIdx) || 0;
-      aggregated.functions.set(funcIdx, current + count);
+    for (const [funcKey, count] of Object.entries(coverage.functions)) {
+      aggregated.functions[funcKey] = (aggregated.functions[funcKey] || 0) + count;
     }
 
     // Aggregate block coverage
-    for (const [blockKey, count] of coverage.blocks.entries()) {
-      const current = aggregated.blocks.get(blockKey) || 0;
-      aggregated.blocks.set(blockKey, current + count);
+    for (const [blockKey, count] of Object.entries(coverage.blocks)) {
+      aggregated.blocks[blockKey] = (aggregated.blocks[blockKey] || 0) + count;
     }
   }
 
@@ -82,7 +80,8 @@ export function generateLCOV(
   // Function execution data (FNDA records)
   for (let funcIdx = 0; funcIdx < debugInfo.functions.length; funcIdx++) {
     const funcName = functionNames.get(funcIdx) || `func_${funcIdx}`;
-    const hitCount = coverage.functions.get(funcIdx) || 0;
+    const funcKey = String(funcIdx);
+    const hitCount = coverage.functions[funcKey] || 0;
 
     // FNDA:<execution count>,<function name>
     lines.push(`FNDA:${hitCount},${funcName}`);
@@ -90,7 +89,7 @@ export function generateLCOV(
 
   // Function summary
   const functionsFound = debugInfo.functions.length;
-  const functionsHit = Array.from(coverage.functions.values()).filter(count => count > 0).length;
+  const functionsHit = Object.values(coverage.functions).filter(count => count > 0).length;
   lines.push(`FNF:${functionsFound}`);
   lines.push(`FNH:${functionsHit}`);
 
@@ -104,7 +103,8 @@ export function generateLCOV(
     const line = functionLines.get(funcIdx);
     if (line === undefined) continue;
 
-    const hitCount = coverage.functions.get(funcIdx) || 0;
+    const funcKey = String(funcIdx);
+    const hitCount = coverage.functions[funcKey] || 0;
 
     // Aggregate hits for the same line (in case multiple functions start on same line)
     const currentHits = lineHits.get(line) || 0;

@@ -5,6 +5,17 @@
  * Types are organized into logical sections for better maintainability.
  */
 
+import type { MessagePort } from 'node:worker_threads';
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Pool name used for Vitest file task creation
+ */
+export const POOL_NAME = 'assemblyscript';
+
 // ============================================================================
 // Configuration & Options
 // ============================================================================
@@ -38,6 +49,21 @@ export interface PoolOptions {
    * @default true
    */
   stripInline?: boolean;
+  /**
+   * Isolate workers (create fresh worker per test file)
+   *
+   * - When true (default): Fresh worker created/destroyed per test file
+   * - When false: Workers reused across test files (up to maxThreads limit)
+   *
+   * @default true
+   */
+  isolate?: boolean;
+  /**
+   * Maximum number of worker threads
+   *
+   * Defaults to Math.max(cpus - 1, 1)
+   */
+  maxThreads?: number;
 }
 
 /**
@@ -108,6 +134,18 @@ export interface CachedCompilation {
   discoveredTests: DiscoveredTest[];
 }
 
+/**
+ * Worker-returned compilation data with generation for cache validation
+ *
+ * Workers return this when they compile a file (cache miss). The main process
+ * validates the generation matches the current value before caching to prevent
+ * stale compilations from late-returning workers.
+ */
+export interface WorkerCachedCompilation extends CachedCompilation {
+  /** Generation number at time of compilation (for cache validation) */
+  generation: number;
+}
+
 // ============================================================================
 // Test Execution & Results
 // ============================================================================
@@ -142,6 +180,10 @@ export interface TestResult {
   rawCallStack?: NodeJS.CallSite[];
   /** Coverage data collected during this test */
   coverage?: CoverageData;
+  /** Test start time in milliseconds */
+  startTime?: number;
+  /** Test duration in milliseconds */
+  duration?: number;
 }
 
 /**
@@ -181,22 +223,28 @@ export interface WebAssemblyCallSite {
 
 /**
  * Coverage data collected during test execution
+ *
+ * Uses POJOs instead of Maps for serialization compatibility (worker communication).
+ * Keys are stringified numbers for functions, and "funcIdx:blockIdx" strings for blocks.
  */
 export interface CoverageData {
-  /** Map of funcIdx to number of times executed */
-  functions: Map<number, number>;
-  /** Map of funcIdx:blockIdx to number of times executed */
-  blocks: Map<string, number>;
+  /** Record of funcIdx (as string) to number of times executed */
+  functions: Record<string, number>;
+  /** Record of "funcIdx:blockIdx" to number of times executed */
+  blocks: Record<string, number>;
 }
 
 /**
  * Aggregated coverage data across multiple tests
+ *
+ * Uses POJOs instead of Maps for serialization compatibility (worker communication).
+ * Keys are stringified numbers for functions, and "funcIdx:blockIdx" strings for blocks.
  */
 export interface AggregatedCoverage {
-  /** Map of funcIdx to total hit count across all tests */
-  functions: Map<number, number>;
-  /** Map of blockKey (funcIdx:blockIdx) to total hit count */
-  blocks: Map<string, number>;
+  /** Record of funcIdx (as string) to total hit count across all tests */
+  functions: Record<string, number>;
+  /** Record of blockKey ("funcIdx:blockIdx") to total hit count */
+  blocks: Record<string, number>;
 }
 
 /**
@@ -250,3 +298,34 @@ export interface FunctionMetadata {
 declare global {
   var __functionMetadata: Map<string, FunctionMetadata[]> | undefined;
 }
+
+// ============================================================================
+// Worker Communication & RPC
+// ============================================================================
+
+
+/**
+ * Task data sent from pool to worker via Tinypool
+ * This is our custom data structure
+ */
+export interface PoolToWorkerData {
+  /** Path to test file */
+  testFile: string;
+  /** Pool options (coverage, debug, etc.) */
+  options: PoolOptions;
+  /** Current generation number for this file */
+  generation: number;
+  /** Cached compilation data (null if cache miss) */
+  cachedData: CachedCompilation | null;
+  /** MessagePort for RPC communication */
+  port: MessagePort;
+  /** Project root directory */
+  projectRoot: string;
+  /** Project name */
+  projectName: string;
+  /** Test timeout from config */
+  testTimeout: number;
+}
+
+// Re-export TaskResultPack type for convenience
+export type { TaskResultPack } from '@vitest/runner';

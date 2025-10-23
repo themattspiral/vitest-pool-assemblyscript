@@ -2,13 +2,13 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    // Use our custom AssemblyScript pool
-    pool: './src/index.ts',
+    // Use our custom AssemblyScript pool (built version)
+    pool: './dist/index.js',
 
     // Pool-specific configuration
     poolOptions: {
       assemblyScript: {
-        debug: true, // Enable verbose debug logging
+        debug: false, // Enable verbose debug logging
         /**
          * Coverage mode:
          * - false: No coverage (fast, accurate errors) - Use for rapid TDD

@@ -1,12 +1,21 @@
-import type { ProcessPool, Vitest, TestProject, TestSpecification, RunnerTestCase, RunnerTestFile } from 'vitest/node';
+import type { ProcessPool, Vitest, TestProject, TestSpecification, RunnerTestFile } from 'vitest/node';
+import { createMethodsRPC } from 'vitest/node';
 import type { TaskResultPack } from '@vitest/runner';
-import { createFileTask } from '@vitest/runner/utils';
+import { createBirpc } from 'birpc';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { MessageChannel } from 'node:worker_threads';
+import os from 'node:os';
+import Tinypool from 'tinypool';
 
-import type { PoolOptions, CachedCompilation, FileCoverageData, TestResult } from './types.js';
-import { compileAssemblyScript } from './compiler.js';
-import { discoverTests, executeTestsAndCollectCoverage } from './executor.js';
+import type { PoolOptions, CachedCompilation, WorkerCachedCompilation, FileCoverageData } from './types.js';
 import { setDebug, debug } from './utils/debug.mjs';
-import { aggregateCoverage, writeCoverageReport } from './coverage/lcov-reporter.js';
+import { writeCoverageReport } from './coverage/lcov-reporter.js';
+
+// ESM-compatible __dirname (import.meta.url is transformed by tsup/esbuild)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * AssemblyScript Pool for Vitest
@@ -33,97 +42,63 @@ import { aggregateCoverage, writeCoverageReport } from './coverage/lcov-reporter
  * - Coverage via Binaryen __coverage_trace() injection (when enabled)
  */
 
-// Pool name used for Vitest file tasks
-const POOL_NAME = 'assemblyscript';
-
 // Cache compiled WASM binaries and source maps between collectTests() and runTests()
 const compilationCache = new Map<string, CachedCompilation>();
+
+// Track cache generation for invalidation validation (prevents stale worker compilations)
+const cacheGeneration = new Map<string, number>();
 
 // Accumulate coverage data across all test files for single LCOV report
 const coverageMap = new Map<string, FileCoverageData>();
 
 /**
- * Create a Vitest test case for a single test
+ * Create a MessageChannel with RPC for worker communication
  *
- * @param testName - Name of the test
- * @param fileTask - Parent file task
- * @param project - Vitest project
- * @param testResult - Optional test result (for runTests phase)
- * @returns Configured test case
+ * @param project - Vitest project with full TestProject object
+ * @param collect - Whether this is for collection (true) or execution (false)
+ * @returns Object with workerPort (to send to worker) and poolPort (for cleanup)
  */
-function createTestCase(
-  testName: string,
-  fileTask: RunnerTestFile,
-  project: TestProject,
-  testResult?: TestResult
-): RunnerTestCase {
-  const testTask: RunnerTestCase = {
-    type: 'test',
-    name: testName,
-    id: `${fileTask.id}_${testName}`,
-    context: {} as any,
-    suite: fileTask,
-    mode: 'run',
-    meta: {},
-    file: fileTask,
-    timeout: project.config.testTimeout,
-    annotations: [],
+function createWorkerChannel(project: TestProject, collect: boolean) {
+  const channel = new MessageChannel();
+  const workerPort = channel.port1;
+  const poolPort = channel.port2;
+
+  debug('[Pool] Creating RPC with collect:', collect);
+
+  // Wrap the methods to add logging
+  const methods = createMethodsRPC(project, { collect });
+  const wrappedMethods = {
+    ...methods,
+    onCollected: async (files: RunnerTestFile[]) => {
+      debug('[Pool] RPC received onCollected with', files.length, 'files, collect:', collect);
+      debug('[Pool] First file - id:', files[0]?.id, 'filepath:', files[0]?.filepath, 'tasks:', files[0]?.tasks?.length);
+      return methods.onCollected(files);
+    },
+    onTaskUpdate: async (packs: TaskResultPack[], events: any[]) => {
+      debug('[Pool] RPC received onTaskUpdate with', packs.length, 'packs');
+      return methods.onTaskUpdate(packs, events);
+    },
   };
 
-  // Add result if provided (runTests phase)
-  if (testResult) {
-    testTask.result = {
-      state: testResult.passed ? 'pass' : 'fail',
-      errors: testResult.error ? [testResult.error] : undefined,
-    };
-  }
+  // Create RPC in pool (has access to full TestProject)
+  const rpc = createBirpc(
+    wrappedMethods,
+    {
+      post: (v) => poolPort.postMessage(v),
+      on: (fn) => poolPort.on('message', fn),
+    }
+  );
 
-  return testTask;
+  return { workerPort, poolPort, rpc };
 }
 
 /**
- * Get cached compilation or compile if not cached
+ * Clear compilation cache for invalidated files and bump generation numbers
  *
- * @param testFile - Path to test file
- * @param options - Pool options (for coverage mode)
- * @returns Compilation result or error (union type for consistency with compileAssemblyScript)
- */
-async function getOrCompileCachedModule(
-  testFile: string,
-  options: PoolOptions
-): Promise<{ compilation: CachedCompilation } | { error: Error }> {
-  const cached = compilationCache.get(testFile);
-
-  if (cached) {
-    debug('[Pool] Using cached compilation for:', testFile);
-    return { compilation: cached };
-  }
-
-  debug('[Pool] Compilation not cached, compiling:', testFile);
-  const result = await compileAssemblyScript(testFile, {
-    coverage: options.coverage ?? 'dual',
-    stripInline: options.stripInline ?? true,
-  });
-
-  if (result.error) {
-    debug('[Pool] Compilation failed:', result.error.message);
-    return { error: result.error };
-  }
-
-  const compilation: CachedCompilation = {
-    binary: result.binary,
-    sourceMap: result.sourceMap,
-    coverageBinary: result.coverageBinary,
-    debugInfo: result.debugInfo,
-    discoveredTests: []
-  };
-
-  compilationCache.set(testFile, compilation);
-  return { compilation };
-}
-
-/**
- * Clear compilation cache for invalidated files
+ * Generation numbers prevent stale compilations from late-returning workers
+ * from populating the cache after a file has been invalidated. When a worker
+ * returns compilation results, we validate that the generation matches the
+ * current value before caching.
  *
  * @param invalidates - List of invalidated file paths
  */
@@ -131,193 +106,78 @@ function handleCacheInvalidations(invalidates: string[] | undefined): void {
   if (!invalidates) return;
 
   for (const file of invalidates) {
+    // Clear cache for invalidated file
     if (compilationCache.has(file)) {
       compilationCache.delete(file);
       debug('[Pool] Cleared cache for:', file);
     }
+
+    // Bump generation number to invalidate in-flight worker compilations
+    const currentGen = cacheGeneration.get(file) ?? 0;
+    cacheGeneration.set(file, currentGen + 1);
+    debug('[Pool] Bumped generation for', file, 'to:', currentGen + 1);
   }
 }
 
 /**
- * Accumulate coverage data for a single file
+ * Validate and cache worker compilation results
  *
- * @param results - Test execution results
- * @param compilation - Cached compilation with debug info
+ * Validates that the generation number from the worker matches the current
+ * generation for the file. If they match, caches the compilation. If they
+ * don't match, the file was invalidated while the worker was compiling, so
+ * we discard the stale result.
+ *
+ * This prevents race conditions in watch mode where:
+ * 1. Worker A starts compiling file.ts (generation 0)
+ * 2. File changes, generation bumped to 1
+ * 3. Worker B starts compiling file.ts (generation 1)
+ * 4. Worker B finishes first, caches result (generation 1)
+ * 5. Worker A finishes late, tries to cache stale result (generation 0)
+ * 6. We reject Worker A's result because generation doesn't match
+ *
  * @param testFile - Path to test file
- * @param options - Pool options
+ * @param workerData - Compilation data returned from worker (null if cache hit)
+ * @returns true if cached, false if rejected (stale generation)
+ *
+ * NOTE: This function will be used when Tinypool worker integration is complete.
+ * Currently unused but infrastructure is prepared for worker-based compilation.
  */
-function accumulateFileCoverage(
-  results: { tests: TestResult[] },
-  compilation: CachedCompilation,
+// @ts-ignore - Will be used for worker-based compilation
+function validateAndCacheWorkerCompilation(
   testFile: string,
-  options: PoolOptions
-): void {
-  if (!options.coverage || !compilation.debugInfo) return;
-
-  const coverageDataList = results.tests
-    .map(t => t.coverage)
-    .filter((c): c is NonNullable<typeof c> => c !== undefined);
-
-  if (coverageDataList.length > 0) {
-    debug('[Pool] Accumulating coverage for:', testFile);
-
-    const aggregated = aggregateCoverage(coverageDataList);
-    coverageMap.set(testFile, {
-      coverage: aggregated,
-      debugInfo: compilation.debugInfo,
-    });
-  }
-}
-
-/**
- * Report test results to Vitest
- *
- * @param fileTask - File task with test results
- * @param project - Vitest project
- * @param ctx - Vitest context
- */
-function reportTestResults(fileTask: RunnerTestFile, project: TestProject, ctx: Vitest): void {
-  ctx.state.collectFiles(project, [fileTask]);
-
-  // Update individual task results (TaskResultPack format: [id, result, meta])
-  const taskPacks: TaskResultPack[] = fileTask.tasks.map(task => {
-    return [task.id, task.result, task.meta];
-  });
-  ctx.state.updateTasks(taskPacks);
-
-  debug('[Pool] Reported test results for:', fileTask.filepath);
-}
-
-/**
- * Collect tests from a single file
- *
- * Compiles AssemblyScript, discovers tests, creates Vitest file task structure,
- * and reports to Vitest for the collect phase.
- *
- * @param project - Vitest project
- * @param testFile - Path to test file
- * @param options - Pool options
- * @param ctx - Vitest context
- */
-async function collectTestsFromFile(
-  project: TestProject,
-  testFile: string,
-  options: PoolOptions,
-  ctx: Vitest
-): Promise<void> {
-  // 1. Compile AS → WASM (with coverage if enabled)
-  // cache is empty during collect phase, so will always compile
-  const compilationResult = await getOrCompileCachedModule(testFile, options);
-  if ('error' in compilationResult) {
-    debug('[Pool] Skipping file due to compilation error:', testFile);
-    // TODO: Report compilation error to Vitest
-    return;
+  workerData: WorkerCachedCompilation | null
+): boolean {
+  // If worker didn't compile (cache hit), nothing to validate or cache
+  if (!workerData) {
+    return false;
   }
 
-  const compilation = compilationResult.compilation;
+  // Get current generation for this file
+  const currentGen = cacheGeneration.get(testFile) ?? 0;
 
-  // 2. Execute WASM to discover test names (and cache for runTests phase)
-  const discoveredTests = await discoverTests(compilation.binary, testFile);
-  compilation.discoveredTests = discoveredTests; // Cache for runTests phase
-  debug('[Pool] Discovered', discoveredTests.length, 'tests:', discoveredTests.map(t => t.name));
-
-  // 3. Create Vitest file task structure (container for test cases)
-  const fileTask = createFileTask(
-    testFile,
-    project.config.root,
-    project.name,
-    POOL_NAME
-  );
-
-  fileTask.mode = 'run';
-
-  // 4. Add test tasks
-  for (const test of discoveredTests) {
-    const testTask = createTestCase(test.name, fileTask, project);
-    fileTask.tasks.push(testTask);
+  // Validate generation matches
+  if (workerData.generation !== currentGen) {
+    debug('[Pool] Rejecting stale compilation for', testFile,
+          '- worker generation:', workerData.generation,
+          'current generation:', currentGen);
+    return false;
   }
 
-  // 5. Report to Vitest
-  ctx.state.collectFiles(project, [fileTask]);
-  debug('[Pool] Reported file task for:', testFile);
-}
-
-/**
- * Run tests in a single file
- *
- * Gets cached compilation, executes tests, creates file task with results,
- * and reports to Vitest for the run phase. Accumulates coverage if enabled.
- *
- * @param project - Vitest project
- * @param testFile - Path to test file
- * @param options - Pool options
- * @param ctx - Vitest context
- */
-async function runTestsInFile(
-  project: TestProject,
-  testFile: string,
-  options: PoolOptions,
-  ctx: Vitest
-): Promise<void> {
-  // 1. Compile (or get cached) AS → WASM (with coverage if enabled)
-  const compilationResult = await getOrCompileCachedModule(testFile, options);
-  if ('error' in compilationResult) {
-    debug('[Pool] Skipping file due to compilation error:', testFile);
-    // TODO: Report compilation error to Vitest
-    return;
-  }
-
-  const compilation = compilationResult.compilation;
-
-  // 2. Discover tests (cached from collectTests if available, otherwise discover now)
-  // Both collectTests and runTests must discover - collectTests reports without executing,
-  // runTests discovers and executes. Cache optimizes when both phases run (watch mode).
-  if (compilation.discoveredTests.length === 0) {
-    compilation.discoveredTests = await discoverTests(compilation.binary, testFile);
-    debug('[Pool] Discovered', compilation.discoveredTests.length, 'tests');
-  }
-
-  // 3. Execute tests with full reporting
-  const results = await executeTestsAndCollectCoverage(
-    compilation.binary,
-    compilation.sourceMap,
-    compilation.coverageBinary ?? null,
-    compilation.discoveredTests,
-    testFile
-  );
-
-  debug('[Pool] Test execution results:', {
-    file: testFile,
-    tests: results.tests.length,
-    passed: results.tests.filter((t: TestResult) => t.passed).length,
-    failed: results.tests.filter((t: TestResult) => !t.passed).length,
-  });
-
-  // 4. Create Vitest file task structure (container for test cases)
-  const fileTask = createFileTask(
-    testFile,
-    project.config.root,
-    project.name,
-    POOL_NAME
-  );
-
-  fileTask.mode = 'run';
-  fileTask.result = {
-    state: results.tests.every((t: TestResult) => t.passed) ? 'pass' : 'fail',
+  // Generation matches - safe to cache
+  const cached: CachedCompilation = {
+    binary: workerData.binary,
+    sourceMap: workerData.sourceMap,
+    coverageBinary: workerData.coverageBinary,
+    debugInfo: workerData.debugInfo,
+    discoveredTests: workerData.discoveredTests,
   };
 
-  // 5. Add test results
-  for (const testResult of results.tests) {
-    const testTask = createTestCase(testResult.name, fileTask, project, testResult);
-    fileTask.tasks.push(testTask);
-  }
-
-  // 6. Report to Vitest
-  reportTestResults(fileTask, project, ctx);
-
-  // 7. Accumulate coverage data for this file (will write single LCOV at end)
-  accumulateFileCoverage(results, compilation, testFile, options);
+  compilationCache.set(testFile, cached);
+  debug('[Pool] Cached worker compilation for', testFile, 'at generation:', currentGen);
+  return true;
 }
+
+
 
 export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   // Read pool options and initialize debug mode
@@ -326,49 +186,183 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
 
   debug('[Pool] Initializing AssemblyScript pool');
 
+  // Worker path resolution
+  // Workers must be pre-compiled JavaScript
+  // Use `npm run build` or `npm run dev` (watch mode) before testing
+  const workerPath = resolve(__dirname, 'worker.js');
+
+  if (!existsSync(workerPath)) {
+    throw new Error(
+      `Worker file not found at ${workerPath}. ` +
+      `Run 'npm run build' before testing, or use 'npm run dev' for watch mode.`
+    );
+  }
+
+  debug('[Pool] Worker path:', workerPath);
+
+  // Calculate worker thread count
+  const cpus = os.availableParallelism?.() ?? os.cpus().length;
+  const maxThreads = options.maxThreads ?? Math.max(cpus - 1, 1);
+
+  debug('[Pool] Worker configuration - maxThreads:', maxThreads, 'isolate:', options.isolate ?? true);
+
+  // Initialize Tinypool for worker management
+  const pool = new Tinypool({
+    filename: workerPath,
+    isolateWorkers: options.isolate ?? true,
+    // isolateWorkers: false,
+    minThreads: 1,
+    maxThreads,
+  });
+
   return {
     name: 'vitest-pool-assemblyscript',
 
     /**
-     * Discover tests by compiling and executing WASM
+     * Discover tests by compiling and executing WASM via worker
      * Called for `vitest list` command and in watch mode
      */
     async collectTests(specs: TestSpecification[]) {
       debug('[Pool] collectTests called for', specs.length, 'specs');
 
-      for (const [project, testFile] of specs) {
+      // Run all test collection in parallel
+      const promises = specs.map((spec: TestSpecification) => {
+        const project: TestProject = spec.project;
+        const testFile: string = spec.moduleId;
         debug('[Pool] Collecting tests from:', testFile);
 
-        try {
-          await collectTestsFromFile(project, testFile, options, ctx);
-        } catch (error) {
+        // Get cached data to send to worker (or undefined if cache miss)
+        const cachedData = compilationCache.get(testFile);
+        const generation = cacheGeneration.get(testFile) ?? 0;
+
+        // Create MessageChannel and RPC for worker communication
+        const { workerPort, poolPort } = createWorkerChannel(project, true);
+
+        // Create cleanup callback for Tinypool to call when task finishes
+        const onClose = () => {
+          debug('[Pool] Closing ports for:', testFile);
+          poolPort.close();
+          workerPort.close();
+        };
+
+        // Return the promise from pool.run - don't await here
+        return pool.run(
+          {
+            testFile,
+            options,
+            generation,
+            cachedData,
+            port: workerPort,
+            projectRoot: project.config.root,
+            projectName: project.name,
+            testTimeout: project.config.testTimeout,
+          },
+          {
+            name: 'collectTests',
+            transferList: [workerPort],
+            channel: { onClose },
+          }
+        ).then((result) => {
+          // Cache compilation if worker compiled (cache miss)
+          if (result.compiledData) {
+            validateAndCacheWorkerCompilation(testFile, result.compiledData);
+          }
+
+          debug('[Pool] Collected', result.tests.length, 'tests from:', testFile);
+          return result;
+        }).catch((error) => {
           debug('[Pool] Error collecting tests from', testFile, ':', error);
-        }
-      }
+          throw error;
+        });
+      });
+
+      // Wait for all collections to complete
+      await Promise.allSettled(promises);
 
       debug('[Pool] collectTests completed');
     },
 
     /**
-     * Run tests using cached binaries
-     * Executes with full imports for real-time reporting
+     * Run tests using worker pool with RPC reporting
+     * Workers handle compilation, discovery, execution, and progressive reporting
      */
     async runTests(specs: TestSpecification[], invalidates?: string[]) {
       debug('[Pool] runTests called for', specs.length, 'specs');
       debug('[Pool] Invalidated files:', invalidates?.length ?? 0);
 
-      // Clear cache for invalidated files
+      // Clear cache for invalidated files and bump generations
       handleCacheInvalidations(invalidates);
 
-      // Process each test file
-      for (const [project, testFile] of specs) {
+      // Run all test files in parallel
+      const promises = specs.map((spec: TestSpecification) => {
+        const project: TestProject = spec.project;
+        const testFile: string = spec.moduleId;
         debug('[Pool] Running tests in:', testFile);
 
-        try {
-          await runTestsInFile(project, testFile, options, ctx);
-        } catch (error) {
+        // Get cached data to send to worker (or undefined if cache miss)
+        const cachedData = compilationCache.get(testFile);
+        const generation = cacheGeneration.get(testFile) ?? 0;
+
+        // Create MessageChannel and RPC for worker communication
+        // Use collect: false for runTests so ctx._testRun methods get called (triggers reporters)
+        const { workerPort, poolPort } = createWorkerChannel(project, false);
+
+        // Create cleanup callback for Tinypool to call when task finishes
+        const onClose = () => {
+          debug('[Pool] Closing ports for:', testFile);
+          poolPort.close();
+          workerPort.close();
+        };
+
+        // Return the promise from pool.run - don't await here
+        return pool.run(
+          {
+            testFile,
+            options,
+            generation,
+            cachedData,
+            port: workerPort,
+            projectRoot: project.config.root,
+            projectName: project.name,
+            testTimeout: project.config.testTimeout,
+          },
+          {
+            name: 'runTests',
+            transferList: [workerPort],
+            channel: { onClose },
+          }
+        ).then((result) => {
+          // Cache compilation if worker compiled (cache miss)
+          if (result.compiledData) {
+            validateAndCacheWorkerCompilation(testFile, result.compiledData);
+          }
+
+          // Accumulate coverage if present
+          if (result.coverageData && result.debugInfo) {
+            coverageMap.set(testFile, {
+              coverage: result.coverageData,
+              debugInfo: result.debugInfo,
+            });
+          }
+
+          return result;
+        }).catch((error) => {
           debug('[Pool] Error running tests in', testFile, ':', error);
-        }
+          throw error;
+        });
+      });
+
+      // Wait for all test files to complete
+      const results = await Promise.allSettled(promises);
+
+      // Check for errors
+      const errors = results
+        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+        .map(r => r.reason);
+
+      if (errors.length > 0) {
+        debug('[Pool] Errors occurred in', errors.length, 'files');
+        // Don't throw - errors already reported to Vitest via RPC
       }
 
       // Write single LCOV file with all coverage data
@@ -386,6 +380,8 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
       debug('[Pool] Closing pool, clearing cache');
       compilationCache.clear();
       coverageMap.clear();
+      await pool.destroy();
+      debug('[Pool] Tinypool destroyed');
     },
   };
 }

@@ -27,14 +27,13 @@ import type { RawSourceMap } from 'source-map';
  * @param blockIdx - Block index within function
  */
 function trackCoverage(coverage: CoverageData, funcIdx: number, blockIdx: number): void {
-  // Track function-level coverage
-  const funcCount = coverage.functions.get(funcIdx) || 0;
-  coverage.functions.set(funcIdx, funcCount + 1);
+  // Track function-level coverage (stringify funcIdx for POJO key)
+  const funcKey = String(funcIdx);
+  coverage.functions[funcKey] = (coverage.functions[funcKey] || 0) + 1;
 
   // Track block-level coverage
   const blockKey = `${funcIdx}:${blockIdx}`;
-  const blockCount = coverage.blocks.get(blockKey) || 0;
-  coverage.blocks.set(blockKey, blockCount + 1);
+  coverage.blocks[blockKey] = (coverage.blocks[blockKey] || 0) + 1;
 }
 
 /**
@@ -302,8 +301,8 @@ async function executeCoveragePass(
   fnIndex: number
 ): Promise<CoverageData> {
   const coverage: CoverageData = {
-    functions: new Map<number, number>(),
-    blocks: new Map<string, number>(),
+    functions: {},
+    blocks: {},
   };
 
   const memory = createMemory();
@@ -487,8 +486,8 @@ export async function executeTestsAndCollectCoverage(
 
     // Create coverage tracking for this test (used in single-binary mode)
     const singleModeCoverage: CoverageData = {
-      functions: new Map<number, number>(),
-      blocks: new Map<string, number>(),
+      functions: {},
+      blocks: {},
     };
 
     // Mutable reference for import callbacks to update
@@ -508,12 +507,14 @@ export async function executeTestsAndCollectCoverage(
 
     // Execute this specific test
     try {
-      // Create test result object
+      // Create test result object with timing
+      const startTime = Date.now();
       currentTestRef.value = {
         name: testName,
         passed: true,
         assertionsPassed: 0,
         assertionsFailed: 0,
+        startTime,
       };
 
       // Execute test function via function table (AS compiler --exportTable flag)
@@ -527,12 +528,21 @@ export async function executeTestsAndCollectCoverage(
         throw new Error('Function table not found in WASM exports (missing --exportTable flag?)');
       }
 
+      // Calculate duration
+      const endTime = Date.now();
+      currentTestRef.value.duration = endTime - startTime;
+
       // If we reach here, test passed (no abort occurred)
 
     } catch (error) {
       debugError('[Executor] Error during test execution:', error);
       // Error should be captured in currentTestRef.value via abort handler
       if (currentTestRef.value !== null) {
+        // Calculate duration even on error
+        if (currentTestRef.value.startTime && !currentTestRef.value.duration) {
+          currentTestRef.value.duration = Date.now() - currentTestRef.value.startTime;
+        }
+
         if (currentTestRef.value.passed) {
           // If not already marked as failed, mark it now
           currentTestRef.value.passed = false;
