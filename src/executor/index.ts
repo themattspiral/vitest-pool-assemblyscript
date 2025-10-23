@@ -9,7 +9,7 @@
  */
 
 import { createMemory } from '../utils/wasm-memory.js';
-import type { TestResult, ExecutionResults, CoverageData, DiscoveredTest, TestExecutionCallbacks } from '../types.js';
+import type { TestResult, ExecutionResults, CoverageData, DiscoveredTest, DiscoveryResult, TestExecutionCallbacks } from '../types.js';
 import { debug, debugError } from '../utils/debug.mjs';
 import type { RawSourceMap } from 'source-map';
 import {
@@ -18,6 +18,18 @@ import {
   createCoverageCollectionImports,
 } from './imports.js';
 import { enhanceErrorWithSourceMap } from './errors.js';
+
+// ============================================================================
+// Local Types
+// ============================================================================
+
+/**
+ * Cache for lazy-compiled coverage module
+ * Used to compile the coverage binary only once (on first test) and reuse for all subsequent tests
+ */
+interface CompiledModuleCache {
+  module: WebAssembly.Module | null;
+}
 
 // ============================================================================
 // Execution Helpers
@@ -30,14 +42,26 @@ import { enhanceErrorWithSourceMap } from './errors.js';
  * Only used in dual mode - single mode collects coverage during normal execution.
  * Ignores test failures - we only care about coverage.
  *
- * @param coverageModule - Compiled instrumented WASM module
+ * Compilation is done lazily here (instead of upfront) to allow tests to start
+ * executing immediately, improving perceived performance.
+ *
+ * @param coverageBinary - Instrumented WASM binary (will be compiled on first call)
  * @param fnIndex - Function index of the test to execute
+ * @param compiledModuleCache - Cache object for lazy-compiled coverage module (compiled once, reused for all tests)
  * @returns Coverage data for this test
  */
 async function executeCoveragePass(
-  coverageModule: WebAssembly.Module,
-  fnIndex: number
+  coverageBinary: Uint8Array,
+  fnIndex: number,
+  compiledModuleCache: CompiledModuleCache
 ): Promise<CoverageData> {
+  // Lazy compile on first invocation
+  if (!compiledModuleCache.module) {
+    debug('[Executor] Dual mode: Compiling coverage binary (deferred from startup)');
+    compiledModuleCache.module = await WebAssembly.compile(coverageBinary as BufferSource);
+  }
+
+  const coverageModule = compiledModuleCache.module;
   const coverage: CoverageData = {
     functions: {},
     blocks: {},
@@ -80,7 +104,8 @@ async function executeCoveragePass(
  * @param testResult - Test result to finalize
  * @param singleModeCoverage - Coverage collected during test execution (single mode)
  * @param sourceMapJson - Parsed source map (null if not available)
- * @param coverageModule - Instrumented WASM module (null if not in dual mode)
+ * @param coverageBinary - Instrumented WASM binary (null if not in dual mode)
+ * @param coverageModuleCache - Cache for lazy-compiled coverage module (compiled once, reused for all tests)
  * @param fnIndex - Function index of the test
  * @param testFileName - Name of the test file being executed (for error location filtering)
  * @returns Finalized test result
@@ -89,7 +114,8 @@ async function finalizeTestResult(
   testResult: TestResult,
   singleModeCoverage: CoverageData,
   sourceMapJson: RawSourceMap | null,
-  coverageModule: WebAssembly.Module | null,
+  coverageBinary: Uint8Array | null | undefined,
+  coverageModuleCache: CompiledModuleCache,
   fnIndex: number,
   testFileName: string
 ): Promise<TestResult> {
@@ -99,9 +125,9 @@ async function finalizeTestResult(
   }
 
   // Collect coverage: dual mode re-runs test on instrumented binary, single mode uses existing data
-  if (coverageModule) {
+  if (coverageBinary) {
     debug('[Executor] Dual mode: Collecting coverage from instrumented binary');
-    testResult.coverage = await executeCoveragePass(coverageModule, fnIndex);
+    testResult.coverage = await executeCoveragePass(coverageBinary, fnIndex, coverageModuleCache);
   } else {
     testResult.coverage = singleModeCoverage;
   }
@@ -148,12 +174,12 @@ function createInitializationCrashResult(
  *
  * @param binary - Compiled WASM binary
  * @param filename - Source filename (for error messages)
- * @returns Array of discovered tests with names and function indices
+ * @returns Discovery result with tests and compiled module (for reuse in execution)
  */
 export async function discoverTests(
   binary: Uint8Array,
   _filename: string
-): Promise<DiscoveredTest[]> {
+): Promise<DiscoveryResult> {
   const tests: DiscoveredTest[] = [];
   const module = await WebAssembly.compile(binary as BufferSource);
   const memory = createMemory();
@@ -169,7 +195,7 @@ export async function discoverTests(
   }
 
   debug('[Executor] Discovered', tests.length, 'tests');
-  return tests;
+  return { tests, module };
 }
 
 /**
@@ -190,6 +216,7 @@ export async function discoverTests(
  * @param discoveredTests - Pre-discovered tests from collectTests phase
  * @param filename - Source filename (for error messages)
  * @param callbacks - Optional callbacks for per-test lifecycle reporting (onTestStart, onTestFinished)
+ * @param preCompiledModule - Optional pre-compiled module (avoids re-compilation if provided)
  * @returns Execution results with all test outcomes
  */
 export async function executeTestsAndCollectCoverage(
@@ -198,17 +225,15 @@ export async function executeTestsAndCollectCoverage(
   coverageBinary: Uint8Array | null | undefined,
   discoveredTests: DiscoveredTest[],
   filename: string,
-  callbacks?: TestExecutionCallbacks
+  callbacks?: TestExecutionCallbacks,
+  preCompiledModule?: WebAssembly.Module
 ): Promise<ExecutionResults> {
   const results: TestResult[] = [];
 
-  // Compile main binary module once (reused for all test instances)
-  const module = await WebAssembly.compile(binary as BufferSource);
-
-  // Compile coverage binary module if provided (dual mode)
-  const coverageModule = coverageBinary ? await WebAssembly.compile(coverageBinary as BufferSource) : null;
-  if (coverageModule) {
-    debug('[Executor] Dual mode: Using clean binary for execution, coverage binary for coverage collection');
+  // Use pre-compiled module if provided, otherwise compile the binary
+  const module = preCompiledModule ?? await WebAssembly.compile(binary as BufferSource);
+  if (preCompiledModule) {
+    debug('[Executor] Using pre-compiled module (skipping re-compilation)');
   }
 
   // Parse source map once (used for all errors in this file)
@@ -218,6 +243,11 @@ export async function executeTestsAndCollectCoverage(
   }
 
   debug('[Executor] Executing', discoveredTests.length, 'tests with per-test isolation');
+
+  // Note: In dual mode, coverage binary compilation is deferred until after test execution
+  // This allows tests to start immediately, improving perceived performance
+  // Cache for lazy-compiled coverage module (compiled on first coverage pass)
+  const coverageModuleCache: CompiledModuleCache = { module: null };
 
   // Execute each test in a fresh WASM instance
   for (let i = 0; i < discoveredTests.length; i++) {
@@ -300,7 +330,7 @@ export async function executeTestsAndCollectCoverage(
 
     // Finalize test result: source maps + coverage
     const finalResult = currentTestRef.value
-      ? await finalizeTestResult(currentTestRef.value, singleModeCoverage, sourceMapJson, coverageModule, fnIndex, filename)
+      ? await finalizeTestResult(currentTestRef.value, singleModeCoverage, sourceMapJson, coverageBinary, coverageModuleCache, fnIndex, filename)
       : createInitializationCrashResult(testName, singleModeCoverage);
 
     // Call onTestFinished callback after finalization

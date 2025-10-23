@@ -107,19 +107,22 @@ async function getOrCompileBinary(taskData: PoolToWorkerData): Promise<CompiledB
 
 /**
  * Get or discover tests from binary
+ *
+ * @returns Discovery result with tests and optionally the compiled module (null if using cache)
  */
 async function getOrDiscoverTests(
   binary: Uint8Array,
   testFile: string,
   cachedTests?: DiscoveredTest[]
-): Promise<DiscoveredTest[]> {
+): Promise<{ tests: DiscoveredTest[]; module: WebAssembly.Module | null }> {
   if (cachedTests) {
     debug('[Worker] Using cached test discovery for:', testFile);
-    return cachedTests;
+    return { tests: cachedTests, module: null };
   }
 
   debug('[Worker] Discovering tests for:', testFile);
-  return await discoverTests(binary, testFile);
+  const { tests, module } = await discoverTests(binary, testFile);
+  return { tests, module };
 }
 
 /**
@@ -136,13 +139,15 @@ async function getOrDiscoverTests(
  * @param tests - Discovered tests to execute
  * @param taskData - Task data from pool with options and configuration
  * @param rpc - RPC client for communication with main process
+ * @param preCompiledModule - Optional pre-compiled module from discovery (avoids re-compilation)
  */
 async function executeAndReportTests(
   fileTask: RunnerTestFile,
   compiled: CompiledBinary,
   tests: DiscoveredTest[],
   taskData: PoolToWorkerData,
-  rpc: BirpcReturn<RuntimeRPC>
+  rpc: BirpcReturn<RuntimeRPC>,
+  preCompiledModule?: WebAssembly.Module | null
 ): Promise<void> {
   // TODO [Phase 2 - Hooks]: Call reportHookStart(fileTask, 'beforeAll', rpc) here
   // Reference: .claude/analysis/assemblyscript_pool_rpc_gaps.md section 6
@@ -170,7 +175,8 @@ async function executeAndReportTests(
     compiled.coverageBinary,
     tests,
     taskData.testFile,
-    callbacks
+    callbacks,
+    preCompiledModule ?? undefined
   );
 
   // TODO [Phase 2 - Hooks]: Call reportHookEnd(fileTask, 'afterAll', 'pass', rpc) here
@@ -212,7 +218,7 @@ export async function collectTests(taskData: PoolToWorkerData): Promise<CollectT
   timings.compileEnd = Date.now();
 
   // Discover tests
-  const tests = await getOrDiscoverTests(
+  const { tests } = await getOrDiscoverTests(
     compiled.binary,
     taskData.testFile,
     taskData.cachedData?.discoveredTests
@@ -272,7 +278,7 @@ export async function runTests(taskData: PoolToWorkerData): Promise<RunTestsResu
     debug('[Worker] Binary ready, fromCache:', compiled.fromCache);
 
     // Discover tests
-    const tests = await getOrDiscoverTests(
+    const { tests, module } = await getOrDiscoverTests(
       compiled.binary,
       taskData.testFile,
       taskData.cachedData?.discoveredTests
@@ -291,8 +297,8 @@ export async function runTests(taskData: PoolToWorkerData): Promise<RunTestsResu
     // Report via onCollected
     await reportFileCollected(rpc, completeFileTask);
 
-    // Execute and report tests
-    await executeAndReportTests(completeFileTask, compiled, tests, taskData, rpc);
+    // Execute and report tests (pass module to avoid re-compilation)
+    await executeAndReportTests(completeFileTask, compiled, tests, taskData, rpc, module);
 
     debug('[Worker] runTests complete');
 

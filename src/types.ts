@@ -173,6 +173,16 @@ export interface DiscoveredTest {
 }
 
 /**
+ * Result of test discovery with compiled module for reuse
+ */
+export interface DiscoveryResult {
+  /** Discovered tests with names and function indices */
+  tests: DiscoveredTest[];
+  /** Compiled WebAssembly module (can be reused for test execution to avoid re-compilation) */
+  module: WebAssembly.Module;
+}
+
+/**
  * Result of a single test execution
  */
 export interface TestResult {
