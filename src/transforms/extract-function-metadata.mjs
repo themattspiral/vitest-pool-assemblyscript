@@ -13,6 +13,12 @@
 
 import { Transform } from 'assemblyscript/transform';
 
+// Initialize global metadata Map once at module load to prevent race conditions
+// when multiple workers compile concurrently with isolateWorkers: false
+if (!globalThis.__functionMetadata) {
+  globalThis.__functionMetadata = new Map();
+}
+
 // NodeKind enum values (from AS compiler internals)
 const NodeKind = {
   Block: 30,
@@ -66,9 +72,9 @@ export default class FunctionMetadataExtractor extends Transform {
 
       // Store metadata globally for Binaryen to access
       // Use Map keyed by normalized path
-      const metadata = globalThis.__functionMetadata || new Map();
-      metadata.set(source.normalizedPath, [...this.functionInfos]);
-      globalThis.__functionMetadata = metadata;
+      // Note: Map is initialized at module load to prevent race conditions
+      // when multiple workers compile concurrently (isolateWorkers: false)
+      globalThis.__functionMetadata.set(source.normalizedPath, [...this.functionInfos]);
     }
   }
 

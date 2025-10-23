@@ -42,23 +42,22 @@ interface CompiledModuleCache {
  * Only used in dual mode - single mode collects coverage during normal execution.
  * Ignores test failures - we only care about coverage.
  *
- * Compilation is done lazily here (instead of upfront) to allow tests to start
- * executing immediately, improving perceived performance.
+ * The coverage module is pre-compiled once before all tests, then reused for each test.
+ * Coverage passes run in parallel with source map processing for better performance.
  *
- * @param coverageBinary - Instrumented WASM binary (will be compiled on first call)
+ * @param coverageBinary - Instrumented WASM binary (unused, kept for signature compatibility)
  * @param fnIndex - Function index of the test to execute
- * @param compiledModuleCache - Cache object for lazy-compiled coverage module (compiled once, reused for all tests)
+ * @param compiledModuleCache - Pre-compiled coverage module (compiled once, reused for all tests)
  * @returns Coverage data for this test
  */
 async function executeCoveragePass(
-  coverageBinary: Uint8Array,
+  _coverageBinary: Uint8Array,
   fnIndex: number,
   compiledModuleCache: CompiledModuleCache
 ): Promise<CoverageData> {
-  // Lazy compile on first invocation
+  // Module is pre-compiled in executeTestsAndCollectCoverage()
   if (!compiledModuleCache.module) {
-    debug('[Executor] Dual mode: Compiling coverage binary (deferred from startup)');
-    compiledModuleCache.module = await WebAssembly.compile(coverageBinary as BufferSource);
+    throw new Error('Coverage module not pre-compiled (bug in executor)');
   }
 
   const coverageModule = compiledModuleCache.module;
@@ -93,47 +92,6 @@ async function executeCoveragePass(
   return coverage;
 }
 
-/**
- * Finalize test result with source maps and coverage
- *
- * Handles the normal test completion path:
- * - Enhances errors with source map locations
- * - Collects coverage when in dual mode (re-runs test on instrumented binary)
- * - Assigns coverage data to test result
- *
- * @param testResult - Test result to finalize
- * @param singleModeCoverage - Coverage collected during test execution (single mode)
- * @param sourceMapJson - Parsed source map (null if not available)
- * @param coverageBinary - Instrumented WASM binary (null if not in dual mode)
- * @param coverageModuleCache - Cache for lazy-compiled coverage module (compiled once, reused for all tests)
- * @param fnIndex - Function index of the test
- * @param testFileName - Name of the test file being executed (for error location filtering)
- * @returns Finalized test result
- */
-async function finalizeTestResult(
-  testResult: TestResult,
-  singleModeCoverage: CoverageData,
-  sourceMapJson: RawSourceMap | null,
-  coverageBinary: Uint8Array | null | undefined,
-  coverageModuleCache: CompiledModuleCache,
-  fnIndex: number,
-  testFileName: string
-): Promise<TestResult> {
-  // Map call stack to source locations if available
-  if (sourceMapJson && testResult.rawCallStack) {
-    await enhanceErrorWithSourceMap(testResult, sourceMapJson, testFileName);
-  }
-
-  // Collect coverage: dual mode re-runs test on instrumented binary, single mode uses existing data
-  if (coverageBinary) {
-    debug('[Executor] Dual mode: Collecting coverage from instrumented binary');
-    testResult.coverage = await executeCoveragePass(coverageBinary, fnIndex, coverageModuleCache);
-  } else {
-    testResult.coverage = singleModeCoverage;
-  }
-
-  return testResult;
-}
 
 /**
  * Create test result for initialization crash
@@ -244,10 +202,15 @@ export async function executeTestsAndCollectCoverage(
 
   debug('[Executor] Executing', discoveredTests.length, 'tests with per-test isolation');
 
-  // Note: In dual mode, coverage binary compilation is deferred until after test execution
-  // This allows tests to start immediately, improving perceived performance
-  // Cache for lazy-compiled coverage module (compiled on first coverage pass)
+  // Note: In dual mode, we compile coverage binary upfront and run coverage passes in parallel
+  // with test execution for better performance on multi-core systems
   const coverageModuleCache: CompiledModuleCache = { module: null };
+
+  // Pre-compile coverage binary if in dual mode (allows parallel execution)
+  if (coverageBinary) {
+    debug('[Executor] Dual mode: Pre-compiling coverage binary for parallel execution');
+    coverageModuleCache.module = await WebAssembly.compile(coverageBinary as BufferSource);
+  }
 
   // Execute each test in a fresh WASM instance
   for (let i = 0; i < discoveredTests.length; i++) {
@@ -328,10 +291,27 @@ export async function executeTestsAndCollectCoverage(
       }
     }
 
-    // Finalize test result: source maps + coverage
-    const finalResult = currentTestRef.value
-      ? await finalizeTestResult(currentTestRef.value, singleModeCoverage, sourceMapJson, coverageBinary, coverageModuleCache, fnIndex, filename)
-      : createInitializationCrashResult(testName, singleModeCoverage);
+    // Finalize test result: Run source mapping and coverage in parallel when possible
+    let finalResult: TestResult;
+    if (currentTestRef.value) {
+      const testResult = currentTestRef.value;
+
+      // Start both operations in parallel
+      const sourceMappingPromise = sourceMapJson && testResult.rawCallStack
+        ? enhanceErrorWithSourceMap(testResult, sourceMapJson, filename)
+        : Promise.resolve();
+
+      const coveragePromise = coverageBinary
+        ? executeCoveragePass(coverageBinary, fnIndex, coverageModuleCache)
+        : Promise.resolve(singleModeCoverage);
+
+      // Wait for both to complete
+      const [, coverage] = await Promise.all([sourceMappingPromise, coveragePromise]);
+      testResult.coverage = coverage;
+      finalResult = testResult;
+    } else {
+      finalResult = createInitializationCrashResult(testName, singleModeCoverage);
+    }
 
     // Call onTestFinished callback after finalization
     if (callbacks?.onTestFinished) {

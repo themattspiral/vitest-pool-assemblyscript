@@ -50,6 +50,8 @@ Tools for debugging specific issues, validating assumptions, and performance ben
 
 - **benchmark-coverage-overhead.mjs** - Benchmarks Binaryen coverage instrumentation overhead (2.05ms avg). Used to validate Phase 1d success criteria (<20ms target). Includes JIT warmup and detailed timing analysis across all test files.
 
+- **benchmark-tinypool-overhead.mjs** - Measures Tinypool task dispatching overhead (0.089ms per task). Used to validate feasibility of per-test parallelism architecture. Proves that thread pool overhead is minimal compared to test execution time.
+
 **Source Map Diagnostics:**
 - **test-v8-positions.mjs** - Diagnostic for extracting WAT line:column positions from V8 stack traces using `Error.prepareStackTrace`. Used to validate source map accuracy.
 

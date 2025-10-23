@@ -7,6 +7,10 @@ import { test, assert } from '../../assembly';
  * - `1 + 1 == 2` evaluates to FALSE (incorrect)
  * - Breaking into steps: `const x = 1 + 1; x == 2` evaluates to TRUE (correct)
  *
+ * Note: Inconsistently observed - appears to affect first test in file more reliably.
+ * In quick-tests.as.test.ts, only test 1 failed while tests 2-20 passed with direct comparison.
+ * Root cause unknown, but workaround (assign to typed variable) is reliable.
+ *
  * This is NOT caused by our test framework - verified by compiling directly with AS compiler.
  *
  * TODO: Re-enable these tests once the AS compiler bug is fixed.

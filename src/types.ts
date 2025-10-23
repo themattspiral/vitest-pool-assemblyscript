@@ -137,6 +137,13 @@ export type CompileResult = CompilationResult | CompilationError;
 
 /**
  * Cached compilation data (shared between collectTests and runTests)
+ *
+ * NOTE: WebAssembly.Module is NOT included because it cannot be serialized across
+ * worker boundaries (would throw DataCloneError). Workers must re-compile the binary
+ * when using cached data, but this is fast (binary is already parsed/validated).
+ *
+ * Within a single worker task, the module CAN be passed from discovery to execution
+ * to avoid re-compilation within that task.
  */
 export interface CachedCompilation {
   binary: Uint8Array;

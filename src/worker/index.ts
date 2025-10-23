@@ -24,7 +24,7 @@ import type {
 } from '../types.js';
 import { compileAssemblyScript } from '../compiler.js';
 import { discoverTests, executeTestsAndCollectCoverage } from '../executor/index.js';
-import { setDebug, debug } from '../utils/debug.mjs';
+import { setDebug, debug, debugTiming } from '../utils/debug.mjs';
 import {
   createPhaseTimings,
   createRpcClient,
@@ -76,6 +76,7 @@ interface CompiledBinary {
 async function getOrCompileBinary(taskData: PoolToWorkerData): Promise<CompiledBinary> {
   if (taskData.cachedData) {
     debug('[Worker] Using cached binary for:', taskData.testFile);
+    debugTiming(`[TIMING] ${taskData.testFile} - compile: cached`);
     return {
       binary: taskData.cachedData.binary,
       sourceMap: taskData.cachedData.sourceMap,
@@ -86,10 +87,13 @@ async function getOrCompileBinary(taskData: PoolToWorkerData): Promise<CompiledB
   }
 
   debug('[Worker] Cache miss, compiling:', taskData.testFile);
+  const compileStart = performance.now();
   const result = await compileAssemblyScript(taskData.testFile, {
     coverage: taskData.options.coverage ?? 'dual',
     stripInline: taskData.options.stripInline ?? true,
   });
+  const compileEnd = performance.now();
+  debugTiming(`[TIMING] ${taskData.testFile} - compile: ${compileEnd - compileStart}ms`);
 
   if (result.error) {
     throw result.error;
@@ -108,6 +112,14 @@ async function getOrCompileBinary(taskData: PoolToWorkerData): Promise<CompiledB
 /**
  * Get or discover tests from binary
  *
+ * NOTE: WebAssembly.Module cannot be serialized across worker boundaries (DataCloneError).
+ * When using cached tests, we return module: null because the module was created in a previous
+ * worker execution and cannot be transferred back from the pool. The executor will re-compile
+ * the binary (which is fast - already parsed/validated) when module is null.
+ *
+ * Within a single worker execution (collectTests or runTests), we CAN pass the module from
+ * discovery to execution to avoid re-compilation within the same worker task.
+ *
  * @returns Discovery result with tests and optionally the compiled module (null if using cache)
  */
 async function getOrDiscoverTests(
@@ -117,6 +129,7 @@ async function getOrDiscoverTests(
 ): Promise<{ tests: DiscoveredTest[]; module: WebAssembly.Module | null }> {
   if (cachedTests) {
     debug('[Worker] Using cached test discovery for:', testFile);
+    // Module cannot be serialized, so we can't cache it across worker boundaries
     return { tests: cachedTests, module: null };
   }
 
@@ -218,12 +231,15 @@ export async function collectTests(taskData: PoolToWorkerData): Promise<CollectT
   timings.compileEnd = Date.now();
 
   // Discover tests
+  const discoverStart = performance.now();
   const { tests } = await getOrDiscoverTests(
     compiled.binary,
     taskData.testFile,
     taskData.cachedData?.discoveredTests
   );
+  const discoverEnd = performance.now();
   timings.discoverEnd = Date.now();
+  debugTiming(`[TIMING] ${taskData.testFile} - discover: ${discoverEnd - discoverStart}ms`);
   debug('[Worker] collectTests complete, discovered', tests.length, 'tests');
 
   // Create complete file task with timing metadata
@@ -278,12 +294,15 @@ export async function runTests(taskData: PoolToWorkerData): Promise<RunTestsResu
     debug('[Worker] Binary ready, fromCache:', compiled.fromCache);
 
     // Discover tests
+    const discoverStart = performance.now();
     const { tests, module } = await getOrDiscoverTests(
       compiled.binary,
       taskData.testFile,
       taskData.cachedData?.discoveredTests
     );
+    const discoverEnd = performance.now();
     timings.discoverEnd = Date.now();
+    debugTiming(`[TIMING] ${taskData.testFile} - discover: ${discoverEnd - discoverStart}ms`);
     debug('[Worker] Discovered', tests.length, 'tests');
 
     // Create complete file task with timing metadata
@@ -298,7 +317,10 @@ export async function runTests(taskData: PoolToWorkerData): Promise<RunTestsResu
     await reportFileCollected(rpc, completeFileTask);
 
     // Execute and report tests (pass module to avoid re-compilation)
+    const executeStart = performance.now();
     await executeAndReportTests(completeFileTask, compiled, tests, taskData, rpc, module);
+    const executeEnd = performance.now();
+    debugTiming(`[TIMING] ${taskData.testFile} - execute: ${executeEnd - executeStart}ms (${tests.length} tests)`);
 
     debug('[Worker] runTests complete');
 

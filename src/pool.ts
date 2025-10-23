@@ -209,8 +209,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   // Initialize Tinypool for worker management
   const pool = new Tinypool({
     filename: workerPath,
-    isolateWorkers: options.isolate ?? true,
-    // isolateWorkers: false,
+    isolateWorkers: options.isolate ?? false, // Safe: WASM isolated per test, worker code is stateless
     minThreads: 1,
     maxThreads,
   });
