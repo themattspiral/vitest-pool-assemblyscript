@@ -74,12 +74,11 @@ export interface PoolOptions {
  */
 export interface CompilerOptions {
   /**
-   * Coverage mode:
-   * - false: No coverage (fast, accurate errors)
-   * - true: Coverage only (fast, broken errors when tests fail)
-   * - 'dual': Both coverage AND accurate errors (slower, 2x compile/execute)
+   * Enable coverage instrumentation
+   * - false: Clean binary
+   * - true: Instrumented binary
    */
-  coverage?: boolean | 'dual';
+  coverage: boolean;
   /**
    * Strip @inline decorators during compilation
    * Only applies when coverage is enabled
@@ -105,14 +104,12 @@ export interface PhaseTimings {
  * Result of compiling AssemblyScript source (success case)
  */
 export interface CompilationResult {
-  /** Compiled WASM binary (if successful) */
+  /** Compiled WASM binary (clean or instrumented, depending on coverage mode) */
   binary: Uint8Array;
   /** Source map JSON (if successful and --sourceMap enabled) */
   sourceMap: string | null;
   /** Debug info for coverage reporting (if coverage enabled) */
   debugInfo: DebugInfo | null;
-  /** Instrumented coverage binary (only when coverage: 'dual') */
-  coverageBinary?: Uint8Array;
   /** Error (null on success) */
   error: null;
 }

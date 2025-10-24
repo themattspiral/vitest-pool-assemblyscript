@@ -20,8 +20,14 @@ import type {
   DiscoverTestsResult,
   ExecuteTestTask,
   ExecuteTestResult,
+  CompileCoverageBinaryTask,
+  CompileCoverageBinaryResult,
+  ExecuteCoveragePassTask,
+  ExecuteCoveragePassResult,
   ReportFileSummaryTask,
   FileCoverageData,
+  AggregatedCoverage,
+  CoverageData,
   ProjectInfo,
   WorkerChannel,
 } from './types.js';
@@ -67,6 +73,29 @@ const cacheGeneration = new Map<string, number>();
 
 // Accumulate coverage data across all test files for single LCOV report
 const coverageMap = new Map<string, FileCoverageData>();
+
+/**
+ * Accumulate coverage data from multiple tests
+ *
+ * Takes an array of CoverageData (one per test) and aggregates them into
+ * a single AggregatedCoverage object by summing hit counts.
+ *
+ * @param coverageArray - Array of per-test coverage data
+ * @returns Aggregated coverage with summed hit counts
+ */
+function accumulateCoverage(coverageArray: CoverageData[]): AggregatedCoverage {
+  return coverageArray.reduce((acc, cov) => {
+    // Merge function coverage
+    for (const funcIdx in cov.functions) {
+      acc.functions[funcIdx] = (acc.functions[funcIdx] ?? 0) + cov.functions[funcIdx]!;
+    }
+    // Merge block coverage
+    for (const blockKey in cov.blocks) {
+      acc.blocks[blockKey] = (acc.blocks[blockKey] ?? 0) + cov.blocks[blockKey]!;
+    }
+    return acc;
+  }, { functions: {}, blocks: {} } as AggregatedCoverage);
+}
 
 /**
  * Create a MessageChannel with RPC for worker communication
@@ -439,10 +468,82 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
           }
         });
 
+        // PHASE 4: Compile coverage binary (dual mode only, starts after tests are queued)
+        let coverageCompilePromise: Promise<CompileCoverageBinaryResult> | null = null;
+        if (options.coverage === 'dual') {
+          debug(`[Pipeline ${testFile}] Phase 4 (compile coverage binary) starting`);
+
+          const compileCoverageTask: CompileCoverageBinaryTask = {
+            testFile,
+            options,
+          };
+
+          coverageCompilePromise = pool.run(compileCoverageTask, {
+            name: 'compileCoverageBinary',
+          }) as Promise<CompileCoverageBinaryResult>;
+        }
+
         // Wait for all tests in this file to complete
-        await Promise.all(testExecutions);
+        const testResults = await Promise.all(testExecutions);
 
         debug(`[Pipeline ${testFile}] Phase 3 (execute) complete`);
+
+        // Accumulate coverage based on mode
+        if (options.coverage === true) {
+          // SINGLE-MODE: Coverage collected during test execution (Phase 3)
+          // Extract coverage from test results and accumulate
+          debug(`[Pipeline ${testFile}] Accumulating single-mode coverage from test results`);
+
+          const allCoverage = testResults
+            .map(({ result }) => result.coverage)
+            .filter((cov): cov is CoverageData => cov !== undefined);
+
+          if (allCoverage.length > 0 && cached!.debugInfo) {
+            const aggregatedCoverage = accumulateCoverage(allCoverage);
+
+            coverageMap.set(testFile, {
+              coverage: aggregatedCoverage,
+              debugInfo: cached!.debugInfo,
+            });
+
+            debug(`[Pipeline ${testFile}] Single-mode coverage accumulation complete`);
+          }
+        } else if (options.coverage === 'dual' && coverageCompilePromise) {
+          // DUAL-MODE: Coverage collected in separate phase (Phase 5)
+          const compileCoverageResult = await coverageCompilePromise;
+          debug(`[Pipeline ${testFile}] Phase 4 complete, starting Phase 5 (execute coverage passes and accumulate)`);
+
+          // Execute coverage pass for each test (in parallel)
+          const coverageExecutions = cached.discoveredTests.map(async (test) => {
+            const coveragePassTask: ExecuteCoveragePassTask = {
+              coverageBinary: compileCoverageResult.coverageBinary,
+              test,
+              testFile,
+              options,
+            };
+
+            const coverageResult = await pool.run(coveragePassTask, {
+              name: 'executeCoveragePass',
+            }) as ExecuteCoveragePassResult;
+
+            return coverageResult.coverage;
+          });
+
+          // Wait for all coverage passes
+          const allCoverage = await Promise.all(coverageExecutions);
+
+          // Accumulate coverage for LCOV reporting
+          if (compileCoverageResult.debugInfo) {
+            const aggregatedCoverage = accumulateCoverage(allCoverage);
+
+            coverageMap.set(testFile, {
+              coverage: aggregatedCoverage,
+              debugInfo: compileCoverageResult.debugInfo,
+            });
+          }
+
+          debug(`[Pipeline ${testFile}] Phase 5 (dual-mode coverage) complete`);
+        }
 
         // Update file task with final results
         const fileEndTime = Date.now();

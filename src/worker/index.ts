@@ -64,8 +64,15 @@ export async function compileFile(taskData: CompileFileTask): Promise<CompileFil
   debug('[Worker] compileFile started for:', taskData.testFile);
 
   const timings = createPhaseTimings();
+
+  // Determine what to compile based on mode:
+  // - false (no coverage): compile clean binary only
+  // - true (single-coverage): compile instrumented binary only
+  // - 'dual': compile clean binary only (coverage binary compiled lazily in Phase 4)
+  const coverageMode = taskData.options.coverage === 'dual' ? false : (taskData.options.coverage ?? false);
+
   const result = await compileAssemblyScript(taskData.testFile, {
-    coverage: taskData.options.coverage ?? 'dual',
+    coverage: coverageMode,
     stripInline: taskData.options.stripInline ?? true,
   });
   timings.phaseEnd = performance.now();
@@ -77,10 +84,15 @@ export async function compileFile(taskData: CompileFileTask): Promise<CompileFil
 
   debug('[Worker] compileFile complete for:', taskData.testFile);
 
+  // In single-coverage mode (true), both binary and coverageBinary point to the SAME instrumented binary
+  // This is honest: there IS only one binary, and we use it for both execution and coverage
+  const binary = result.binary;
+  const coverageBinary = taskData.options.coverage === true ? result.binary : undefined;
+
   return {
-    binary: result.binary,
+    binary,
     sourceMap: result.sourceMap,
-    coverageBinary: result.coverageBinary,
+    coverageBinary,
     debugInfo: result.debugInfo,
     generation: taskData.generation,
     timings,
@@ -183,8 +195,9 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
   // Execute single test via executor
   const executeStart = performance.now();
 
-  // Determine if we should collect coverage during execution (single-mode only)
-  const collectCoverage = taskData.coverageBinary !== undefined;
+  // Collect coverage during execution only in single-coverage mode
+  // In dual mode, coverage is collected separately in Phase 5
+  const collectCoverage = taskData.options.coverage === true;
 
   const testResult = await executeSingleTest(
     taskData.binary,
@@ -241,7 +254,7 @@ export async function compileCoverageBinary(
 
   const compileStart = performance.now();
   const result = await compileAssemblyScript(taskData.testFile, {
-    coverage: true, // Always compile with coverage instrumentation
+    coverage: true, // Compile instrumented binary for coverage collection
     stripInline: taskData.options.stripInline ?? true,
   });
   const compileEnd = performance.now();
@@ -251,14 +264,14 @@ export async function compileCoverageBinary(
     throw result.error;
   }
 
-  if (!result.coverageBinary) {
+  if (!result.binary) {
     throw new Error(`Coverage binary compilation failed for: ${taskData.testFile}`);
   }
 
   debug('[Worker] compileCoverageBinary complete for:', taskData.testFile);
 
   return {
-    coverageBinary: result.coverageBinary,
+    coverageBinary: result.binary, // Return instrumented binary for Phase 5
     debugInfo: result.debugInfo,
   };
 }
@@ -285,8 +298,11 @@ export async function executeCoveragePass(
   setDebug(taskData.options.debug ?? false);
   debug('[Worker] executeCoveragePass started for test:', taskData.test.name);
 
+  const timings = createPhaseTimings();
   const coverage = await collectCoverageForTest(taskData.coverageBinary, taskData.test);
+  timings.phaseEnd = performance.now();
 
+  debugTiming(`[TIMING] ${taskData.testFile} - coverage pass ${taskData.test.name}: ${timings.phaseEnd - timings.phaseStart}ms`);
   debug('[Worker] executeCoveragePass complete, collected coverage for:', taskData.test.name);
 
   return { coverage };

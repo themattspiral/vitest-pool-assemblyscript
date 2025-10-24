@@ -13,56 +13,34 @@ import { debug } from './utils/debug.mjs';
 import { BinaryenCoverageInstrumenter } from './coverage/instrumentation.js';
 
 /**
- * Instrument WASM binaries for coverage collection
- *
- * Handles three coverage modes:
- * - false: No coverage - returns clean binary only
- * - true: Single instrumented binary - fast but breaks error locations
- * - 'dual': Both clean and instrumented binaries - accurate errors + coverage (slower)
+ * Instrument WASM binary for coverage collection
  *
  * @param wasmBinary - Clean WASM binary from AS compiler
  * @param filename - Source filename (for debug info)
- * @param coverageMode - Coverage mode configuration
- * @returns Object with binary, optional coverageBinary, and optional debugInfo
+ * @param coverageEnabled - Whether to instrument for coverage
+ * @returns Object with binary and optional debugInfo
  */
-function instrumentBinariesForCoverage(
+function instrumentBinaryForCoverage(
   wasmBinary: Uint8Array,
   filename: string,
-  coverageMode: boolean | 'dual'
+  coverageEnabled: boolean
 ): {
   binary: Uint8Array;
-  coverageBinary?: Uint8Array;
   debugInfo: DebugInfo | null;
 } {
-  if (coverageMode === 'dual') {
-    // Dual mode: Keep clean binary for execution, create instrumented binary for coverage
-    debug('[Compiler] Dual coverage mode - compiling both clean and instrumented binaries');
-
+  if (coverageEnabled) {
+    debug('[Compiler] Coverage enabled - instrumenting binary');
     const coverageInstrumenter = new BinaryenCoverageInstrumenter();
     const result = coverageInstrumenter.instrument(wasmBinary, filename);
 
-    debug('[Compiler] Dual mode complete - clean binary:', wasmBinary.length, 'bytes, coverage binary:', result.binary.length, 'bytes');
-
-    return {
-      binary: wasmBinary, // Clean binary for test execution
-      coverageBinary: result.binary, // Instrumented binary for coverage collection
-      debugInfo: result.debugInfo,
-    };
-  } else if (coverageMode === true) {
-    // Single instrumented binary mode: Fast but error locations inaccurate when tests fail
-    debug('[Compiler] Single-binary coverage mode - instrumented binary only');
-    const coverageInstrumenter = new BinaryenCoverageInstrumenter();
-    const result = coverageInstrumenter.instrument(wasmBinary, filename);
-
-    debug('[Compiler] Coverage instrumentation complete');
+    debug('[Compiler] Instrumentation complete');
 
     return {
       binary: result.binary,
       debugInfo: result.debugInfo,
     };
   } else {
-    // No coverage mode: Clean binary only
-    debug('[Compiler] No coverage mode - clean binary only');
+    debug('[Compiler] No coverage - returning clean binary');
     return {
       binary: wasmBinary,
       debugInfo: null,
@@ -209,14 +187,13 @@ export async function compileAssemblyScript(
     debug('[ASC Compiler] Source map generated, size:', (wasmSourceMap as string).length, 'bytes');
   }
 
-  // Instrument binaries for coverage based on mode
-  const coverageResult = instrumentBinariesForCoverage(wasmBinary, filename, options.coverage ?? false);
+  // Instrument binary for coverage if requested
+  const instrumentResult = instrumentBinaryForCoverage(wasmBinary, filename, options.coverage);
 
   return {
-    binary: coverageResult.binary,
+    binary: instrumentResult.binary,
     sourceMap: wasmSourceMap,
-    debugInfo: coverageResult.debugInfo,
-    coverageBinary: coverageResult.coverageBinary,
+    debugInfo: instrumentResult.debugInfo,
     error: null,
   };
 }
