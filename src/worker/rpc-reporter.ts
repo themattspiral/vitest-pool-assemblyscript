@@ -11,7 +11,7 @@ import type { RuntimeRPC } from 'vitest';
 import type { RunnerTestCase, RunnerTestFile } from 'vitest/node';
 import type { TaskEventPack, TaskResultPack } from '@vitest/runner';
 import { createFileTask } from '@vitest/runner/utils';
-import type { PhaseTimings, DiscoveredTest, TestResult, PoolToWorkerData } from '../types.js';
+import type { PhaseTimings, DiscoveredTest, TestResult, ProjectInfo } from '../types.js';
 import { POOL_NAME } from '../types.js';
 import { debug } from '../utils/debug.mjs';
 
@@ -20,13 +20,12 @@ import { debug } from '../utils/debug.mjs';
 // ============================================================================
 
 /**
- * Create phase timings tracker for duration metadata
+ * Create phase timings tracker
  */
 export function createPhaseTimings(): PhaseTimings {
   return {
-    workerStart: Date.now(),
-    compileEnd: 0,
-    discoverEnd: 0,
+    phaseStart: performance.now(),
+    phaseEnd: 0,
   };
 }
 
@@ -58,17 +57,17 @@ export function createRpcClient(port: MessagePort): BirpcReturn<RuntimeRPC> {
  * Create initial file task (for onQueued)
  *
  * @param testFile - Path to test file
- * @param taskData - Task data from pool with project info
+ * @param projectInfo - Project information for file task creation
  * @returns File task with mode set to 'queued'
  */
 export function createInitialFileTask(
   testFile: string,
-  taskData: PoolToWorkerData
+  projectInfo: ProjectInfo
 ): RunnerTestFile {
   const fileTask = createFileTask(
     testFile,
-    taskData.projectRoot,
-    taskData.projectName,
+    projectInfo.projectRoot,
+    projectInfo.projectName,
     POOL_NAME
   );
   fileTask.mode = 'queued';
@@ -79,30 +78,31 @@ export function createInitialFileTask(
  * Create complete file task with tests and timing metadata
  *
  * @param testFile - Path to test file
- * @param taskData - Task data from pool with project info
+ * @param projectInfo - Project information for file task creation
  * @param tests - Discovered tests to add as test tasks
  * @param timings - Phase timings for duration metadata
  * @returns File task with test tasks and timing metadata
  */
 export function createFileTaskWithTests(
   testFile: string,
-  taskData: PoolToWorkerData,
+  projectInfo: ProjectInfo,
   tests: DiscoveredTest[],
-  timings: PhaseTimings
+  compileTimings: PhaseTimings,
+  discoverTimings: PhaseTimings
 ): RunnerTestFile {
   const fileTask = createFileTask(
     testFile,
-    taskData.projectRoot,
-    taskData.projectName,
+    projectInfo.projectRoot,
+    projectInfo.projectName,
     POOL_NAME
   );
   fileTask.mode = 'run';
 
   // Add timing metadata
-  fileTask.prepareDuration = timings.compileEnd - timings.workerStart;
+  fileTask.prepareDuration = compileTimings.phaseEnd - compileTimings.phaseStart;
   fileTask.environmentLoad = 0;  // AS pool has no environment setup
   fileTask.setupDuration = 0;     // AS pool has no setup files
-  fileTask.collectDuration = timings.discoverEnd - timings.compileEnd;
+  fileTask.collectDuration = discoverTimings.phaseEnd - discoverTimings.phaseStart;
 
   // Add test tasks
   for (const test of tests) {
@@ -115,7 +115,7 @@ export function createFileTaskWithTests(
       mode: 'run',
       meta: {},
       file: fileTask,
-      timeout: taskData.testTimeout,
+      timeout: projectInfo.testTimeout,
       annotations: [],
     };
     fileTask.tasks.push(testTask);
@@ -135,12 +135,12 @@ export function createFileTaskWithTests(
  * @param fileTask - File task to report
  */
 export async function reportFileQueued(
-  rpc: BirpcReturn<RuntimeRPC>,
+  rpc: BirpcReturn<RuntimeRPC, object>,
   fileTask: RunnerTestFile
 ): Promise<void> {
-  debug('[Worker] Calling rpc.onQueued()');
+  debug('[RPC] Reporting onQueued for:', fileTask.filepath);
   await rpc.onQueued(fileTask);
-  debug('[Worker] rpc.onQueued completed');
+  debug('[RPC] onQueued completed for:', fileTask.filepath);
 }
 
 /**
@@ -150,12 +150,12 @@ export async function reportFileQueued(
  * @param fileTask - File task with complete test tree
  */
 export async function reportFileCollected(
-  rpc: BirpcReturn<RuntimeRPC>,
+  rpc: BirpcReturn<RuntimeRPC, object>,
   fileTask: RunnerTestFile
 ): Promise<void> {
-  debug('[Worker] Calling rpc.onCollected with', fileTask.tasks.length, 'tasks');
+  debug('[RPC] Reporting onCollected for:', fileTask.filepath, 'with', fileTask.tasks.length, 'tests');
   await rpc.onCollected([fileTask]);
-  debug('[Worker] rpc.onCollected completed');
+  debug('[RPC] onCollected completed for:', fileTask.filepath);
 }
 
 /**
@@ -165,15 +165,15 @@ export async function reportFileCollected(
  * @param fileTask - File task representing the suite
  */
 export async function reportSuitePrepare(
-  rpc: BirpcReturn<RuntimeRPC>,
+  rpc: BirpcReturn<RuntimeRPC, object>,
   fileTask: RunnerTestFile
 ): Promise<void> {
   const taskPack: TaskResultPack = [fileTask.id, fileTask.result!, fileTask.meta];
   const eventPack: TaskEventPack = [fileTask.id, 'suite-prepare', undefined];
 
-  debug('[Worker] Calling rpc.onTaskUpdate for suite-prepare');
+  debug('[RPC] Reporting suite-prepare for:', fileTask.filepath);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  debug('[Worker] rpc.onTaskUpdate completed for suite-prepare');
+  debug('[RPC] suite-prepare completed for:', fileTask.filepath);
 }
 
 /**
@@ -183,15 +183,15 @@ export async function reportSuitePrepare(
  * @param fileTask - File task representing the suite
  */
 export async function reportSuiteFinished(
-  rpc: BirpcReturn<RuntimeRPC>,
+  rpc: BirpcReturn<RuntimeRPC, object>,
   fileTask: RunnerTestFile
 ): Promise<void> {
   const taskPack: TaskResultPack = [fileTask.id, fileTask.result!, fileTask.meta];
   const eventPack: TaskEventPack = [fileTask.id, 'suite-finished', undefined];
 
-  debug('[Worker] Calling rpc.onTaskUpdate for suite-finished');
+  debug('[RPC] Reporting suite-finished for:', fileTask.filepath);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  debug('[Worker] rpc.onTaskUpdate completed for suite-finished');
+  debug('[RPC] suite-finished completed for:', fileTask.filepath);
 }
 
 // ============================================================================
@@ -254,13 +254,16 @@ export async function reportTestFinished(
  * Flush any pending RPC updates (matches vmThreads pattern)
  *
  * @param rpc - RPC client for communication
+ * @param fileTask - Optional file task for detailed logging
  */
 export async function flushRpcUpdates(
-  rpc: BirpcReturn<RuntimeRPC>
+  rpc: BirpcReturn<RuntimeRPC, object>,
+  fileTask?: RunnerTestFile
 ): Promise<void> {
-  debug('[Worker] Sending final flush');
+  const context = fileTask ? ` for: ${fileTask.filepath}` : '';
+  debug('[RPC] Sending final flush' + context);
   await rpc.onTaskUpdate([], []);
-  debug('[Worker] Final flush completed');
+  debug('[RPC] Final flush completed' + context);
 }
 
 // ============================================================================
@@ -292,22 +295,105 @@ export async function reportFileError(
 }
 
 // ============================================================================
-// TODO [Phase 2 - Hooks]: Hook Lifecycle Reporting
+// Hook Lifecycle Reporting (Not Yet Implemented)
 // ============================================================================
-// When hooks are implemented, add these helper functions:
-//
-// export async function reportHookStart(
-//   task: RunnerTestFile | RunnerTestCase,
-//   hookName: 'beforeAll' | 'beforeEach' | 'afterEach' | 'afterAll',
-//   rpc: BirpcReturn<RuntimeRPC>
-// ): Promise<void>
-//
-// export async function reportHookEnd(
-//   task: RunnerTestFile | RunnerTestCase,
-//   hookName: string,
-//   state: 'pass' | 'fail',
-//   rpc: BirpcReturn<RuntimeRPC>
-// ): Promise<void>
-//
-// Reference: .claude/analysis/assemblyscript_pool_rpc_gaps.md section 6
-// ============================================================================
+
+/**
+ * Report beforeAll hook starting
+ * Not yet implemented - placeholder for future hook support
+ */
+export async function reportBeforeAllHookStart(
+  _rpc: BirpcReturn<RuntimeRPC>,
+  _fileTaskId: string,
+  hookName: string
+): Promise<void> {
+  debug('[RPC] [Not Implemented] Would report before-hook-start for beforeAll:', hookName);
+}
+
+/**
+ * Report beforeAll hook finished
+ * Not yet implemented - placeholder for future hook support
+ */
+export async function reportBeforeAllHookEnd(
+  _rpc: BirpcReturn<RuntimeRPC>,
+  _fileTaskId: string,
+  hookName: string,
+  state: 'pass' | 'fail'
+): Promise<void> {
+  debug('[RPC] [Not Implemented] Would report before-hook-end for beforeAll:', hookName, state);
+}
+
+/**
+ * Report afterAll hook starting
+ * Not yet implemented - placeholder for future hook support
+ */
+export async function reportAfterAllHookStart(
+  _rpc: BirpcReturn<RuntimeRPC>,
+  _fileTaskId: string,
+  hookName: string
+): Promise<void> {
+  debug('[RPC] [Not Implemented] Would report after-hook-start for afterAll:', hookName);
+}
+
+/**
+ * Report afterAll hook finished
+ * Not yet implemented - placeholder for future hook support
+ */
+export async function reportAfterAllHookEnd(
+  _rpc: BirpcReturn<RuntimeRPC>,
+  _fileTaskId: string,
+  hookName: string,
+  state: 'pass' | 'fail'
+): Promise<void> {
+  debug('[RPC] [Not Implemented] Would report after-hook-end for afterAll:', hookName, state);
+}
+
+/**
+ * Report beforeEach hook starting
+ * Not yet implemented - placeholder for future hook support
+ */
+export async function reportBeforeEachHookStart(
+  _rpc: BirpcReturn<RuntimeRPC>,
+  _testTaskId: string,
+  hookName: string
+): Promise<void> {
+  debug('[RPC] [Not Implemented] Would report before-hook-start for beforeEach:', hookName);
+}
+
+/**
+ * Report beforeEach hook finished
+ * Not yet implemented - placeholder for future hook support
+ */
+export async function reportBeforeEachHookEnd(
+  _rpc: BirpcReturn<RuntimeRPC>,
+  _testTaskId: string,
+  hookName: string,
+  state: 'pass' | 'fail'
+): Promise<void> {
+  debug('[RPC] [Not Implemented] Would report before-hook-end for beforeEach:', hookName, state);
+}
+
+/**
+ * Report afterEach hook starting
+ * Not yet implemented - placeholder for future hook support
+ */
+export async function reportAfterEachHookStart(
+  _rpc: BirpcReturn<RuntimeRPC>,
+  _testTaskId: string,
+  hookName: string
+): Promise<void> {
+  debug('[RPC] [Not Implemented] Would report after-hook-start for afterEach:', hookName);
+}
+
+/**
+ * Report afterEach hook finished
+ * Not yet implemented - placeholder for future hook support
+ */
+export async function reportAfterEachHookEnd(
+  _rpc: BirpcReturn<RuntimeRPC>,
+  _testTaskId: string,
+  hookName: string,
+  state: 'pass' | 'fail'
+): Promise<void> {
+  debug('[RPC] [Not Implemented] Would report after-hook-end for afterEach:', hookName, state);
+}

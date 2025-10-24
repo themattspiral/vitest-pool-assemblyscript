@@ -6,6 +6,9 @@
  */
 
 import type { MessagePort } from 'node:worker_threads';
+import type { RuntimeRPC } from 'vitest';
+import type { RunnerTestFile } from 'vitest/node';
+import type { BirpcReturn } from 'birpc';
 
 // ============================================================================
 // Constants
@@ -85,15 +88,13 @@ export interface CompilerOptions {
 }
 
 /**
- * Phase timings for duration metadata
+ * Phase timings for a single worker phase
  */
 export interface PhaseTimings {
-  /** Worker initialization start time */
-  workerStart: number;
-  /** Compilation end time */
-  compileEnd: number;
-  /** Test discovery end time */
-  discoverEnd: number;
+  /** Phase start time */
+  phaseStart: number;
+  /** Phase end time */
+  phaseEnd: number;
 }
 
 // ============================================================================
@@ -151,6 +152,8 @@ export interface CachedCompilation {
   coverageBinary?: Uint8Array;
   debugInfo: DebugInfo | null;
   discoveredTests: DiscoveredTest[];
+  compileTimings: PhaseTimings;
+  discoverTimings?: PhaseTimings;
 }
 
 /**
@@ -179,15 +182,6 @@ export interface DiscoveredTest {
   fnIndex: number;
 }
 
-/**
- * Result of test discovery with compiled module for reuse
- */
-export interface DiscoveryResult {
-  /** Discovered tests with names and function indices */
-  tests: DiscoveredTest[];
-  /** Compiled WebAssembly module (can be reused for test execution to avoid re-compilation) */
-  module: WebAssembly.Module;
-}
 
 /**
  * Result of a single test execution
@@ -217,23 +211,6 @@ export interface TestResult {
   duration?: number;
 }
 
-/**
- * Results from executing all tests in a file
- */
-export interface ExecutionResults {
-  /** Array of test results */
-  tests: TestResult[];
-}
-
-/**
- * Callbacks for per-test lifecycle reporting
- */
-export interface TestExecutionCallbacks {
-  /** Called before a test starts execution */
-  onTestStart?: (testName: string, testIndex: number) => Promise<void>;
-  /** Called after a test finishes execution */
-  onTestFinished?: (testName: string, testIndex: number, result: TestResult) => Promise<void>;
-}
 
 // ============================================================================
 // Source Mapping & Error Locations
@@ -341,25 +318,217 @@ declare global {
 }
 
 // ============================================================================
-// Worker Communication & RPC
+// Worker Communication & RPC - Per-Test Parallelism
 // ============================================================================
 
-
 /**
- * Task data sent from pool to worker via Tinypool
- * This is our custom data structure
+ * Task data for compileFile worker function
+ *
+ * Phase 1: File compilation (runs once per file)
  */
-export interface PoolToWorkerData {
+export interface CompileFileTask {
   /** Path to test file */
   testFile: string;
-  /** Pool options (coverage, debug, etc.) */
+  /** Pool options */
   options: PoolOptions;
-  /** Current generation number for this file */
+  /** Cache generation number */
   generation: number;
-  /** Cached compilation data (null if cache miss) */
-  cachedData: CachedCompilation | null;
+}
+
+/**
+ * Result from compileFile worker function
+ */
+export interface CompileFileResult {
+  /** Compiled clean binary */
+  binary: Uint8Array;
+  /** Source map JSON (if available) */
+  sourceMap: string | null;
+  /** Compiled coverage binary (if coverage enabled) */
+  coverageBinary?: Uint8Array;
+  /** Debug info for coverage reporting */
+  debugInfo: DebugInfo | null;
+  /** Cache generation number */
+  generation: number;
+  /** Compilation phase timings */
+  timings: PhaseTimings;
+}
+
+/**
+ * Task data for discoverTests worker function
+ *
+ * Phase 2: Test discovery (runs once per file)
+ */
+export interface DiscoverTestsTask {
+  /** Compiled binary to discover tests from */
+  binary: Uint8Array;
+  /** Path to test file (for logging) */
+  testFile: string;
+  /** Pool options */
+  options: PoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
+  /** Project information for file task creation */
+  projectInfo: ProjectInfo;
+  /** Compilation phase timings from compile worker */
+  compileTimings: PhaseTimings;
+}
+
+/**
+ * Result from discoverTests worker function
+ */
+export interface DiscoverTestsResult {
+  /** Discovered tests with names and function indices */
+  tests: DiscoveredTest[];
+  /** Discovery phase timings */
+  timings: PhaseTimings;
+}
+
+/**
+ * Task data for executeTest worker function
+ *
+ * Phase 3: Single test execution (runs once per test)
+ */
+export interface ExecuteTestTask {
+  /** Compiled clean binary */
+  binary: Uint8Array;
+  /** Source map JSON (for error location mapping) */
+  sourceMap: string | null;
+  /** Coverage binary (for single-mode coverage) */
+  coverageBinary?: Uint8Array;
+  /** Test to execute */
+  test: DiscoveredTest;
+  /** Test index in file (for ordering) */
+  testIndex: number;
+  /** Path to test file */
+  testFile: string;
+  /** Pool options */
+  options: PoolOptions;
+  /** MessagePort for RPC communication */
+  port: MessagePort;
+  /** Test task ID (for RPC reporting) */
+  testTaskId: string;
+  /** Test task name (for RPC reporting) */
+  testTaskName: string;
+}
+
+/**
+ * Result from executeTest worker function
+ */
+export interface ExecuteTestResult {
+  /** Test execution result */
+  result: TestResult;
+  /** Test index (for ordering) */
+  testIndex: number;
+}
+
+/**
+ * Task data for compileCoverageBinary worker function
+ *
+ * Phase 4: Coverage binary compilation (lazy, runs once per file if needed)
+ */
+export interface CompileCoverageBinaryTask {
+  /** Path to test file */
+  testFile: string;
+  /** Pool options */
+  options: PoolOptions;
+}
+
+/**
+ * Result from compileCoverageBinary worker function
+ */
+export interface CompileCoverageBinaryResult {
+  /** Compiled coverage binary */
+  coverageBinary: Uint8Array;
+  /** Debug info for coverage reporting */
+  debugInfo: DebugInfo | null;
+}
+
+/**
+ * Task data for executeCoveragePass worker function
+ *
+ * Phase 5: Coverage collection for single test (runs once per test in dual mode)
+ */
+export interface ExecuteCoveragePassTask {
+  /** Compiled coverage binary */
+  coverageBinary: Uint8Array;
+  /** Test to execute for coverage */
+  test: DiscoveredTest;
+  /** Path to test file (for logging) */
+  testFile: string;
+  /** Pool options */
+  options: PoolOptions;
+}
+
+/**
+ * Result from executeCoveragePass worker function
+ */
+export interface ExecuteCoveragePassResult {
+  /** Coverage data collected for this test */
+  coverage: CoverageData;
+}
+
+/**
+ * Task data for reportFileSummary worker function
+ *
+ * Reports suite-finished and final flush after all tests complete
+ */
+export interface ReportFileSummaryTask {
+  /** Path to test file */
+  testFile: string;
+  /** Pool options */
+  options: PoolOptions;
+  /** MessagePort for RPC communication */
+  port: MessagePort;
+  /** Complete file task with all test results */
+  fileTask: RunnerTestFile;
+}
+
+// ============================================================================
+// Hook Execution Task Types (Not Yet Implemented)
+// ============================================================================
+
+/**
+ * Task data for executeBeforeAllHooks worker function
+ * Not yet implemented - placeholder for future hook support
+ */
+export interface ExecuteBeforeAllHooksTask {
+  /** Path to test file */
+  testFile: string;
+  /** Pool options */
+  options: PoolOptions;
+  /** MessagePort for RPC communication */
+  port: MessagePort;
+  /** Hooks to execute */
+  hooks: unknown[]; // Hook type to be defined when implementing hooks
+  /** File task for hook context */
+  fileTask: RunnerTestFile;
+}
+
+/**
+ * Task data for executeAfterAllHooks worker function
+ * Not yet implemented - placeholder for future hook support
+ */
+export interface ExecuteAfterAllHooksTask {
+  /** Path to test file */
+  testFile: string;
+  /** Pool options */
+  options: PoolOptions;
+  /** MessagePort for RPC communication */
+  port: MessagePort;
+  /** Hooks to execute */
+  hooks: unknown[]; // Hook type to be defined when implementing hooks
+  /** File task for hook context */
+  fileTask: RunnerTestFile;
+}
+
+// ============================================================================
+// Pool-Level Data Structures
+// ============================================================================
+
+/**
+ * Project information needed for file task creation
+ */
+export interface ProjectInfo {
   /** Project root directory */
   projectRoot: string;
   /** Project name */
@@ -368,5 +537,15 @@ export interface PoolToWorkerData {
   testTimeout: number;
 }
 
-// Re-export TaskResultPack type for convenience
-export type { TaskResultPack } from '@vitest/runner';
+/**
+ * Worker channel with RPC for suite-level communication
+ */
+export interface WorkerChannel {
+  /** Port to send to worker for RPC communication */
+  workerPort: MessagePort;
+  /** Pool-side port for cleanup */
+  poolPort: MessagePort;
+  /** RPC client for calling Vitest methods (only remote functions matter for our usage) */
+  rpc: BirpcReturn<RuntimeRPC, object>;
+}
+

@@ -7,4 +7,4 @@
  */
 
 export { default } from './pool.js';
-export type { CompileResult, TestResult, ExecutionResults } from './types.js';
+export type { CompileResult, TestResult } from './types.js';

@@ -8,7 +8,7 @@ export default defineConfig({
     // Pool-specific configuration
     poolOptions: {
       assemblyScript: {
-        debug: false, // Enable verbose debug logging
+        debug: true, // Enable verbose debug logging
         /**
          * Coverage mode:
          * - false: No coverage (fast, accurate errors) - Use for rapid TDD

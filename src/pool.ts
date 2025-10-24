@@ -1,7 +1,9 @@
-import type { ProcessPool, Vitest, TestProject, TestSpecification, RunnerTestFile } from 'vitest/node';
+import type { ProcessPool, Vitest, TestProject, TestSpecification, RunnerTestFile, RunnerTestCase } from 'vitest/node';
 import { createMethodsRPC } from 'vitest/node';
-import type { TaskResultPack } from '@vitest/runner';
+import type { RuntimeRPC } from 'vitest';
+import type { TaskResultPack, TaskEventPack, TestContext } from '@vitest/runner';
 import { createBirpc } from 'birpc';
+import { createFileTask } from '@vitest/runner/utils';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -9,7 +11,21 @@ import { MessageChannel } from 'node:worker_threads';
 import os from 'node:os';
 import Tinypool from 'tinypool';
 
-import type { PoolOptions, CachedCompilation, WorkerCachedCompilation, FileCoverageData } from './types.js';
+import type {
+  PoolOptions,
+  CachedCompilation,
+  CompileFileTask,
+  CompileFileResult,
+  DiscoverTestsTask,
+  DiscoverTestsResult,
+  ExecuteTestTask,
+  ExecuteTestResult,
+  ReportFileSummaryTask,
+  FileCoverageData,
+  ProjectInfo,
+  WorkerChannel,
+} from './types.js';
+import { POOL_NAME } from './types.js';
 import { setDebug, debug } from './utils/debug.mjs';
 import { writeCoverageReport } from './coverage/lcov-reporter.js';
 
@@ -18,28 +34,29 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 /**
- * AssemblyScript Pool for Vitest
+ * AssemblyScript Pool for Vitest - True Pipeline Parallelism Architecture
  *
- * Per-Test Crash Isolation Architecture:
- * 1. collectTests(): Compile → Discover tests via callbacks → Cache binary
- * 2. runTests(): Reuse cached binary → Execute each test in fresh WASM instance
- * 3. Invalidation: Clear cache for changed files
+ * This pool implements true pipeline parallelism where each file flows through
+ * its pipeline independently, maximizing CPU utilization and minimizing idle time.
  *
- * Key features:
- * - Per-test isolation: Each test runs in fresh WASM instance (~0.43ms overhead)
- * - Crash safe: One test aborting doesn't kill subsequent tests
- * - Import-based discovery: Tests register via __register_test callback during _start
- * - No double compilation: Binary cached between collect → run phases
- * - Supports whatever test patterns AS supports (limited by lack of closures)
+ * Architecture:
+ *   File 1: compile → discover → [test1, test2, test3] → coverage
+ *   File 2: compile → discover → [test4, test5]       → coverage
+ *   File 3: compile → discover → [test6, test7, test8] → coverage
+ *   All happening concurrently with maximum overlap!
  *
- * Coverage modes:
- * - false: No coverage - Fast, accurate errors
- * - true: Coverage only - Fast, broken errors on failure
- * - 'dual': Both coverage AND accurate errors - Slower (2x)
+ * Key Principle: Start next phase ASAP
+ *   - Discovery: Starts as soon as that file's compilation completes
+ *   - Test Execution: Starts as soon as that file's discovery completes
+ *   - Coverage: Starts as soon as test execution and binary compilation complete
+ *   - No waiting for batches to complete!
  *
- * Instrumentation:
- * - Test execution via --exportTable (function table export)
- * - Coverage via Binaryen __coverage_trace() injection (when enabled)
+ * Benefits:
+ *   - True parallelism: Fast-compiling files start discovery before slow files finish
+ *   - Pipeline efficiency: Phases overlap across files, workers stay busy
+ *   - Better CPU utilization: Can mix fast/slow work
+ *   - No artificial batching: Each file progresses independently
+ *   - Maximum throughput: All workers utilized throughout execution
  */
 
 // Cache compiled WASM binaries and source maps between collectTests() and runTests()
@@ -54,11 +71,14 @@ const coverageMap = new Map<string, FileCoverageData>();
 /**
  * Create a MessageChannel with RPC for worker communication
  *
+ * This is used for suite-level events (onQueued, onCollected, suite-prepare, suite-finished).
+ * Test-level events are reported directly by workers via their own MessagePorts.
+ *
  * @param project - Vitest project with full TestProject object
  * @param collect - Whether this is for collection (true) or execution (false)
- * @returns Object with workerPort (to send to worker) and poolPort (for cleanup)
+ * @returns Object with workerPort (to send to worker) and poolPort (for cleanup) and rpc client
  */
-function createWorkerChannel(project: TestProject, collect: boolean) {
+function createWorkerChannel(project: TestProject, collect: boolean): WorkerChannel {
   const channel = new MessageChannel();
   const workerPort = channel.port1;
   const poolPort = channel.port2;
@@ -74,14 +94,14 @@ function createWorkerChannel(project: TestProject, collect: boolean) {
       debug('[Pool] First file - id:', files[0]?.id, 'filepath:', files[0]?.filepath, 'tasks:', files[0]?.tasks?.length);
       return methods.onCollected(files);
     },
-    onTaskUpdate: async (packs: TaskResultPack[], events: any[]) => {
+    onTaskUpdate: async (packs: TaskResultPack[], events: TaskEventPack[]) => {
       debug('[Pool] RPC received onTaskUpdate with', packs.length, 'packs');
       return methods.onTaskUpdate(packs, events);
     },
   };
 
   // Create RPC in pool (has access to full TestProject)
-  const rpc = createBirpc(
+  const rpc = createBirpc<RuntimeRPC, typeof wrappedMethods>(
     wrappedMethods,
     {
       post: (v) => poolPort.postMessage(v),
@@ -127,64 +147,61 @@ function handleCacheInvalidations(invalidates: string[] | undefined): void {
  * don't match, the file was invalidated while the worker was compiling, so
  * we discard the stale result.
  *
- * This prevents race conditions in watch mode where:
- * 1. Worker A starts compiling file.ts (generation 0)
- * 2. File changes, generation bumped to 1
- * 3. Worker B starts compiling file.ts (generation 1)
- * 4. Worker B finishes first, caches result (generation 1)
- * 5. Worker A finishes late, tries to cache stale result (generation 0)
- * 6. We reject Worker A's result because generation doesn't match
- *
  * @param testFile - Path to test file
- * @param workerData - Compilation data returned from worker (null if cache hit)
+ * @param compileResult - Compilation result from worker
  * @returns true if cached, false if rejected (stale generation)
- *
- * NOTE: This function will be used when Tinypool worker integration is complete.
- * Currently unused but infrastructure is prepared for worker-based compilation.
  */
-// @ts-ignore - Will be used for worker-based compilation
-function validateAndCacheWorkerCompilation(
+function validateAndCacheCompilation(
   testFile: string,
-  workerData: WorkerCachedCompilation | null
+  compileResult: CompileFileResult
 ): boolean {
-  // If worker didn't compile (cache hit), nothing to validate or cache
-  if (!workerData) {
-    return false;
-  }
-
   // Get current generation for this file
   const currentGen = cacheGeneration.get(testFile) ?? 0;
 
   // Validate generation matches
-  if (workerData.generation !== currentGen) {
+  if (compileResult.generation !== currentGen) {
     debug('[Pool] Rejecting stale compilation for', testFile,
-          '- worker generation:', workerData.generation,
+          '- worker generation:', compileResult.generation,
           'current generation:', currentGen);
     return false;
   }
 
-  // Generation matches - safe to cache
+  // Generation matches - safe to cache (discoveredTests will be added in Phase 2)
   const cached: CachedCompilation = {
-    binary: workerData.binary,
-    sourceMap: workerData.sourceMap,
-    coverageBinary: workerData.coverageBinary,
-    debugInfo: workerData.debugInfo,
-    discoveredTests: workerData.discoveredTests,
+    binary: compileResult.binary,
+    sourceMap: compileResult.sourceMap,
+    coverageBinary: compileResult.coverageBinary,
+    debugInfo: compileResult.debugInfo,
+    discoveredTests: [], // Will be populated after discovery
+    compileTimings: compileResult.timings,
   };
 
   compilationCache.set(testFile, cached);
-  debug('[Pool] Cached worker compilation for', testFile, 'at generation:', currentGen);
+  debug('[Pool] Cached compilation for', testFile, 'at generation:', currentGen);
   return true;
 }
 
-
+/**
+ * Extract project information from TestSpecification
+ *
+ * @param spec - Test specification from Vitest
+ * @returns Project information for file task creation
+ */
+function extractProjectInfo(spec: TestSpecification): ProjectInfo {
+  const project: TestProject = spec.project;
+  return {
+    projectRoot: project.config.root,
+    projectName: project.name,
+    testTimeout: project.config.testTimeout,
+  };
+}
 
 export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   // Read pool options and initialize debug mode
   const options = (ctx.config.poolOptions?.assemblyScript as PoolOptions) ?? {};
   setDebug(options.debug ?? false);
 
-  debug('[Pool] Initializing AssemblyScript pool');
+  debug('[Pool] Initializing AssemblyScript pool with per-test parallelism');
 
   // Worker path resolution
   // Workers must be pre-compiled JavaScript
@@ -204,7 +221,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   const cpus = os.availableParallelism?.() ?? os.cpus().length;
   const maxThreads = options.maxThreads ?? Math.max(cpus - 1, 1);
 
-  debug('[Pool] Worker configuration - maxThreads:', maxThreads, 'isolate:', options.isolate ?? true);
+  debug('[Pool] Worker configuration - maxThreads:', maxThreads, 'isolate:', options.isolate ?? false);
 
   // Initialize Tinypool for worker management
   const pool = new Tinypool({
@@ -218,72 +235,80 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
     name: 'vitest-pool-assemblyscript',
 
     /**
-     * Discover tests by compiling and executing WASM via worker
+     * Discover tests via per-file pipeline: compile → discover
      * Called for `vitest list` command and in watch mode
      */
     async collectTests(specs: TestSpecification[]) {
       debug('[Pool] collectTests called for', specs.length, 'specs');
 
-      // Run all test collection in parallel
-      const promises = specs.map((spec: TestSpecification) => {
-        const project: TestProject = spec.project;
+      // Create pipeline for each file - each flows independently through phases
+      const filePipelines = specs.map(async (spec: TestSpecification) => {
         const testFile: string = spec.moduleId;
-        debug('[Pool] Collecting tests from:', testFile);
+        const project: TestProject = spec.project;
 
-        // Get cached data to send to worker (or undefined if cache miss)
-        const cachedData = compilationCache.get(testFile);
-        const generation = cacheGeneration.get(testFile) ?? 0;
+        // PHASE 1: Compile this file
+        let cached = compilationCache.get(testFile);
 
-        // Create MessageChannel and RPC for worker communication
-        const { workerPort, poolPort } = createWorkerChannel(project, true);
-
-        // Create cleanup callback for Tinypool to call when task finishes
-        const onClose = () => {
-          debug('[Pool] Closing ports for:', testFile);
-          poolPort.close();
-          workerPort.close();
-        };
-
-        // Return the promise from pool.run - don't await here
-        return pool.run(
-          {
+        if (!cached) {
+          const generation = cacheGeneration.get(testFile) ?? 0;
+          const compileTask: CompileFileTask = {
             testFile,
             options,
             generation,
-            cachedData,
-            port: workerPort,
-            projectRoot: project.config.root,
-            projectName: project.name,
-            testTimeout: project.config.testTimeout,
-          },
-          {
-            name: 'collectTests',
-            transferList: [workerPort],
-            channel: { onClose },
-          }
-        ).then((result) => {
-          // Cache compilation if worker compiled (cache miss)
-          if (result.compiledData) {
-            validateAndCacheWorkerCompilation(testFile, result.compiledData);
+          };
+
+          const compileResult = await pool.run(compileTask, { name: 'compileFile' }) as CompileFileResult;
+
+          // Validate and cache
+          const success = validateAndCacheCompilation(testFile, compileResult);
+          if (!success) {
+            throw new Error(`Failed to cache compilation for ${testFile} (stale generation)`);
           }
 
-          debug('[Pool] Collected', result.tests.length, 'tests from:', testFile);
-          return result;
-        }).catch((error) => {
-          debug('[Pool] Error collecting tests from', testFile, ':', error);
-          throw error;
-        });
+          cached = compilationCache.get(testFile)!;
+        }
+
+        // PHASE 2: Discover tests (starts immediately after compile)
+        if (cached.discoveredTests.length === 0) {
+          const projectInfo = extractProjectInfo(spec);
+          const { workerPort, poolPort, rpc: _rpc } = createWorkerChannel(project, false);
+
+          try {
+            const discoverTask: DiscoverTestsTask = {
+              binary: cached.binary,
+              testFile,
+              options,
+              port: workerPort,
+              projectInfo,
+              compileTimings: cached.compileTimings,
+            };
+
+            const discoverResult = await pool.run(discoverTask, {
+              name: 'discoverTests',
+              transferList: [workerPort],
+            }) as DiscoverTestsResult;
+
+            cached.discoveredTests = discoverResult.tests;
+            cached.discoverTimings = discoverResult.timings;
+          } finally {
+            workerPort.close();
+            poolPort.close();
+          }
+        }
+
+        return { spec, tests: cached.discoveredTests };
       });
 
-      // Wait for all collections to complete
-      await Promise.allSettled(promises);
+      // Wait for all file pipelines to complete
+      await Promise.all(filePipelines);
 
       debug('[Pool] collectTests completed');
     },
 
     /**
-     * Run tests using worker pool with RPC reporting
-     * Workers handle compilation, discovery, execution, and progressive reporting
+     * Run tests using true pipeline parallelism
+     * Each file flows through its pipeline independently: compile → discover → execute tests
+     * Pool handles suite-level RPC events, workers handle test-level events
      */
     async runTests(specs: TestSpecification[], invalidates?: string[]) {
       debug('[Pool] runTests called for', specs.length, 'specs');
@@ -292,79 +317,167 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
       // Clear cache for invalidated files and bump generations
       handleCacheInvalidations(invalidates);
 
-      // Run all test files in parallel
-      const promises = specs.map((spec: TestSpecification) => {
-        const project: TestProject = spec.project;
+      // Create pipeline for each file - each flows independently through phases
+      const filePipelines = specs.map(async (spec: TestSpecification) => {
         const testFile: string = spec.moduleId;
-        debug('[Pool] Running tests in:', testFile);
+        const project: TestProject = spec.project;
+        const projectInfo = extractProjectInfo(spec);
 
-        // Get cached data to send to worker (or undefined if cache miss)
-        const cachedData = compilationCache.get(testFile);
-        const generation = cacheGeneration.get(testFile) ?? 0;
+        debug(`[Pipeline ${testFile}] Starting pipeline`);
 
-        // Create MessageChannel and RPC for worker communication
-        // Use collect: false for runTests so ctx._testRun methods get called (triggers reporters)
-        const { workerPort, poolPort } = createWorkerChannel(project, false);
+        // PHASE 1: Compile this file
+        debug(`[Pipeline ${testFile}] Phase 1 (compile) starting`);
+        let cached = compilationCache.get(testFile);
 
-        // Create cleanup callback for Tinypool to call when task finishes
-        const onClose = () => {
-          debug('[Pool] Closing ports for:', testFile);
-          poolPort.close();
-          workerPort.close();
-        };
-
-        // Return the promise from pool.run - don't await here
-        return pool.run(
-          {
+        if (!cached) {
+          const generation = cacheGeneration.get(testFile) ?? 0;
+          const compileTask: CompileFileTask = {
             testFile,
             options,
             generation,
-            cachedData,
-            port: workerPort,
-            projectRoot: project.config.root,
-            projectName: project.name,
-            testTimeout: project.config.testTimeout,
-          },
-          {
-            name: 'runTests',
-            transferList: [workerPort],
-            channel: { onClose },
-          }
-        ).then((result) => {
-          // Cache compilation if worker compiled (cache miss)
-          if (result.compiledData) {
-            validateAndCacheWorkerCompilation(testFile, result.compiledData);
+          };
+
+          const compileResult = await pool.run(compileTask, { name: 'compileFile' }) as CompileFileResult;
+
+          // Validate and cache
+          const success = validateAndCacheCompilation(testFile, compileResult);
+          if (!success) {
+            throw new Error(`Failed to cache compilation for ${testFile} (stale generation)`);
           }
 
-          // Accumulate coverage if present
-          if (result.coverageData && result.debugInfo) {
-            coverageMap.set(testFile, {
-              coverage: result.coverageData,
-              debugInfo: result.debugInfo,
-            });
-          }
+          cached = compilationCache.get(testFile)!;
+        }
 
-          return result;
-        }).catch((error) => {
-          debug('[Pool] Error running tests in', testFile, ':', error);
-          throw error;
+        debug(`[Pipeline ${testFile}] Phase 1 (compile) complete, starting Phase 2 (discover)`);
+
+        // PHASE 2: Discover tests (starts immediately after compile)
+        if (cached.discoveredTests.length === 0) {
+          const { workerPort: discoverPort, poolPort: discoverPoolPort, rpc: _rpc } = createWorkerChannel(project, false);
+
+          try {
+            const discoverTask: DiscoverTestsTask = {
+              binary: cached.binary,
+              testFile,
+              options,
+              port: discoverPort,
+              projectInfo,
+              compileTimings: cached.compileTimings,
+            };
+
+            const discoverResult = await pool.run(discoverTask, {
+              name: 'discoverTests',
+              transferList: [discoverPort],
+            }) as DiscoverTestsResult;
+
+            cached.discoveredTests = discoverResult.tests;
+            cached.discoverTimings = discoverResult.timings;
+          } finally {
+            discoverPort.close();
+            discoverPoolPort.close();
+          }
+        }
+
+        debug(`[Pipeline ${testFile}] Phase 2 (discover) complete, found ${cached.discoveredTests.length} tests, starting Phase 3 (execute)`);
+
+        // Create file task for test execution
+        const fileTask = createFileTask(
+          testFile,
+          projectInfo.projectRoot,
+          projectInfo.projectName,
+          POOL_NAME
+        );
+        fileTask.mode = 'run';
+        fileTask.result = { state: 'run', startTime: Date.now() };
+
+        // Add test tasks to file
+        for (const test of cached.discoveredTests) {
+          const testTask: RunnerTestCase = {
+            type: 'test',
+            name: test.name,
+            id: `${fileTask.id}_${test.name}`,
+            context: {} as TestContext & object,
+            suite: fileTask,
+            mode: 'run',
+            meta: {},
+            file: fileTask,
+            timeout: projectInfo.testTimeout,
+            annotations: [],
+          };
+          fileTask.tasks.push(testTask);
+        }
+
+        // PHASE 3: Execute all tests for this file (starts immediately after discovery)
+        const testExecutions = fileTask.tasks.map(async (testTask, testIndex) => {
+          const test = cached!.discoveredTests[testIndex]!;
+
+          // Create RPC channel for this test
+          const { workerPort: testWorkerPort, poolPort: testPoolPort, rpc: _testRpc } = createWorkerChannel(project, false);
+
+          const executeTask: ExecuteTestTask = {
+            binary: cached!.binary,
+            sourceMap: cached!.sourceMap,
+            coverageBinary: options.coverage === true ? cached!.coverageBinary : undefined,
+            test,
+            testIndex,
+            testFile,
+            options,
+            port: testWorkerPort,
+            testTaskId: testTask.id,
+            testTaskName: testTask.name,
+          };
+
+          try {
+            const result = await pool.run(executeTask, {
+              name: 'executeTest',
+              transferList: [testWorkerPort],
+            }) as ExecuteTestResult;
+
+            return { testTask, result: result.result };
+          } finally {
+            testWorkerPort.close();
+            testPoolPort.close();
+          }
         });
+
+        // Wait for all tests in this file to complete
+        await Promise.all(testExecutions);
+
+        debug(`[Pipeline ${testFile}] Phase 3 (execute) complete`);
+
+        // Update file task with final results
+        const fileEndTime = Date.now();
+        const hasFailures = fileTask.tasks.some((t) => t.result?.state === 'fail');
+        fileTask.result.duration = fileEndTime - fileTask.result.startTime!;
+        fileTask.result.state = hasFailures ? 'fail' : 'pass';
+
+        // Report file summary (suite-finished + final flush)
+        debug(`[Pipeline ${testFile}] Calling reportFileSummary`);
+        const { workerPort: summaryPort, poolPort: summaryPoolPort, rpc: _summaryRpc } = createWorkerChannel(project, false);
+        try {
+          const summaryTask: ReportFileSummaryTask = {
+            testFile,
+            options,
+            port: summaryPort,
+            fileTask,
+          };
+
+          await pool.run(summaryTask, {
+            name: 'reportFileSummary',
+            transferList: [summaryPort],
+          });
+          debug(`[Pipeline ${testFile}] reportFileSummary completed`);
+        } finally {
+          summaryPort.close();
+          summaryPoolPort.close();
+        }
+
+        return { fileTask, cached };
       });
 
-      // Wait for all test files to complete
-      const results = await Promise.allSettled(promises);
+      // Wait for all file pipelines to complete
+      await Promise.all(filePipelines);
 
-      // Check for errors
-      const errors = results
-        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
-        .map(r => r.reason);
-
-      if (errors.length > 0) {
-        debug('[Pool] Errors occurred in', errors.length, 'files');
-        // Don't throw - errors already reported to Vitest via RPC
-      }
-
-      // Write single LCOV file with all coverage data
+      // Write coverage
       if (options.coverage && coverageMap.size > 0) {
         await writeCoverageReport(coverageMap, 'coverage/lcov.info');
       }
@@ -384,5 +497,3 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
     },
   };
 }
-
-
