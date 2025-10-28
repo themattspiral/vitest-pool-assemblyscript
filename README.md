@@ -1,103 +1,156 @@
-# Vitest AssemblyScript Pool
+# vitest-pool-assemblyscript
 
-A Vitest pool for running AssemblyScript tests with per-test crash isolation, coverage tracking, and a familiar testing API.
+**AssemblyScript testing for teams already using Vitest**
 
-**Status**: Work in Progress - Core functionality implemented, API surface under active development
+A [Vitest](https://vitest.dev/) custom pool that brings [AssemblyScript](https://www.assemblyscript.org/) testing into your existing Vitest workflow.
 
-## Motivation
+Features:
+- Per-test WASM instance isolation for crash tolerance
+- Source-mapped error messages (AssemblyScript function names, line & column numbers)
+- Coverage tracking with LCOV output
+- Smart execution for both accurate errors and coverage
+- Familiar testing API (Vitest inspired)
+- Parallel compilation, disovery, and test execution
+- Cached, in-memory binaries and source maps
 
-AssemblyScript lacks exception handling (no try/catch), making testing challenging. Existing frameworks have limitations:
+---
 
-- **Test crashes cascade**: One failing test kills all subsequent tests
-- **Incorrect test counting**: Assertion counts reported as test counts
-- **Limited coverage**: No per-test tracking or LCOV output
-- **No parallelization**: Sequential execution only
+## Why This Exists
 
-This pool solves these problems by leveraging Vitest's ecosystem - its runner infrastructure, reporters, watch mode, and UI - while adding AssemblyScript-specific test execution and crash isolation.
+If you're a JavaScript/TypeScript team using Vitest and want to adopt AssemblyScript for performance-critical code, you face a choice:
 
-## Planned Features
+- **Use standalone AS testing tools** → Learn new workflows, separate test commands, different coverage formats
+- **Use generic WASM testing patterns** → Instantiation boilerplate, no test discovery, cryptic errors
+- **Use this pool** → Keep using `vitest`, add `.as.test.ts` files, get familiar matchers and reporting
 
-### Core Testing
+This pool bridges the gap between AssemblyScript and the modern JavaScript testing ecosystem. It's designed for incremental adoption - add AS modules to your existing codebase without changing your testing infrastructure.
 
-- **Per-test crash isolation**: Each test runs in a fresh WASM instance. One test aborting doesn't affect others, adds <1ms extra overhead per test
-- **Correct test counting**: Tests are `test()` blocks, not assertion calls
-- **Familiar API**: Jest/Vitest-like syntax with `test()`, `describe()`, and `expect()`
+**Status**: Early but functional - Core architecture validated and working. API surface and matchers under active development.
 
-### Coverage
+---
 
-- **Per-test coverage tracking**: Know which tests cover which code paths
-- **Multiple formats**: LCOV, HTML, JSON, Cobertura
-- **Coverage-guided test selection**: Run only tests affected by code changes
+## What Makes This Different
 
-### Performance
+### 1. **Vitest Ecosystem Integration** (The Big One)
+- Use the same `vitest` command, config, and watch mode you already have
+- Works with Vitest UI, reporters, and coverage tools
+- Filter tests with familiar patterns: `vitest run math` or `vitest --coverage`
+- No separate test runner to learn or configure
 
-- **Binary caching**: Compile once, reuse for all test runs
-- **Fast iteration**: Watch mode with incremental compilation
-- **Parallel test execution** (planned): Worker pool for concurrent test file execution
+### 2. **Isolation**
+- Each test runs in a fresh WASM instance
+- One crashing test doesn't kill the rest
 
-### Developer Experience
+### 3. **Familiar Developer Experience**
+- Jest/Vitest-like matchers (in progress): `expect(x).toBe(y)`, `toBeCloseTo()`, etc.
+- No `endTest()` boilerplate required
+- Console.log capture for debugging
+- Configurable AS compiler options
 
-- **Vitest ecosystem integration**: Leverages Vitest's runner, reporters, watch mode, and UI
-- **Rich matchers** (planned): `toBe()`, `toEqual()`, `toBeGreaterThan()`, `toBeCloseTo()`, etc.
-- **Test organization** (planned): Nested `describe()` blocks with lifecycle hooks
+### 4. **Better Coverage Architecture**
+- Smart Re-Runs: "Failsafe" modes collects coverage on first run with an instrumentation; failed tests re-execute on clean binary to capture meaningful error output
+- Optionally remove `@inline` decorators to gather coverage for normally inlined code
 
-## Current Status (October 2025)
+---
 
-- ✅ Vitest Pool integration (`ProcessPool` interface)
+## Current Status
+
+**Working Now:**
+- ✅ Vitest pool integration with tinypool parallelization
 - ✅ Per-test WASM instance isolation
-- ✅ Test registry pattern for crash safety
-- ✅ Basic `test()` and `assert()` framework
-- ✅ Binary caching between test discovery and execution
+- ✅ Test discovery and registration
+- ✅ Basic `test()` and `assert()` API
+- ✅ Binary caching between runs
+- ✅ Source-mapped error messages
+- ✅ Dual-mode coverage, Failsafe mode coverage
+- ✅ LCOV coverage output
+- ✅ Console reporting through Vitest
 
-## Quick Example
+**In Progress:**
+- 🚧 Configurable ASC compiler options
+- 🚧 Rich matcher API (`expect().toBe()`, `toEqual()`, `toBeCloseTo()`, etc.)
+- 🚧 Nested `describe()` blocks and lifecycle hooks (`beforeEach()`, `beforeAll()`, etc.)
+- 🚧 Configuration docs and examples
+- 🚧 Internal test suite for stability
+- 🚧 Edge case hardening
 
-```typescript
-// tests/math.as.test.ts
-import { test, assert } from 'vitest-pool-assemblyscript/assembly';
+**Planned Before First Release:**
+- 📋 Per-test coverage tracking
+- 📋 Coverage-guided test selection
+- 📋 Watch mode optimization
 
-test('addition works', () => {
-  const sum: i32 = 1 + 1;
-  assert(sum == 2, 'expected 1 + 1 to equal 2');
-});
+**Planned for Future:**
+- 📋 Full vitest reporter integration
+- 📋 Mocking utilities
+- 📋 JS Integration harness with browser runners
 
-test('multiplication works', () => {
-  const product: i32 = 3 * 4;
-  assert(product == 12, 'expected 3 * 4 to equal 12');
-});
-```
+**Currently Out of Scope:**
+ - Generic testing of precompiled WASM
 
-```typescript
-// vitest.config.ts
-import { defineConfig } from 'vitest/config';
+---
 
-export default defineConfig({
-  test: {
-    pool: 'vitest-pool-assemblyscript',
-    include: ['tests/**/*.as.test.ts'],
-  }
-});
-```
+## How It Works
 
-## Architecture
+Built on Vitest's [`ProcessPool` API](https://vitest.dev/advanced/pool) for alternative runtime execution.
 
-Built using Vitest's [`ProcessPool` API](https://vitest.dev/advanced/pool) for alternative runtime execution:
+### Architecture
 
-### What We Leverage from Vitest
+To be documented here when it is fully stable.
 
-- **Runner infrastructure**: Test task structure, result reporting, state management
-- **Watch mode**: File watching and incremental re-runs
-- **Reporters**: Terminal output, UI, coverage reports
-- **Configuration**: Standard Vitest config for test patterns, timeouts, etc.
+### What You Get from Vitest
+- Runner infrastructure and state management
+- Watch mode and file watching
+- Reporters (terminal, UI, coverage)
+- Test filtering and patterns
+- Standard configuration
 
-### How It Works
+---
 
-1. **Test Discovery**: Compile AS → WASM, execute to query test registry, cache binary
-2. **Test Execution**: Reuse cached binary, run each test in fresh WASM instance for crash isolation
-3. **Result Reporting**: Collect results via WASM imports, report through Vitest's task structure
+## Why Not [Alternative]?
 
-## Contributing
+**vs. assemblyscript-unittest-framework:**
+- Vitest: Integrate with your existing Vitest setup (watch mode, UI, familiar commands and reporters)
+- Crash tolerance: Our per-test WASM instance isolation means one failing test doesn't stop others executing
+- Faster: Parallel compilation, disovery, and test execution will maximize efficiency
+- Cached, in-memory binaries and source maps
+- More standard assertion vs test counting
+- LCOV output
 
-This is currently a hobby project being developed in the open. Issues and PRs welcome, but expect slower response times.
+**vs. as-pect:**
+- Active: as-pect is unmaintained (last update 2022) and incompatible with modern AssemblyScript versions
+- We target teams already invested in Vitest
+
+**vs. manual WASM instantiation in Vitest:**
+- No boilerplate `fs.readFileSync()` + `WebAssembly.instantiate()`, etc
+- Automatic test discovery
+- Per-test WASM instance isolation provides crash tolerance
+- Built-in LCOV coverage reporting
+
+---
+
+## Target Audience
+
+This is for you if:
+- ✅ You're using Vitest for JS/TS testing
+- ✅ You want to add AssemblyScript for performance-critical modules
+- ✅ You want to keep using familiar testing workflows
+- ✅ You need accurate coverage for CI/CD
+
+---
+
+## Project Status & Expectations
+
+**This is an early-stage hobby project** being developed in the open. The hard parts (WASM isolation, coverage instrumentation, Vitest integration) are proven and working. What's left is polish, configuration, matchers, and documentation.
+
+**Current state:**
+- Core architecture: ✅ Validated
+- API stability: ⚠️ Expect breaking changes
+- Production readiness: ❌ Not yet
+- Documentation: ❌ Not yet
+
+*(Note: Not yet published to npm - currently development only)*
+
+---
 
 ## License
 
