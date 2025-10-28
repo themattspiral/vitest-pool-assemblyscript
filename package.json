@@ -19,6 +19,9 @@
     "dist",
     "assembly"
   ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",

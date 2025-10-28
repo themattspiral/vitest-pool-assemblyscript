@@ -8,8 +8,14 @@
  * 1. AS Transform extracts function metadata (name, source lines) during compilation
  * 2. AS Compiler generates WASM binary
  * 3. Binaryen reads binary and manipulates WASM module
- * 4. Inject __coverage_trace(funcIdx, blockIdx) calls at function entry
+ * 4. Inject memory operations to increment counters in separate coverage memory
  * 5. Use metadata to map funcIdx → {name, file, lines} in debug info
+ *
+ * Multi-Memory Coverage (Node 20+):
+ * - Uses WebAssembly multi-memory to avoid WASM→JS boundary crossings
+ * - Coverage counters stored in separate WebAssembly.Memory instance
+ * - Instrumentation injects native WASM memory operations (load/add/store)
+ * - Eliminates ~150x overhead from boundary crossings on every function call
  */
 
 import binaryen from 'binaryen';
@@ -44,9 +50,13 @@ export class BinaryenCoverageInstrumenter {
     // Read WASM binary into Binaryen module
     const module = binaryen.readBinary(wasmBuffer);
 
-    // Enable features for validation
+    // Enable features for validation and multi-memory support
     const currentFeatures = module.getFeatures();
-    module.setFeatures(currentFeatures | binaryen.Features.BulkMemoryOpt);
+    module.setFeatures(
+      currentFeatures |
+      binaryen.Features.BulkMemoryOpt |
+      binaryen.Features.MultiMemory
+    );
 
     // Inject coverage tracing
     this.injectCoverageTracing(module, sourceFile);
@@ -77,14 +87,14 @@ export class BinaryenCoverageInstrumenter {
    * Inject coverage tracing into all user functions
    *
    * For each function:
-   * 1. Inject __coverage_trace(funcIdx, 0) at function entry
+   * 1. Inject memory operations to increment coverage counter at function entry
    * 2. Extract debug info (name, file, lines) from AS transform metadata
    */
   private injectCoverageTracing(module: binaryen.Module, sourceFile: string): void {
-    debug('[Binaryen Coverage] Injecting coverage trace calls');
+    debug('[Binaryen Coverage] Injecting coverage memory operations');
 
-    // Ensure __coverage_trace import exists
-    this.ensureCoverageTraceImport(module);
+    // Ensure __coverage_memory import exists
+    this.ensureCoverageMemoryImport(module);
 
     // Load function metadata from AS transform
     // The transform stores paths as AS sees them (relative), but we receive absolute paths
@@ -129,6 +139,12 @@ export class BinaryenCoverageInstrumenter {
       // Skip framework functions (start with __)
       if (funcInfo.name.startsWith('__')) {
         debug(`[Binaryen Coverage] Skipping framework function: ${funcInfo.name}`);
+        continue;
+      }
+
+      // Skip test framework functions (from assembly/index.ts)
+      if (funcInfo.name.startsWith('assembly/index/')) {
+        debug(`[Binaryen Coverage] Skipping test framework function: ${funcInfo.name}`);
         continue;
       }
 
@@ -195,19 +211,25 @@ export class BinaryenCoverageInstrumenter {
       debug(`[Binaryen Coverage] Function ${funcInfo.name}: no metadata found, using placeholders`);
     }
 
-    // Create trace call: __coverage_trace(funcIdx, 0)
-    const traceCall = module.call(
-      '__coverage_trace',
-      [
-        module.i32.const(funcIdx),
-        module.i32.const(0), // blockIdx = 0 for function entry
-      ],
-      binaryen.none
+    // Create memory operations to increment coverage counter
+    // Calculate address: funcIdx * 4 (4 bytes per i32 counter)
+    const addr = module.i32.mul(
+      module.i32.const(funcIdx),
+      module.i32.const(4)
     );
 
-    // Create new function body: block { trace_call; original_body; }
-    // We wrap in a block to sequence the trace call before the original body
-    const newBody = module.block(null, [traceCall, funcInfo.body], funcInfo.results);
+    // Load current counter value from coverage memory
+    const loaded = module.i32.load(0, 1, addr, '__coverage_memory');
+
+    // Increment counter
+    const incremented = module.i32.add(loaded, module.i32.const(1));
+
+    // Store incremented value back to coverage memory
+    const stored = module.i32.store(0, 1, addr, incremented, '__coverage_memory');
+
+    // Create new function body: block { stored; original_body; }
+    // We wrap in a block to sequence the memory operations before the original body
+    const newBody = module.block(null, [stored, funcInfo.body], funcInfo.results);
 
     // Replace the function with the instrumented version
     // We need to remove and re-add since there's no "update" method
@@ -237,36 +259,21 @@ export class BinaryenCoverageInstrumenter {
   }
 
   /**
-   * Ensure __coverage_trace import exists in the module
+   * Ensure __coverage_memory import exists in the module
    *
-   * If it doesn't exist, add it: __coverage_trace(funcIdx: i32, blockIdx: i32) -> void
+   * Adds a second WebAssembly.Memory import for storing coverage counters.
+   * This enables coverage tracking without WASM→JS boundary crossings.
    */
-  private ensureCoverageTraceImport(module: binaryen.Module): void {
-    // Check if __coverage_trace already exists
-    try {
-      const func = module.getFunction('__coverage_trace');
-      if (func) {
-        debug('[Binaryen Coverage] __coverage_trace import already exists');
-        return;
-      }
-    } catch (e) {
-      // Function doesn't exist, we'll add it
-    }
-
-    // Add import: @external("env", "__coverage_trace")
-    // declare function __coverage_trace(funcIdx: i32, blockIdx: i32): void
-    const params = binaryen.createType([binaryen.i32, binaryen.i32]);
-    const results = binaryen.none;
-
-    module.addFunctionImport(
-      '__coverage_trace',  // internal name
-      'env',               // module name
-      '__coverage_trace',  // base name
-      params,
-      results
+  private ensureCoverageMemoryImport(module: binaryen.Module): void {
+    // Add coverage memory import
+    // The memory will be provided by the executor as a second WebAssembly.Memory instance
+    module.addMemoryImport(
+      '__coverage_memory',  // internal name
+      'env',                // module name
+      '__coverage_memory'   // base name
     );
 
-    debug('[Binaryen Coverage] Added __coverage_trace import');
+    debug('[Binaryen Coverage] Added __coverage_memory import');
   }
 
   /**

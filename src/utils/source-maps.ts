@@ -61,6 +61,17 @@ export async function mapWATtoSource(
   consumer.destroy();
 
   if (!original.source || original.line === null || original.column === null) {
+    debug('[SourceMap] Mapping failed:', {
+      watInput: { line: watLine, column: watColumn },
+      sourceMapResult: {
+        hasSource: !!original.source,
+        source: original.source || 'null',
+        hasLine: original.line !== null,
+        line: original.line,
+        hasColumn: original.column !== null,
+        column: original.column
+      }
+    });
     return null;
   }
 

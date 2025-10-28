@@ -9,7 +9,7 @@ import asc from 'assemblyscript/dist/asc.js';
 import { basename } from 'path';
 
 import type { CompileResult, CompilerOptions, DebugInfo } from './types.js';
-import { debug } from './utils/debug.mjs';
+import { debug, debugTiming } from './utils/debug.mjs';
 import { BinaryenCoverageInstrumenter } from './coverage/instrumentation.js';
 
 /**
@@ -65,7 +65,7 @@ function instrumentBinaryForCoverage(
  */
 export async function compileAssemblyScript(
   filename: string,
-  options: CompilerOptions = {}
+  options: CompilerOptions
 ): Promise<CompileResult> {
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
@@ -109,9 +109,8 @@ export async function compileAssemblyScript(
     '--exportTable',                  // Export function table for direct test execution
   ];
 
-  // Add transform for coverage metadata extraction if coverage enabled (true or 'dual')
-  const needsCoverage = options.coverage === true || options.coverage === 'dual';
-  if (needsCoverage) {
+  // Add transform for coverage metadata extraction if coverage enabled
+  if (options.coverage) {
     compilerFlags.push(
       '--transform', './src/transforms/extract-function-metadata.mjs'
     );
@@ -121,8 +120,7 @@ export async function compileAssemblyScript(
   // Add transform to strip @inline decorators if requested
   // This improves coverage accuracy by preventing functions from being inlined
   // Only applies when coverage is enabled.
-  const needsInlineStripping = needsCoverage && options.stripInline === true;
-  if (needsInlineStripping) {
+  if (options.coverage && options.stripInline === true) {
     compilerFlags.push(
       '--transform', './src/transforms/strip-inline.mjs'
     );
@@ -131,6 +129,7 @@ export async function compileAssemblyScript(
 
 
   // Compile with AssemblyScript compiler
+  const ascStart = performance.now();
   const result = await asc.main(compilerFlags, {
     stdout,
     stderr,
@@ -144,6 +143,8 @@ export async function compileAssemblyScript(
       }
     },
   });
+  const ascEnd = performance.now();
+  debugTiming(`[TIMING] ${basename(filename)} - asc.main: ${ascEnd - ascStart}ms`);
 
   // Check for compilation errors
   if (result.error) {
@@ -188,7 +189,10 @@ export async function compileAssemblyScript(
   }
 
   // Instrument binary for coverage if requested
+  const instrumentStart = performance.now();
   const instrumentResult = instrumentBinaryForCoverage(wasmBinary, filename, options.coverage);
+  const instrumentEnd = performance.now();
+  debugTiming(`[TIMING] ${basename(filename)} - instrumentation: ${instrumentEnd - instrumentStart}ms`);
 
   return {
     binary: instrumentResult.binary,

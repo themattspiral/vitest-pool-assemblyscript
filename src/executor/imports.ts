@@ -9,31 +9,13 @@
  */
 
 import { decodeString, decodeAbortInfo } from '../utils/wasm-memory.js';
-import type { CoverageData, DiscoveredTest, TestResult } from '../types.js';
+import type { DiscoveredTest, TestResult } from '../types.js';
 import { debug, debugError } from '../utils/debug.mjs';
 import { extractCallStack } from '../utils/source-maps.js';
 
 // ============================================================================
 // Shared Utilities
 // ============================================================================
-
-/**
- * Track coverage for a function and block
- * Shared implementation used by both test execution and coverage collection imports
- *
- * @param coverage - Coverage data collector
- * @param funcIdx - Function index
- * @param blockIdx - Block index within function
- */
-export function trackCoverage(coverage: CoverageData, funcIdx: number, blockIdx: number): void {
-  // Track function-level coverage (stringify funcIdx for POJO key)
-  const funcKey = String(funcIdx);
-  coverage.functions[funcKey] = (coverage.functions[funcKey] || 0) + 1;
-
-  // Track block-level coverage
-  const blockKey = `${funcIdx}:${blockIdx}`;
-  coverage.blocks[blockKey] = (coverage.blocks[blockKey] || 0) + 1;
-}
 
 /**
  * Decode and log abort information
@@ -70,23 +52,28 @@ export function logAbort(
  * Used during test discovery phase to register test names and function indices.
  * Minimal imports - only registration callback and stubs.
  *
+ * When the binary is instrumented (has coverage memory import), we must provide
+ * a stub coverage memory even though we're not collecting coverage during discovery.
+ *
  * @param memory - WebAssembly memory instance
  * @param tests - Array to collect registered tests (mutated by __register_test callback)
+ * @param coverageMemory - Optional coverage memory (required if binary is instrumented)
  * @returns WebAssembly import object
  */
 export function createDiscoveryImports(
   memory: WebAssembly.Memory,
-  tests: DiscoveredTest[]
+  tests: DiscoveredTest[],
+  coverageMemory?: WebAssembly.Memory
 ): WebAssembly.Imports {
   return {
     env: {
       memory,
+      ...(coverageMemory ? { __coverage_memory: coverageMemory } : {}),
       __register_test(namePtr: number, nameLen: number, fnIndex: number) {
         const testName = decodeString(memory, namePtr, nameLen);
         tests.push({ name: testName, fnIndex });
         debug('[Executor] Registered test:', testName, 'at function index', fnIndex);
       },
-      __coverage_trace() {}, // No-op during discovery
       __assertion_pass() {},
       __assertion_fail() {},
       abort(msgPtr: number, filePtr: number, line: number, column: number) {
@@ -101,30 +88,29 @@ export function createDiscoveryImports(
 /**
  * Create import object for test execution
  *
- * Used during test execution on clean binary. Captures test results, coverage data,
- * and error information. The abort handler throws to halt execution on failure.
+ * Used during test execution on clean or instrumented binaries. Captures test results,
+ * error information, and assertions. The abort handler throws to halt execution on failure.
+ *
+ * When coverageMemory is provided (instrumented binary), it will be imported as __coverage_memory
+ * for the WASM module to use directly via memory operations (no boundary crossings).
  *
  * @param memory - WebAssembly memory instance
  * @param currentTest - Mutable reference to current test result (updated by imports)
- * @param coverage - Coverage data collector
+ * @param coverageMemory - Optional coverage memory for instrumented binaries
  * @returns WebAssembly import object
  */
 export function createTestExecutionImports(
   memory: WebAssembly.Memory,
   currentTest: { value: TestResult | null },
-  coverage: CoverageData
+  coverageMemory?: WebAssembly.Memory
 ): WebAssembly.Imports {
   return {
     env: {
       memory,
+      ...(coverageMemory ? { __coverage_memory: coverageMemory } : {}),
 
       // Test registration callback (no-op during execution)
       __register_test(_namePtr: number, _nameLen: number, _fnIndex: number) {},
-
-      // Coverage tracking callback
-      __coverage_trace(funcIdx: number, blockIdx: number) {
-        trackCoverage(coverage, funcIdx, blockIdx);
-      },
 
       // Assertion tracking
       __assertion_pass() {
@@ -168,27 +154,28 @@ export function createTestExecutionImports(
 }
 
 /**
- * Create import object for coverage collection
+ * Create import object for coverage collection only
  *
  * Used during coverage collection pass in dual mode. Executes test on instrumented binary
  * to collect coverage data. Test failures are ignored - we only care about coverage data
  * collected up to the point of failure.
  *
+ * Coverage is tracked via direct memory operations in the provided coverageMemory.
+ * After execution, the caller reads counters from coverageMemory.buffer.
+ *
  * @param memory - WebAssembly memory instance
- * @param coverage - Coverage data collector
+ * @param coverageMemory - Coverage memory for storing hit counters
  * @returns WebAssembly import object
  */
-export function createCoverageCollectionImports(
+export function createCoverageCollectionOnlyImports(
   memory: WebAssembly.Memory,
-  coverage: CoverageData
+  coverageMemory: WebAssembly.Memory
 ): WebAssembly.Imports {
   return {
     env: {
       memory,
+      __coverage_memory: coverageMemory,
       __register_test(_namePtr: number, _nameLen: number, _fnIndex: number) {},
-      __coverage_trace(funcIdx: number, blockIdx: number) {
-        trackCoverage(coverage, funcIdx, blockIdx);
-      },
       __assertion_pass() {},
       __assertion_fail(_msgPtr: number, _msgLen: number) {},
       abort(msgPtr: number, filePtr: number, line: number, column: number) {

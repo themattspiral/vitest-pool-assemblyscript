@@ -13,91 +13,31 @@
 
 import type { TaskResultPack, TaskEventPack } from '@vitest/runner';
 import type {
-  CompileFileTask,
-  CompileFileResult,
   DiscoverTestsTask,
   DiscoverTestsResult,
   ExecuteTestTask,
   ExecuteTestResult,
-  CompileCoverageBinaryTask,
-  CompileCoverageBinaryResult,
   ExecuteCoveragePassTask,
   ExecuteCoveragePassResult,
   ReportFileSummaryTask,
   ExecuteBeforeAllHooksTask,
   ExecuteAfterAllHooksTask,
 } from '../types.js';
-import { compileAssemblyScript } from '../compiler.js';
 import {
   discoverTests as discoverTestsFromExecutor,
   executeSingleTest,
   collectCoverageForTest,
 } from '../executor/index.js';
 import { setDebug, debug, debugTiming } from '../utils/debug.mjs';
+import { createPhaseTimings } from '../utils/timing.mjs';
 import {
   createRpcClient,
   createInitialFileTask,
   createFileTaskWithTests,
-  createPhaseTimings,
   reportFileQueued,
   reportFileCollected,
   reportSuitePrepare,
 } from './rpc-reporter.js';
-
-// ============================================================================
-// Worker Functions - Phase 1: Compilation
-// ============================================================================
-
-/**
- * Compile AssemblyScript file to WASM
- *
- * Compiles the test file with optional coverage instrumentation.
- * Returns both clean binary (for execution) and optionally coverage binary.
- *
- * Called via: pool.run(taskData, { name: 'compileFile' })
- *
- * @param taskData - Compilation task data
- * @returns Compiled binaries and metadata
- */
-export async function compileFile(taskData: CompileFileTask): Promise<CompileFileResult> {
-  setDebug(taskData.options.debug ?? false);
-  debug('[Worker] compileFile started for:', taskData.testFile);
-
-  const timings = createPhaseTimings();
-
-  // Determine what to compile based on mode:
-  // - false (no coverage): compile clean binary only
-  // - true (single-coverage): compile instrumented binary only
-  // - 'dual': compile clean binary only (coverage binary compiled lazily in Phase 4)
-  const coverageMode = taskData.options.coverage === 'dual' ? false : (taskData.options.coverage ?? false);
-
-  const result = await compileAssemblyScript(taskData.testFile, {
-    coverage: coverageMode,
-    stripInline: taskData.options.stripInline ?? true,
-  });
-  timings.phaseEnd = performance.now();
-  debugTiming(`[TIMING] ${taskData.testFile} - compile: ${timings.phaseEnd - timings.phaseStart}ms`);
-
-  if (result.error) {
-    throw result.error;
-  }
-
-  debug('[Worker] compileFile complete for:', taskData.testFile);
-
-  // In single-coverage mode (true), both binary and coverageBinary point to the SAME instrumented binary
-  // This is honest: there IS only one binary, and we use it for both execution and coverage
-  const binary = result.binary;
-  const coverageBinary = taskData.options.coverage === true ? result.binary : undefined;
-
-  return {
-    binary,
-    sourceMap: result.sourceMap,
-    coverageBinary,
-    debugInfo: result.debugInfo,
-    generation: taskData.generation,
-    timings,
-  };
-}
 
 // ============================================================================
 // Worker Functions - Phase 2: Discovery
@@ -116,43 +56,48 @@ export async function compileFile(taskData: CompileFileTask): Promise<CompileFil
  * @returns Discovered tests and discovery timings
  */
 export async function discoverTests(taskData: DiscoverTestsTask): Promise<DiscoverTestsResult> {
-  setDebug(taskData.options.debug ?? false);
-  debug('[Worker] discoverTests started for:', taskData.testFile);
+  try {
+    setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
+    debug('[Worker] discoverTests started for:', taskData.testFile);
 
-  // Create RPC client
-  const rpc = createRpcClient(taskData.port);
+    // Create RPC client
+    const rpc = createRpcClient(taskData.port);
 
-  // Create phase timings tracker for discovery
-  const timings = createPhaseTimings();
+    // Create phase timings tracker for discovery
+    const timings = createPhaseTimings();
 
-  // Report onQueued
-  const queuedFileTask = createInitialFileTask(taskData.testFile, taskData.projectInfo);
-  await reportFileQueued(rpc, queuedFileTask);
+    // Report onQueued
+    const queuedFileTask = createInitialFileTask(taskData.testFile, taskData.projectInfo);
+    await reportFileQueued(rpc, queuedFileTask);
 
-  // Discover tests from binary
-  const { tests } = await discoverTestsFromExecutor(taskData.binary, taskData.testFile);
-  timings.phaseEnd = performance.now();
+    // Discover tests from binary
+    const { tests } = await discoverTestsFromExecutor(taskData.binary, taskData.testFile, taskData.debugInfo);
+    timings.phaseEnd = performance.now();
 
-  debugTiming(`[TIMING] ${taskData.testFile} - discover: ${timings.phaseEnd - timings.phaseStart}ms`);
+    debugTiming(`[TIMING] ${taskData.testFile} - discover: ${timings.phaseEnd - timings.phaseStart}ms`);
 
-  // Create complete file task for onCollected with duration metadata
-  const collectedFileTask = createFileTaskWithTests(
-    taskData.testFile,
-    taskData.projectInfo,
-    tests,
-    taskData.compileTimings,
-    timings
-  );
+    // Create complete file task for onCollected with duration metadata
+    const collectedFileTask = createFileTaskWithTests(
+      taskData.testFile,
+      taskData.projectInfo,
+      tests,
+      taskData.compileTimings,
+      timings
+    );
 
-  // Report onCollected
-  await reportFileCollected(rpc, collectedFileTask);
+    // Report onCollected
+    await reportFileCollected(rpc, collectedFileTask);
 
-  // Report suite-prepare (will move to executeBeforeAllHooks when hooks are implemented)
-  await reportSuitePrepare(rpc, collectedFileTask);
+    // Report suite-prepare (will move to executeBeforeAllHooks when hooks are implemented)
+    await reportSuitePrepare(rpc, collectedFileTask);
 
-  debug('[Worker] discoverTests complete, discovered', tests.length, 'tests');
+    debug('[Worker] discoverTests complete, discovered', tests.length, 'tests');
 
-  return { tests, timings };
+    return { tests, timings };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    throw new Error(`[Worker] discoverTests failed for ${taskData.testFile}: ${errorMsg}`, { cause: error });
+  }
 }
 
 // ============================================================================
@@ -174,106 +119,74 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
  * @returns Test result
  */
 export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTestResult> {
-  setDebug(taskData.options.debug ?? false);
-  debug('[Worker] executeTest started for:', taskData.testTaskName);
+  try {
+    setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
+    debug('[Worker] executeTest started for:', taskData.testTaskName);
 
-  // Create RPC client from port
-  const rpc = createRpcClient(taskData.port);
+    // Create RPC client from port
+    const rpc = createRpcClient(taskData.port);
 
-  // Report test-prepare
-  const testStartTime = Date.now();
-  const prepareResult = {
-    state: 'run' as const,
-    startTime: testStartTime,
-  };
-  const prepareTaskPack: TaskResultPack = [taskData.testTaskId, prepareResult, {}];
-  const prepareEventPack: TaskEventPack = [taskData.testTaskId, 'test-prepare', undefined];
+    // Report test-prepare
+    const testStartTime = Date.now();
+    const prepareResult = {
+      state: 'run' as const,
+      startTime: testStartTime,
+    };
+    const prepareTaskPack: TaskResultPack = [taskData.testTaskId, prepareResult, {}];
+    const prepareEventPack: TaskEventPack = [taskData.testTaskId, 'test-prepare', undefined];
 
-  debug('[Worker] Reporting test-prepare for:', taskData.testTaskName);
-  await rpc.onTaskUpdate([prepareTaskPack], [prepareEventPack]);
+    debug('[Worker] Reporting test-prepare for:', taskData.testTaskName);
+    await rpc.onTaskUpdate([prepareTaskPack], [prepareEventPack]);
 
-  // Execute single test via executor
-  const executeStart = performance.now();
+    // Execute single test via executor
+    const executeStart = performance.now();
 
-  // Collect coverage during execution only in single-coverage mode
-  // In dual mode, coverage is collected separately in Phase 5
-  const collectCoverage = taskData.options.coverage === true;
+    // Collect coverage during execution in 'integrated' and 'failsafe' modes
+    // In 'dual' mode, coverage is collected separately in Phase 4
+    // Only collect if debugInfo is present (indicates instrumented binary)
+    const coverageMode = taskData.options.coverageMode ?? 'failsafe';
+    const collectCoverage = (coverageMode === 'integrated' || coverageMode === 'failsafe') && taskData.debugInfo !== undefined;
 
-  const testResult = await executeSingleTest(
-    taskData.binary,
-    taskData.test,
-    taskData.sourceMap,
-    taskData.testFile,
-    { collectCoverage }
-  );
+    const testResult = await executeSingleTest(
+      taskData.binary,
+      taskData.test,
+      taskData.sourceMap,
+      taskData.testFile,
+      { collectCoverage, debugInfo: taskData.debugInfo }
+    );
 
-  const executeEnd = performance.now();
-  debugTiming(`[TIMING] ${taskData.testFile} - test ${taskData.testIndex}: ${executeEnd - executeStart}ms`);
+    const executeEnd = performance.now();
+    debugTiming(`[TIMING] ${taskData.testFile} - test ${taskData.testIndex}: ${executeEnd - executeStart}ms`);
 
-  // Report test-finished
-  const finishedResult = {
-    state: testResult.passed ? ('pass' as const) : ('fail' as const),
-    errors: testResult.error ? [testResult.error] : undefined,
-    duration: testResult.duration,
-    startTime: testResult.startTime,
-  };
-  const finishedTaskPack: TaskResultPack = [taskData.testTaskId, finishedResult, {}];
-  const finishedEventPack: TaskEventPack = [taskData.testTaskId, 'test-finished', undefined];
+    // Report test-finished (unless suppressed for failures in failsafe mode)
+    const shouldSuppressReport = taskData.suppressFailureReporting && !testResult.passed;
 
-  debug('[Worker] Reporting test-finished for:', taskData.testTaskName, 'duration:', testResult.duration);
-  await rpc.onTaskUpdate([finishedTaskPack], [finishedEventPack]);
+    if (!shouldSuppressReport) {
+      const finishedResult = {
+        state: testResult.passed ? ('pass' as const) : ('fail' as const),
+        errors: testResult.error ? [testResult.error] : undefined,
+        duration: testResult.duration,
+        startTime: testResult.startTime,
+      };
+      const finishedTaskPack: TaskResultPack = [taskData.testTaskId, finishedResult, {}];
+      const finishedEventPack: TaskEventPack = [taskData.testTaskId, 'test-finished', undefined];
 
-  debug('[Worker] executeTest complete for:', taskData.testTaskName);
+      debug('[Worker] Reporting test-finished for:', taskData.testTaskName, 'duration:', testResult.duration);
+      await rpc.onTaskUpdate([finishedTaskPack], [finishedEventPack]);
+    } else {
+      debug('[Worker] Suppressing test-finished report for failed test (failsafe mode):', taskData.testTaskName);
+    }
 
-  return {
-    result: testResult,
-    testIndex: taskData.testIndex,
-  };
-}
+    debug('[Worker] executeTest complete for:', taskData.testTaskName);
 
-// ============================================================================
-// Worker Functions - Phase 4: Coverage Binary Compilation (Lazy)
-// ============================================================================
-
-/**
- * Compile coverage binary (lazy compilation in parallel with test execution)
- *
- * This function compiles the instrumented coverage binary on-demand.
- * The pool can queue this to run in parallel with test execution to maximize CPU utilization.
- *
- * Called via: pool.run(taskData, { name: 'compileCoverageBinary' })
- *
- * @param taskData - Coverage binary compilation task data
- * @returns Compiled coverage binary
- */
-export async function compileCoverageBinary(
-  taskData: CompileCoverageBinaryTask
-): Promise<CompileCoverageBinaryResult> {
-  setDebug(taskData.options.debug ?? false);
-  debug('[Worker] compileCoverageBinary started for:', taskData.testFile);
-
-  const compileStart = performance.now();
-  const result = await compileAssemblyScript(taskData.testFile, {
-    coverage: true, // Compile instrumented binary for coverage collection
-    stripInline: taskData.options.stripInline ?? true,
-  });
-  const compileEnd = performance.now();
-  debugTiming(`[TIMING] ${taskData.testFile} - coverage binary compile: ${compileEnd - compileStart}ms`);
-
-  if (result.error) {
-    throw result.error;
+    return {
+      result: testResult,
+      testIndex: taskData.testIndex,
+    };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    throw new Error(`[Worker] executeTest failed for ${taskData.testTaskName}: ${errorMsg}`, { cause: error });
   }
-
-  if (!result.binary) {
-    throw new Error(`Coverage binary compilation failed for: ${taskData.testFile}`);
-  }
-
-  debug('[Worker] compileCoverageBinary complete for:', taskData.testFile);
-
-  return {
-    coverageBinary: result.binary, // Return instrumented binary for Phase 5
-    debugInfo: result.debugInfo,
-  };
 }
 
 // ============================================================================
@@ -295,17 +208,22 @@ export async function compileCoverageBinary(
 export async function executeCoveragePass(
   taskData: ExecuteCoveragePassTask
 ): Promise<ExecuteCoveragePassResult> {
-  setDebug(taskData.options.debug ?? false);
-  debug('[Worker] executeCoveragePass started for test:', taskData.test.name);
+  try {
+    setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
+    debug('[Worker] executeCoveragePass started for test:', taskData.test.name);
 
-  const timings = createPhaseTimings();
-  const coverage = await collectCoverageForTest(taskData.coverageBinary, taskData.test);
-  timings.phaseEnd = performance.now();
+    const timings = createPhaseTimings();
+    const coverage = await collectCoverageForTest(taskData.coverageBinary, taskData.test, taskData.debugInfo);
+    timings.phaseEnd = performance.now();
 
-  debugTiming(`[TIMING] ${taskData.testFile} - coverage pass ${taskData.test.name}: ${timings.phaseEnd - timings.phaseStart}ms`);
-  debug('[Worker] executeCoveragePass complete, collected coverage for:', taskData.test.name);
+    debugTiming(`[TIMING] ${taskData.testFile} - coverage pass ${taskData.test.name}: ${timings.phaseEnd - timings.phaseStart}ms`);
+    debug('[Worker] executeCoveragePass complete, collected coverage for:', taskData.test.name);
 
-  return { coverage };
+    return { coverage };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    throw new Error(`[Worker] executeCoveragePass failed for ${taskData.test.name}: ${errorMsg}`, { cause: error });
+  }
 }
 
 // ============================================================================
@@ -324,25 +242,30 @@ export async function executeCoveragePass(
  * @returns void
  */
 export async function reportFileSummary(taskData: ReportFileSummaryTask): Promise<void> {
-  setDebug(taskData.options.debug ?? false);
-  debug('[Worker] reportFileSummary started for:', taskData.testFile);
+  try {
+    setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
+    debug('[Worker] reportFileSummary started for:', taskData.testFile);
 
-  // Create RPC client
-  const rpc = createRpcClient(taskData.port);
+    // Create RPC client
+    const rpc = createRpcClient(taskData.port);
 
-  // Report suite-finished
-  const fileTask = taskData.fileTask;
-  const taskPack: TaskResultPack = [fileTask.id, fileTask.result!, fileTask.meta];
-  const eventPack: TaskEventPack = [fileTask.id, 'suite-finished', undefined];
+    // Report suite-finished
+    const fileTask = taskData.fileTask;
+    const taskPack: TaskResultPack = [fileTask.id, fileTask.result!, fileTask.meta];
+    const eventPack: TaskEventPack = [fileTask.id, 'suite-finished', undefined];
 
-  debug('[Worker] Reporting suite-finished for:', taskData.testFile);
-  await rpc.onTaskUpdate([taskPack], [eventPack]);
+    debug('[Worker] Reporting suite-finished for:', taskData.testFile);
+    await rpc.onTaskUpdate([taskPack], [eventPack]);
 
-  // Final flush
-  debug('[Worker] Sending final flush');
-  await rpc.onTaskUpdate([], []);
+    // Final flush
+    debug('[Worker] Sending final flush');
+    await rpc.onTaskUpdate([], []);
 
-  debug('[Worker] reportFileSummary complete');
+    debug('[Worker] reportFileSummary complete');
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    throw new Error(`[Worker] reportFileSummary failed for ${taskData.testFile}: ${errorMsg}`, { cause: error });
+  }
 }
 
 // ============================================================================
@@ -360,7 +283,7 @@ export async function reportFileSummary(taskData: ReportFileSummaryTask): Promis
  * - Blocks test execution until complete
  */
 export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask): Promise<void> {
-  setDebug(taskData.options.debug ?? false);
+  setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
   debug('[Worker] executeBeforeAllHooks not yet implemented');
   throw new Error('executeBeforeAllHooks not yet implemented');
 }
@@ -375,7 +298,7 @@ export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask)
  * - Blocks suite-finished until complete
  */
 export async function executeAfterAllHooks(taskData: ExecuteAfterAllHooksTask): Promise<void> {
-  setDebug(taskData.options.debug ?? false);
+  setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
   debug('[Worker] executeAfterAllHooks not yet implemented');
   throw new Error('executeAfterAllHooks not yet implemented');
 }

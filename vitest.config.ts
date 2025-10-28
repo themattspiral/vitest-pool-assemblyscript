@@ -8,17 +8,17 @@ export default defineConfig({
     // Pool-specific configuration
     poolOptions: {
       assemblyScript: {
-        debug: true, // Enable verbose debug logging
+        debug: false, // Enable verbose debug logging
+        debugTiming: false, // Enable detailed timing logs for performance analysis
         /**
-         * Coverage mode:
-         * - false: No coverage (fast, accurate errors) - Use for rapid TDD
-         * - true: Coverage only (fast, broken errors on failure) - Use for CI when tests pass
-         * - 'dual': Both coverage AND accurate errors (slower, 2x) - Use for debugging failures with coverage
+         * Coverage collection mode:
+         * - 'failsafe': Smart re-run - instrumented first, re-run failures on clean (default, optimal)
+         * - 'dual': Always dual - both instrumented + clean for all tests (slower, always accurate)
+         * - 'integrated': Single run - instrumented only (fast, broken error locations on failure)
          *
-         * Default: 'dual' (prioritizes correctness over speed)
+         * Default: 'failsafe' (optimal balance of speed and accuracy)
          */
-        coverage: 'dual',
-        // coverage: false,
+        coverageMode: 'failsafe', // Benchmark failsafe mode
         /**
          * Strip @inline decorators for better coverage accuracy
          * - true (default): @inline decorators removed, functions visible in coverage
@@ -38,10 +38,7 @@ export default defineConfig({
     globals: false,
     environment: 'node',
 
-    // Parallel execution (pools handle this)
-    threads: true,
-
     // Helpful for debugging
-    reporters: ['verbose'],
+    reporters: ['verbose']
   },
 });

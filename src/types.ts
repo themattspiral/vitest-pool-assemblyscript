@@ -19,9 +19,30 @@ import type { BirpcReturn } from 'birpc';
  */
 export const POOL_NAME = 'assemblyscript';
 
+export const COVERAGE_MEMORY_PAGES_MAX = 4;
+
 // ============================================================================
 // Configuration & Options
 // ============================================================================
+
+/**
+ * Coverage mode options
+ */
+export type CoverageMode = 'failsafe' | 'dual' | 'integrated';
+
+/**
+ * Coverage mode flags for easy consumption in conditional logic
+ */
+export interface CoverageModeFlags {
+  /** The actual coverage mode */
+  mode: CoverageMode;
+  /** True if mode is 'integrated' */
+  isIntegratedMode: boolean;
+  /** True if mode is 'failsafe' */
+  isFailsafeMode: boolean;
+  /** True if mode is 'dual' */
+  isDualMode: boolean;
+}
 
 /**
  * Pool configuration options
@@ -29,13 +50,17 @@ export const POOL_NAME = 'assemblyscript';
 export interface PoolOptions {
   /** Enable verbose debug logging */
   debug?: boolean;
+  /** Enable detailed timing logs for compile/discover/execute phases */
+  debugTiming?: boolean;
   /**
-   * Coverage mode:
-   * - false: No coverage - Fast, accurate errors
-   * - true: Coverage only - Fast, broken errors when tests fail
-   * - 'dual': Both coverage AND accurate errors - Slower (2x compile/execute) (default)
+   * Coverage collection mode (only applies when test.coverage.enabled is true):
+   * - 'failsafe': Smart re-run - Run instrumented first, re-run only failures on clean (default)
+   * - 'dual': Always dual - Run both instrumented + clean for all tests (slower, always accurate)
+   * - 'integrated': Single run - Instrumented only (fast, broken error locations on failure)
+   *
+   * @default 'failsafe'
    */
-  coverage?: boolean | 'dual';
+  coverageMode?: 'failsafe' | 'dual' | 'integrated';
   /**
    * Strip @inline decorators during compilation to improve coverage accuracy
    *
@@ -151,17 +176,6 @@ export interface CachedCompilation {
   discoveredTests: DiscoveredTest[];
   compileTimings: PhaseTimings;
   discoverTimings?: PhaseTimings;
-}
-
-/**
- * Worker-returned compilation data with generation for cache validation
- *
- * Workers return this when they compile a file (cache miss). The main process
- * validates the generation matches the current value before caching to prevent
- * stale compilations from late-returning workers.
- */
-export interface WorkerCachedCompilation extends CachedCompilation {
-  /** Generation number at time of compilation (for cache validation) */
   generation: number;
 }
 
@@ -319,35 +333,17 @@ declare global {
 // ============================================================================
 
 /**
- * Task data for compileFile worker function
+ * Options for executeSingleTest function
  *
- * Phase 1: File compilation (runs once per file)
+ * Used by executor to control test execution behavior
  */
-export interface CompileFileTask {
-  /** Path to test file */
-  testFile: string;
-  /** Pool options */
-  options: PoolOptions;
-  /** Cache generation number */
-  generation: number;
-}
-
-/**
- * Result from compileFile worker function
- */
-export interface CompileFileResult {
-  /** Compiled clean binary */
-  binary: Uint8Array;
-  /** Source map JSON (if available) */
-  sourceMap: string | null;
-  /** Compiled coverage binary (if coverage enabled) */
-  coverageBinary?: Uint8Array;
-  /** Debug info for coverage reporting */
-  debugInfo: DebugInfo | null;
-  /** Cache generation number */
-  generation: number;
-  /** Compilation phase timings */
-  timings: PhaseTimings;
+export interface ExecuteSingleTestOptions {
+  /** Pre-compiled module to avoid re-compilation */
+  preCompiledModule?: WebAssembly.Module;
+  /** Whether this is an instrumented binary (for single-mode coverage) */
+  collectCoverage?: boolean;
+  /** Debug info from coverage instrumentation (required if collectCoverage is true) */
+  debugInfo?: DebugInfo;
 }
 
 /**
@@ -368,6 +364,8 @@ export interface DiscoverTestsTask {
   projectInfo: ProjectInfo;
   /** Compilation phase timings from compile worker */
   compileTimings: PhaseTimings;
+  /** Debug info from coverage instrumentation (if binary is instrumented) */
+  debugInfo?: DebugInfo | null;
 }
 
 /**
@@ -392,6 +390,8 @@ export interface ExecuteTestTask {
   sourceMap: string | null;
   /** Coverage binary (for single-mode coverage) */
   coverageBinary?: Uint8Array;
+  /** Debug info from coverage instrumentation (required for coverage modes) */
+  debugInfo?: DebugInfo;
   /** Test to execute */
   test: DiscoveredTest;
   /** Test index in file (for ordering) */
@@ -406,6 +406,13 @@ export interface ExecuteTestTask {
   testTaskId: string;
   /** Test task name (for RPC reporting) */
   testTaskName: string;
+  /**
+   * Suppress reporting of test failures via RPC (for failsafe mode)
+   * When true, worker skips test-finished reporting if test fails.
+   * Passing tests are always reported.
+   * Used in failsafe mode to avoid reporting broken errors from instrumented run.
+   */
+  suppressFailureReporting?: boolean;
 }
 
 /**
@@ -419,28 +426,6 @@ export interface ExecuteTestResult {
 }
 
 /**
- * Task data for compileCoverageBinary worker function
- *
- * Phase 4: Coverage binary compilation (lazy, runs once per file if needed)
- */
-export interface CompileCoverageBinaryTask {
-  /** Path to test file */
-  testFile: string;
-  /** Pool options */
-  options: PoolOptions;
-}
-
-/**
- * Result from compileCoverageBinary worker function
- */
-export interface CompileCoverageBinaryResult {
-  /** Compiled coverage binary */
-  coverageBinary: Uint8Array;
-  /** Debug info for coverage reporting */
-  debugInfo: DebugInfo | null;
-}
-
-/**
  * Task data for executeCoveragePass worker function
  *
  * Phase 5: Coverage collection for single test (runs once per test in dual mode)
@@ -448,6 +433,8 @@ export interface CompileCoverageBinaryResult {
 export interface ExecuteCoveragePassTask {
   /** Compiled coverage binary */
   coverageBinary: Uint8Array;
+  /** Debug info from coverage instrumentation (for extracting counters) */
+  debugInfo: DebugInfo;
   /** Test to execute for coverage */
   test: DiscoveredTest;
   /** Path to test file (for logging) */

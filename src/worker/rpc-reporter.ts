@@ -15,19 +15,6 @@ import type { PhaseTimings, DiscoveredTest, TestResult, ProjectInfo } from '../t
 import { POOL_NAME } from '../types.js';
 import { debug } from '../utils/debug.mjs';
 
-// ============================================================================
-// Timing Tracker
-// ============================================================================
-
-/**
- * Create phase timings tracker
- */
-export function createPhaseTimings(): PhaseTimings {
-  return {
-    phaseStart: performance.now(),
-    phaseEnd: 0,
-  };
-}
 
 // ============================================================================
 // RPC Client Factory

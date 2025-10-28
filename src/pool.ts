@@ -14,14 +14,10 @@ import Tinypool from 'tinypool';
 import type {
   PoolOptions,
   CachedCompilation,
-  CompileFileTask,
-  CompileFileResult,
   DiscoverTestsTask,
   DiscoverTestsResult,
   ExecuteTestTask,
   ExecuteTestResult,
-  CompileCoverageBinaryTask,
-  CompileCoverageBinaryResult,
   ExecuteCoveragePassTask,
   ExecuteCoveragePassResult,
   ReportFileSummaryTask,
@@ -30,10 +26,13 @@ import type {
   CoverageData,
   ProjectInfo,
   WorkerChannel,
+  CoverageModeFlags,
 } from './types.js';
 import { POOL_NAME } from './types.js';
-import { setDebug, debug } from './utils/debug.mjs';
+import { setDebug, debug, debugTiming } from './utils/debug.mjs';
 import { writeCoverageReport } from './coverage/lcov-reporter.js';
+import { compileAssemblyScript } from './compiler.js';
+import { createPhaseTimings } from './utils/timing.mjs';
 
 // ESM-compatible __dirname (import.meta.url is transformed by tsup/esbuild)
 const __filename = fileURLToPath(import.meta.url);
@@ -74,6 +73,44 @@ const cacheGeneration = new Map<string, number>();
 // Accumulate coverage data across all test files for single LCOV report
 const coverageMap = new Map<string, FileCoverageData>();
 
+// Two separate sequential queues for clean and coverage compilation
+// This enables pipeline parallelism while maintaining V8 warmup in each queue
+let cleanCompilationQueue: Promise<CachedCompilation> = Promise.resolve() as unknown as Promise<CachedCompilation>;
+let coverageCompilationQueue: Promise<Uint8Array> = Promise.resolve() as unknown as Promise<Uint8Array>;
+
+// Track coverage compilation promises to await before coverage phase
+const coverageCompilationPromises = new Map<string, Promise<Uint8Array>>();
+
+/**
+ * Get coverage mode flags for easy destructuring
+ *
+ * @param options - Pool options
+ * @returns Mode flags for conditional logic
+ * @example
+ * const { isFailsafeMode, isDualMode } = getCoverageModeFlags(options);
+ */
+function getCoverageModeFlags(options: PoolOptions): CoverageModeFlags {
+  // TODO: In Phase 4h, check Vitest's test.coverage.enabled first
+  // For now, if coverageMode is undefined, default to 'failsafe'
+  const mode = options.coverageMode ?? 'failsafe';
+
+  return {
+    mode,
+    isIntegratedMode: mode === 'integrated',
+    isFailsafeMode: mode === 'failsafe',
+    isDualMode: mode === 'dual',
+  };
+}
+
+/**
+ * Check if coverage is enabled at all
+ */
+function isCoverageEnabled(_options: PoolOptions): boolean {
+  // TODO: In Phase 4h, check Vitest's test.coverage.enabled
+  // For now, coverage is always enabled (controlled by coverageMode)
+  return true;
+}
+
 /**
  * Accumulate coverage data from multiple tests
  *
@@ -95,6 +132,112 @@ function accumulateCoverage(coverageArray: CoverageData[]): AggregatedCoverage {
     }
     return acc;
   }, { functions: {}, blocks: {} } as AggregatedCoverage);
+}
+
+/**
+ * Queue primary binary compilation sequentially for V8 warmup
+ *
+ * @param testFile - Path to test file
+ * @param options - Pool options
+ * @param generation - Cache generation number for validation
+ * @returns Promise that resolves when primary binary is compiled
+ */
+async function queueCompilation(testFile: string, options: PoolOptions, generation: number): Promise<CachedCompilation> {
+  // Decide whether primary binary should be instrumented
+  const { isIntegratedMode, isFailsafeMode } = getCoverageModeFlags(options);
+  const compilePrimaryWithCoverage = isIntegratedMode || isFailsafeMode;
+
+  const currentCompilation = cleanCompilationQueue.then(() =>
+    compilePrimaryBinary(testFile, compilePrimaryWithCoverage, options, generation)
+  );
+  cleanCompilationQueue = currentCompilation.catch((err) => {
+    throw err;
+  });
+  return currentCompilation;
+}
+
+/**
+ * Compile primary binary (the binary we run Phase 3 tests on)
+ *
+ * @param testFile - Path to test file
+ * @param withCoverage - Whether to compile with coverage instrumentation
+ * @param options - Pool options
+ * @param generation - Cache generation number
+ * @returns Compilation with primary binary
+ */
+async function compilePrimaryBinary(
+  testFile: string,
+  withCoverage: boolean,
+  options: PoolOptions,
+  generation: number
+): Promise<CachedCompilation> {
+  const timings = createPhaseTimings();
+
+  const compileResult = await compileAssemblyScript(testFile, {
+    coverage: withCoverage,
+    stripInline: options.stripInline ?? true,
+  });
+
+  timings.phaseEnd = performance.now();
+  debugTiming(`[TIMING] ${testFile} - compile: ${timings.phaseEnd - timings.phaseStart}ms`);
+
+  if (compileResult.error) {
+    throw compileResult.error;
+  }
+
+  // If primary binary is instrumented, it can serve as coverage binary
+  const coverageBinary = withCoverage ? compileResult.binary : undefined;
+
+  return {
+    binary: compileResult.binary,
+    sourceMap: compileResult.sourceMap,
+    coverageBinary,
+    debugInfo: compileResult.debugInfo,
+    discoveredTests: [],
+    compileTimings: timings,
+    generation,
+  };
+}
+
+/**
+ * Compile coverage binary (with strip-inline transform)
+ *
+ * @param testFile - Path to test file
+ * @param options - Pool options
+ * @returns Coverage binary
+ */
+async function compileCoverageBinary(testFile: string, options: PoolOptions): Promise<Uint8Array> {
+  const coverageTimings = createPhaseTimings();
+  const coverageResult = await compileAssemblyScript(testFile, {
+    coverage: true,
+    stripInline: options.stripInline ?? true,
+  });
+  coverageTimings.phaseEnd = performance.now();
+  debugTiming(`[TIMING] ${testFile} - coverage binary compile: ${coverageTimings.phaseEnd - coverageTimings.phaseStart}ms`);
+
+  if (coverageResult.error) {
+    throw coverageResult.error;
+  }
+
+  return coverageResult.binary;
+}
+
+/**
+ * Queue coverage binary compilation in separate sequential queue (for V8 warmup)
+ *
+ * Coverage queue is independent from clean queue, enabling pipeline parallelism
+ * while still maintaining sequential execution within each queue for V8 warmup.
+ *
+ * @param testFile - Path to test file
+ * @param options - Pool options
+ * @returns Promise that resolves when coverage binary is compiled
+ */
+async function queueCoverageCompilation(testFile: string, options: PoolOptions): Promise<Uint8Array> {
+  const currentCompilation = coverageCompilationQueue.then(() => compileCoverageBinary(testFile, options));
+  coverageCompilationQueue = currentCompilation.catch((err) => {
+    throw err;
+  });
+  return currentCompilation;
 }
 
 /**
@@ -169,20 +312,19 @@ function handleCacheInvalidations(invalidates: string[] | undefined): void {
 }
 
 /**
- * Validate and cache worker compilation results
+ * Validate and cache compilation results
  *
- * Validates that the generation number from the worker matches the current
- * generation for the file. If they match, caches the compilation. If they
- * don't match, the file was invalidated while the worker was compiling, so
- * we discard the stale result.
+ * Validates that the generation number matches the current generation for the file.
+ * If they match, caches the compilation. If they don't match, the file was invalidated
+ * during compilation, so we discard the stale result.
  *
  * @param testFile - Path to test file
- * @param compileResult - Compilation result from worker
+ * @param compileResult - Compilation result from pool
  * @returns true if cached, false if rejected (stale generation)
  */
 function validateAndCacheCompilation(
   testFile: string,
-  compileResult: CompileFileResult
+  compileResult: CachedCompilation
 ): boolean {
   // Get current generation for this file
   const currentGen = cacheGeneration.get(testFile) ?? 0;
@@ -190,22 +332,13 @@ function validateAndCacheCompilation(
   // Validate generation matches
   if (compileResult.generation !== currentGen) {
     debug('[Pool] Rejecting stale compilation for', testFile,
-          '- worker generation:', compileResult.generation,
+          '- result generation:', compileResult.generation,
           'current generation:', currentGen);
     return false;
   }
 
-  // Generation matches - safe to cache (discoveredTests will be added in Phase 2)
-  const cached: CachedCompilation = {
-    binary: compileResult.binary,
-    sourceMap: compileResult.sourceMap,
-    coverageBinary: compileResult.coverageBinary,
-    debugInfo: compileResult.debugInfo,
-    discoveredTests: [], // Will be populated after discovery
-    compileTimings: compileResult.timings,
-  };
-
-  compilationCache.set(testFile, cached);
+  // Generation matches - safe to cache
+  compilationCache.set(testFile, compileResult);
   debug('[Pool] Cached compilation for', testFile, 'at generation:', currentGen);
   return true;
 }
@@ -228,7 +361,7 @@ function extractProjectInfo(spec: TestSpecification): ProjectInfo {
 export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   // Read pool options and initialize debug mode
   const options = (ctx.config.poolOptions?.assemblyScript as PoolOptions) ?? {};
-  setDebug(options.debug ?? false);
+  setDebug(options.debug ?? false, options.debugTiming ?? false);
 
   debug('[Pool] Initializing AssemblyScript pool with per-test parallelism');
 
@@ -270,34 +403,42 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
     async collectTests(specs: TestSpecification[]) {
       debug('[Pool] collectTests called for', specs.length, 'specs');
 
-      // Create pipeline for each file - each flows independently through phases
+      // Create pipeline for each file
       const filePipelines = specs.map(async (spec: TestSpecification) => {
         const testFile: string = spec.moduleId;
         const project: TestProject = spec.project;
 
-        // PHASE 1: Compile this file
+        // PHASE 1: Compile clean binary (queued sequentially for V8 warmup)
         let cached = compilationCache.get(testFile);
 
         if (!cached) {
-          const generation = cacheGeneration.get(testFile) ?? 0;
-          const compileTask: CompileFileTask = {
-            testFile,
-            options,
-            generation,
-          };
+          try {
+            const currentGen = cacheGeneration.get(testFile) ?? 0;
+            const result = await queueCompilation(testFile, options, currentGen);
 
-          const compileResult = await pool.run(compileTask, { name: 'compileFile' }) as CompileFileResult;
+            // Validate generation before caching
+            if (!validateAndCacheCompilation(testFile, result)) {
+              return { spec, tests: [] };
+            }
 
-          // Validate and cache
-          const success = validateAndCacheCompilation(testFile, compileResult);
-          if (!success) {
-            throw new Error(`Failed to cache compilation for ${testFile} (stale generation)`);
+            cached = result;
+
+            // Queue separate coverage binary compilation (only for 'dual' mode)
+            // - 'dual': needs separate instrumented binary for Phase 4
+            // - 'failsafe': primary is already instrumented, clean binary compiled on-demand if needed
+            // - 'integrated': primary is already instrumented, no separate binary needed
+            const { isDualMode } = getCoverageModeFlags(options);
+            if (isDualMode) {
+              const coveragePromise = queueCoverageCompilation(testFile, options);
+              coverageCompilationPromises.set(testFile, coveragePromise);
+            }
+          } catch (error) {
+            debug('[Pool] Compilation failed for', testFile, ':', error);
+            return { spec, tests: [] };
           }
-
-          cached = compilationCache.get(testFile)!;
         }
 
-        // PHASE 2: Discover tests (starts immediately after compile)
+        // PHASE 2: Discover tests (starts immediately after clean compile)
         if (cached.discoveredTests.length === 0) {
           const projectInfo = extractProjectInfo(spec);
           const { workerPort, poolPort, rpc: _rpc } = createWorkerChannel(project, false);
@@ -310,6 +451,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
               port: workerPort,
               projectInfo,
               compileTimings: cached.compileTimings,
+              debugInfo: cached.debugInfo,
             };
 
             const discoverResult = await pool.run(discoverTask, {
@@ -346,7 +488,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
       // Clear cache for invalidated files and bump generations
       handleCacheInvalidations(invalidates);
 
-      // Create pipeline for each file - each flows independently through phases
+      // Create pipeline for each file
       const filePipelines = specs.map(async (spec: TestSpecification) => {
         const testFile: string = spec.moduleId;
         const project: TestProject = spec.project;
@@ -354,27 +496,35 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
 
         debug(`[Pipeline ${testFile}] Starting pipeline`);
 
-        // PHASE 1: Compile this file
+        // PHASE 1: Compile clean binary (queued sequentially for V8 warmup)
         debug(`[Pipeline ${testFile}] Phase 1 (compile) starting`);
         let cached = compilationCache.get(testFile);
 
         if (!cached) {
-          const generation = cacheGeneration.get(testFile) ?? 0;
-          const compileTask: CompileFileTask = {
-            testFile,
-            options,
-            generation,
-          };
+          try {
+            const currentGen = cacheGeneration.get(testFile) ?? 0;
+            const result = await queueCompilation(testFile, options, currentGen);
 
-          const compileResult = await pool.run(compileTask, { name: 'compileFile' }) as CompileFileResult;
+            // Validate generation before caching
+            if (!validateAndCacheCompilation(testFile, result)) {
+              return;
+            }
 
-          // Validate and cache
-          const success = validateAndCacheCompilation(testFile, compileResult);
-          if (!success) {
-            throw new Error(`Failed to cache compilation for ${testFile} (stale generation)`);
+            cached = result;
+
+            // Queue separate coverage binary compilation (only for 'dual' mode)
+            // - 'dual': needs separate instrumented binary for Phase 4
+            // - 'failsafe': primary is already instrumented, clean binary compiled on-demand if needed
+            // - 'integrated': primary is already instrumented, no separate binary needed
+            const { isDualMode } = getCoverageModeFlags(options);
+            if (isDualMode) {
+              const coveragePromise = queueCoverageCompilation(testFile, options);
+              coverageCompilationPromises.set(testFile, coveragePromise);
+            }
+          } catch (error) {
+            debug('[Pool] Compilation failed for', testFile, ':', error);
+            return;
           }
-
-          cached = compilationCache.get(testFile)!;
         }
 
         debug(`[Pipeline ${testFile}] Phase 1 (compile) complete, starting Phase 2 (discover)`);
@@ -391,6 +541,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
               port: discoverPort,
               projectInfo,
               compileTimings: cached.compileTimings,
+              debugInfo: cached.debugInfo,
             };
 
             const discoverResult = await pool.run(discoverTask, {
@@ -407,6 +558,9 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
         }
 
         debug(`[Pipeline ${testFile}] Phase 2 (discover) complete, found ${cached.discoveredTests.length} tests, starting Phase 3 (execute)`);
+
+        // Get coverage mode flags for Phase 3 and Phase 4 logic
+        const { isIntegratedMode, isFailsafeMode, isDualMode } = getCoverageModeFlags(options);
 
         // Create file task for test execution
         const fileTask = createFileTask(
@@ -445,7 +599,10 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
           const executeTask: ExecuteTestTask = {
             binary: cached!.binary,
             sourceMap: cached!.sourceMap,
-            coverageBinary: options.coverage === true ? cached!.coverageBinary : undefined,
+            // Only pass coverageBinary if primary binary is NOT already instrumented
+            // (in 'integrated'/'failsafe', primary IS instrumented, so no separate coverage binary needed)
+            coverageBinary: undefined, // Always undefined - coverage collected from primary binary or Phase 4
+            debugInfo: cached!.debugInfo ?? undefined,
             test,
             testIndex,
             testFile,
@@ -453,6 +610,9 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
             port: testWorkerPort,
             testTaskId: testTask.id,
             testTaskName: testTask.name,
+            // Suppress failure reporting in failsafe mode (Phase 3 runs on instrumented binary)
+            // Failures will be re-run on clean binary and reported then
+            suppressFailureReporting: isFailsafeMode,
           };
 
           try {
@@ -468,31 +628,16 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
           }
         });
 
-        // PHASE 4: Compile coverage binary (dual mode only, starts after tests are queued)
-        let coverageCompilePromise: Promise<CompileCoverageBinaryResult> | null = null;
-        if (options.coverage === 'dual') {
-          debug(`[Pipeline ${testFile}] Phase 4 (compile coverage binary) starting`);
-
-          const compileCoverageTask: CompileCoverageBinaryTask = {
-            testFile,
-            options,
-          };
-
-          coverageCompilePromise = pool.run(compileCoverageTask, {
-            name: 'compileCoverageBinary',
-          }) as Promise<CompileCoverageBinaryResult>;
-        }
-
         // Wait for all tests in this file to complete
         const testResults = await Promise.all(testExecutions);
 
         debug(`[Pipeline ${testFile}] Phase 3 (execute) complete`);
 
         // Accumulate coverage based on mode
-        if (options.coverage === true) {
-          // SINGLE-MODE: Coverage collected during test execution (Phase 3)
+        if (isIntegratedMode) {
+          // INTEGRATED MODE: Coverage collected during test execution (Phase 3)
           // Extract coverage from test results and accumulate
-          debug(`[Pipeline ${testFile}] Accumulating single-mode coverage from test results`);
+          debug(`[Pipeline ${testFile}] Accumulating integrated-mode coverage from test results`);
 
           const allCoverage = testResults
             .map(({ result }) => result.coverage)
@@ -506,43 +651,142 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
               debugInfo: cached!.debugInfo,
             });
 
-            debug(`[Pipeline ${testFile}] Single-mode coverage accumulation complete`);
+            debug(`[Pipeline ${testFile}] Integrated-mode coverage accumulation complete`);
           }
-        } else if (options.coverage === 'dual' && coverageCompilePromise) {
-          // DUAL-MODE: Coverage collected in separate phase (Phase 5)
-          const compileCoverageResult = await coverageCompilePromise;
-          debug(`[Pipeline ${testFile}] Phase 4 complete, starting Phase 5 (execute coverage passes and accumulate)`);
+        } else if (isFailsafeMode) {
+          // FAILSAFE MODE: Smart re-run strategy
+          // Phase 3 ran on instrumented binary (coverage collected + failures detected)
+          // If failures exist, compile clean binary and re-run only failed tests for accurate errors
+          debug(`[Pipeline ${testFile}] Failsafe mode: checking for failures`);
 
-          // Execute coverage pass for each test (in parallel)
-          const coverageExecutions = cached.discoveredTests.map(async (test) => {
-            const coveragePassTask: ExecuteCoveragePassTask = {
-              coverageBinary: compileCoverageResult.coverageBinary,
-              test,
-              testFile,
-              options,
-            };
+          // Accumulate coverage from Phase 3 (instrumented binary)
+          const allCoverage = testResults
+            .map(({ result }) => result.coverage)
+            .filter((cov): cov is CoverageData => cov !== undefined);
 
-            const coverageResult = await pool.run(coveragePassTask, {
-              name: 'executeCoveragePass',
-            }) as ExecuteCoveragePassResult;
-
-            return coverageResult.coverage;
-          });
-
-          // Wait for all coverage passes
-          const allCoverage = await Promise.all(coverageExecutions);
-
-          // Accumulate coverage for LCOV reporting
-          if (compileCoverageResult.debugInfo) {
+          if (allCoverage.length > 0 && cached!.debugInfo) {
             const aggregatedCoverage = accumulateCoverage(allCoverage);
 
             coverageMap.set(testFile, {
               coverage: aggregatedCoverage,
-              debugInfo: compileCoverageResult.debugInfo,
+              debugInfo: cached!.debugInfo,
             });
+
+            debug(`[Pipeline ${testFile}] Failsafe mode: coverage accumulated from Phase 3`);
           }
 
-          debug(`[Pipeline ${testFile}] Phase 5 (dual-mode coverage) complete`);
+          // Check for failures in Phase 3 results
+          const failedResults = testResults.filter(({ result }) => !result.passed);
+
+          if (failedResults.length > 0) {
+            // Failures detected - compile clean binary and re-run failed tests
+            debug(`[Pipeline ${testFile}] Failsafe mode: ${failedResults.length} failures detected, compiling clean binary`);
+
+            try {
+              // Compile clean binary on-demand (outside queue - emergency compilation)
+              const cleanBinary = await compilePrimaryBinary(testFile, false, options, cached!.generation);
+
+              debug(`[Pipeline ${testFile}] Failsafe mode: re-running ${failedResults.length} failed tests on clean binary`);
+
+              // Re-run only failed tests on clean binary for accurate error messages
+              const rerunExecutions = failedResults.map(async ({ testTask, result: _originalResult }) => {
+                const testIndex = fileTask.tasks.indexOf(testTask);
+                const test = cached!.discoveredTests[testIndex]!;
+
+                const { workerPort: rerunPort, poolPort: rerunPoolPort, rpc: _rerunRpc } = createWorkerChannel(project, false);
+
+                const rerunTask: ExecuteTestTask = {
+                  binary: cleanBinary.binary,
+                  sourceMap: cleanBinary.sourceMap,
+                  coverageBinary: undefined,
+                  debugInfo: undefined, // Never collect coverage in failsafe re-run (clean binary for accurate errors only)
+                  test,
+                  testIndex,
+                  testFile,
+                  options,
+                  port: rerunPort,
+                  testTaskId: testTask.id,
+                  testTaskName: testTask.name,
+                  // Explicitly enable reporting for re-run (accurate errors from clean binary)
+                  suppressFailureReporting: false,
+                };
+
+                try {
+                  await pool.run(rerunTask, {
+                    name: 'executeTest',
+                    transferList: [rerunPort],
+                  });
+                  // Worker reported results via RPC during execution
+                } finally {
+                  rerunPort.close();
+                  rerunPoolPort.close();
+                }
+              });
+
+              // Wait for all re-runs to complete
+              // Workers reported results via RPC during execution
+              await Promise.all(rerunExecutions);
+
+              debug(`[Pipeline ${testFile}] Failsafe mode: re-run complete, results reported for all previously failing tests`);
+            } catch (error) {
+              debug(`[Pipeline ${testFile}] Failsafe mode: clean binary compilation failed:`, error);
+              // Keep original instrumented results if clean compilation fails
+            }
+          } else {
+            debug(`[Pipeline ${testFile}] Failsafe mode: no failures, skipping clean binary compilation`);
+          }
+        } else if (isDualMode) {
+          // DUAL MODE: Always run both clean and instrumented binaries
+          // Phase 3 ran on clean binary (accurate errors), Phase 4 runs on instrumented (coverage)
+          debug(`[Pipeline ${testFile}] Starting Phase 4 (execute coverage passes and accumulate)`);
+
+          // Await coverage binary compilation if needed
+          if (!cached.coverageBinary) {
+            const coveragePromise = coverageCompilationPromises.get(testFile);
+            if (coveragePromise) {
+              debug(`[Pipeline ${testFile}] Awaiting coverage binary compilation`);
+              cached.coverageBinary = await coveragePromise;
+              coverageCompilationPromises.delete(testFile);
+            }
+          }
+
+          if (!cached.coverageBinary) {
+            debug(`[Pipeline ${testFile}] No coverage binary available, skipping coverage collection`);
+          } else if (!cached.debugInfo) {
+            debug(`[Pipeline ${testFile}] No debugInfo available, skipping coverage collection`);
+          } else {
+            // Execute coverage pass for each test (in parallel)
+            const coverageExecutions = cached.discoveredTests.map(async (test) => {
+              const coveragePassTask: ExecuteCoveragePassTask = {
+                coverageBinary: cached.coverageBinary!,
+                debugInfo: cached.debugInfo!,
+                test,
+                testFile,
+                options,
+              };
+
+              const coverageResult = await pool.run(coveragePassTask, {
+                name: 'executeCoveragePass',
+              }) as ExecuteCoveragePassResult;
+
+              return coverageResult.coverage;
+            });
+
+            // Wait for all coverage passes
+            const allCoverage = await Promise.all(coverageExecutions);
+
+            // Accumulate coverage for LCOV reporting
+            if (cached.debugInfo) {
+              const aggregatedCoverage = accumulateCoverage(allCoverage);
+
+              coverageMap.set(testFile, {
+                coverage: aggregatedCoverage,
+                debugInfo: cached.debugInfo,
+              });
+            }
+
+            debug(`[Pipeline ${testFile}] Phase 4 (dual-mode coverage) complete`);
+          }
         }
 
         // Update file task with final results
@@ -578,8 +822,8 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
       // Wait for all file pipelines to complete
       await Promise.all(filePipelines);
 
-      // Write coverage
-      if (options.coverage && coverageMap.size > 0) {
+      // Write coverage report
+      if (isCoverageEnabled(options) && coverageMap.size > 0) {
         await writeCoverageReport(coverageMap, 'coverage/lcov.info');
       }
 

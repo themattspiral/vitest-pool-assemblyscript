@@ -10,25 +10,24 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-// Store debug flag per async context (isolates concurrent tasks in same worker)
+// Store debug and timing flags per async context (isolates concurrent tasks in same worker)
 const debugStorage = new AsyncLocalStorage();
-
-// Hard-coded timing flag for performance measurements
-// Set to true to enable detailed timing logs for compile/discover/execute phases
-const DEBUG_TIMING = true;
 
 /**
  * Initialize debug mode for current async context (called by worker at task start)
+ * @param {boolean} debugEnabled - Enable verbose debug logging
+ * @param {boolean} timingEnabled - Enable detailed timing logs
  */
-export function setDebug(enabled) {
-  debugStorage.enterWith(enabled);
+export function setDebug(debugEnabled, timingEnabled = false) {
+  debugStorage.enterWith({ debug: debugEnabled, timing: timingEnabled });
 }
 
 /**
  * Log debug message (only when debug enabled in current context)
  */
 export function debug(...args) {
-  if (debugStorage.getStore()) {
+  const state = debugStorage.getStore();
+  if (state?.debug) {
     console.log(...args);
   }
 }
@@ -37,7 +36,8 @@ export function debug(...args) {
  * Log error message (only when debug enabled in current context)
  */
 export function debugError(...args) {
-  if (debugStorage.getStore()) {
+  const state = debugStorage.getStore();
+  if (state?.debug) {
     console.error(...args);
   }
 }
@@ -46,14 +46,16 @@ export function debugError(...args) {
  * Check if debug mode is enabled in current context
  */
 export function isDebugEnabled() {
-  return debugStorage.getStore() || false;
+  const state = debugStorage.getStore();
+  return state?.debug || false;
 }
 
 /**
- * Log timing information (controlled by DEBUG_TIMING constant)
+ * Log timing information (only when timing enabled in current context)
  */
 export function debugTiming(...args) {
-  if (DEBUG_TIMING) {
+  const state = debugStorage.getStore();
+  if (state?.timing) {
     console.log(...args);
   }
 }

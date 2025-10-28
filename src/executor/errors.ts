@@ -77,7 +77,7 @@ export async function enhanceErrorWithSourceMap(
 
     // Format error message based on error type (assertion failure message provided by input to assert function)
     const errorPrefix = isAssertionFailure ? '' : 'Runtime error :';
-    const enhancedMessage = `${errorPrefix}${originalMessage}\n → ${primaryFunctionName} (${primaryFrame.fileName}:${primaryFrame.lineNumber}:${primaryFrame.columnNumber})\n`;
+    const enhancedMessage = `${errorPrefix}${originalMessage}\n ❯ ${primaryFunctionName} (${primaryFrame.fileName}:${primaryFrame.lineNumber}:${primaryFrame.columnNumber})\n`;
 
     // Create a new error with enhanced message including function name and source location
     const enhancedError = new Error(enhancedMessage);
