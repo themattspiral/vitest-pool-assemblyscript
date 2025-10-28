@@ -41,6 +41,14 @@ Scripts exploring different architectural approaches during the discovery phase:
 
 - **analyze-ast-decorator-positions.mjs** - Proves removing decorators from AST doesn't change node range positions. Key research validating why source maps remain accurate when @inline decorators are stripped. Documents that decorators are metadata entries, not structural AST nodes.
 
+**Multi-Memory Coverage Research (Phase 4g.2):**
+
+- **multi-memory-coverage-poc.mjs** - Complete POC demonstrating WASM multi-memory support for coverage counters. Creates separate `__coverage_memory` and uses native WASM memory operations (`i32.load`, `i32.add`, `i32.store`) instead of JS function calls. Validates the approach that achieved 145-175x speedup by eliminating WASM↔JS boundary crossings. Shows counter increments in separate memory with Node 20+ multi-memory support.
+
+**Compilation Queue Architecture Research (Phase 4g.1):**
+
+- **two-queue-architecture-verification.mjs** - Proves two separate sequential queues (clean + coverage) achieve both V8 JIT warmup AND pipeline parallelism. Demonstrates that File 2's clean compilation can start before File 1's coverage compilation finishes, enabling concurrent pipeline progress. Validates the chosen architecture over single-queue and hybrid approaches.
+
 ## Diagnostics (diagnostics/)
 
 Tools for debugging specific issues, validating assumptions, and performance benchmarking:
