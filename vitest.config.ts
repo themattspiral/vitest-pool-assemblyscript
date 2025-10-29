@@ -15,10 +15,8 @@ export default defineConfig({
          * - 'failsafe': Smart re-run - instrumented first, re-run failures on clean (default, optimal)
          * - 'dual': Always dual - both instrumented + clean for all tests (slower, always accurate)
          * - 'integrated': Single run - instrumented only (fast, broken error locations on failure)
-         *
-         * Default: 'failsafe' (optimal balance of speed and accuracy)
          */
-        coverageMode: 'failsafe', // Benchmark failsafe mode
+        coverageMode: 'failsafe',
         /**
          * Strip @inline decorators for better coverage accuracy
          * - true (default): @inline decorators removed, functions visible in coverage

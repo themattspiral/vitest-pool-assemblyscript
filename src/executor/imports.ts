@@ -182,7 +182,7 @@ export function createCoverageCollectionOnlyImports(
         // Log abort but don't capture error details - we only care about coverage
         logAbort(memory, msgPtr, filePtr, line, column, 'during coverage collection');
 
-        // Throw to halt WASM execution (caught and ignored by executeCoveragePass)
+        // Throw to halt WASM execution (caught and ignored by collectCoverageOnly)
         // Coverage collected up to this point is still valid and useful
         throw new Error('Test aborted during coverage collection');
       },

@@ -2,11 +2,10 @@
  * Worker entry point for Tinypool-based per-test parallelism
  *
  * This worker provides granular phase-specific functions:
- * - compileFile: Compile AssemblyScript to WASM (Phase 1 - once per file)
- * - discoverTests: Discover tests from compiled binary (Phase 2 - once per file)
- * - executeTest: Execute a single test with RPC reporting (Phase 3 - once per test)
- * - compileCoverageBinary: Compile coverage binary lazily (Phase 4 - once per file if needed)
- * - executeCoveragePass: Execute coverage collection for single test (Phase 5 - once per test in dual mode)
+ * - discoverTests: Discover tests from compiled binary
+ * - executeTest: Execute a single test with RPC reporting
+ * - collectCoverageOnly: Collect coverage data for single test (silent, no reporting)
+ * - reportFileSummary: Report file summary after all tests complete
  *
  * The pool orchestrates these phases to enable pipeline parallelism with maximum CPU utilization.
  */
@@ -16,9 +15,10 @@ import type {
   DiscoverTestsTask,
   DiscoverTestsResult,
   ExecuteTestTask,
+  ExecuteTestWithCoverageTask,
   ExecuteTestResult,
-  ExecuteCoveragePassTask,
-  ExecuteCoveragePassResult,
+  CollectCoverageOnlyTask,
+  CoverageData,
   ReportFileSummaryTask,
   ExecuteBeforeAllHooksTask,
   ExecuteAfterAllHooksTask,
@@ -38,10 +38,6 @@ import {
   reportFileCollected,
   reportSuitePrepare,
 } from './rpc-reporter.js';
-
-// ============================================================================
-// Worker Functions - Phase 2: Discovery
-// ============================================================================
 
 /**
  * Discover tests from compiled binary
@@ -88,7 +84,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     // Report onCollected
     await reportFileCollected(rpc, collectedFileTask);
 
-    // Report suite-prepare (will move to executeBeforeAllHooks when hooks are implemented)
+    // Report suite-prepare
     await reportSuitePrepare(rpc, collectedFileTask);
 
     debug('[Worker] discoverTests complete, discovered', tests.length, 'tests');
@@ -100,10 +96,6 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
   }
 }
 
-// ============================================================================
-// Worker Functions - Phase 3: Test Execution
-// ============================================================================
-
 /**
  * Execute a single test with RPC reporting
  *
@@ -111,7 +103,8 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
  * - test-prepare (before execution)
  * - test-finished (after execution with results)
  *
- * This function is called once per test for maximum parallelism.
+ * This function is called once per test for maximum parallelism and WASM
+ * instance isolation.
  *
  * Called via: pool.run(taskData, { name: 'executeTest', transferList: [port] })
  *
@@ -138,27 +131,92 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
     debug('[Worker] Reporting test-prepare for:', taskData.testTaskName);
     await rpc.onTaskUpdate([prepareTaskPack], [prepareEventPack]);
 
-    // Execute single test via executor
-    const executeStart = performance.now();
-
-    // Collect coverage during execution in 'integrated' and 'failsafe' modes
-    // In 'dual' mode, coverage is collected separately in Phase 4
-    // Only collect if debugInfo is present (indicates instrumented binary)
-    const coverageMode = taskData.options.coverageMode ?? 'failsafe';
-    const collectCoverage = (coverageMode === 'integrated' || coverageMode === 'failsafe') && taskData.debugInfo !== undefined;
+    // Execute single test via executor (no coverage)
+    const timings = createPhaseTimings();
 
     const testResult = await executeSingleTest(
       taskData.binary,
       taskData.test,
       taskData.sourceMap,
       taskData.testFile,
-      { collectCoverage, debugInfo: taskData.debugInfo }
+      false  // collectCoverage
     );
 
-    const executeEnd = performance.now();
-    debugTiming(`[TIMING] ${taskData.testFile} - test ${taskData.testIndex}: ${executeEnd - executeStart}ms`);
+    timings.phaseEnd = performance.now();
+    debugTiming(`[TIMING] ${taskData.testFile} - test ${taskData.testIndex}: ${timings.phaseEnd - timings.phaseStart}ms`);
 
-    // Report test-finished (unless suppressed for failures in failsafe mode)
+    // Report test-finished
+    const finishedResult = {
+      state: testResult.passed ? ('pass' as const) : ('fail' as const),
+      errors: testResult.error ? [testResult.error] : undefined,
+      duration: testResult.duration,
+      startTime: testResult.startTime,
+    };
+    const finishedTaskPack: TaskResultPack = [taskData.testTaskId, finishedResult, {}];
+    const finishedEventPack: TaskEventPack = [taskData.testTaskId, 'test-finished', undefined];
+
+    debug('[Worker] Reporting test-finished for:', taskData.testTaskName, 'duration:', testResult.duration);
+    await rpc.onTaskUpdate([finishedTaskPack], [finishedEventPack]);
+
+    debug('[Worker] executeTest complete for:', taskData.testTaskName);
+
+    return {
+      result: testResult,
+      testIndex: taskData.testIndex,
+    };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    throw new Error(`[Worker] executeTest failed for ${taskData.testTaskName}: ${errorMsg}`, { cause: error });
+  }
+}
+
+/**
+ * Execute a single test with coverage collection
+ *
+ * Executes test on instrumented binary, collects coverage, and reports results via RPC.
+ * Supports optional suppression of failure reporting.
+ *
+ * Called via: pool.run(taskData, { name: 'executeTestWithCoverage', transferList: [port] })
+ *
+ * @param taskData - Test execution with coverage task data
+ * @returns Test result with coverage
+ */
+export async function executeTestWithCoverage(taskData: ExecuteTestWithCoverageTask): Promise<ExecuteTestResult> {
+  try {
+    setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
+    debug('[Worker] executeTestWithCoverage started for:', taskData.testTaskName);
+
+    // Create RPC client from port
+    const rpc = createRpcClient(taskData.port);
+
+    // Report test-prepare
+    const testStartTime = Date.now();
+    const prepareResult = {
+      state: 'run' as const,
+      startTime: testStartTime,
+    };
+    const prepareTaskPack: TaskResultPack = [taskData.testTaskId, prepareResult, {}];
+    const prepareEventPack: TaskEventPack = [taskData.testTaskId, 'test-prepare', undefined];
+
+    debug('[Worker] Reporting test-prepare for:', taskData.testTaskName);
+    await rpc.onTaskUpdate([prepareTaskPack], [prepareEventPack]);
+
+    // Execute single test via executor (with coverage)
+    const timings = createPhaseTimings();
+
+    const testResult = await executeSingleTest(
+      taskData.binary,
+      taskData.test,
+      taskData.sourceMap,
+      taskData.testFile,
+      true,  // collectCoverage
+      taskData.debugInfo
+    );
+
+    timings.phaseEnd = performance.now();
+    debugTiming(`[TIMING] ${taskData.testFile} - test ${taskData.testIndex}: ${timings.phaseEnd - timings.phaseStart}ms`);
+
+    // Report test-finished (respecting suppressFailureReporting flag)
     const shouldSuppressReport = taskData.suppressFailureReporting && !testResult.passed;
 
     if (!shouldSuppressReport) {
@@ -174,10 +232,10 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
       debug('[Worker] Reporting test-finished for:', taskData.testTaskName, 'duration:', testResult.duration);
       await rpc.onTaskUpdate([finishedTaskPack], [finishedEventPack]);
     } else {
-      debug('[Worker] Suppressing test-finished report for failed test (failsafe mode):', taskData.testTaskName);
+      debug('[Worker] Suppressing test-finished report for failed test:', taskData.testTaskName);
     }
 
-    debug('[Worker] executeTest complete for:', taskData.testTaskName);
+    debug('[Worker] executeTestWithCoverage complete for:', taskData.testTaskName);
 
     return {
       result: testResult,
@@ -185,50 +243,44 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
     };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new Error(`[Worker] executeTest failed for ${taskData.testTaskName}: ${errorMsg}`, { cause: error });
+    throw new Error(`[Worker] executeTestWithCoverage failed for ${taskData.testTaskName}: ${errorMsg}`, { cause: error });
   }
 }
 
-// ============================================================================
-// Worker Functions - Phase 5: Coverage Collection
-// ============================================================================
-
 /**
- * Execute coverage collection pass for a single test
+ * Collect coverage data for a single test
  *
- * Re-runs the test on the instrumented coverage binary to collect coverage data.
+ * Runs the test on the instrumented coverage binary to collect coverage data only.
+ * Does NOT report results - coverage collection is silent.
+ *
  * This is used in dual-mode coverage where we execute tests on clean binary
  * (accurate errors) and collect coverage separately on instrumented binary.
  *
- * Called via: pool.run(taskData, { name: 'executeCoveragePass' })
+ * Called via: pool.run(taskData, { name: 'collectCoverageOnly' })
  *
  * @param taskData - Coverage collection task data
  * @returns Coverage data for this test
  */
-export async function executeCoveragePass(
-  taskData: ExecuteCoveragePassTask
-): Promise<ExecuteCoveragePassResult> {
+export async function collectCoverageOnly(
+  taskData: CollectCoverageOnlyTask
+): Promise<CoverageData> {
   try {
     setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
-    debug('[Worker] executeCoveragePass started for test:', taskData.test.name);
+    debug('[Worker] collectCoverageOnly started for test:', taskData.test.name);
 
     const timings = createPhaseTimings();
     const coverage = await collectCoverageForTest(taskData.coverageBinary, taskData.test, taskData.debugInfo);
     timings.phaseEnd = performance.now();
 
-    debugTiming(`[TIMING] ${taskData.testFile} - coverage pass ${taskData.test.name}: ${timings.phaseEnd - timings.phaseStart}ms`);
-    debug('[Worker] executeCoveragePass complete, collected coverage for:', taskData.test.name);
+    debugTiming(`[TIMING] ${taskData.testFile} - coverage collection ${taskData.test.name}: ${timings.phaseEnd - timings.phaseStart}ms`);
+    debug('[Worker] collectCoverageOnly complete for:', taskData.test.name);
 
-    return { coverage };
+    return coverage;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new Error(`[Worker] executeCoveragePass failed for ${taskData.test.name}: ${errorMsg}`, { cause: error });
+    throw new Error(`[Worker] collectCoverageOnly failed for ${taskData.test.name}: ${errorMsg}`, { cause: error });
   }
 }
-
-// ============================================================================
-// Worker Functions - Phase 6: File Summary Reporting
-// ============================================================================
 
 /**
  * Report file summary after all tests complete
@@ -267,10 +319,6 @@ export async function reportFileSummary(taskData: ReportFileSummaryTask): Promis
     throw new Error(`[Worker] reportFileSummary failed for ${taskData.testFile}: ${errorMsg}`, { cause: error });
   }
 }
-
-// ============================================================================
-// Worker Functions - Hook Execution (Not Yet Implemented)
-// ============================================================================
 
 /**
  * Execute beforeAll hooks and report suite-prepare

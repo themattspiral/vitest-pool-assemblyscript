@@ -12,7 +12,7 @@
 import type { RawSourceMap } from 'source-map';
 
 import { createMemory } from '../utils/wasm-memory.js';
-import type { TestResult, CoverageData, DiscoveredTest, DebugInfo, ExecuteSingleTestOptions } from '../types.js';
+import type { TestResult, CoverageData, DiscoveredTest, DebugInfo } from '../types.js';
 import { COVERAGE_MEMORY_PAGES_MAX } from '../types.js';
 import { debug, debugError } from '../utils/debug.mjs';
 import {
@@ -90,7 +90,8 @@ export async function discoverTests(
  * @param test - Test to execute (name and function index)
  * @param sourceMap - Source map JSON string (null if not available)
  * @param filename - Source filename (for error messages)
- * @param options - Execution options
+ * @param collectCoverage - Whether to collect coverage during execution
+ * @param debugInfo - Debug info from coverage instrumentation (required if collectCoverage is true)
  * @returns Test result with outcome, timing, and optional coverage
  */
 export async function executeSingleTest(
@@ -98,15 +99,12 @@ export async function executeSingleTest(
   test: DiscoveredTest,
   sourceMap: string | null,
   filename: string,
-  options: ExecuteSingleTestOptions
+  collectCoverage: boolean,
+  debugInfo?: DebugInfo
 ): Promise<TestResult> {
-  const { preCompiledModule, collectCoverage = false, debugInfo } = options;
 
-  // Use pre-compiled module if provided, otherwise compile the binary
-  const module = preCompiledModule ?? await WebAssembly.compile(binary as BufferSource);
-  if (preCompiledModule) {
-    debug('[Executor] Using pre-compiled module (skipping re-compilation)');
-  }
+  // Compile the binary to usable WASM module
+  const module = await WebAssembly.compile(binary as BufferSource);
 
   // Parse source map once (for error location mapping)
   const sourceMapJson: RawSourceMap | null = sourceMap ? JSON.parse(sourceMap) : null;
@@ -252,20 +250,15 @@ export async function executeSingleTest(
  * @param coverageBinary - Instrumented WASM binary
  * @param test - Test to execute for coverage (name and function index)
  * @param debugInfo - Debug info from coverage instrumentation (for extracting counters)
- * @param preCompiledModule - Optional pre-compiled coverage module (for performance)
  * @returns Coverage data for this test
  */
 export async function collectCoverageForTest(
   coverageBinary: Uint8Array,
   test: DiscoveredTest,
-  debugInfo: DebugInfo,
-  preCompiledModule?: WebAssembly.Module
+  debugInfo: DebugInfo
 ): Promise<CoverageData> {
-  // Use pre-compiled module if provided, otherwise compile the binary
-  const module = preCompiledModule ?? await WebAssembly.compile(coverageBinary as BufferSource);
-  if (preCompiledModule) {
-    debug('[Executor] Using pre-compiled coverage module (skipping re-compilation)');
-  }
+  // Compile the binary to usable WASM module
+  const module = await WebAssembly.compile(coverageBinary as BufferSource);
 
   const memory = createMemory();
   const coverageMemory = new WebAssembly.Memory({ initial: 1, maximum: COVERAGE_MEMORY_PAGES_MAX });

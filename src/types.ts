@@ -159,6 +159,19 @@ export interface CompilationError {
 export type CompileResult = CompilationResult | CompilationError;
 
 /**
+ * Result from compiling a coverage binary (instrumented for coverage collection)
+ *
+ * Contains both the binary and debug info needed for coverage reporting.
+ * Used when coverage binary is compiled separately from primary binary (dual mode).
+ */
+export interface CoverageBinaryResult {
+  /** Compiled instrumented WASM binary */
+  binary: Uint8Array;
+  /** Debug info for coverage reporting */
+  debugInfo: DebugInfo;
+}
+
+/**
  * Cached compilation data (shared between collectTests and runTests)
  *
  * NOTE: WebAssembly.Module is NOT included because it cannot be serialized across
@@ -333,23 +346,7 @@ declare global {
 // ============================================================================
 
 /**
- * Options for executeSingleTest function
- *
- * Used by executor to control test execution behavior
- */
-export interface ExecuteSingleTestOptions {
-  /** Pre-compiled module to avoid re-compilation */
-  preCompiledModule?: WebAssembly.Module;
-  /** Whether this is an instrumented binary (for single-mode coverage) */
-  collectCoverage?: boolean;
-  /** Debug info from coverage instrumentation (required if collectCoverage is true) */
-  debugInfo?: DebugInfo;
-}
-
-/**
  * Task data for discoverTests worker function
- *
- * Phase 2: Test discovery (runs once per file)
  */
 export interface DiscoverTestsTask {
   /** Compiled binary to discover tests from */
@@ -381,17 +378,13 @@ export interface DiscoverTestsResult {
 /**
  * Task data for executeTest worker function
  *
- * Phase 3: Single test execution (runs once per test)
+ * Executes test and reports results via RPC. Does not collect coverage.
  */
 export interface ExecuteTestTask {
-  /** Compiled clean binary */
+  /** Compiled WASM binary */
   binary: Uint8Array;
   /** Source map JSON (for error location mapping) */
   sourceMap: string | null;
-  /** Coverage binary (for single-mode coverage) */
-  coverageBinary?: Uint8Array;
-  /** Debug info from coverage instrumentation (required for coverage modes) */
-  debugInfo?: DebugInfo;
   /** Test to execute */
   test: DiscoveredTest;
   /** Test index in file (for ordering) */
@@ -406,13 +399,36 @@ export interface ExecuteTestTask {
   testTaskId: string;
   /** Test task name (for RPC reporting) */
   testTaskName: string;
-  /**
-   * Suppress reporting of test failures via RPC (for failsafe mode)
-   * When true, worker skips test-finished reporting if test fails.
-   * Passing tests are always reported.
-   * Used in failsafe mode to avoid reporting broken errors from instrumented run.
-   */
-  suppressFailureReporting?: boolean;
+}
+
+/**
+ * Task data for executeTestWithCoverage worker function
+ *
+ * Executes test, collects coverage, and reports results via RPC.
+ */
+export interface ExecuteTestWithCoverageTask {
+  /** Compiled instrumented WASM binary */
+  binary: Uint8Array;
+  /** Source map JSON (for error location mapping) */
+  sourceMap: string | null;
+  /** Debug info from coverage instrumentation */
+  debugInfo: DebugInfo;
+  /** Test to execute */
+  test: DiscoveredTest;
+  /** Test index in file (for ordering) */
+  testIndex: number;
+  /** Path to test file */
+  testFile: string;
+  /** Pool options */
+  options: PoolOptions;
+  /** MessagePort for RPC communication */
+  port: MessagePort;
+  /** Test task ID (for RPC reporting) */
+  testTaskId: string;
+  /** Test task name (for RPC reporting) */
+  testTaskName: string;
+  /** Suppress reporting of test failures via RPC */
+  suppressFailureReporting: boolean;
 }
 
 /**
@@ -426,11 +442,11 @@ export interface ExecuteTestResult {
 }
 
 /**
- * Task data for executeCoveragePass worker function
+ * Task data for collectCoverageOnly worker function
  *
  * Phase 5: Coverage collection for single test (runs once per test in dual mode)
  */
-export interface ExecuteCoveragePassTask {
+export interface CollectCoverageOnlyTask {
   /** Compiled coverage binary */
   coverageBinary: Uint8Array;
   /** Debug info from coverage instrumentation (for extracting counters) */
@@ -441,14 +457,6 @@ export interface ExecuteCoveragePassTask {
   testFile: string;
   /** Pool options */
   options: PoolOptions;
-}
-
-/**
- * Result from executeCoveragePass worker function
- */
-export interface ExecuteCoveragePassResult {
-  /** Coverage data collected for this test */
-  coverage: CoverageData;
 }
 
 /**
@@ -532,4 +540,3 @@ export interface WorkerChannel {
   /** RPC client for calling Vitest methods (only remote functions matter for our usage) */
   rpc: BirpcReturn<RuntimeRPC, object>;
 }
-

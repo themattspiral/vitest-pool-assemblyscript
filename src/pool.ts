@@ -14,12 +14,13 @@ import Tinypool from 'tinypool';
 import type {
   PoolOptions,
   CachedCompilation,
+  CoverageBinaryResult,
   DiscoverTestsTask,
   DiscoverTestsResult,
   ExecuteTestTask,
+  ExecuteTestWithCoverageTask,
   ExecuteTestResult,
-  ExecuteCoveragePassTask,
-  ExecuteCoveragePassResult,
+  CollectCoverageOnlyTask,
   ReportFileSummaryTask,
   FileCoverageData,
   AggregatedCoverage,
@@ -76,10 +77,10 @@ const coverageMap = new Map<string, FileCoverageData>();
 // Two separate sequential queues for clean and coverage compilation
 // This enables pipeline parallelism while maintaining V8 warmup in each queue
 let cleanCompilationQueue: Promise<CachedCompilation> = Promise.resolve() as unknown as Promise<CachedCompilation>;
-let coverageCompilationQueue: Promise<Uint8Array> = Promise.resolve() as unknown as Promise<Uint8Array>;
+let coverageCompilationQueue: Promise<CoverageBinaryResult> = Promise.resolve() as unknown as Promise<CoverageBinaryResult>;
 
 // Track coverage compilation promises to await before coverage phase
-const coverageCompilationPromises = new Map<string, Promise<Uint8Array>>();
+const coverageCompilationPromises = new Map<string, Promise<CoverageBinaryResult>>();
 
 /**
  * Get coverage mode flags for easy destructuring
@@ -204,9 +205,9 @@ async function compilePrimaryBinary(
  *
  * @param testFile - Path to test file
  * @param options - Pool options
- * @returns Coverage binary
+ * @returns Coverage binary and debug info for coverage reporting
  */
-async function compileCoverageBinary(testFile: string, options: PoolOptions): Promise<Uint8Array> {
+async function compileCoverageBinary(testFile: string, options: PoolOptions): Promise<CoverageBinaryResult> {
   const coverageTimings = createPhaseTimings();
   const coverageResult = await compileAssemblyScript(testFile, {
     coverage: true,
@@ -219,7 +220,14 @@ async function compileCoverageBinary(testFile: string, options: PoolOptions): Pr
     throw coverageResult.error;
   }
 
-  return coverageResult.binary;
+  if (!coverageResult.debugInfo) {
+    throw new Error('Coverage compilation should always produce debugInfo');
+  }
+
+  return {
+    binary: coverageResult.binary,
+    debugInfo: coverageResult.debugInfo,
+  };
 }
 
 /**
@@ -230,9 +238,9 @@ async function compileCoverageBinary(testFile: string, options: PoolOptions): Pr
  *
  * @param testFile - Path to test file
  * @param options - Pool options
- * @returns Promise that resolves when coverage binary is compiled
+ * @returns Promise that resolves with coverage binary and debug info
  */
-async function queueCoverageCompilation(testFile: string, options: PoolOptions): Promise<Uint8Array> {
+async function queueCoverageCompilation(testFile: string, options: PoolOptions): Promise<CoverageBinaryResult> {
   const currentCompilation = coverageCompilationQueue.then(() => compileCoverageBinary(testFile, options));
   coverageCompilationQueue = currentCompilation.catch((err) => {
     throw err;
@@ -596,30 +604,48 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
           // Create RPC channel for this test
           const { workerPort: testWorkerPort, poolPort: testPoolPort, rpc: _testRpc } = createWorkerChannel(project, false);
 
-          const executeTask: ExecuteTestTask = {
-            binary: cached!.binary,
-            sourceMap: cached!.sourceMap,
-            // Only pass coverageBinary if primary binary is NOT already instrumented
-            // (in 'integrated'/'failsafe', primary IS instrumented, so no separate coverage binary needed)
-            coverageBinary: undefined, // Always undefined - coverage collected from primary binary or Phase 4
-            debugInfo: cached!.debugInfo ?? undefined,
-            test,
-            testIndex,
-            testFile,
-            options,
-            port: testWorkerPort,
-            testTaskId: testTask.id,
-            testTaskName: testTask.name,
-            // Suppress failure reporting in failsafe mode (Phase 3 runs on instrumented binary)
-            // Failures will be re-run on clean binary and reported then
-            suppressFailureReporting: isFailsafeMode,
-          };
-
           try {
-            const result = await pool.run(executeTask, {
-              name: 'executeTest',
-              transferList: [testWorkerPort],
-            }) as ExecuteTestResult;
+            let result: ExecuteTestResult;
+
+            if (isDualMode) {
+              // DUAL MODE: Execute on clean binary, no coverage (Phase 4 collects coverage separately)
+              const executeTask: ExecuteTestTask = {
+                binary: cached!.binary,
+                sourceMap: cached!.sourceMap,
+                test,
+                testIndex,
+                testFile,
+                options,
+                port: testWorkerPort,
+                testTaskId: testTask.id,
+                testTaskName: testTask.name,
+              };
+
+              result = await pool.run(executeTask, {
+                name: 'executeTest',
+                transferList: [testWorkerPort],
+              }) as ExecuteTestResult;
+            } else {
+              // INTEGRATED/FAILSAFE MODE: Execute on instrumented binary with coverage
+              const executeTask: ExecuteTestWithCoverageTask = {
+                binary: cached!.binary,
+                sourceMap: cached!.sourceMap,
+                debugInfo: cached!.debugInfo!,
+                test,
+                testIndex,
+                testFile,
+                options,
+                port: testWorkerPort,
+                testTaskId: testTask.id,
+                testTaskName: testTask.name,
+                suppressFailureReporting: isFailsafeMode,  // Only true for failsafe mode
+              };
+
+              result = await pool.run(executeTask, {
+                name: 'executeTestWithCoverage',
+                transferList: [testWorkerPort],
+              }) as ExecuteTestResult;
+            }
 
             return { testTask, result: result.result };
           } finally {
@@ -698,8 +724,6 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
                 const rerunTask: ExecuteTestTask = {
                   binary: cleanBinary.binary,
                   sourceMap: cleanBinary.sourceMap,
-                  coverageBinary: undefined,
-                  debugInfo: undefined, // Never collect coverage in failsafe re-run (clean binary for accurate errors only)
                   test,
                   testIndex,
                   testFile,
@@ -707,8 +731,6 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
                   port: rerunPort,
                   testTaskId: testTask.id,
                   testTaskName: testTask.name,
-                  // Explicitly enable reporting for re-run (accurate errors from clean binary)
-                  suppressFailureReporting: false,
                 };
 
                 try {
@@ -737,15 +759,17 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
           }
         } else if (isDualMode) {
           // DUAL MODE: Always run both clean and instrumented binaries
-          // Phase 3 ran on clean binary (accurate errors), Phase 4 runs on instrumented (coverage)
-          debug(`[Pipeline ${testFile}] Starting Phase 4 (execute coverage passes and accumulate)`);
+          // Phase 3 ran on clean binary (accurate errors), Phase 4 collects coverage from instrumented binary
+          debug(`[Pipeline ${testFile}] Starting Phase 4 (collect coverage and accumulate)`);
 
           // Await coverage binary compilation if needed
           if (!cached.coverageBinary) {
             const coveragePromise = coverageCompilationPromises.get(testFile);
             if (coveragePromise) {
               debug(`[Pipeline ${testFile}] Awaiting coverage binary compilation`);
-              cached.coverageBinary = await coveragePromise;
+              const coverageResult = await coveragePromise;
+              cached.coverageBinary = coverageResult.binary;
+              cached.debugInfo = coverageResult.debugInfo;
               coverageCompilationPromises.delete(testFile);
             }
           }
@@ -755,9 +779,9 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
           } else if (!cached.debugInfo) {
             debug(`[Pipeline ${testFile}] No debugInfo available, skipping coverage collection`);
           } else {
-            // Execute coverage pass for each test (in parallel)
+            // Collect coverage for each test (in parallel)
             const coverageExecutions = cached.discoveredTests.map(async (test) => {
-              const coveragePassTask: ExecuteCoveragePassTask = {
+              const coverageTask: CollectCoverageOnlyTask = {
                 coverageBinary: cached.coverageBinary!,
                 debugInfo: cached.debugInfo!,
                 test,
@@ -765,14 +789,14 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
                 options,
               };
 
-              const coverageResult = await pool.run(coveragePassTask, {
-                name: 'executeCoveragePass',
-              }) as ExecuteCoveragePassResult;
+              const coverage = await pool.run(coverageTask, {
+                name: 'collectCoverageOnly',
+              }) as CoverageData;
 
-              return coverageResult.coverage;
+              return coverage;
             });
 
-            // Wait for all coverage passes
+            // Wait for all coverage collection to complete
             const allCoverage = await Promise.all(coverageExecutions);
 
             // Accumulate coverage for LCOV reporting
