@@ -17,35 +17,25 @@ import { BinaryenCoverageInstrumenter } from './coverage/instrumentation.js';
  *
  * @param wasmBinary - Clean WASM binary from AS compiler
  * @param filename - Source filename (for debug info)
- * @param coverageEnabled - Whether to instrument for coverage
- * @returns Object with binary and optional debugInfo
+ * @returns Instrumented binary and debugInfo
  */
 function instrumentBinaryForCoverage(
   wasmBinary: Uint8Array,
-  filename: string,
-  coverageEnabled: boolean
+  filename: string
 ): {
   binary: Uint8Array;
-  debugInfo: DebugInfo | null;
+  debugInfo: DebugInfo;
 } {
-  if (coverageEnabled) {
-    debug('[Compiler] Coverage enabled - instrumenting binary');
-    const coverageInstrumenter = new BinaryenCoverageInstrumenter();
-    const result = coverageInstrumenter.instrument(wasmBinary, filename);
+  debug('[Compiler] Instrumenting binary for coverage');
+  const coverageInstrumenter = new BinaryenCoverageInstrumenter();
+  const result = coverageInstrumenter.instrument(wasmBinary, filename);
 
-    debug('[Compiler] Instrumentation complete');
+  debug('[Compiler] Instrumentation complete');
 
-    return {
-      binary: result.binary,
-      debugInfo: result.debugInfo,
-    };
-  } else {
-    debug('[Compiler] No coverage - returning clean binary');
-    return {
-      binary: wasmBinary,
-      debugInfo: null,
-    };
-  }
+  return {
+    binary: result.binary,
+    debugInfo: result.debugInfo,
+  };
 }
 
 /**
@@ -56,12 +46,13 @@ function instrumentBinaryForCoverage(
  * - Filesystem reading enabled (for import resolution)
  * - Uses stub runtime and imported memory pattern
  * - Exports _start function for explicit initialization control
- * - Configurable coverage modes (false, true, 'dual')
- * - Dual-mode produces both clean and instrumented binaries
+ * - Always returns clean binary
+ * - Conditionally returns instrumented binary when coverage enabled
  *
  * @param filename - Full path to the source file (used as entry point)
  * @param options - Compilation options (coverage mode, etc.)
- * @returns Compilation result with binary (and optional coverage binary) or error
+ * @returns Compilation result with clean binary and optional instrumented binary
+ * @throws Error if compilation fails
  */
 export async function compileAssemblyScript(
   filename: string,
@@ -69,8 +60,8 @@ export async function compileAssemblyScript(
 ): Promise<CompileResult> {
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
-  let binary: Uint8Array | null = null;
-  let sourceMap: string | null = null;
+  let binary: Uint8Array | undefined;
+  let sourceMap: string | undefined;
 
   // Use full path as entry file so AS compiler can resolve relative imports
   const entryFile = filename;
@@ -155,13 +146,7 @@ export async function compileAssemblyScript(
 
     const enhancedError = new Error(errorMessage);
     enhancedError.stack = result.error.stack;
-
-    return {
-      binary: null,
-      sourceMap: null,
-      debugInfo: null,
-      error: enhancedError,
-    };
+    throw enhancedError;
   }
 
   // Verify binary was generated
@@ -171,33 +156,36 @@ export async function compileAssemblyScript(
       ? `No WASM binary was generated\n\nASC Compiler output:\n${stderrLines.join('')}`
       : 'No WASM binary was generated';
 
-    return {
-      binary: null,
-      sourceMap: null,
-      debugInfo: null,
-      error: new Error(errorMessage),
-    };
+    throw new Error(errorMessage);
   }
 
-  // Extract to const to help TypeScript narrow the type
-  const wasmBinary: Uint8Array = binary;
-  const wasmSourceMap: string | null = sourceMap;
+  const cleanBinary: Uint8Array = binary!;
+  const wasmSourceMap: string | undefined = sourceMap;
 
-  debug('[ASC Compiler] Compilation successful, binary size:', wasmBinary.length, 'bytes');
-  if (wasmSourceMap !== null) {
-    debug('[ASC Compiler] Source map generated, size:', (wasmSourceMap as string).length, 'bytes');
+  debug('[ASC Compiler] Compilation successful, clean binary size:', cleanBinary.length, 'bytes');
+  if (wasmSourceMap) {
+    debug('[ASC Compiler] Source map generated, size:', wasmSourceMap.length, 'bytes');
   }
 
   // Instrument binary for coverage if requested
-  const instrumentStart = performance.now();
-  const instrumentResult = instrumentBinaryForCoverage(wasmBinary, filename, options.coverage);
-  const instrumentEnd = performance.now();
-  debugTiming(`[TIMING] ${basename(filename)} - instrumentation: ${instrumentEnd - instrumentStart}ms`);
+  let instrumentedBinary: Uint8Array | undefined;
+  let debugInfo: DebugInfo | undefined;
+
+  if (options.coverage) {
+    const instrumentStart = performance.now();
+    const instrumentResult = instrumentBinaryForCoverage(cleanBinary, filename);
+    const instrumentEnd = performance.now();
+    debugTiming(`[TIMING] ${basename(filename)} - instrumentation: ${instrumentEnd - instrumentStart}ms`);
+
+    instrumentedBinary = instrumentResult.binary;
+    debugInfo = instrumentResult.debugInfo;
+    debug('[ASC Compiler] Instrumented binary size:', instrumentedBinary.length, 'bytes');
+  }
 
   return {
-    binary: instrumentResult.binary,
+    clean: cleanBinary,
+    instrumented: instrumentedBinary,
     sourceMap: wasmSourceMap,
-    debugInfo: instrumentResult.debugInfo,
-    error: null,
+    debugInfo,
   };
 }

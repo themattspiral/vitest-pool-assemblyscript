@@ -13,7 +13,6 @@ export default defineConfig({
         /**
          * Coverage collection mode:
          * - 'failsafe': Smart re-run - instrumented first, re-run failures on clean (default, optimal)
-         * - 'dual': Always dual - both instrumented + clean for all tests (slower, always accurate)
          * - 'integrated': Single run - instrumented only (fast, broken error locations on failure)
          */
         coverageMode: 'failsafe',

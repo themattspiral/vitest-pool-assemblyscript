@@ -28,7 +28,7 @@ export const COVERAGE_MEMORY_PAGES_MAX = 4;
 /**
  * Coverage mode options
  */
-export type CoverageMode = 'failsafe' | 'dual' | 'integrated';
+export type CoverageMode = 'failsafe' | 'integrated';
 
 /**
  * Coverage mode flags for easy consumption in conditional logic
@@ -40,8 +40,6 @@ export interface CoverageModeFlags {
   isIntegratedMode: boolean;
   /** True if mode is 'failsafe' */
   isFailsafeMode: boolean;
-  /** True if mode is 'dual' */
-  isDualMode: boolean;
 }
 
 /**
@@ -54,13 +52,12 @@ export interface PoolOptions {
   debugTiming?: boolean;
   /**
    * Coverage collection mode (only applies when test.coverage.enabled is true):
-   * - 'failsafe': Smart re-run - Run instrumented first, re-run only failures on clean (default)
-   * - 'dual': Always dual - Run both instrumented + clean for all tests (slower, always accurate)
+   * - 'failsafe': Smart re-run - Run instrumented first, re-run only failures on clean (default, optimal)
    * - 'integrated': Single run - Instrumented only (fast, broken error locations on failure)
    *
    * @default 'failsafe'
    */
-  coverageMode?: 'failsafe' | 'dual' | 'integrated';
+  coverageMode?: 'failsafe' | 'integrated';
   /**
    * Strip @inline decorators during compilation to improve coverage accuracy
    *
@@ -126,49 +123,19 @@ export interface PhaseTimings {
 // ============================================================================
 
 /**
- * Result of compiling AssemblyScript source (success case)
- */
-export interface CompilationResult {
-  /** Compiled WASM binary (clean or instrumented, depending on coverage mode) */
-  binary: Uint8Array;
-  /** Source map JSON (if successful and --sourceMap enabled) */
-  sourceMap: string | null;
-  /** Debug info for coverage reporting (if coverage enabled) */
-  debugInfo: DebugInfo | null;
-  /** Error (null on success) */
-  error: null;
-}
-
-/**
- * Result of compiling AssemblyScript source (error case)
- */
-export interface CompilationError {
-  /** No binary on error */
-  binary: null;
-  /** No source map on error */
-  sourceMap: null;
-  /** No debug info on error */
-  debugInfo: null;
-  /** Compilation error */
-  error: Error;
-}
-
-/**
- * Union type for compilation results
- */
-export type CompileResult = CompilationResult | CompilationError;
-
-/**
- * Result from compiling a coverage binary (instrumented for coverage collection)
+ * Result of compiling AssemblyScript source
  *
- * Contains both the binary and debug info needed for coverage reporting.
- * Used when coverage binary is compiled separately from primary binary (dual mode).
+ * Throws on compilation error.
  */
-export interface CoverageBinaryResult {
-  /** Compiled instrumented WASM binary */
-  binary: Uint8Array;
-  /** Debug info for coverage reporting */
-  debugInfo: DebugInfo;
+export interface CompileResult {
+  /** Clean WASM binary (always returned) */
+  clean: Uint8Array;
+  /** Instrumented WASM binary (only when coverage enabled) */
+  instrumented?: Uint8Array;
+  /** Source map JSON (if successful and --sourceMap enabled) */
+  sourceMap?: string;
+  /** Debug info for coverage reporting (if coverage enabled) */
+  debugInfo?: DebugInfo;
 }
 
 /**
@@ -182,10 +149,10 @@ export interface CoverageBinaryResult {
  * to avoid re-compilation within that task.
  */
 export interface CachedCompilation {
-  binary: Uint8Array;
-  sourceMap: string | null;
-  coverageBinary?: Uint8Array;
-  debugInfo: DebugInfo | null;
+  clean: Uint8Array;
+  instrumented?: Uint8Array;
+  sourceMap?: string;
+  debugInfo?: DebugInfo;
   discoveredTests: DiscoveredTest[];
   compileTimings: PhaseTimings;
   discoverTimings?: PhaseTimings;
@@ -362,7 +329,7 @@ export interface DiscoverTestsTask {
   /** Compilation phase timings from compile worker */
   compileTimings: PhaseTimings;
   /** Debug info from coverage instrumentation (if binary is instrumented) */
-  debugInfo?: DebugInfo | null;
+  debugInfo?: DebugInfo;
 }
 
 /**
@@ -384,7 +351,7 @@ export interface ExecuteTestTask {
   /** Compiled WASM binary */
   binary: Uint8Array;
   /** Source map JSON (for error location mapping) */
-  sourceMap: string | null;
+  sourceMap?: string;
   /** Test to execute */
   test: DiscoveredTest;
   /** Test index in file (for ordering) */
@@ -410,7 +377,7 @@ export interface ExecuteTestWithCoverageTask {
   /** Compiled instrumented WASM binary */
   binary: Uint8Array;
   /** Source map JSON (for error location mapping) */
-  sourceMap: string | null;
+  sourceMap?: string;
   /** Debug info from coverage instrumentation */
   debugInfo: DebugInfo;
   /** Test to execute */
@@ -441,23 +408,6 @@ export interface ExecuteTestResult {
   testIndex: number;
 }
 
-/**
- * Task data for collectCoverageOnly worker function
- *
- * Phase 5: Coverage collection for single test (runs once per test in dual mode)
- */
-export interface CollectCoverageOnlyTask {
-  /** Compiled coverage binary */
-  coverageBinary: Uint8Array;
-  /** Debug info from coverage instrumentation (for extracting counters) */
-  debugInfo: DebugInfo;
-  /** Test to execute for coverage */
-  test: DiscoveredTest;
-  /** Path to test file (for logging) */
-  testFile: string;
-  /** Pool options */
-  options: PoolOptions;
-}
 
 /**
  * Task data for reportFileSummary worker function

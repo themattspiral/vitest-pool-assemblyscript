@@ -65,31 +65,62 @@ export function generateLCOV(
 
   const functionNames = new Map<number, string>();
   const functionLines = new Map<number, number>();
+  const writtenFunctions = new Set<string>(); // Track written FN entries to avoid duplicates
 
   debugInfo.functions.forEach((funcInfo, funcIdx) => {
     const funcName = funcInfo.name;
-    const line = funcInfo.startLine || 1; // Use startLine, fallback to 1 for functions without metadata
+    const line = funcInfo.startLine;
+
+    // Skip functions without metadata (startLine === 0 means no metadata from AS transform)
+    // These are compiler-generated functions we can't map to source
+    if (line === 0) {
+      debug(`[LCOV] Skipping function without metadata: ${funcName}`);
+      return;
+    }
 
     functionNames.set(funcIdx, funcName);
     functionLines.set(funcIdx, line);
 
     // FN:<line>,<function name>
-    lines.push(`FN:${line},${funcName}`);
+    // Deduplicate: only write each unique (line, name) pair once
+    const fnKey = `${line}:${funcName}`;
+    if (!writtenFunctions.has(fnKey)) {
+      lines.push(`FN:${line},${funcName}`);
+      writtenFunctions.add(fnKey);
+    }
   });
 
   // Function execution data (FNDA records)
+  // Aggregate execution counts for functions with same (line, name)
+  const fndaAggregated = new Map<string, number>();
+
   for (let funcIdx = 0; funcIdx < debugInfo.functions.length; funcIdx++) {
-    const funcName = functionNames.get(funcIdx) || `func_${funcIdx}`;
+    // Skip functions without metadata (not in functionNames map)
+    if (!functionNames.has(funcIdx)) {
+      continue;
+    }
+
+    const funcName = functionNames.get(funcIdx)!;
+    const line = functionLines.get(funcIdx)!;
     const funcKey = String(funcIdx);
     const hitCount = coverage.functions[funcKey] || 0;
 
+    // Aggregate by (line, name) to match FN deduplication
+    const fnKey = `${line}:${funcName}`;
+    const currentCount = fndaAggregated.get(fnKey) || 0;
+    fndaAggregated.set(fnKey, currentCount + hitCount);
+  }
+
+  // Write FNDA records for each unique function
+  for (const [fnKey, hitCount] of fndaAggregated.entries()) {
+    const funcName = fnKey.split(':').slice(1).join(':'); // Extract name after line number
     // FNDA:<execution count>,<function name>
     lines.push(`FNDA:${hitCount},${funcName}`);
   }
 
   // Function summary
-  const functionsFound = debugInfo.functions.length;
-  const functionsHit = Object.values(coverage.functions).filter(count => count > 0).length;
+  const functionsFound = writtenFunctions.size; // Use deduplicated count
+  const functionsHit = Array.from(fndaAggregated.values()).filter(count => count > 0).length;
   lines.push(`FNF:${functionsFound}`);
   lines.push(`FNH:${functionsHit}`);
 
@@ -100,6 +131,7 @@ export function generateLCOV(
   const lineHits = new Map<number, number>();
 
   for (let funcIdx = 0; funcIdx < debugInfo.functions.length; funcIdx++) {
+    // Skip functions without metadata (not in functionLines map)
     const line = functionLines.get(funcIdx);
     if (line === undefined) continue;
 

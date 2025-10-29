@@ -46,7 +46,7 @@ import { enhanceErrorWithSourceMap } from './errors.js';
 export async function discoverTests(
   binary: Uint8Array,
   _filename: string,
-  debugInfo?: DebugInfo | null
+  debugInfo?: DebugInfo
 ): Promise<{ tests: DiscoveredTest[] }> {
   const tests: DiscoveredTest[] = [];
   const module = await WebAssembly.compile(binary as BufferSource);
@@ -88,7 +88,7 @@ export async function discoverTests(
  *
  * @param binary - Compiled WASM binary (clean for dual-mode, instrumented for single-mode)
  * @param test - Test to execute (name and function index)
- * @param sourceMap - Source map JSON string (null if not available)
+ * @param sourceMap - Source map JSON string (optional)
  * @param filename - Source filename (for error messages)
  * @param collectCoverage - Whether to collect coverage during execution
  * @param debugInfo - Debug info from coverage instrumentation (required if collectCoverage is true)
@@ -97,7 +97,7 @@ export async function discoverTests(
 export async function executeSingleTest(
   binary: Uint8Array,
   test: DiscoveredTest,
-  sourceMap: string | null,
+  sourceMap: string | undefined,
   filename: string,
   collectCoverage: boolean,
   debugInfo?: DebugInfo
@@ -107,7 +107,7 @@ export async function executeSingleTest(
   const module = await WebAssembly.compile(binary as BufferSource);
 
   // Parse source map once (for error location mapping)
-  const sourceMapJson: RawSourceMap | null = sourceMap ? JSON.parse(sourceMap) : null;
+  const sourceMapJson: RawSourceMap | undefined = sourceMap ? JSON.parse(sourceMap) : undefined;
   if (sourceMapJson) {
     debug('[Executor] Source map available for error location mapping');
   }

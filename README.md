@@ -205,10 +205,9 @@ export default defineConfig({
     // Pool-specific options
     poolOptions: {
       assemblyScript: {
-        // Coverage modes: 'integrated' | 'dual' | 'failsafe' (default: 'failsafe')
+        // Coverage modes: 'integrated' | 'failsafe' (default: 'failsafe')
+        // - failsafe: Smart re-run - instrumented first, re-run failures on clean (default, optimal)
         // - integrated: Single instrumented binary (fast, but errors have wrong line numbers)
-        // - dual: Always compile both clean + instrumented (slower, always accurate)
-        // - failsafe: Smart re-run - instrumented first, re-run failures on clean (optimal)
         coverageMode: 'failsafe',
 
         // Strip @inline decorators for better coverage accuracy

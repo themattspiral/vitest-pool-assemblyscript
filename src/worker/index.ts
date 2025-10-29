@@ -4,7 +4,7 @@
  * This worker provides granular phase-specific functions:
  * - discoverTests: Discover tests from compiled binary
  * - executeTest: Execute a single test with RPC reporting
- * - collectCoverageOnly: Collect coverage data for single test (silent, no reporting)
+ * - executeTestWithCoverage: Execute a single test with coverage collection and RPC reporting
  * - reportFileSummary: Report file summary after all tests complete
  *
  * The pool orchestrates these phases to enable pipeline parallelism with maximum CPU utilization.
@@ -17,8 +17,6 @@ import type {
   ExecuteTestTask,
   ExecuteTestWithCoverageTask,
   ExecuteTestResult,
-  CollectCoverageOnlyTask,
-  CoverageData,
   ReportFileSummaryTask,
   ExecuteBeforeAllHooksTask,
   ExecuteAfterAllHooksTask,
@@ -26,7 +24,6 @@ import type {
 import {
   discoverTests as discoverTestsFromExecutor,
   executeSingleTest,
-  collectCoverageForTest,
 } from '../executor/index.js';
 import { setDebug, debug, debugTiming } from '../utils/debug.mjs';
 import { createPhaseTimings } from '../utils/timing.mjs';
@@ -244,41 +241,6 @@ export async function executeTestWithCoverage(taskData: ExecuteTestWithCoverageT
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     throw new Error(`[Worker] executeTestWithCoverage failed for ${taskData.testTaskName}: ${errorMsg}`, { cause: error });
-  }
-}
-
-/**
- * Collect coverage data for a single test
- *
- * Runs the test on the instrumented coverage binary to collect coverage data only.
- * Does NOT report results - coverage collection is silent.
- *
- * This is used in dual-mode coverage where we execute tests on clean binary
- * (accurate errors) and collect coverage separately on instrumented binary.
- *
- * Called via: pool.run(taskData, { name: 'collectCoverageOnly' })
- *
- * @param taskData - Coverage collection task data
- * @returns Coverage data for this test
- */
-export async function collectCoverageOnly(
-  taskData: CollectCoverageOnlyTask
-): Promise<CoverageData> {
-  try {
-    setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
-    debug('[Worker] collectCoverageOnly started for test:', taskData.test.name);
-
-    const timings = createPhaseTimings();
-    const coverage = await collectCoverageForTest(taskData.coverageBinary, taskData.test, taskData.debugInfo);
-    timings.phaseEnd = performance.now();
-
-    debugTiming(`[TIMING] ${taskData.testFile} - coverage collection ${taskData.test.name}: ${timings.phaseEnd - timings.phaseStart}ms`);
-    debug('[Worker] collectCoverageOnly complete for:', taskData.test.name);
-
-    return coverage;
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new Error(`[Worker] collectCoverageOnly failed for ${taskData.test.name}: ${errorMsg}`, { cause: error });
   }
 }
 
