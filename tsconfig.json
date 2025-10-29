@@ -44,6 +44,5 @@
     "dist",
     "assembly",
     "tests/assembly",  // AssemblyScript tests (not TypeScript)
-    "debug-tools"
   ]
 }
