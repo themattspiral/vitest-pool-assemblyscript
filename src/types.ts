@@ -7,7 +7,7 @@
 
 import type { MessagePort } from 'node:worker_threads';
 import type { RuntimeRPC } from 'vitest';
-import type { RunnerTestFile } from 'vitest/node';
+import type { RunnerTestFile, RunnerTestCase } from 'vitest/node';
 import type { BirpcReturn } from 'birpc';
 
 // ============================================================================
@@ -200,6 +200,20 @@ export interface TestResult {
   startTime?: number;
   /** Test duration in milliseconds */
   duration?: number;
+}
+
+/**
+ * Pool-internal test result pairing testTask with result
+ *
+ * Used within the pool to track test execution results along with their
+ * associated Vitest task objects. Unlike ExecuteTestResult (worker communication),
+ * this includes the full RunnerTestCase which cannot cross worker boundaries.
+ */
+export interface PoolTestResult {
+  /** Vitest test task object */
+  testTask: RunnerTestCase;
+  /** Test execution result */
+  result: TestResult;
 }
 
 

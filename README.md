@@ -4,6 +4,8 @@
 
 A [Vitest](https://vitest.dev/) custom pool that brings [AssemblyScript](https://www.assemblyscript.org/) testing into your existing Vitest workflow.
 
+Note this pool is currently designed for Vitest v3 - A v4 version will hopefully get off the ground soon also!
+
 Features:
 - Per-test WASM instance isolation for crash tolerance
 - Source-mapped error messages (AssemblyScript function names, line & column numbers)
@@ -132,9 +134,9 @@ To be documented here when it is fully stable.
 - ✅ Console reporting through Vitest
 
 ### In Progress
-- 🚧 Configurable ASC compiler options
 - 🚧 Rich matcher API (`expect().toBe()`, `toEqual()`, `toBeCloseTo()`, etc.)
 - 🚧 Nested `describe()` blocks and lifecycle hooks (`beforeEach()`, `beforeAll()`, etc.)
+- 🚧 Configurable ASC compiler options
 - 🚧 Configuration docs and examples
 - 🚧 Internal test suite for stability
 - 🚧 Edge case hardening
@@ -151,9 +153,9 @@ To be documented here when it is fully stable.
 - 📋 Mocking utilities
 - 📋 JS Integration harness with browser runners
 
-### Out of Scope (Currently)
-- ✖️ Generic testing of precompiled WASM binaries
+### Out of Scope (Currently - I would love to do this in the future)
 - ✖️ Compiler intergration with other compile-to-WASM languages
+- ✖️ Generic testing of precompiled WASM binaries
 
 ---
 

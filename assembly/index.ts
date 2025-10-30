@@ -5,7 +5,7 @@
  * 1. Instantiation: Pool creates WASM instance with import callbacks
  * 2. Registration: _start() runs, top-level test() calls invoke __register_test callback
  * 3. Discovery: Pool receives test names + function indices via callbacks
- * 4. Execution: Pool calls __execute_function(fnIndex) for each test in fresh instance
+ * 4. Execution: Pool calls table.get(fnIndex)() directly via exported function table
  *
  * Key design decisions:
  * - Per-test isolation: Each test runs in a fresh WASM instance (~0.43ms overhead)
@@ -33,31 +33,6 @@ declare function __assertion_fail(msgPtr: usize, msgLen: i32): void;
  */
 export function test(name: string, fn: () => void): void {
   __register_test(changetype<usize>(name), name.length, fn.index);
-}
-
-/**
- * Execute a test function by its function table index
- *
- * Called by Pool with a fresh WASM instance for each test.
- * The fnIndex parameter is the value from fn.index captured during registration.
- *
- * This function is simpler than you might expect because:
- * - It ONLY executes the test function
- * - It does NOT call __test_start or __test_pass
- * - Those lifecycle functions are called by the Pool (Node.js side)
- *
- * Why? Because the Pool already knows:
- * - The test name (from registration)
- * - When the test starts (when it calls this function)
- * - When the test passes (when this returns without aborting)
- * - When the test fails (when abort is called)
- *
- */
-export function __execute_function(fnIndex: u32): void {
-  // Retrieve the function from the function table and execute it
-  // AssemblyScript compiler generates call_indirect WASM instruction here
-  const fn = changetype<() => void>(fnIndex);
-  fn();
 }
 
 /**

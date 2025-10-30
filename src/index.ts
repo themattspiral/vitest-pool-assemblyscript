@@ -6,5 +6,5 @@
  * Package entry point - exports the pool factory for Vitest configuration
  */
 
-export { default } from './pool.js';
+export { default } from './pool/index.js';
 export type { CompileResult, TestResult } from './types.js';
