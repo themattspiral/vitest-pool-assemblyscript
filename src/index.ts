@@ -7,4 +7,4 @@
  */
 
 export { default } from './pool/index.js';
-export type { CompileResult, TestResult } from './types.js';
+export type { CompileResult, TestResult, AssemblyScriptPoolOptions } from './types.js';

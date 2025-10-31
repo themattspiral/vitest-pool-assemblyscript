@@ -40,8 +40,14 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "@types/istanbul-lib-coverage": "^2.0.6",
+    "@types/istanbul-lib-report": "^3.0.3",
+    "@types/istanbul-reports": "^3.0.4",
     "binaryen": "^124.0.0",
     "birpc": "^2.4.0",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-reports": "^3.2.0",
     "source-map": "^0.7.6",
     "tinypool": "^2.0.0"
   }

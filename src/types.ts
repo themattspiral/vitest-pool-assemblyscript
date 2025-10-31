@@ -34,6 +34,8 @@ export type CoverageMode = 'failsafe' | 'integrated';
  * Coverage mode flags for easy consumption in conditional logic
  */
 export interface CoverageModeFlags {
+  /** True if coverage is enabled (from Vitest's coverage.enabled config) */
+  coverageEnabled: boolean;
   /** The actual coverage mode */
   mode: CoverageMode;
   /** True if mode is 'integrated' */
@@ -43,9 +45,9 @@ export interface CoverageModeFlags {
 }
 
 /**
- * Pool configuration options
+ * AssemblyScript pool configuration options
  */
-export interface PoolOptions {
+export interface AssemblyScriptPoolOptions {
   /** Enable verbose debug logging */
   debug?: boolean;
   /** Enable detailed timing logs for compile/discover/execute phases */
@@ -75,20 +77,23 @@ export interface PoolOptions {
    */
   stripInline?: boolean;
   /**
-   * Isolate workers (create fresh worker per test file)
-   *
-   * - When true (default): Fresh worker created/destroyed per test file
-   * - When false: Workers reused across test files (up to maxThreads limit)
-   *
-   * @default true
-   */
-  isolate?: boolean;
-  /**
    * Maximum number of worker threads
    *
    * Defaults to Math.max(cpus - 1, 1)
    */
   maxThreads?: number;
+}
+
+/**
+ * Module augmentation for TypeScript autocomplete support
+ *
+ * This allows users to get autocomplete when configuring poolOptions.assemblyScript
+ * in their vitest.config.ts without needing to import the type explicitly.
+ */
+declare module 'vitest/node' {
+  interface PoolOptions {
+    assemblyScript?: AssemblyScriptPoolOptions;
+  }
 }
 
 /**
@@ -335,7 +340,7 @@ export interface DiscoverTestsTask {
   /** Path to test file (for logging) */
   testFile: string;
   /** Pool options */
-  options: PoolOptions;
+  options: AssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Project information for file task creation */
@@ -373,7 +378,7 @@ export interface ExecuteTestTask {
   /** Path to test file */
   testFile: string;
   /** Pool options */
-  options: PoolOptions;
+  options: AssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Test task ID (for RPC reporting) */
@@ -401,7 +406,7 @@ export interface ExecuteTestWithCoverageTask {
   /** Path to test file */
   testFile: string;
   /** Pool options */
-  options: PoolOptions;
+  options: AssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Test task ID (for RPC reporting) */
@@ -432,7 +437,7 @@ export interface ReportFileSummaryTask {
   /** Path to test file */
   testFile: string;
   /** Pool options */
-  options: PoolOptions;
+  options: AssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Complete file task with all test results */
@@ -451,7 +456,7 @@ export interface ExecuteBeforeAllHooksTask {
   /** Path to test file */
   testFile: string;
   /** Pool options */
-  options: PoolOptions;
+  options: AssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Hooks to execute */
@@ -468,7 +473,7 @@ export interface ExecuteAfterAllHooksTask {
   /** Path to test file */
   testFile: string;
   /** Pool options */
-  options: PoolOptions;
+  options: AssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Hooks to execute */
