@@ -1,31 +1,32 @@
 # vitest-pool-assemblyscript
 
-**AssemblyScript testing for teams already using Vitest**
+**AssemblyScript testing for projects using Vitest - Simple, fast, familiar, AS-native, full coverage**
 
 A [Vitest](https://vitest.dev/) custom pool that brings [AssemblyScript](https://www.assemblyscript.org/) testing into your existing Vitest workflow.
 
-Note this pool is currently designed for Vitest v3 - A v4 version will hopefully get off the ground soon also!
+Note this pool is currently designed for **Vitest v3** - v4 support is planned for the near future, when v3 MVP is feature-complete!
 
 Features:
-- Per-test WASM instance isolation for crash tolerance
+- Per-test WASM instance isolation for crash tolerance and memory isolation
 - Source-mapped error messages (AssemblyScript function names, line & column numbers)
-- Coverage tracking with LCOV output
-- Smart execution for both accurate errors and coverage
-- Familiar testing API (Vitest inspired)
+- Full AssemblyScript coverage tracking
+- Familiar testing API (Vitest/Jest inspired)
 - Parallel compilation, disovery, and test execution
 - Cached, in-memory binaries and source maps
+- Vitest integrated test reporting and coverage reporting
+- Lives side-by-side with JavaScript/TypeScript tests
 
 ---
 
-## Why This Exists
+## Motivation
 
-If you're a JavaScript/TypeScript team using Vitest and want to adopt AssemblyScript for performance-critical code, you face a choice:
+If your JavaScript/TypeScript project using Vitest today is adopting AssemblyScript for performance-critical code, you face a choice:
 
-- **Use standalone AS testing tools** → Learn new workflows, separate test commands, different coverage formats
-- **Use generic WASM testing patterns** → Instantiation boilerplate, no test discovery, cryptic errors
-- **Use this pool** → Keep using `vitest`, add `.as.test.ts` files, get familiar matchers and reporting
+- **Use standalone AS testing tools** → New workflows, separate test commands, different coverage formats, different reporting, different CI integration
+- **Use generic WASM testing patterns** → Instantiation boilerplate to maintain, no test discovery, potentially cryptic errors, no built-in runner features
+- **Use this pool** → Keep using `vitest`, add `.as.test.ts` files, get familiar matchers and reporting, blazing fast tests, resilient & isolated runner by design
 
-This pool bridges the gap between AssemblyScript and the modern JavaScript testing ecosystem. It's designed for incremental adoption - add AS modules to your existing codebase without changing your testing infrastructure.
+This pool aims to bridge the gap between AssemblyScript and the modern JavaScript testing ecosystem. It's designed for easy incremental adoption - add AS modules to your existing codebase without changing your testing infrastructure.
 
 This is for you if:
 - ✅ You're using Vitest for JS/TS testing
@@ -58,7 +59,6 @@ This is for you if:
 - Optional user-provided `WebAssembly.Memory`
 - In-memory binaries and source maps
 - Parallel pool pipeline
-- Smart Re-Runs: "Failsafe" modes collects coverage on first run with instrumentation; failed tests re-execute on clean binary to capture meaningful error output (Current architecture tradeoffs force us to use an instrumention approach that breaks error source mapping - this solves the problem very efficiently for now - improvements planned!)
 
 ---
 
@@ -73,12 +73,12 @@ Choose this pool if:
 - You're already using Vitest for JS/TS tests
 - You want Vitest reporters, UI, and coverage tooling to work
 - You want one test command, one config, one watch mode
-- You want to see if our parallel approach is potentially faster
+- You're curious to see if our parallel approach is potentially faster
 
-Choose them if:
-- You're working on an AS-only project
+Choose alternatives if:
 - You don't need Vitest ecosystem integration
 - You prefer dedicated CLI tools
+- You're working on an AS-only project (although we support this too)
 
 **Technical differences:**
 - **Crash isolation**: We use per-test WASM instances, so one test abort won't kill any others
