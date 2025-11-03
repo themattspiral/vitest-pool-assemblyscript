@@ -1,4 +1,5 @@
 import { test, assert } from '../../assembly';
+import { computeSum } from '../assembly-src/const-fold-utils';
 
 /**
  * COMMENTED OUT: These tests document a real AssemblyScript compiler bug with const-folding.
@@ -21,6 +22,6 @@ import { test, assert } from '../../assembly';
 // });
 
 test('variable const fold', () => {
-  const result: i32 = 1 + 1;
+  const result = computeSum();
   assert(result == 2, 'via variable');
 });

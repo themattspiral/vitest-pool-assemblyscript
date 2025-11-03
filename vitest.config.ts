@@ -1,16 +1,23 @@
 import { defineConfig } from 'vitest/config';
-import type {} from './dist/index.js'; // Import types to trigger module augmentation
+import type {} from './dist/index.js'; // Import types to trigger module augmentationm - update to vitest-pool-assemblyscript
 
 export default defineConfig({
   test: {
     // Use our custom AssemblyScript pool (built version)
     pool: './dist/index.js',
 
-    // Coverage configuration (master switch)
+    // Coverage configuration (must be global in vitest)
     coverage: {
-      // DISABLED INTENTIONALLY so vitest won't explode until we can 
+      // DISABLED INTENTIONALLY so vitest won't explode until we can
       // provide our coverage in the correct format (phase4i pending)
-      enabled: false
+      enabled: false,
+      
+      provider: 'custom',
+      customProviderModule: 'vitest-pool-assemblyscript',
+
+      // Include only AS source files in coverage reports
+      // note: test.includes files are auto-excluded from coverage by Vitest
+      include: ['tests/assembly-src/**/*.ts'],
     },
 
     // Pool-specific configuration

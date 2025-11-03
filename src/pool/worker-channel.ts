@@ -23,7 +23,7 @@ export function createWorkerChannel(project: TestProject, collect: boolean): Wor
   const workerPort = channel.port1;
   const poolPort = channel.port2;
 
-  debug('[Pool] Creating RPC with collect:', collect);
+  debug('[Pool] Creating Worker RPC Message Channel - collectTests:', collect);
 
   // Wrap the methods to add logging
   const methods = createMethodsRPC(project, { collect });

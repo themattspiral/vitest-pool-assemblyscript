@@ -12,30 +12,7 @@
  */
 
 import { test, assert } from '../../assembly/index';
-
-// Helper function WITH @inline decorator
-// @ts-ignore: top level decorators are supported in AssemblyScript
-@inline
-function addInlined(a: i32, b: i32): i32 {
-  return a + b;
-}
-
-// Helper function WITHOUT @inline decorator
-function addNormal(a: i32, b: i32): i32 {
-  return a + b;
-}
-
-// Another @inline function
-// @ts-ignore: top level decorators are supported in AssemblyScript
-@inline
-function multiplyInlined(a: i32, b: i32): i32 {
-  return a * b;
-}
-
-// Another normal function
-function multiplyNormal(a: i32, b: i32): i32 {
-  return a * b;
-}
+import { addInlined, addNormal, multiplyInlined, multiplyNormal, throwsError } from '../assembly-src/inline-utils';
 
 test('inline functions are called', (): void => {
   const sum1: i32 = addInlined(2, 3);
@@ -51,16 +28,6 @@ test('inline functions are called', (): void => {
   assert(prod2 == 20, 'normal multiplication works');
 });
 
-// Test with error inside @inline function to validate source map accuracy
-// @ts-ignore: top level decorators are supported in AssemblyScript
-@inline
-function throwsError(shouldFail: boolean): i32 {
-  if (shouldFail) {
-    assert(false, 'error inside inline function at AS source line 59...');
-  }
-  return 42;
-}
-
 test('error inside inline function shows correct line', (): void => {
-  throwsError(true);
+  const wontAssign = throwsError(); // RUNTIME_ERROR@32:22 STACK_DEPTH:3 EXPECT_IN:inline-utils.ts:33:17 Out of bounds
 });

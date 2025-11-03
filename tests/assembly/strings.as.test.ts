@@ -4,7 +4,7 @@
  */
 
 import { test, assert } from '../../assembly';
-import { getLength, isEmpty, concat, repeat } from './string-utils';
+import { getLength, isEmpty, concat, repeat } from '../assembly-src/string-utils';
 
 test("getLength returns string length", () => {
   assert(getLength("hello") == 5, "hello has 5 characters");

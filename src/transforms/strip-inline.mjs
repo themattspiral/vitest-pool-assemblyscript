@@ -23,7 +23,7 @@
  */
 
 import { Transform } from "assemblyscript/transform";
-import { DecoratorKind } from "assemblyscript";
+import { DecoratorKind, SourceKind } from "assemblyscript";
 
 class StripInlineTransform extends Transform {
   /**
@@ -33,7 +33,14 @@ class StripInlineTransform extends Transform {
   afterParse(parser) {
     // Walk through all source files in the program
     const sources = this.program.sources;
-    sources.forEach(source => {
+
+    // Filter to user source files only (exclude ASC stdlib, etc)
+    const userSources = sources.filter(source =>
+      ( source.sourceKind === SourceKind.User || source.sourceKind === SourceKind.UserEntry )
+      && !source.normalizedPath.startsWith('~lib/')
+    );
+
+    userSources.forEach(source => {
       this.visitStatements(source.statements);
     });
   }
@@ -49,6 +56,8 @@ class StripInlineTransform extends Transform {
 
       // Process any statement that has decorators
       if (stmt.decorators) {
+        const beforeCount = stmt.decorators.length;
+
         // Filter out @inline decorators, keeping others
         const filteredDecorators = stmt.decorators.filter(
           decorator => decorator.decoratorKind !== DecoratorKind.Inline
@@ -56,6 +65,15 @@ class StripInlineTransform extends Transform {
 
         // Update the statement's decorators
         stmt.decorators = filteredDecorators.length > 0 ? filteredDecorators : null;
+
+        // const afterCount = filteredDecorators.length;
+        // if (beforeCount !== afterCount) {
+        //   // Get statement details for debugging
+        //   const stmtName = stmt.name?.text || stmt.symbol?.name || '<anonymous>';
+        //   const stmtKind = stmt.constructor.name;
+        //   const stmtRange = stmt.range ? `${stmt.range.source.normalizedPath}:${stmt.range.line}` : 'unknown';
+        //   console.log('[StripInline] Removed @inline from', stmtKind, stmtName, 'at', stmtRange);
+        // }
       }
     }
   }

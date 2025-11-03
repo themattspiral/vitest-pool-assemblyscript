@@ -4,17 +4,18 @@
  */
 
 import { test, assert } from '../../assembly';
+import { safeAdd } from '../assembly-src/crash-test-utils';
 
 test("first test passes", () => {
   assert(true, "first test should pass");
 });
 
 test("second test crashes", () => {
-  assert(false, "this assertion fails and causes abort from AS source line 13...");
+  assert(false, "ASSERT_ERROR@14:3 this assertion should fail and cause abort");
 });
 
 test("third test should still run", () => {
-  const sum: i32 = 1 + 1;
+  const sum = safeAdd(1, 1);
   assert(sum == 2, "third test should execute despite second test crashing");
 });
 

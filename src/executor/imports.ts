@@ -10,6 +10,7 @@
 
 import { decodeString, decodeAbortInfo } from '../utils/wasm-memory.js';
 import type { DiscoveredTest, TestResult } from '../types.js';
+import { ERROR_NAMES } from '../types.js';
 import { debug, debugError } from '../utils/debug.mjs';
 import { extractCallStack } from '../utils/source-maps.js';
 
@@ -140,7 +141,10 @@ export function createTestExecutionImports(
           // Extract V8 call stack BEFORE throwing
           // This gives us WAT line:column positions that can be mapped to AS source
           currentTest.value.rawCallStack = extractCallStack(error);
-          currentTest.value.error = error;
+          currentTest.value.error = {
+            name: ERROR_NAMES.RuntimeError,
+            message: message
+          };
 
           debug('[Executor] Captured V8 call stack with', currentTest.value.rawCallStack.length, 'frames');
         }

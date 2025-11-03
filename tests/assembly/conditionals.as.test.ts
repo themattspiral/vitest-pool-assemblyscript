@@ -3,18 +3,7 @@
  */
 
 import { test, assert } from '../../assembly';
-
-function max(a: i32, b: i32): i32 {
-  return a > b ? a : b;
-}
-
-function min(a: i32, b: i32): i32 {
-  return a < b ? a : b;
-}
-
-function abs(n: i32): i32 {
-  return n < 0 ? -n : n;
-}
+import { max, min, abs, categorize } from '../assembly-src/conditional-utils';
 
 test('max function', () => {
   assert(max(5, 3) == 5);
@@ -35,7 +24,6 @@ test('abs function', () => {
 });
 
 test('nested ternary', () => {
-  const val = 15;
-  const result = val > 20 ? 1 : val > 10 ? 2 : 3;
+  const result = categorize(15);
   assert(result == 2);
 });

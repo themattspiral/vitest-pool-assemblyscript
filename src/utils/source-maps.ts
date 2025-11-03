@@ -51,7 +51,13 @@ export async function mapWATtoSource(
   watColumn: number,
   sourceMapJson: RawSourceMap
 ): Promise<SourceLocation | null> {
-  const consumer = await new SourceMapConsumer(sourceMapJson);
+  // Remove sourceRoot if present to prevent source-map library from prepending it to paths
+  // AS compiler sets sourceRoot: "./output" which would make paths like "output/tests/..."
+  // instead of "tests/..." - these paths don't exist and won't be found by Vitest
+  const cleanedSourceMap = { ...sourceMapJson };
+  delete cleanedSourceMap.sourceRoot;
+
+  const consumer = await new SourceMapConsumer(cleanedSourceMap);
 
   const original = consumer.originalPositionFor({
     line: watLine,
@@ -61,17 +67,6 @@ export async function mapWATtoSource(
   consumer.destroy();
 
   if (!original.source || original.line === null || original.column === null) {
-    debug('[SourceMap] Mapping failed:', {
-      watInput: { line: watLine, column: watColumn },
-      sourceMapResult: {
-        hasSource: !!original.source,
-        source: original.source || 'null',
-        hasLine: original.line !== null,
-        line: original.line,
-        hasColumn: original.column !== null,
-        column: original.column
-      }
-    });
     return null;
   }
 
@@ -98,6 +93,9 @@ export async function createWebAssemblyCallSite(
   const fileName = callSite.getFileName();
 
   // Only process WASM call sites
+  if(fileName && !fileName.startsWith('wasm')) {
+    debug('[SourceMap] Non wasm fileName (returning null): ', fileName);
+  }
   if (!fileName || !fileName.startsWith('wasm')) {
     return null;
   }
@@ -113,7 +111,16 @@ export async function createWebAssemblyCallSite(
     const sourceLocation = await mapWATtoSource(watLine, watColumn, sourceMapJson);
 
     if (sourceLocation) {
-      debug('[SourceMap] Mapped to source:', sourceLocation);
+      debug('[SourceMap] Source mapping succeeded:', {
+        fileName,
+        functionName,
+        watInput: { line: watLine, column: watColumn },
+        sourceMapResult: {
+          line: sourceLocation.lineNumber,
+          column: sourceLocation.columnNumber
+        }
+      });
+
       return {
         functionName,
         fileName: sourceLocation.fileName,
@@ -123,7 +130,11 @@ export async function createWebAssemblyCallSite(
     }
   }
 
-  debug('[SourceMap] No mapping found, using WAT position');
+  debug('[SourceMap] Source mapping failed:', {
+      fileName,
+      functionName,
+      watInput: { line: watLine, column: watColumn }
+    });
 
   // Fallback to WAT position
   return {

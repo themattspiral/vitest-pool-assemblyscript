@@ -4,65 +4,7 @@
  */
 
 import { test, assert } from '../../assembly';
-
-/**
- * Helper: Compute factorial iteratively
- */
-function factorial(n: i32): i64 {
-  let result: i64 = 1;
-  for (let i: i32 = 2; i <= n; i++) {
-    result *= i64(i);
-  }
-  return result;
-}
-
-/**
- * Helper: Compute nth Fibonacci number iteratively
- */
-function fibonacci(n: i32): i64 {
-  if (n <= 1) return i64(n);
-
-  let a: i64 = 0;
-  let b: i64 = 1;
-
-  for (let i: i32 = 2; i <= n; i++) {
-    const temp = a + b;
-    a = b;
-    b = temp;
-  }
-
-  return b;
-}
-
-/**
- * Helper: Check if number is prime (slow trial division)
- */
-function isPrime(n: i32): bool {
-  if (n <= 1) return false;
-  if (n <= 3) return true;
-  if (n % 2 == 0 || n % 3 == 0) return false;
-
-  for (let i: i32 = 5; i * i <= n; i += 6) {
-    if (n % i == 0 || n % (i + 2) == 0) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-/**
- * Helper: Sum of primes up to n
- */
-function sumOfPrimes(n: i32): i64 {
-  let sum: i64 = 0;
-  for (let i: i32 = 2; i <= n; i++) {
-    if (isPrime(i)) {
-      sum += i64(i);
-    }
-  }
-  return sum;
-}
+import { factorial, fibonacci, isPrime, sumOfPrimes, countPrimes } from '../assembly-src/computation-utils';
 
 test('compute factorial of 20', () => {
   // Do some computational work
@@ -90,12 +32,7 @@ test('find primes up to 10000', () => {
   // Do some computational work
   let count: i32 = 0;
   for (let iter = 0; iter < 100; iter++) {
-    count = 0;
-    for (let i: i32 = 2; i <= 10000; i++) {
-      if (isPrime(i)) {
-        count++;
-      }
-    }
+    count = countPrimes(10000);
   }
 
   // There are 1229 primes up to 10000

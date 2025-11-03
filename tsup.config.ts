@@ -3,7 +3,7 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: [
     'src/index.ts',
-    'src/worker/index.ts'
+    'src/worker/index.ts',
   ],
   format: ['esm'],
   outDir: 'dist', // Explicitly set output directory

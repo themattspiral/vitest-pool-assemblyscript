@@ -13,7 +13,7 @@ import type { RawSourceMap } from 'source-map';
 
 import { createMemory } from '../utils/wasm-memory.js';
 import type { TestResult, CoverageData, DiscoveredTest, DebugInfo } from '../types.js';
-import { COVERAGE_MEMORY_PAGES_MAX } from '../types.js';
+import { COVERAGE_MEMORY_PAGES_MAX, ERROR_NAMES } from '../types.js';
 import { debug, debugError } from '../utils/debug.mjs';
 import {
   createDiscoveryImports,
@@ -39,13 +39,11 @@ import { enhanceErrorWithSourceMap } from './errors.js';
  * a stub coverage memory even though we're not collecting coverage during discovery.
  *
  * @param binary - Compiled WASM binary (may be instrumented)
- * @param _filename - Source filename (for error messages)
  * @param debugInfo - Optional debug info (presence indicates instrumented binary)
  * @returns Discovery result with tests array
  */
 export async function discoverTests(
   binary: Uint8Array,
-  _filename: string,
   debugInfo?: DebugInfo
 ): Promise<{ tests: DiscoveredTest[] }> {
   const tests: DiscoveredTest[] = [];
@@ -89,7 +87,6 @@ export async function discoverTests(
  * @param binary - Compiled WASM binary (clean for dual-mode, instrumented for single-mode)
  * @param test - Test to execute (name and function index)
  * @param sourceMap - Source map JSON string (optional)
- * @param filename - Source filename (for error messages)
  * @param collectCoverage - Whether to collect coverage during execution
  * @param debugInfo - Debug info from coverage instrumentation (required if collectCoverage is true)
  * @returns Test result with outcome, timing, and optional coverage
@@ -98,7 +95,6 @@ export async function executeSingleTest(
   binary: Uint8Array,
   test: DiscoveredTest,
   sourceMap: string | undefined,
-  filename: string,
   collectCoverage: boolean,
   debugInfo?: DebugInfo
 ): Promise<TestResult> {
@@ -175,7 +171,10 @@ export async function executeSingleTest(
       if (currentTestRef.value.passed) {
         // If not already marked as failed, mark it now
         currentTestRef.value.passed = false;
-        currentTestRef.value.error = error as Error;
+        currentTestRef.value.error = {
+          name: ERROR_NAMES.RuntimeError,
+          message: error instanceof Error ? error.message : String(error)
+        };
       }
     }
   }
@@ -187,7 +186,7 @@ export async function executeSingleTest(
 
     // Apply source mapping if available
     if (sourceMapJson && testResult.rawCallStack) {
-      await enhanceErrorWithSourceMap(testResult, sourceMapJson, filename);
+      await enhanceErrorWithSourceMap(testResult, sourceMapJson);
     }
 
     // Extract coverage from memory if collecting coverage
@@ -226,7 +225,10 @@ export async function executeSingleTest(
     finalResult = {
       name: test.name,
       passed: false,
-      error: new Error('Test crashed during initialization'),
+      error: {
+        name: ERROR_NAMES.RuntimeError,
+        message: 'Test crashed during initialization'
+      },
       assertionsPassed: 0,
       assertionsFailed: 0,
       coverage: undefined,

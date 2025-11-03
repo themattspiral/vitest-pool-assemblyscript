@@ -12,6 +12,7 @@
  */
 
 import { Transform } from 'assemblyscript/transform';
+import { SourceKind } from "assemblyscript";
 
 // Initialize global metadata Map once at module load to prevent race conditions
 // when multiple workers compile concurrently with isolateWorkers: false
@@ -57,11 +58,10 @@ export default class FunctionMetadataExtractor extends Transform {
     // Access sources from this.program (not parameter)
     const sources = this.program.sources;
 
-    // Filter to user entry files only (exclude stdlib)
-    const userSources = sources.filter(
-      (source) =>
-        source.sourceKind === 1 /* SourceKind.UserEntry */ &&
-        !source.normalizedPath.startsWith('~lib/')
+    // Filter to user source files only (exclude ASC stdlib, etc)
+    const userSources = sources.filter(source =>
+      ( source.sourceKind === SourceKind.User || source.sourceKind === SourceKind.UserEntry )
+      && !source.normalizedPath.startsWith('~lib/')
     );
 
     // Extract function metadata from each source file

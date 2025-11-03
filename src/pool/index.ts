@@ -8,7 +8,6 @@ import os from 'node:os';
 import Tinypool from 'tinypool';
 
 import type {
-  AssemblyScriptPoolOptions,
   CachedCompilation,
   DiscoverTestsTask,
   DiscoverTestsResult,
@@ -24,12 +23,12 @@ import type {
   DebugInfo,
 } from '../types.js';
 import { POOL_NAME } from '../types.js';
-import { setDebug, debug, debugTiming } from '../utils/debug.mjs';
+import { setDebugModes, debug, debugTiming } from '../utils/debug.mjs';
 import { writeCoverageReport } from '../coverage/lcov-reporter.js';
 import { compileAssemblyScript } from '../compiler.js';
 import { createPhaseTimings } from '../utils/timing.mjs';
 import { createWorkerChannel } from './worker-channel.js';
-import { getCoverageModeFlags, isCoverageEnabled, getPoolOptions } from './options.js';
+import { getCoverageModeFlags, isCoverageEnabled, getPoolOptions, DEFAULT_CONFIG } from './options.js';
 import { createCompilationCache, type CompilationCache } from './cache.js';
 
 // ESM-compatible __dirname (import.meta.url is transformed by tsup/esbuild)
@@ -141,19 +140,26 @@ function accumulateCoverage(
  *
  * @param testFilePath - Path to test file (absolute path)
  * @param config - Vitest resolved config
+ * @param rpcCollect - true when running a `collectTests()` operation only, false for full `runTests()`
  * @param generation - Cache generation number for validation
  * @returns Promise that resolves with cached compilation
  */
-async function queueCompilation(testFilePath: string, config: ResolvedConfig, generation: number): Promise<CachedCompilation> {
+async function queueCompilation(
+  testFilePath: string,
+  config: ResolvedConfig,
+  rpcCollect: boolean,
+  generation: number
+): Promise<CachedCompilation> {
   const currentCompilation = compilationQueue.then(async () => {
     const timings = createPhaseTimings();
 
     const options = getPoolOptions(config);
 
-    // Single compilation returns both clean and instrumented binaries
+    // Single compilation returns both clean and instrumented binaries if needed.
+    // Only instrument when coverage is enabled and when not running a collectTests() operation
     const compileResult = await compileAssemblyScript(testFilePath, {
-      coverage: isCoverageEnabled(config),
-      stripInline: options.stripInline ?? true,
+      instrument: isCoverageEnabled(config) && !rpcCollect,
+      stripInline: options.stripInline,
     });
 
     timings.phaseEnd = performance.now();
@@ -189,20 +195,22 @@ async function queueCompilation(testFilePath: string, config: ResolvedConfig, ge
  * @param testFilePath - Path to test file (absolute path)
  * @param config - Vitest resolved config
  * @param cache - Compilation cache instance
+ * @param rpcCollect - true when running a `collectTests()` operation only, false for full `runTests()`
  * @returns Cached compilation
  * @throws Error on compilation failure or cache validation failure
  */
 async function executePhase1Compilation(
   testFilePath: string,
   config: ResolvedConfig,
-  cache: CompilationCache
+  cache: CompilationCache,
+  rpcCollect: boolean
 ): Promise<CachedCompilation> {
   debug(`[Pipeline ${testFilePath}] Phase 1 (compile) starting`);
   let cached = cache.get(testFilePath);
 
   if (!cached) {
     const currentGen = cache.getCurrentGeneration(testFilePath);
-    const result = await queueCompilation(testFilePath, config, currentGen);
+    const result = await queueCompilation(testFilePath, config, rpcCollect, currentGen);
 
     // Validate generation before caching
     if (!cache.validateAndCache(testFilePath, result)) {
@@ -226,6 +234,7 @@ async function executePhase1Compilation(
  * @param project - Test project
  * @param config - Vitest resolved config
  * @param pool - Tinypool instance
+ * @param rpcCollect - true when running a `collectTests()` operation only, false for full `runTests()`
  * @throws Error on discovery failure
  */
 async function executePhase2Discovery(
@@ -234,7 +243,8 @@ async function executePhase2Discovery(
   spec: TestSpecification,
   project: TestProject,
   config: ResolvedConfig,
-  pool: Tinypool
+  pool: Tinypool,
+  rpcCollect: boolean
 ): Promise<void> {
   debug(`[Pipeline ${testFilePath}] Phase 2 (discover) starting`);
 
@@ -242,7 +252,7 @@ async function executePhase2Discovery(
 
   if (cached.discoveredTests.length === 0) {
     const projectInfo = extractProjectInfo(spec);
-    const { workerPort, poolPort } = createWorkerChannel(project, false);
+    const { workerPort, poolPort } = createWorkerChannel(project, rpcCollect);
 
     try {
       const discoverTask: DiscoverTestsTask = {
@@ -300,7 +310,8 @@ async function executePhase3Tests(
 
   const options = getPoolOptions(config);
   const coverageEnabled = isCoverageEnabled(config);
-  debug(`[Pipeline ${testFilePath}] Phase 3: coverage ${coverageEnabled ? 'enabled' : 'disabled'}`);
+
+  debug(`[Pipeline ${testFilePath}] Phase 3: coverage ${coverageEnabled}`);
 
   const testExecutions = testTasks.map(async (testTask, testIndex) => {
     const test = cached.discoveredTests[testIndex]!;
@@ -310,7 +321,9 @@ async function executePhase3Tests(
 
     try {
       if (coverageEnabled) {
-        // COVERAGE ENABLED: Execute on instrumented binary with coverage
+        // Unlike JS/TS pools that selectively instrument files, we compile entire test files
+        // (including imported source files) into single WASM binaries and must instrument everything.
+        // Coverage filtering via include/exclude will be applied during Istanbul format conversion.
         debug(`[Pipeline ${testFilePath}] Executing test "${test.name}" with coverage on instrumented binary`);
         if (!cached.instrumented || !cached.debugInfo) {
           throw new Error(`Instrumented binary not available for ${testFilePath}`);
@@ -544,10 +557,10 @@ async function collectTests(
 
     try {
       // PHASE 1: Compile
-      const cached = await executePhase1Compilation(testFilePath, projectConfig, cache);
+      const cached = await executePhase1Compilation(testFilePath, projectConfig, cache, true);
 
       // PHASE 2: Discover
-      await executePhase2Discovery(testFilePath, cached, spec, project, projectConfig, pool);
+      await executePhase2Discovery(testFilePath, cached, spec, project, projectConfig, pool, true);
 
       return { spec, tests: cached.discoveredTests };
 
@@ -607,10 +620,10 @@ async function runTests(
 
     try {
       // PHASE 1: Compile
-      const cached = await executePhase1Compilation(testFilePath, config, cache);
+      const cached = await executePhase1Compilation(testFilePath, config, cache, false);
 
       // PHASE 2: Discover
-      await executePhase2Discovery(testFilePath, cached, spec, project, config, pool);
+      await executePhase2Discovery(testFilePath, cached, spec, project, config, pool, false);
 
       debug(`[Pipeline ${testFilePath}] Phase 2 complete, found ${cached.discoveredTests.length} tests`);
 
@@ -702,8 +715,8 @@ async function runTests(
 
 export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   // Read pool options and initialize debug mode
-  const options = (ctx.config.poolOptions?.assemblyScript as AssemblyScriptPoolOptions) ?? {};
-  setDebug(options.debug ?? false, options.debugTiming ?? false);
+  const options = getPoolOptions(ctx.config);
+  setDebugModes(options.debug, options.debugTiming);
 
   // Create compilation cache instance
   const cache = createCompilationCache();
@@ -724,13 +737,14 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   // Calculate worker thread count
   const cpus = os.availableParallelism?.() ?? os.cpus().length;
   const maxThreads = options.maxThreads ?? Math.max(cpus - 1, 1);
+  const isolate = ctx.config.isolate ?? DEFAULT_CONFIG.isolate;
 
-  debug('[Pool] Worker configuration - maxThreads:', maxThreads, 'isolate:', ctx.config.isolate ?? false);
+  debug('[Pool] Worker configuration - maxThreads:', maxThreads, 'isolate:', isolate);
 
   // Initialize Tinypool for worker management
   const pool = new Tinypool({
     filename: workerPath,
-    isolateWorkers: ctx.config.isolate ?? false, // Use Vitest's standard isolate config (default: false - WASM instances already isolated per test)
+    isolateWorkers: isolate,
     minThreads: 1,
     maxThreads,
   });

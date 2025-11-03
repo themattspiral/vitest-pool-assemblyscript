@@ -8,7 +8,7 @@
 import asc from 'assemblyscript/dist/asc.js';
 import { basename } from 'path';
 
-import type { CompileResult, CompilerOptions, DebugInfo } from './types.js';
+import type { CompileResult, AssemblyScriptCompilerOptions, DebugInfo } from './types.js';
 import { debug, debugTiming } from './utils/debug.mjs';
 import { BinaryenCoverageInstrumenter } from './coverage/instrumentation.js';
 
@@ -56,7 +56,7 @@ function instrumentBinaryForCoverage(
  */
 export async function compileAssemblyScript(
   filename: string,
-  options: CompilerOptions
+  options: AssemblyScriptCompilerOptions
 ): Promise<CompileResult> {
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
@@ -100,24 +100,24 @@ export async function compileAssemblyScript(
     '--exportTable',                  // Export function table for direct test execution
   ];
 
-  // Add transform for coverage metadata extraction if coverage enabled
-  if (options.coverage) {
-    compilerFlags.push(
-      '--transform', './src/transforms/extract-function-metadata.mjs'
-    );
-    debug('[ASC Compiler] Coverage enabled - adding metadata extraction transform');
-  }
-
   // Add transform to strip @inline decorators if requested
-  // This improves coverage accuracy by preventing functions from being inlined
-  // Only applies when coverage is enabled.
-  if (options.coverage && options.stripInline === true) {
+  // This improves coverage accuracy by preventing functions from being inlined,
+  // and enables correct source-mapped error reporting for errors originating
+  // inside inlined functions.
+  if (options.stripInline === true) {
     compilerFlags.push(
       '--transform', './src/transforms/strip-inline.mjs'
     );
-    debug('[ASC Compiler] Stripping @inline decorators for coverage accuracy');
+    debug('[ASC Compiler] Added Transform - Strip @inline decorators');
   }
-
+  
+  // Add transform for coverage metadata extraction if coverage enabled
+  if (options.instrument) {
+    compilerFlags.push(
+      '--transform', './src/transforms/extract-function-metadata.mjs'
+    );
+    debug('[ASC Compiler] Added Transform - Extract Function Metadata (coverage enabled)');
+  }
 
   // Compile with AssemblyScript compiler
   const ascStart = performance.now();
@@ -129,8 +129,12 @@ export async function compileAssemblyScript(
     writeFile: (name: string, contents: string | Uint8Array, _baseDir: string) => {
       if (name.endsWith('.wasm') && contents instanceof Uint8Array) {
         binary = contents;
+        debug('[ASC Compiler] writeFile - Captured binary:', name, 'baseDir', _baseDir);
       } else if (name.endsWith('.wasm.map') && typeof contents === 'string') {
+        debug('[ASC Compiler] writeFile - Captured source map:', name, 'baseDir', _baseDir);
         sourceMap = contents;
+      } else {
+        debug('[ASC Compiler] writeFile - Captured UNEXPECTED FILE:', name, 'baseDir', _baseDir);
       }
     },
   });
@@ -171,7 +175,7 @@ export async function compileAssemblyScript(
   let instrumentedBinary: Uint8Array | undefined;
   let debugInfo: DebugInfo | undefined;
 
-  if (options.coverage) {
+  if (options.instrument) {
     const instrumentStart = performance.now();
     const instrumentResult = instrumentBinaryForCoverage(cleanBinary, filename);
     const instrumentEnd = performance.now();

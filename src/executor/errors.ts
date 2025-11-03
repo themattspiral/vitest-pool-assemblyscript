@@ -6,10 +6,13 @@
  * file:line:column information for better developer experience.
  */
 
-import type { TestResult } from '../types.js';
+import type { TestResult, AssemblyScriptTestError } from '../types.js';
+import { ERROR_NAMES } from '../types.js';
 import { debug } from '../utils/debug.mjs';
 import { createWebAssemblyCallSite } from '../utils/source-maps.js';
 import type { RawSourceMap } from 'source-map';
+import type { ParsedStack } from '@vitest/utils';
+import { basename } from 'node:path';
 
 /**
  * Enhance error with source map locations
@@ -19,12 +22,10 @@ import type { RawSourceMap } from 'source-map';
  *
  * @param currentTest - Test result with raw call stack
  * @param sourceMapJson - Parsed source map
- * @param testFileName - Name of the test file being executed (used to find primary error location)
  */
 export async function enhanceErrorWithSourceMap(
   currentTest: TestResult,
-  sourceMapJson: RawSourceMap,
-  testFileName: string
+  sourceMapJson: RawSourceMap
 ): Promise<void> {
   if (!currentTest.rawCallStack || currentTest.rawCallStack.length === 0) {
     return;
@@ -51,49 +52,60 @@ export async function enhanceErrorWithSourceMap(
     // assertionsFailed > 0 means this was an assert() failure
     // assertionsFailed === 0 means this was a runtime crash (bounds, null, etc.)
     const isAssertionFailure = currentTest.assertionsFailed > 0;
-    currentTest.errorType = isAssertionFailure ? 'assertion' : 'runtime';
-
-    // Extract basename from test file path for matching
-    // testFileName is absolute like /path/to/file.as.test.ts
-    // frame.fileName from source maps is relative like output/tests/assembly/file.as.test.ts
-    const testFileBasename = testFileName.split('/').pop() || testFileName;
-
-    // Find the first frame from the test file being executed
-    // This is the actual user code location, not framework/runtime code
-    const primaryFrame = currentTest.sourceStack.find(frame => {
-      const frameBasename = frame.fileName.split('/').pop();
-      return frameBasename === testFileBasename;
-    }) || currentTest.sourceStack[0]!; // Fallback to first frame if no match
 
     // Extract short function name from AS's namespace format
     // "assembly/index/assert" -> "assert"
     // "tests/assembly/file.as.test/myFunction" -> "myFunction"
-    const getShortFunctionName = (fullName: string): string => {
+    // Also strip filename prefix from anonymous functions:
+    // "sourcemap-accuracy-test.as.test~anonymous|1" -> "anonymous|1"
+    const getShortFunctionName = (fullName: string, fileName: string): string => {
       const parts = fullName.split('/');
-      return parts[parts.length - 1] || fullName;
+      let shortName = parts[parts.length - 1] || fullName;
+
+      // Strip filename prefix if present (e.g., "basename~anonymous|1" -> "anonymous|1")
+      // Remove any extension from the filename
+      const fileBasename = basename(fileName).replace(/\.[^.]+$/, '');
+      if (shortName.startsWith(`${fileBasename}~`)) {
+        shortName = shortName.substring(fileBasename.length + 1);
+      }
+
+      return shortName;
     };
 
-    const primaryFunctionName = getShortFunctionName(primaryFrame.functionName);
+    // Format error message (for now we don't do any other formatting)
+    // TODO - maybe make this nicer, because we don't get the primary frame
+    // highlighting in the stack trace for AS errors
+    const enhancedMessage = originalMessage;
 
-    // Format error message based on error type (assertion failure message provided by input to assert function)
-    const errorPrefix = isAssertionFailure ? '' : 'Runtime error :';
-    const enhancedMessage = `${errorPrefix}${originalMessage}\n ❯ ${primaryFunctionName} (${primaryFrame.fileName}:${primaryFrame.lineNumber}:${primaryFrame.columnNumber})\n`;
+    // Build parsed stack array for Vitest (it checks error.stacks first before parsing error.stack)
+    // Vitest's printError will format these with colors and ❯ symbols
+    // Note: source-map library returns line (1-indexed, already correct) and column (0-indexed, needs +1 for display)
+    const parsedStacks: ParsedStack[] = currentTest.sourceStack
+      .filter(frame => {
+        // Filter out internal assertion framework frames (like Vitest filters /vitest/dist/)
+        // For assertion errors, skip our internal assert() implementation
+        if (isAssertionFailure && frame.fileName.includes('/vitest-pool-assemblyscript/assembly/')) {
+          return false;
+        }
+        return true;
+      })
+      .map(frame => ({
+        method: getShortFunctionName(frame.functionName, frame.fileName),
+        file: frame.fileName,
+        line: frame.lineNumber,
+        column: frame.columnNumber + 1, // Convert to 1-indexed for display
+      }));
 
-    // Create a new error with enhanced message including function name and source location
-    const enhancedError = new Error(enhancedMessage);
-
-    // Build a clean stack trace with source locations and short function names
-    // Format: "Error: message\n    at functionName (file:line:column)\n    at ..."
-    // This matches standard Node.js stack trace format
-    let stackTrace = `${errorPrefix}: ${originalMessage}\n`;
-    for (const frame of currentTest.sourceStack) {
-      const shortName = getShortFunctionName(frame.functionName);
-      stackTrace += `    at ${shortName} (${frame.fileName}:${frame.lineNumber}:${frame.columnNumber})\n`;
-    }
-    enhancedError.stack = stackTrace;
+    // Create enhanced error as plain object implementing AssemblyScriptTestError interface
+    // This ensures all properties are enumerable and survive RPC serialization
+    const enhancedError: AssemblyScriptTestError = {
+      name: isAssertionFailure ? ERROR_NAMES.AssertionError : ERROR_NAMES.RuntimeError,
+      message: enhancedMessage,
+      stacks: parsedStacks,
+    };
 
     currentTest.error = enhancedError;
 
-    debug(`[Executor] Enhanced error with source location (type: ${currentTest.errorType})`);
+    debug(`[Executor] Enhanced error with source location (type: ${enhancedError.name})`);
   }
 }

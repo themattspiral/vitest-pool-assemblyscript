@@ -16,9 +16,9 @@ const debugStorage = new AsyncLocalStorage();
 /**
  * Initialize debug mode for current async context (called by worker at task start)
  * @param {boolean} debugEnabled - Enable verbose debug logging
- * @param {boolean} timingEnabled - Enable detailed timing logs
+ * @param {boolean} debugTimingEnabled - Enable detailed timing logs
  */
-export function setDebug(debugEnabled, timingEnabled = false) {
+export function setDebugModes(debugEnabled = false, timingEnabled = false) {
   debugStorage.enterWith({ debug: debugEnabled, timing: timingEnabled });
 }
 
@@ -43,15 +43,7 @@ export function debugError(...args) {
 }
 
 /**
- * Check if debug mode is enabled in current context
- */
-export function isDebugEnabled() {
-  const state = debugStorage.getStore();
-  return state?.debug || false;
-}
-
-/**
- * Log timing information (only when timing enabled in current context)
+ * Log timing information (only when debugTiming enabled in current context)
  */
 export function debugTiming(...args) {
   const state = debugStorage.getStore();

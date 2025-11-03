@@ -9,6 +9,29 @@ import type { MessagePort } from 'node:worker_threads';
 import type { RuntimeRPC } from 'vitest';
 import type { RunnerTestFile, RunnerTestCase } from 'vitest/node';
 import type { BirpcReturn } from 'birpc';
+import type { TestError } from '@vitest/utils';
+
+// ============================================================================
+// Error Types
+// ============================================================================
+
+/**
+ * Error names for AssemblyScript test failures
+ */
+export const ERROR_NAMES = {
+  AssertionError: 'AssertionError',
+  RuntimeError: 'RuntimeError',
+} as const;
+
+/**
+ * Error name type derived from ERROR_NAMES values
+ */
+export type ErrorName = typeof ERROR_NAMES[keyof typeof ERROR_NAMES];
+
+/**
+ * Extended TestError with required, strictly-typed name field
+ */
+export type AssemblyScriptTestError = TestError & { name: ErrorName };
 
 // ============================================================================
 // Constants
@@ -28,14 +51,22 @@ export const COVERAGE_MEMORY_PAGES_MAX = 4;
 /**
  * Coverage mode options
  */
-export type CoverageMode = 'failsafe' | 'integrated';
+export const COVERAGE_MODES = {
+  Failsafe: 'failsafe',
+  Integrated: 'integrated',
+} as const;
+
+/**
+ * Coverage mode type derived from COVERAGE_MODES values
+ */
+export type CoverageMode = typeof COVERAGE_MODES[keyof typeof COVERAGE_MODES];
 
 /**
  * Coverage mode flags for easy consumption in conditional logic
  */
 export interface CoverageModeFlags {
   /** True if coverage is enabled (from Vitest's coverage.enabled config) */
-  coverageEnabled: boolean;
+  isCoverageEnabled: boolean;
   /** The actual coverage mode */
   mode: CoverageMode;
   /** True if mode is 'integrated' */
@@ -59,20 +90,14 @@ export interface AssemblyScriptPoolOptions {
    *
    * @default 'failsafe'
    */
-  coverageMode?: 'failsafe' | 'integrated';
+  coverageMode?: CoverageMode;
   /**
-   * Strip @inline decorators during compilation to improve coverage accuracy
+   * Strip `@inline` decorators during compilation to improve error message and coverage accuracy
    *
-   * - When true (default): @inline decorators removed, functions become visible in coverage
-   * - When false: @inline functions are inlined by compiler, missing from coverage
-   *
-   * Trade-offs:
-   * - Coverage: Complete function-level coverage including @inline functions
-   * - Source maps: Remain 100% accurate (decorators are metadata, not structural)
-   * - Performance: Slightly slower execution (functions not inlined)
-   *
-   * Only applies when coverage is enabled. Ignored when coverage is false.
-   *
+   * - When true (default): `@inline` decorators removed, functions become visible in coverage
+   *                        and source mapped errors point to the correct lines
+   * - When false: `@inline` functions are inlined by compiler, missing from coverage, and 
+   *               error line numbers don't match the non-inlined source
    * @default true
    */
   stripInline?: boolean;
@@ -87,25 +112,66 @@ export interface AssemblyScriptPoolOptions {
 /**
  * Module augmentation for TypeScript autocomplete support
  *
- * This allows users to get autocomplete when configuring poolOptions.assemblyScript
- * in their vitest.config.ts without needing to import the type explicitly.
+ * Augments vitest's types to support AssemblyScript pool configuration.
+ *
+ * To enable type support for coverage options like `coverage.include`, add this
+ * import to your vitest.config.ts:
+ *
+ * ```ts
+ * import type {} from 'vitest-pool-assemblyscript'
+ * ```
+ *
+ * This is required because:
+ * - PoolOptions is re-exported from 'vitest/config', so it loads automatically
+ * - CustomProviderOptions is NOT re-exported, so it requires an explicit import
+ *   to load the augmentation
  */
 declare module 'vitest/node' {
   interface PoolOptions {
     assemblyScript?: AssemblyScriptPoolOptions;
+  }
+
+  /**
+   * Augment CustomProviderOptions to add missing optional coverage fields
+   *
+   * Vitest v3's CustomProviderOptions only includes fields with default values,
+   * but users should be able to configure all fields from BaseCoverageOptions.
+   * This augmentation adds the missing optional fields that work at runtime but
+   * aren't typed in vitest v3.
+   */
+  interface CustomProviderOptions {
+    /** List of files included in coverage as glob patterns */
+    include?: string[];
+    /** Whether to include all files, including the untested ones into report */
+    all?: boolean;
+    /** Coverage reporters to use */
+    reporter?: any;
+    /** Do not show files with 100% statement, branch, and function coverage */
+    skipFull?: boolean;
+    /** Configurations for thresholds */
+    thresholds?: any;
+    /** Watermarks for statements, lines, branches and functions */
+    watermarks?: {
+      statements?: [number, number];
+      functions?: [number, number];
+      branches?: [number, number];
+      lines?: [number, number];
+    };
+    /** Apply exclusions again after coverage has been remapped to original sources */
+    excludeAfterRemap?: boolean;
   }
 }
 
 /**
  * Compilation options
  */
-export interface CompilerOptions {
+export interface AssemblyScriptCompilerOptions {
   /**
-   * Enable coverage instrumentation
-   * - false: Clean binary
-   * - true: Instrumented binary
+   * Enable coverage instrumentation by generating a second binary
+   * - false: Clean binary only
+   * - true: Instrumented binary along with clean binary
    */
-  coverage: boolean;
+  instrument: boolean;
   /**
    * Strip @inline decorators during compilation
    * Only applies when coverage is enabled
@@ -188,9 +254,7 @@ export interface TestResult {
   /** Whether the test passed */
   passed: boolean;
   /** Error if the test failed */
-  error?: Error;
-  /** Type of error: 'assertion' for assert() failures, 'runtime' for crashes (bounds, null, etc.) */
-  errorType?: 'assertion' | 'runtime';
+  error?: AssemblyScriptTestError;
   /** Number of assertions that passed */
   assertionsPassed: number;
   /** Number of assertions that failed */

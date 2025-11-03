@@ -25,7 +25,7 @@ import {
   discoverTests as discoverTestsFromExecutor,
   executeSingleTest,
 } from '../executor/index.js';
-import { setDebug, debug, debugTiming } from '../utils/debug.mjs';
+import { setDebugModes, debug, debugTiming } from '../utils/debug.mjs';
 import { createPhaseTimings } from '../utils/timing.mjs';
 import {
   createRpcClient,
@@ -50,7 +50,7 @@ import {
  */
 export async function discoverTests(taskData: DiscoverTestsTask): Promise<DiscoverTestsResult> {
   try {
-    setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
+    setDebugModes(taskData.options.debug, taskData.options.debugTiming);
     debug('[Worker] discoverTests started for:', taskData.testFile);
 
     // Create RPC client
@@ -64,7 +64,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     await reportFileQueued(rpc, queuedFileTask);
 
     // Discover tests from binary
-    const { tests } = await discoverTestsFromExecutor(taskData.binary, taskData.testFile, taskData.debugInfo);
+    const { tests } = await discoverTestsFromExecutor(taskData.binary, taskData.debugInfo);
     timings.phaseEnd = performance.now();
 
     debugTiming(`[TIMING] ${taskData.testFile} - discover: ${timings.phaseEnd - timings.phaseStart}ms`);
@@ -94,7 +94,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
 }
 
 /**
- * Execute a single test with RPC reporting
+ * Execute a single test with RPC reporting, without coverage collection.
  *
  * Executes one test in a fresh WASM instance and reports lifecycle events:
  * - test-prepare (before execution)
@@ -110,7 +110,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
  */
 export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTestResult> {
   try {
-    setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
+    setDebugModes(taskData.options.debug, taskData.options.debugTiming);
     debug('[Worker] executeTest started for:', taskData.testTaskName);
 
     // Create RPC client from port
@@ -135,7 +135,6 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
       taskData.binary,
       taskData.test,
       taskData.sourceMap,
-      taskData.testFile,
       false  // collectCoverage
     );
 
@@ -180,7 +179,7 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
  */
 export async function executeTestWithCoverage(taskData: ExecuteTestWithCoverageTask): Promise<ExecuteTestResult> {
   try {
-    setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
+    setDebugModes(taskData.options.debug, taskData.options.debugTiming);
     debug('[Worker] executeTestWithCoverage started for:', taskData.testTaskName);
 
     // Create RPC client from port
@@ -205,7 +204,6 @@ export async function executeTestWithCoverage(taskData: ExecuteTestWithCoverageT
       taskData.binary,
       taskData.test,
       taskData.sourceMap,
-      taskData.testFile,
       true,  // collectCoverage
       taskData.debugInfo
     );
@@ -257,7 +255,7 @@ export async function executeTestWithCoverage(taskData: ExecuteTestWithCoverageT
  */
 export async function reportFileSummary(taskData: ReportFileSummaryTask): Promise<void> {
   try {
-    setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
+    setDebugModes(taskData.options.debug, taskData.options.debugTiming);
     debug('[Worker] reportFileSummary started for:', taskData.testFile);
 
     // Create RPC client
@@ -293,7 +291,7 @@ export async function reportFileSummary(taskData: ReportFileSummaryTask): Promis
  * - Blocks test execution until complete
  */
 export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask): Promise<void> {
-  setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
+  setDebugModes(taskData.options.debug, taskData.options.debugTiming);
   debug('[Worker] executeBeforeAllHooks not yet implemented');
   throw new Error('executeBeforeAllHooks not yet implemented');
 }
@@ -308,7 +306,7 @@ export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask)
  * - Blocks suite-finished until complete
  */
 export async function executeAfterAllHooks(taskData: ExecuteAfterAllHooksTask): Promise<void> {
-  setDebug(taskData.options.debug ?? false, taskData.options.debugTiming ?? false);
+  setDebugModes(taskData.options.debug, taskData.options.debugTiming);
   debug('[Worker] executeAfterAllHooks not yet implemented');
   throw new Error('executeAfterAllHooks not yet implemented');
 }

@@ -1,5 +1,30 @@
 import type { ResolvedConfig } from 'vitest/node';
 import type { AssemblyScriptPoolOptions, CoverageModeFlags } from '../types.js';
+import { COVERAGE_MODES } from '../types.js';
+
+/** Fields that have default values. Internally these will always be defined. */
+type ConfigFieldsWithDefaultValues = 'isolate';
+
+/**
+ * Default Vitest config values used by our pool
+ *
+ * Only includes fields we need to provide defaults for. Coverage config
+ * is handled by vitest's coverage provider initialization, which merges
+ * user config with vitest's coverageConfigDefaults automatically.
+ */
+export const DEFAULT_CONFIG: Required<Pick<ResolvedConfig, ConfigFieldsWithDefaultValues>> = {
+  isolate: false
+};
+
+/** Fields that have default values. Internally these will always be defined. */
+type ASPoolOptionsFieldsWithDefaultValues = 'debug' | 'debugTiming' | 'coverageMode' | 'stripInline';
+
+const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOptions, ASPoolOptionsFieldsWithDefaultValues>> = {
+  debug: false,
+  debugTiming: false,
+  coverageMode: COVERAGE_MODES.Failsafe,
+  stripInline: true
+};
 
 /**
  * Get coverage mode flags for easy destructuring
@@ -14,30 +39,24 @@ export function getCoverageModeFlags(
   options: AssemblyScriptPoolOptions,
   config: ResolvedConfig
 ): CoverageModeFlags {
-  // Extract coverage mode from pool options (defaults to 'failsafe')
-  const mode = options.coverageMode ?? 'failsafe';
-
-  // Check if coverage is enabled via Vitest's master switch
-  const coverageEnabled = config.coverage?.enabled ?? false;
+  const mode = options.coverageMode ?? DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS.coverageMode;
 
   return {
-    coverageEnabled,
     mode,
-    isIntegratedMode: mode === 'integrated',
-    isFailsafeMode: mode === 'failsafe',
+    isCoverageEnabled: isCoverageEnabled(config),
+    isIntegratedMode: mode === COVERAGE_MODES.Integrated,
+    isFailsafeMode: mode === COVERAGE_MODES.Failsafe,
   };
 }
 
 /**
- * Check if coverage is enabled
- *
- * Checks Vitest's standard coverage.enabled config (master switch).
+ * Check if coverage is enabled in global-only coverage.enabled config
  *
  * @param config - Vitest resolved config
  * @returns True if coverage collection is enabled
  */
 export function isCoverageEnabled(_config: ResolvedConfig): boolean {
-  // return config.coverage?.enabled ?? false;
+  // return config.coverage.enabled;
   return true; // until we implement coverage.reporter
 }
 
@@ -45,10 +64,11 @@ export function isCoverageEnabled(_config: ResolvedConfig): boolean {
  * Get AssemblyScript pool options from resolved config
  *
  * Extracts and casts poolOptions.assemblyScript from config with proper typing.
+ * Resolves to default values if not user-provided.
  *
  * @param config - Vitest resolved config
  * @returns AssemblyScript pool options (empty object if not configured)
  */
 export function getPoolOptions(config: ResolvedConfig): AssemblyScriptPoolOptions {
-  return (config.poolOptions?.assemblyScript as AssemblyScriptPoolOptions | undefined) ?? {};
+  return (config.poolOptions?.assemblyScript as AssemblyScriptPoolOptions | undefined) ?? DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS;
 }
