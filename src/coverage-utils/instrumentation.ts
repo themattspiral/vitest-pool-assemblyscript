@@ -12,10 +12,10 @@
  * 5. Use metadata to map funcIdx → {name, file, lines} in debug info
  *
  * Multi-Memory Coverage (Node 20+):
- * - Uses WebAssembly multi-memory to avoid WASM→JS boundary crossings
- * - Coverage counters stored in separate WebAssembly.Memory instance
- * - Instrumentation injects native WASM memory operations (load/add/store)
- * - Eliminates ~150x overhead from boundary crossings on every function call
+ * - Uses WebAssembly multi-memory to store coverage counters in separate 
+ *   WebAssembly.Memory instance, avoid test/user memory conflicts.
+ * - Instrumentation injects native WASM memory operations (load/add/store) 
+ *   to avoid WASM→JS boundary crossings using imports/exports to track executions
  */
 
 import binaryen from 'binaryen';
@@ -90,34 +90,28 @@ export class BinaryenCoverageInstrumenter {
    * 1. Inject memory operations to increment coverage counter at function entry
    * 2. Extract debug info (name, file, lines) from AS transform metadata
    */
-  private injectCoverageTracing(module: binaryen.Module, sourceFile: string): void {
+  private injectCoverageTracing(module: binaryen.Module, _sourceFile: string): void {
     debug('[Binaryen Coverage] Injecting coverage memory operations');
 
     // Ensure __coverage_memory import exists
     this.ensureCoverageMemoryImport(module);
 
-    // Load function metadata from AS transform
-    // The transform stores paths as AS sees them (relative), but we receive absolute paths
-    // Try both absolute and relative lookups
-    let metadata = globalThis.__functionMetadata?.get(sourceFile);
+    // Load function metadata from ALL source files in the transform
+    // The transform collects metadata from all User and UserEntry sources
+    // Build a map by function name for fast lookup (WASM binary has names)
+    const metadataByName = new Map<string, FunctionMetadata>();
 
-    if (!metadata) {
-      // Try finding by checking if any stored key is a suffix of our sourceFile
-      for (const [key, value] of globalThis.__functionMetadata?.entries() || []) {
-        if (sourceFile.endsWith(key)) {
-          metadata = value;
-          debug(`[Binaryen Coverage] Found metadata using suffix match: ${key}`);
-          break;
+    if (globalThis.__functionMetadata) {
+      debug(`[Binaryen Coverage] Loading metadata from ${globalThis.__functionMetadata.size} source files`);
+      for (const [path, functions] of globalThis.__functionMetadata.entries()) {
+        debug(`[Binaryen Coverage]   ${path}: ${functions.length} functions`);
+        for (const func of functions) {
+          metadataByName.set(func.name, func);
         }
       }
     }
 
-    const metadataArray = metadata || [];
-    debug(`[Binaryen Coverage] Loaded metadata for ${metadataArray.length} functions from transform`);
-
-    // Since arrow functions don't have names in the AST, we can't match by name
-    // Instead, we'll match by index - the order should be consistent
-    let metadataIndex = 0;
+    debug(`[Binaryen Coverage] Total metadata: ${metadataByName.size} unique functions from all sources`);
 
     const numFunctions = module.getNumFunctions();
     debug(`[Binaryen Coverage] Found ${numFunctions} functions in module`);
@@ -128,6 +122,8 @@ export class BinaryenCoverageInstrumenter {
     for (let i = 0; i < numFunctions; i++) {
       const funcRef = module.getFunctionByIndex(i);
       const funcInfo = binaryen.getFunctionInfo(funcRef);
+
+      debug(`[Binaryen Coverage] Function ${i}: name="${funcInfo.name}", module="${funcInfo.module}", hasBody=${!!funcInfo.body}`);
 
       // Skip if this is an import (has non-empty module name)
       // Real imports have module="env", non-imports have module=""
@@ -162,17 +158,31 @@ export class BinaryenCoverageInstrumenter {
 
       // Skip if no body
       if (!funcInfo.body) {
-        debug(`[Binaryen Coverage] Skipping (no body): ${funcInfo.name}`);
+        debug(`[Binaryen Coverage] Skipping empty function (no body): ${funcInfo.name}`);
         continue;
       }
 
-      // Get metadata for this function (match by index)
-      const meta: FunctionMetadata | null = metadataIndex < metadataArray.length ? metadataArray[metadataIndex]! : null;
-      metadataIndex++;
+      // Get metadata for this function by matching function name
+      const meta: FunctionMetadata | undefined = metadataByName.get(funcInfo.name);
 
-      // Instrument this function
-      this.instrumentFunction(module, funcInfo, instrumentedCount, meta, sourceFile);
-      instrumentedCount++;
+      // Metadata is required - if missing, this indicates a bug in the transform
+      if (!meta) {
+        // throw new Error(
+        //   `[Binaryen Coverage] No metadata found for function "${funcInfo.name}". ` +
+        //   `This indicates the transform failed to collect metadata for this function. ` +
+        //   `Function is present in WASM binary but missing from transform metadata.`
+        // );
+          debug(
+            `[Binaryen Coverage] No metadata found for function "${funcInfo.name}". ` +
+            `This indicates the transform failed to collect metadata for this function. ` +
+            `Function is present in WASM binary but missing from transform metadata.`
+          );
+      } else {
+        // Instrument this function
+        this.instrumentFunction(meta.sourcePath, module, funcInfo, instrumentedCount, meta);
+        instrumentedCount++;
+        debug(`[Binaryen Coverage] Instrumented function: ${funcInfo.name}`);
+      }
     }
 
     debug(`[Binaryen Coverage] Instrumented ${instrumentedCount} functions`);
@@ -182,34 +192,23 @@ export class BinaryenCoverageInstrumenter {
    * Instrument a single function with coverage tracing
    */
   private instrumentFunction(
+    sourceFile: string,
     module: binaryen.Module,
     funcInfo: binaryen.FunctionInfo,
     funcIdx: number,
-    meta: FunctionMetadata | null,
-    sourceFile: string
+    meta: FunctionMetadata
   ): void {
     // Get file index
     const fileIdx = this.getOrCreateFileIndex(sourceFile);
 
     // Store function debug info with real line numbers from metadata
-    if (meta) {
-      this.functionInfos.push({
-        name: funcInfo.name,
-        fileIdx,
-        startLine: meta.startLine,
-        endLine: meta.endLine,
-      });
-      debug(`[Binaryen Coverage] Function ${funcInfo.name}: lines ${meta.startLine}-${meta.endLine}`);
-    } else {
-      // Fallback to placeholder if no metadata found
-      this.functionInfos.push({
-        name: funcInfo.name,
-        fileIdx,
-        startLine: 0,
-        endLine: 0,
-      });
-      debug(`[Binaryen Coverage] Function ${funcInfo.name}: no metadata found, using placeholders`);
-    }
+    this.functionInfos.push({
+      name: funcInfo.name,
+      fileIdx,
+      startLine: meta.range[0],
+      endLine: meta.range[1],
+    });
+    debug(`[Binaryen Coverage] Function ${funcInfo.name}: lines ${meta.range[0]}-${meta.range[1]}`);
 
     // Create memory operations to increment coverage counter
     // Calculate address: funcIdx * 4 (4 bytes per i32 counter)

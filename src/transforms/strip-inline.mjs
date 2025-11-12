@@ -22,8 +22,8 @@
  * @see https://github.com/AssemblyScript/assemblyscript/blob/main/src/ast.ts
  */
 
+import { DecoratorKind, SourceKind, Statement, NodeKind } from "assemblyscript";
 import { Transform } from "assemblyscript/transform";
-import { DecoratorKind, SourceKind } from "assemblyscript";
 
 class StripInlineTransform extends Transform {
   /**
@@ -70,8 +70,10 @@ class StripInlineTransform extends Transform {
         // if (beforeCount !== afterCount) {
         //   // Get statement details for debugging
         //   const stmtName = stmt.name?.text || stmt.symbol?.name || '<anonymous>';
-        //   const stmtKind = stmt.constructor.name;
-        //   const stmtRange = stmt.range ? `${stmt.range.source.normalizedPath}:${stmt.range.line}` : 'unknown';
+        //   // const stmtKind = stmt.constructor.name;
+        //   const stmtKind = Object.keys(NodeKind).find(key => NodeKind[key] === stmt.kind) || String(stmt.kind);
+        //   const stmtRange = stmt.range ? `${stmt.range.source.normalizedPath} chars: ${stmt.range.start}-${stmt.range.end}` : 'unknown';
+          
         //   console.log('[StripInline] Removed @inline from', stmtKind, stmtName, 'at', stmtRange);
         // }
       }

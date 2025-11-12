@@ -5,11 +5,12 @@
  * - discoverTests: Discover tests from compiled binary
  * - executeTest: Execute a single test with RPC reporting
  * - executeTestWithCoverage: Execute a single test with coverage collection and RPC reporting
- * - reportFileSummary: Report file summary after all tests complete
+ * - reportFileSummary: Report file summary and coverage data after all tests complete
  *
  * The pool orchestrates these phases to enable pipeline parallelism with maximum CPU utilization.
  */
 
+import { basename } from 'node:path';
 import type { TaskResultPack, TaskEventPack } from '@vitest/runner';
 import type {
   DiscoverTestsTask,
@@ -21,11 +22,13 @@ import type {
   ExecuteBeforeAllHooksTask,
   ExecuteAfterAllHooksTask,
 } from '../types.js';
+import { ModuleCacheMap } from 'vite-node/client';
+import { installSourcemapsSupport } from 'vite-node/source-map';
 import {
   discoverTests as discoverTestsFromExecutor,
   executeSingleTest,
 } from '../executor/index.js';
-import { setDebugModes, debug, debugTiming } from '../utils/debug.mjs';
+import { setDebugMode, debug } from '../utils/debug.mjs';
 import { createPhaseTimings } from '../utils/timing.mjs';
 import {
   createRpcClient,
@@ -35,6 +38,17 @@ import {
   reportFileCollected,
   reportSuitePrepare,
 } from './rpc-reporter.js';
+
+// Singleton module cache for source map support in worker threads
+// Shared across all tasks in this worker to enable accurate 
+// internal pool code stack traces
+const moduleCache = new ModuleCacheMap();
+
+// Install source map support for pool's own TypeScript code
+// This enables accurate stack traces when debugging the pool itself
+installSourcemapsSupport({
+  getSourceMap: source => moduleCache.getSourceMap(source),
+});
 
 /**
  * Discover tests from compiled binary
@@ -50,7 +64,7 @@ import {
  */
 export async function discoverTests(taskData: DiscoverTestsTask): Promise<DiscoverTestsResult> {
   try {
-    setDebugModes(taskData.options.debug, taskData.options.debugTiming);
+    setDebugMode(taskData.poolOptions.debug);
     debug('[Worker] discoverTests started for:', taskData.testFile);
 
     // Create RPC client
@@ -67,7 +81,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     const { tests } = await discoverTestsFromExecutor(taskData.binary, taskData.debugInfo);
     timings.phaseEnd = performance.now();
 
-    debugTiming(`[TIMING] ${taskData.testFile} - discover: ${timings.phaseEnd - timings.phaseStart}ms`);
+    debug(`[TIMING] ${basename(taskData.testFile)} - discover: ${timings.phaseEnd - timings.phaseStart}ms`);
 
     // Create complete file task for onCollected with duration metadata
     const collectedFileTask = createFileTaskWithTests(
@@ -110,7 +124,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
  */
 export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTestResult> {
   try {
-    setDebugModes(taskData.options.debug, taskData.options.debugTiming);
+    setDebugMode(taskData.poolOptions.debug);
     debug('[Worker] executeTest started for:', taskData.testTaskName);
 
     // Create RPC client from port
@@ -139,7 +153,7 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
     );
 
     timings.phaseEnd = performance.now();
-    debugTiming(`[TIMING] ${taskData.testFile} - test ${taskData.testIndex}: ${timings.phaseEnd - timings.phaseStart}ms`);
+    debug(`[TIMING] ${basename(taskData.testFile)} - test ${taskData.testIndex}: ${timings.phaseEnd - timings.phaseStart}ms`);
 
     // Report test-finished
     const finishedResult = {
@@ -179,7 +193,7 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
  */
 export async function executeTestWithCoverage(taskData: ExecuteTestWithCoverageTask): Promise<ExecuteTestResult> {
   try {
-    setDebugModes(taskData.options.debug, taskData.options.debugTiming);
+    setDebugMode(taskData.poolOptions.debug);
     debug('[Worker] executeTestWithCoverage started for:', taskData.testTaskName);
 
     // Create RPC client from port
@@ -209,7 +223,7 @@ export async function executeTestWithCoverage(taskData: ExecuteTestWithCoverageT
     );
 
     timings.phaseEnd = performance.now();
-    debugTiming(`[TIMING] ${taskData.testFile} - test ${taskData.testIndex}: ${timings.phaseEnd - timings.phaseStart}ms`);
+    debug(`[TIMING] ${basename(taskData.testFile)} - test ${taskData.testIndex}: ${timings.phaseEnd - timings.phaseStart}ms`);
 
     // Report test-finished (respecting suppressFailureReporting flag)
     const shouldSuppressReport = taskData.suppressFailureReporting && !testResult.passed;
@@ -255,11 +269,28 @@ export async function executeTestWithCoverage(taskData: ExecuteTestWithCoverageT
  */
 export async function reportFileSummary(taskData: ReportFileSummaryTask): Promise<void> {
   try {
-    setDebugModes(taskData.options.debug, taskData.options.debugTiming);
+    setDebugMode(taskData.poolOptions.debug);
     debug('[Worker] reportFileSummary started for:', taskData.testFile);
 
     // Create RPC client
     const rpc = createRpcClient(taskData.port);
+
+    // Report coverage if available
+    if (taskData.coverageData) {
+      debug('[Worker] Reporting coverage via onAfterSuiteRun for:', taskData.testFile);
+      await rpc.onAfterSuiteRun({
+        coverage: {
+          __format: 'assemblyscript',
+          coverage: taskData.coverageData.coverage,
+          debugInfo: taskData.coverageData.debugInfo,
+        },
+        testFiles: [taskData.testFile],
+        transformMode: 'ssr',
+        projectName: taskData.fileTask.projectName,
+      });
+    } else {
+      debug('[Worker] No coverage available to report via onAfterSuiteRun for:', taskData.testFile);
+    }
 
     // Report suite-finished
     const fileTask = taskData.fileTask;
@@ -291,7 +322,7 @@ export async function reportFileSummary(taskData: ReportFileSummaryTask): Promis
  * - Blocks test execution until complete
  */
 export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask): Promise<void> {
-  setDebugModes(taskData.options.debug, taskData.options.debugTiming);
+  setDebugMode(taskData.poolOptions.debug);
   debug('[Worker] executeBeforeAllHooks not yet implemented');
   throw new Error('executeBeforeAllHooks not yet implemented');
 }
@@ -306,7 +337,7 @@ export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask)
  * - Blocks suite-finished until complete
  */
 export async function executeAfterAllHooks(taskData: ExecuteAfterAllHooksTask): Promise<void> {
-  setDebugModes(taskData.options.debug, taskData.options.debugTiming);
+  setDebugMode(taskData.poolOptions.debug);
   debug('[Worker] executeAfterAllHooks not yet implemented');
   throw new Error('executeAfterAllHooks not yet implemented');
 }

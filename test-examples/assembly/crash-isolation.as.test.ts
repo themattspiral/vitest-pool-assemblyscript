@@ -10,7 +10,7 @@ test("first test passes", () => {
   assert(true, "first test should pass");
 });
 
-test("second test crashes", () => {
+test("second test crashes [should fail]", () => {
   assert(false, "ASSERT_ERROR@14:3 this assertion should fail and cause abort");
 });
 

@@ -12,6 +12,14 @@ import type { BirpcReturn } from 'birpc';
 import type { TestError } from '@vitest/utils';
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+export const ASSEMBLYSCRIPT_POOL_NAME = 'vitest-pool-assemblyscript';
+
+export const COVERAGE_MEMORY_PAGES_MAX = 4;
+
+// ============================================================================
 // Error Types
 // ============================================================================
 
@@ -32,17 +40,6 @@ export type ErrorName = typeof ERROR_NAMES[keyof typeof ERROR_NAMES];
  * Extended TestError with required, strictly-typed name field
  */
 export type AssemblyScriptTestError = TestError & { name: ErrorName };
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-/**
- * Pool name used for Vitest file task creation
- */
-export const POOL_NAME = 'assemblyscript';
-
-export const COVERAGE_MEMORY_PAGES_MAX = 4;
 
 // ============================================================================
 // Configuration & Options
@@ -81,8 +78,7 @@ export interface CoverageModeFlags {
 export interface AssemblyScriptPoolOptions {
   /** Enable verbose debug logging */
   debug?: boolean;
-  /** Enable detailed timing logs for compile/discover/execute phases */
-  debugTiming?: boolean;
+
   /**
    * Coverage collection mode (only applies when test.coverage.enabled is true):
    * - 'failsafe': Smart re-run - Run instrumented first, re-run only failures on clean (default, optimal)
@@ -108,6 +104,21 @@ export interface AssemblyScriptPoolOptions {
    */
   maxThreads?: number;
 }
+
+export const AS_POOL_FIELDS_WITH_DEFAULTS = ['debug', 'coverageMode', 'stripInline'] as const;
+export const AS_POOL_OPTIONAL_FIELDS = ['maxThreads'] as const;
+
+/** Fields that have default values. Internally these will always be defined. */
+export type ASPoolOptionsFieldsWithDefaultValues = typeof AS_POOL_FIELDS_WITH_DEFAULTS[number];
+
+/** Fields with optional values and NO defaults */
+export type ASPoolOptionsOptionalFields = typeof AS_POOL_OPTIONAL_FIELDS[number];
+
+/** Pool options resolved so that all fields are filled with user values preferentially,
+ *  with required fields being guaranteed to be populated with defaults otherwise. */
+export type ResolvedAssemblyScriptPoolOptions = 
+  Required<Pick<AssemblyScriptPoolOptions, ASPoolOptionsFieldsWithDefaultValues>>
+  & Partial<Pick<AssemblyScriptPoolOptions, ASPoolOptionsOptionalFields>>;
 
 /**
  * Module augmentation for TypeScript autocomplete support
@@ -376,8 +387,8 @@ export interface FunctionInfo {
  */
 export interface FunctionMetadata {
   name: string;
-  startLine: number;
-  endLine: number;
+  range: [number, number]; // [startLine, endLine]
+  sourcePath: string; // Source file path from AS compiler
 }
 
 /**
@@ -404,7 +415,7 @@ export interface DiscoverTestsTask {
   /** Path to test file (for logging) */
   testFile: string;
   /** Pool options */
-  options: AssemblyScriptPoolOptions;
+  poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Project information for file task creation */
@@ -442,7 +453,7 @@ export interface ExecuteTestTask {
   /** Path to test file */
   testFile: string;
   /** Pool options */
-  options: AssemblyScriptPoolOptions;
+  poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Test task ID (for RPC reporting) */
@@ -470,7 +481,7 @@ export interface ExecuteTestWithCoverageTask {
   /** Path to test file */
   testFile: string;
   /** Pool options */
-  options: AssemblyScriptPoolOptions;
+  poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Test task ID (for RPC reporting) */
@@ -501,11 +512,13 @@ export interface ReportFileSummaryTask {
   /** Path to test file */
   testFile: string;
   /** Pool options */
-  options: AssemblyScriptPoolOptions;
+  poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Complete file task with all test results */
   fileTask: RunnerTestFile;
+  /** Coverage data for this file (optional, only when coverage enabled) */
+  coverageData?: FileCoverageData;
 }
 
 // ============================================================================
@@ -520,7 +533,7 @@ export interface ExecuteBeforeAllHooksTask {
   /** Path to test file */
   testFile: string;
   /** Pool options */
-  options: AssemblyScriptPoolOptions;
+  poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Hooks to execute */
@@ -537,7 +550,7 @@ export interface ExecuteAfterAllHooksTask {
   /** Path to test file */
   testFile: string;
   /** Pool options */
-  options: AssemblyScriptPoolOptions;
+  poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Hooks to execute */

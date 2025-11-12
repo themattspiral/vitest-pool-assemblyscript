@@ -6,10 +6,6 @@
  * 2. Registration: _start() runs, top-level test() calls invoke __register_test callback
  * 3. Discovery: Pool receives test names + function indices via callbacks
  * 4. Execution: Pool calls table.get(fnIndex)() directly via exported function table
- *
- * Key design decisions:
- * - Per-test isolation: Each test runs in a fresh WASM instance (~0.43ms overhead)
- * - Crash safe: One test aborting doesn't kill subsequent tests (they run in new instances)
  */
 
 // WASM imports that Pool provides

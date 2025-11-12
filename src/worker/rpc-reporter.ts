@@ -12,7 +12,7 @@ import type { RunnerTestCase, RunnerTestFile } from 'vitest/node';
 import type { TaskEventPack, TaskResultPack } from '@vitest/runner';
 import { createFileTask } from '@vitest/runner/utils';
 import type { PhaseTimings, DiscoveredTest, TestResult, ProjectInfo } from '../types.js';
-import { POOL_NAME } from '../types.js';
+import { ASSEMBLYSCRIPT_POOL_NAME } from '../types.js';
 import { debug } from '../utils/debug.mjs';
 
 
@@ -55,7 +55,7 @@ export function createInitialFileTask(
     testFile,
     projectInfo.projectRoot,
     projectInfo.projectName,
-    POOL_NAME
+    ASSEMBLYSCRIPT_POOL_NAME
   );
   fileTask.mode = 'queued';
   return fileTask;
@@ -81,7 +81,7 @@ export function createFileTaskWithTests(
     testFile,
     projectInfo.projectRoot,
     projectInfo.projectName,
-    POOL_NAME
+    ASSEMBLYSCRIPT_POOL_NAME
   );
   fileTask.mode = 'run';
 

@@ -75,14 +75,7 @@ export async function discoverTests(
 /**
  * Execute a single test with crash isolation
  *
- * Runs one test in a fresh WASM instance for maximum safety:
- * - Crashes don't affect other tests
- * - Clean state for each test
- * - <1ms overhead per test (negligible)
- *
- * Supports both single-mode and dual-mode coverage:
- * - Single-mode: Pass instrumented binary, coverage collected during execution
- * - Dual-mode: Pass clean binary, no coverage (use collectCoverageForTest separately)
+ * Runs one test in a fresh WASM instance for maximum safety.
  *
  * @param binary - Compiled WASM binary (clean for dual-mode, instrumented for single-mode)
  * @param test - Test to execute (name and function index)
@@ -156,6 +149,8 @@ export async function executeSingleTest(
     // Calculate duration
     const endTime = Date.now();
     currentTestRef.value.duration = endTime - startTime;
+    
+    debugError(`[Executor] Test "${test.name}": executed in ${currentTestRef.value.duration}ms`);
 
     // If we reach here, test passed (no abort occurred)
 
@@ -216,7 +211,7 @@ export async function executeSingleTest(
       }
 
       testResult.coverage = coverage;
-      debug(`[Executor] Extracted coverage: ${Object.keys(coverage.functions).length} functions hit`);
+      debug(`[Executor] Extracted coverage data: ${Object.keys(coverage.functions).length} functions hit`);
     }
 
     finalResult = testResult;
@@ -245,7 +240,7 @@ export async function executeSingleTest(
 /**
  * Execute coverage collection pass for a single test
  *
- * Re-runs the test on an instrumented binary to collect accurate coverage data.
+ * Runs the test on an instrumented binary to collect accurate coverage data.
  * Only used in dual-mode coverage - single-mode collects coverage during normal execution.
  * Ignores test failures - we only care about coverage data.
  *

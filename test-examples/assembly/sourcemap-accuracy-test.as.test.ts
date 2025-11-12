@@ -22,7 +22,7 @@ import { helperThatFails, nestedHelperThatFails, outerHelper } from '../assembly
 
 
 // Test 1: Error at line 25, column 36
-test('test_line_25', (): void => { assert(false, 'ASSERT_ERROR@25:36'); });
+test('test_line_25 [should fail]', (): void => { assert(false, 'ASSERT_ERROR@25:36'); });
 
 
 
@@ -30,24 +30,24 @@ test('test_line_25', (): void => { assert(false, 'ASSERT_ERROR@25:36'); });
 
 
 // Test 2: Error at line 33, column 39 (indented with 4 spaces)
-test('test_line_33', (): void => {    assert(false, 'ASSERT_ERROR@33:39'); });
+test('test_line_33 [should fail]', (): void => {    assert(false, 'ASSERT_ERROR@33:39'); });
 
 
 
 
 
 // Test 3: Error in imported helper function (validates cross-file source mapping)
-test('test_helper_function_error', (): void => {
+test('test_helper_function_error [should fail]', (): void => {
   helperThatFails(); // RUNTIME_ERROR@41:3 STACK_DEPTH:3 EXPECT_IN:sourcemap-utils.ts:8:17 Out of bounds
 });
 
 // Test 4: Error in nested imported helper (validates nested call stack source mapping)
-test('test_nested_helper_error', (): void => {
+test('test_nested_helper_error [should fail]', (): void => {
   outerHelper(); // RUNTIME_ERROR@46:3 STACK_DEPTH:4 EXPECT_IN:sourcemap-utils.ts:13:17 Out of bounds
 });
 
 // Test 5: Multi-line assert (assert on line 51, false argument on line 52)
-test('test_line_51_multiline', (): void => {
+test('test_line_51_multiline [should fail]', (): void => {
   assert(
     false,
     'ASSERT_ERROR@51:3'

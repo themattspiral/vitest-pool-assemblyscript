@@ -7,10 +7,21 @@
 
 import asc from 'assemblyscript/dist/asc.js';
 import { basename } from 'path';
+import { fileURLToPath } from 'url';
+import { writeFileSync } from 'node:fs';
 
 import type { CompileResult, AssemblyScriptCompilerOptions, DebugInfo } from './types.js';
-import { debug, debugTiming } from './utils/debug.mjs';
-import { BinaryenCoverageInstrumenter } from './coverage/instrumentation.js';
+import { debug } from './utils/debug.mjs';
+import { BinaryenCoverageInstrumenter } from './coverage-utils/instrumentation.js';
+
+// Absolute paths to transform modules (resolved relative to dist directory)
+// At runtime, this module is at dist/index.js (bundled), transforms are at dist/transforms/*.mjs
+// From dist/index.js, transforms are at ./transforms/*.mjs
+// Using absolute paths ensures the built compiler can be imported anywhere and work.
+const STRIP_INLINE_TRANSFORM = fileURLToPath(new URL('./transforms/strip-inline.mjs', import.meta.url));
+const EXTRACT_METADATA_TRANSFORM = fileURLToPath(new URL('./transforms/extract-function-metadata.mjs', import.meta.url));
+// const TEST_AFTERCOMPILE_TRANSFORM = fileURLToPath(new URL('./transforms/test-aftercompile.mjs', import.meta.url));
+const DEBUG_WRITE_FILES = false;
 
 /**
  * Instrument WASM binary for coverage collection
@@ -106,18 +117,24 @@ export async function compileAssemblyScript(
   // inside inlined functions.
   if (options.stripInline === true) {
     compilerFlags.push(
-      '--transform', './src/transforms/strip-inline.mjs'
+      '--transform', STRIP_INLINE_TRANSFORM
     );
     debug('[ASC Compiler] Added Transform - Strip @inline decorators');
   }
-  
+
   // Add transform for coverage metadata extraction if coverage enabled
   if (options.instrument) {
     compilerFlags.push(
-      '--transform', './src/transforms/extract-function-metadata.mjs'
+      '--transform', EXTRACT_METADATA_TRANSFORM
     );
     debug('[ASC Compiler] Added Transform - Extract Function Metadata (coverage enabled)');
   }
+
+  // TEMP: Add test transform to investigate afterCompile
+  // compilerFlags.push(
+  //   '--transform', TEST_AFTERCOMPILE_TRANSFORM
+  // );
+  // debug('[ASC Compiler] Added Transform - Test AfterCompile Hook');
 
   // Compile with AssemblyScript compiler
   const ascStart = performance.now();
@@ -129,9 +146,9 @@ export async function compileAssemblyScript(
     writeFile: (name: string, contents: string | Uint8Array, _baseDir: string) => {
       if (name.endsWith('.wasm') && contents instanceof Uint8Array) {
         binary = contents;
-        debug('[ASC Compiler] writeFile - Captured binary:', name, 'baseDir', _baseDir);
+        debug('[ASC Compiler] Captured binary in memory:', name, 'baseDir', _baseDir);
       } else if (name.endsWith('.wasm.map') && typeof contents === 'string') {
-        debug('[ASC Compiler] writeFile - Captured source map:', name, 'baseDir', _baseDir);
+        debug('[ASC Compiler] Captured source map in memory:', name, 'baseDir', _baseDir);
         sourceMap = contents;
       } else {
         debug('[ASC Compiler] writeFile - Captured UNEXPECTED FILE:', name, 'baseDir', _baseDir);
@@ -139,7 +156,7 @@ export async function compileAssemblyScript(
     },
   });
   const ascEnd = performance.now();
-  debugTiming(`[TIMING] ${basename(filename)} - asc.main: ${ascEnd - ascStart}ms`);
+  debug(`[TIMING] ${basename(filename)} - asc.main: ${ascEnd - ascStart}ms`);
 
   // Check for compilation errors
   if (result.error) {
@@ -169,6 +186,31 @@ export async function compileAssemblyScript(
   debug('[ASC Compiler] Compilation successful, clean binary size:', cleanBinary.length, 'bytes');
   if (wasmSourceMap) {
     debug('[ASC Compiler] Source map generated, size:', wasmSourceMap.length, 'bytes');
+
+    if (DEBUG_WRITE_FILES) {
+      // Write source map to project maps directory for debugging
+      const mapsDir = './maps';
+      const sourceMapFileName = `${basename(filename, '.ts')}.as.ts.map`;
+      const sourceMapPath = `${mapsDir}/${sourceMapFileName}`;
+
+      // Create maps directory if it doesn't exist
+      try {
+        const { mkdirSync } = await import('node:fs');
+        mkdirSync(mapsDir, { recursive: true });
+      } catch {
+        // Directory already exists or creation failed, continue
+      }
+
+      // Format as well-formed JSON
+      const formattedSourceMap = JSON.stringify(JSON.parse(wasmSourceMap), null, 2);
+      writeFileSync(sourceMapPath, formattedSourceMap, 'utf8');
+      debug('[ASC Compiler] Wrote source map to:', sourceMapPath);
+
+      // Also write WASM binary for inspection
+      const wasmPath = sourceMapPath.replace('.map', '.wasm');
+      writeFileSync(wasmPath, cleanBinary);
+      debug('[ASC Compiler] Wrote WASM binary to:', wasmPath);
+    }
   }
 
   // Instrument binary for coverage if requested
@@ -179,7 +221,7 @@ export async function compileAssemblyScript(
     const instrumentStart = performance.now();
     const instrumentResult = instrumentBinaryForCoverage(cleanBinary, filename);
     const instrumentEnd = performance.now();
-    debugTiming(`[TIMING] ${basename(filename)} - instrumentation: ${instrumentEnd - instrumentStart}ms`);
+    debug(`[TIMING] ${basename(filename)} - instrumentation: ${instrumentEnd - instrumentStart}ms`);
 
     instrumentedBinary = instrumentResult.binary;
     debugInfo = instrumentResult.debugInfo;

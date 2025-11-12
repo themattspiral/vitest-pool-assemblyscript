@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsup';
+import { copyFileSync, mkdirSync } from 'fs';
 
 export default defineConfig({
   entry: [
@@ -19,5 +20,12 @@ export default defineConfig({
     'binaryen',
     'source-map',
     'tinypool',
+    'vite-node',
   ],
+  onSuccess: async () => {
+    // Copy transform files to dist
+    mkdirSync('dist/transforms', { recursive: true });
+    copyFileSync('src/transforms/strip-inline.mjs', 'dist/transforms/strip-inline.mjs');
+    copyFileSync('src/transforms/extract-function-metadata.mjs', 'dist/transforms/extract-function-metadata.mjs');
+  },
 });

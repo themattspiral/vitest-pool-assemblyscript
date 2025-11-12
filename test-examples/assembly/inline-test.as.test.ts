@@ -28,6 +28,6 @@ test('inline functions are called', (): void => {
   assert(prod2 == 20, 'normal multiplication works');
 });
 
-test('error inside inline function shows correct line', (): void => {
+test('inline function error source mapped to correct line [should fail]', (): void => {
   const wontAssign = throwsError(); // RUNTIME_ERROR@32:22 STACK_DEPTH:3 EXPECT_IN:inline-utils.ts:33:17 Out of bounds
 });

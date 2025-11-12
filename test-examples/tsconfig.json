@@ -1,18 +1,6 @@
 {
   "compilerOptions": {
-    // Target Node.js 18+ (ES2022 features)
-    "target": "ES2022",
-    "lib": ["ES2022", "DOM"],  // DOM needed for WebAssembly types (TS limitation)
-
-    // ESM module format for Node.js (matches package.json "type": "module")
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-
-    // Output configuration (for future production build)
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "declaration": true,
-    "declarationMap": true,
+    "rootDir": "./",
     "sourceMap": true,
 
     // Strict type checking
@@ -27,7 +15,6 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
-    "isolatedModules": true,
 
     // Performance & compatibility
     "skipLibCheck": true,
@@ -35,13 +22,12 @@
   },
 
   "include": [
-    "src/**/*"
+    "./**/*.ts"
   ],
 
   "exclude": [
     "node_modules",
-    "dist",
     "assembly",
-    "test-examples/**/*",
+    "assembly-src",
   ]
 }
