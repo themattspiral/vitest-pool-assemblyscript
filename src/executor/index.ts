@@ -118,6 +118,7 @@ export async function executeSingleTest(
   const exports = instance.exports as Record<string, unknown>;
 
   // Call _start to run top-level code (registers tests)
+  // TODO - Determine if this is necessary here!!!!
   if (typeof exports._start === 'function') {
     exports._start();
   }

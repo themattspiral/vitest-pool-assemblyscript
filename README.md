@@ -2,13 +2,14 @@
 
 AssemblyScript unit testing for your Vitest workflow: Simple, fast, familiar, AS-native.
 
-🚧 This project is currently *Pre-Release, Pre-v1, Under Active Development* 🚧 - See [Project Status & Expectations](#project-status--expectations) for what's working now, and to see what's planned!
-
 - [Motivation](#motivation)
-- [What Will Make This Different](#what-will-make-this-different)
-- [How It Works](#how-it-works)
+- [What Makes This Different](#what-makes-this-different)
+- [Architecture](#architecture)
 - [Project Status & Expectations](#project-status--expectations)
 - [Installation Guide (Development Preview)](#installation-guide-development-preview)
+
+**Note: 🚧 This project is currently *Pre-Release, Pre-v1, Under Active Development* 🚧**
+- See [Project Status & Expectations](#project-status--expectations) for what's working now, and to see what's planned!
 
 ---
 
@@ -16,18 +17,24 @@ AssemblyScript unit testing for your Vitest workflow: Simple, fast, familiar, AS
 
 If you use [Vitest](https://vitest.dev) for JavaScript/TypeScript testing and want to adopt [AssemblyScript](https://www.assemblyscript.org/) as your compile-to-WASM solution for performance-critical code, you face a choice:
 
-- **Use generic WASM testing patterns:** Instantiation & assertion boilerplate, no test discovery, error source mapping challenges, limited or no coverage collection
-- **Use standalone AS testing tools:** Separate test workflows and reports, different coverage formats, limited test parallelism
-- **Use this pool:** Keep using `vitest`, add native AssemblyScript tests, use familiar matchers, get unified test runs/reporting/coverage + more
+- **Generic WASM test patterns:**
+  - Boilerplate (instantiation, cleanup), Maintenance burden (assertions) , No test discovery, Manual error source mapping, Limited/no coverage
+- **Standalone AS test tools:**
+  - Separate workflows and reports, Different coverage formats, Limited test parallelism
+- **Custom Pool:**
+  - Keep using `vitest`, Familiar matchers, Unified test runs/reporting, Unified coverage + more
 
-By giving Vitest support for on-demand AssemblyScript-to-WASM compilation and test execution, this custom pool aims to bridge the gap between AssemblyScript and the modern JavaScript testing ecosystem. It's designed to work for incremental adoption: Add AS modules to your existing codebase without changing your testing infrastructure.
+### The Pool Approach
+- This custom pool gives Vitest support for on-demand AssemblyScript-to-WASM compilation and test execution
+- It aims to bridge the gap between AssemblyScript and the modern JavaScript testing ecosystem
+- It's designed to work for incremental adoption: Add AS modules to your existing codebase without changing your testing infrastructure
 
 ---
 
-## What Will Make This Different
+## What Makes This Different
 
 ### 1. Vitest Ecosystem Integration
-- Use the same `vitest` commands, CLI filters, and watch mode you're used to
+- Use the same `vitest` commands, CLI filtering, and watch mode you're used to
 - Works with Vitest UI, reporters, and coverage tools
 - Sibling project config coexists with JavaScript test pools
 - Hybrid coverage provider allows unified JS/AS test reports from all pools (vitest's global `coverage` config isn't a blocker)
@@ -42,28 +49,30 @@ By giving Vitest support for on-demand AssemblyScript-to-WASM compilation and te
 - Source-mapped error messages with accurate file:line:column
 - Lightweight coverage instrumentation
 
-### 4. Additional Features
-- Configurable AssemblyScript compiler options
-- Optional user-provided `WebAssembly.Memory`
+### 4. Performance & Customization
 - Remove `@inline` decorators to ensure coverage for normally inlined code
 - Parallel execution thread pool with per-test parallelism (similar to vitest's `sequence.concurrent` option)
 - In-memory binaries and source maps for minimal file I/O
+- Configurable AssemblyScript compiler options
+- Optional user-provided `WebAssembly.Memory`
 
 ### Why This Over [Alternative]?
 
-This project was started primarily to integrate the testing experience between AssemblyScript and JavaScript/TypeScript. We hope the features above will differentiate it from alternatives with functionality that JS developers have come to expect from test tools.
+By providing functionality that JS developers have come to expect, this project brings a more mature JS-like developer experience to AssemblyScript testing. We believe the features above make our vitest custom pool a stand-out choice.
 
-There are other solid, actively-maintained, standalone testing frameworks for AssemblyScript, including [assemblyscript-unittest-framework](https://github.com/wasm-ecosystem/assemblyscript-unittest-framework) and [as-test](https://github.com/JairusSW/as-test) - the former in particular has provided inspriration for parts of this project's test discovery and coverage instrumentation approach.
+There are other standalone testing frameworks for AssemblyScript testing, including:
+- [assemblyscript-unittest-framework](https://github.com/wasm-ecosystem/assemblyscript-unittest-framework): A full-featured AS test framework
+  - Many thanks owed to this project for inspriring parts of our discovery and instrumentation approach
+- [as-test](https://github.com/JairusSW/as-test): A minimal and fast AS test framework and runner
+- [Built with AssemblyScript - Testing & Benchmarking](https://www.assemblyscript.org/built-with-assemblyscript.html#testing-benchmarking) may track more
 
 ---
 
-## How It Works
+## Architecture
 
-Built on the Vitest 3.x [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) for alternative runtime execution (4.x support will be right beind!)
+Built on the Vitest 3.x [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) for alternative runtime execution (4.x support is comming very soon!)
 
-### Architecture
-
-To be documented here when it stabilizes.
+See [Architecture docs](docs/architecture.md) for more detailed information.
 
 ---
 

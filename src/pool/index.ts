@@ -657,7 +657,7 @@ async function runTests(
 
     // set debug mode within this async context
     setDebugMode(poolOptions.debug);
-    debug(`[Pipeline ${basename(testFilePath)}] Starting pipeline`);
+    debug(`[Pipeline ${basename(testFilePath)}] Starting pipeline for ${testFilePath}`);
 
     try {
       // PHASE 1: Compile (happens in in main thread, not worker, but doesn't block)
@@ -752,6 +752,8 @@ async function runTests(
       debug(`[Pipeline ${basename(testFilePath)}] Phase 1-2 Pipeline Timing: ${p2End - p1Start}ms`);
       debug(`[Pipeline ${basename(testFilePath)}] Phase 3-5 Pipeline Timing: ${p5End - p3Start}ms`);
       debug(`[Pipeline ${basename(testFilePath)}] Total Pipeline Timing: ${p5End - p1Start}ms`);
+      
+      debug(`[Pipeline ${basename(testFilePath)}] Finished Pipeline for ${testFilePath}`);
 
     } catch (error) {
       // Check if cache validation failure (acceptable, silent)
