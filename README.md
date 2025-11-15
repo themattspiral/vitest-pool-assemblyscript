@@ -72,7 +72,7 @@ There are other standalone testing frameworks for AssemblyScript testing, includ
 
 Built on the Vitest 3.x [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) for alternative runtime execution (4.x support is comming very soon!)
 
-See [Architecture docs](docs/architecture.md) for more detailed information.
+See the [Architecture docs](docs/architecture.md) for more detailed information.
 
 ---
 
@@ -84,29 +84,28 @@ See [Architecture docs](docs/architecture.md) for more detailed information.
 
 ### Current State (Pre-v1)
 
-**What Works Now:**
-- ✅ Vitest custom pool interface integration with parallel execution (tinypool)
-- ✅ Per-test WASM instance isolation (crash tolerance)
-- ✅ Test discovery and execution with function table-based invocation
-- ✅ Basic `test()` and `assert()` API
-- ✅ Binary caching between collection/execution phases for watch mode
-- ✅ Source-mapped error messages (accurate file:line:column)
-- ✅ Function-level coverage
-- ✅ Manual LCOV output
-- ✅ Failsafe re-run mode (temporary workaround - see below)
+**✅ What Works Now:**
+- Vitest custom pool interface integration with parallel execution (tinypool)
+- Per-test WASM instance isolation (crash tolerance)
+- Test discovery and execution with function table-based invocation
+- Basic `test()` and `assert()` API
+- Binary caching between collection/execution phases for watch mode
+- Source-mapped error messages (accurate file:line:column)
+- Function-level coverage
+- Manual LCOV output
+- Failsafe re-run mode (temporary workaround - see below)
 
-**Known Limitations:**
-- ⚠️ **Function-level coverage only**: No statement, branch, or line coverage yet
-- ⚠️ **No Istanbul integration**: Coverage not yet merged with JS coverage in mixed projects
-- ⚠️ **Basic assertions only**: No describe blocks, setup/teardown hooks, or rich matchers yet
-- ⚠️ **Failing tests run twice**: Current post-processing instrumentation current breaks source maps, requiring "failsafe mode" (first run collects coverage, failed tests re-run on clean binary for accurate errors)
-- ⚠️ **vitest config limited**: Many vitest config options are not yet respected (`testTimeout`, `retry`, `bail`)
-- ⚠️ **vitest 3.x**: Building against 3.x API but 4.x will come very soon
+**⚠️ Known Limitations:**
+- **Function-level coverage only**: No statement, branch, or line coverage yet
+-  **No Istanbul integration**: Coverage not yet merged with JS coverage in mixed projects
+- **Basic assertions only**: No describe blocks, setup/teardown hooks, or rich matchers yet
+- **Failing tests run twice**: Current post-processing instrumentation current breaks source maps, requiring "failsafe mode" (first run collects coverage, failed tests re-run on clean binary for accurate errors)
+- **vitest config limited**: Many vitest config options are not yet respected (`testTimeout`, `retry`, `bail`)
+- **vitest 3.x**: Building against 3.x API but 4.x will come very soon
 
 ### v1 Release Roadmap (Current Focus)
 
 **Release Goals**: Native addon integration + hybrid coverage provider + eliminate failsafe mode + vitest 4.x
-
 - **afterCompile hook instrumentation**: Source maps accurate even with instrumentation, no failsafe re-run
 - **Native addon (C++) for debug extraction using Binaryen**: Foundation for future block-level coverage
 - **Honor key vitest configs**: e.g. `testTimeout`, `retry`, `bail`
@@ -133,9 +132,9 @@ See [Architecture docs](docs/architecture.md) for more detailed information.
 - Evaluate DX, maintainability, and value
 - Ship what's feasible
 
-**Out of Scope (Currently):**
-- ✖️ Compiler integration with other compile-to-WASM languages
-- ✖️ Generic testing of all precompiled WASM binaries
+**✖️ Out of Scope (Currently):**
+- Compiler integration with other compile-to-WASM languages
+- Generic testing of all precompiled WASM binaries
 
 ---
 
