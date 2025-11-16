@@ -11,7 +11,7 @@ import {
 import { COVERAGE_MODES } from '../types.js';
 
 /** Vitest config fields that have default values. Internally these will always be defined. */
-// type ConfigFieldsWithDefaultValues = 'isolate';
+// type ConfigFieldsWithDefaultValues = '';
 
 /**
  * Default values for built-in Vitest config options that are used by our pool
@@ -19,7 +19,7 @@ import { COVERAGE_MODES } from '../types.js';
  * Only includes fields we need to provide defaults for.
  */
 // export const DEFAULT_CONFIG: Required<Pick<ResolvedConfig, ConfigFieldsWithDefaultValues>> = {
-//   isolate: false
+//   nothing, currently
 // };
 
 const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOptions, ASPoolOptionsFieldsWithDefaultValues>> = {

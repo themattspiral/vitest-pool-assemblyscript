@@ -1,6 +1,8 @@
 # Architecture Overview
 
-Built on the Vitest 3.x [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) for alternative runtime execution (4.x support is comming very soon!)
+Built on the Vitest 3.x [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) for alternative runtime execution.
+
+4.x support is comming very soon!
 
 ## High-Level Pool Architecture
 

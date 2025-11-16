@@ -116,62 +116,9 @@ export type ASPoolOptionsOptionalFields = typeof AS_POOL_OPTIONAL_FIELDS[number]
 
 /** Pool options resolved so that all fields are filled with user values preferentially,
  *  with required fields being guaranteed to be populated with defaults otherwise. */
-export type ResolvedAssemblyScriptPoolOptions = 
+export type ResolvedAssemblyScriptPoolOptions =
   Required<Pick<AssemblyScriptPoolOptions, ASPoolOptionsFieldsWithDefaultValues>>
   & Partial<Pick<AssemblyScriptPoolOptions, ASPoolOptionsOptionalFields>>;
-
-/**
- * Module augmentation for TypeScript autocomplete support
- *
- * Augments vitest's types to support AssemblyScript pool configuration.
- *
- * To enable type support for coverage options like `coverage.include`, add this
- * import to your vitest.config.ts:
- *
- * ```ts
- * import type {} from 'vitest-pool-assemblyscript'
- * ```
- *
- * This is required because:
- * - PoolOptions is re-exported from 'vitest/config', so it loads automatically
- * - CustomProviderOptions is NOT re-exported, so it requires an explicit import
- *   to load the augmentation
- */
-declare module 'vitest/node' {
-  interface PoolOptions {
-    assemblyScript?: AssemblyScriptPoolOptions;
-  }
-
-  /**
-   * Augment CustomProviderOptions to add missing optional coverage fields
-   *
-   * Vitest v3's CustomProviderOptions only includes fields with default values,
-   * but users should be able to configure all fields from BaseCoverageOptions.
-   * This augmentation adds the missing optional fields that work at runtime but
-   * aren't typed in vitest v3.
-   */
-  interface CustomProviderOptions {
-    /** List of files included in coverage as glob patterns */
-    include?: string[];
-    /** Whether to include all files, including the untested ones into report */
-    all?: boolean;
-    /** Coverage reporters to use */
-    reporter?: any;
-    /** Do not show files with 100% statement, branch, and function coverage */
-    skipFull?: boolean;
-    /** Configurations for thresholds */
-    thresholds?: any;
-    /** Watermarks for statements, lines, branches and functions */
-    watermarks?: {
-      statements?: [number, number];
-      functions?: [number, number];
-      branches?: [number, number];
-      lines?: [number, number];
-    };
-    /** Apply exclusions again after coverage has been remapped to original sources */
-    excludeAfterRemap?: boolean;
-  }
-}
 
 /**
  * Compilation options

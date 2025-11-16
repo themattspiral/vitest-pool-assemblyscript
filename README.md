@@ -174,9 +174,9 @@ npm link vitest-pool-assemblyscript
 
 3. **Configure Vitest** in your project's `vitest.config.ts`:
 ```typescript
-import { defineConfig } from 'vitest/config';
+import { defineAssemblyScriptConfig } from 'vitest-pool-assemblyscript/config';
 
-export default defineConfig({
+export default defineAssemblyScriptConfig({
   test: {
     // Standard Vitest configuration
     include: ['tests/assembly/**/*.as.test.ts'],
@@ -185,14 +185,17 @@ export default defineConfig({
     // Use the AssemblyScript pool
     pool: 'vitest-pool-assemblyscript',
 
-    // Pool-specific options
+    // Pool-specific options (set to default values)
     poolOptions: {
       assemblyScript: {
-        // Strip @inline decorators for complete coverage visibility
+        // Strip @inline decorator metadata for coverage visibility
         stripInline: true,
 
+        // limit worker threads to this number (default when undefined: # cpus - 1)
+        maxThreads: undefined,
+
         // Enable debug logging (shows compilation, execution flow)
-        debug: false
+        debug: false,
       }
     }
   }
@@ -202,41 +205,40 @@ export default defineConfig({
 If you need to run tests in multiple pools (e.g. JS in one, AssemblyScript in the other), use multiple projects:
 
 ```typescript
-import { defineConfig } from 'vitest/config';
+import { defineConfig, defineProject } from 'vitest/config';
+import { defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/config';
 
 export default defineConfig({
   test: {
     // Coverage config MUST be at root level (Vitest limitation - applies to all projects)
     // TBD - COVERAGE WILL NOT WORK USING THIS YET - STAY TUNED!
     coverage: {
-      enabled: true,
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
+      enabled: true,
       reportsDirectory: './coverage',
       reporter: ['text', 'lcov', 'html'],
-      include: ['src/**/*.ts', 'assembly/**/*.ts'], // Include both JS and AS sources
+      include: ['src/**/*.ts', 'assembly/**/*.ts'], // example, include both JS and AS sources
     },
 
     projects: [
-      {
-        extends: true, // extend the standard vitest config
+      defineProject({
         test: {
           name: {
-            label: 'javascript-typescript',
+            label: 'javascript-typescript-tests',
             color: 'blue'
           },
           include: ['tests/js/*.{test,spec}.{ts,js}'],
-          // remaining JS config...
+          // remaining JS/TS config...
         }
-      },
-      {
+      }),
+      defineAssemblyScriptProject({
         test: {
           name: {
             label: 'assemblyscript',
             color: 'yellow'
           },
           include: ['tests/assembly/**/*.as.{test,spec}.ts'],
-          environment: 'node',
 
           pool: 'vitest-pool-assemblyscript',
           poolOptions: {
@@ -245,7 +247,7 @@ export default defineConfig({
             }
           }
         }
-      }
+      })
     ]
   }
 })

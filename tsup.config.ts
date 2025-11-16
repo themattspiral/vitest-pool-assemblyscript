@@ -5,6 +5,7 @@ export default defineConfig({
   entry: [
     'src/index.ts',
     'src/worker/index.ts',
+    'src/config/config-helpers.ts',
   ],
   format: ['esm'],
   outDir: 'dist', // Explicitly set output directory

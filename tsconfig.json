@@ -8,9 +8,8 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
 
-    // Output configuration (for future production build)
+    // Output configuration (for reference - tsup handles actual builds)
     "outDir": "./dist",
-    "rootDir": "./src",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -35,7 +34,8 @@
   },
 
   "include": [
-    "src/**/*"
+    "src/**/*.ts",
+    "*.ts"
   ],
 
   "exclude": [

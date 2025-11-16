@@ -1,5 +1,5 @@
-import { defineConfig, TestProjectInlineConfiguration } from 'vitest/config';
-import type {} from './dist/index.js'; // Import types to trigger module augmentationm - update to vitest-pool-assemblyscript
+import { defineConfig, defineProject } from 'vitest/config';
+import { defineAssemblyScriptProject } from './src/config/config-helpers.js';
 
 export default defineConfig({
   test: {
@@ -16,7 +16,7 @@ export default defineConfig({
       enabled: false,
       
       provider: 'custom',
-      customProviderModule: 'vitest-pool-assemblyscript',
+      customProviderModule: 'vitest-pool-assemblyscript/coverage',
 
       // Include only AS source files in coverage reports
       // note: test.includes files are auto-excluded from coverage by Vitest
@@ -24,7 +24,7 @@ export default defineConfig({
     },
 
     projects: [
-      {
+      defineProject({
         test: {
           // JavaScript/TypeScript tests (built-in pool)
           name: {
@@ -40,26 +40,25 @@ export default defineConfig({
           // testTimeout: 5000,
           // retry: 0,
           // bail: undefined,
-          // isolate: true,
           // poolOptions: {
           //   threads: {
           //     // execArgv: ['--enable-source-maps'],
           //   },
           // }
         }
-      },
-      {
+      }),
+      defineAssemblyScriptProject({
         test: {
           name: {
             label: 'assemblyscript-example-tests',
             color: 'yellow'
           },
-          
+
           include: ['test-examples/assembly/**/*.as.test.ts'],
 
-          // Use our custom AssemblyScript pool (built version)
+          // Use our custom AssemblyScript pool (built version for dev)
           pool: './dist/index.js',
-          
+
           // Pool-specific configuration
           poolOptions: {
             assemblyScript: {
@@ -69,10 +68,10 @@ export default defineConfig({
 
               // maxThreads: undefined, // Max worker threads (default: Math.max(cpus - 1, 1))
             },
-            
+
           },
         }
-      }
+      }),
     ]
   },
 });

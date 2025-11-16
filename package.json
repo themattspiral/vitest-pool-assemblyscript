@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./config": {
+      "types": "./dist/config/config-helpers.d.ts",
+      "default": "./dist/config/config-helpers.js"
+    },
     "./assembly": {
       "types": "./assembly/index.ts",
       "default": "./assembly/index.ts"
