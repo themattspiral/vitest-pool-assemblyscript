@@ -309,7 +309,7 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 
 ### v1 Coverage Architecture (In Progress)
 
-**Goal**: Move instrumentation into compiler pipeline + native addon debug extraction
+**Goal**: Binaryen.js post-processing instrumentation + native addon debug extraction + Istanbul hybrid coverage provider integration
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -317,14 +317,20 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 ├─────────────────────────────────────────────────────────────┤
 │  1. Parse AS source -> AST                                  │
 │  2. Type checking & optimization                            │
-│  3. Transforms:                                             |
+│  3. Transforms:                                             │
 │     └─> afterParse: Strip @inline decorator metadata        │
-│     ├─> afterCompile: Inject coverage instrumentation       │
-│     │   ( function-level __coverage_trace() calls )         │
-│     └─> Compiler sees instrumented module                   │
-│  4. Compiler emits binary from instrumented module          │
-│     ├─> WASM binary (instrumented)                          │
-│     └─> Source map (ACCURATE - sees instrumentation!)       │
+│  4. Compiler emits clean binary                             │
+│     ├─> WASM binary (clean)                                 │
+│     └─> Source map (accurate for clean binary)              │
+└─────────────────────────────────────────────────────────────┘
+                             │
+                             ↓
+┌─────────────────────────────────────────────────────────────┐
+│            Binaryen Post-Processing (Instrumentation)       │
+├─────────────────────────────────────────────────────────────┤
+│  • Inject __coverage_trace() calls at function entries      │
+│  • Add multi-memory for coverage counters                   │
+│  • ⚠️ Breaks source map accuracy (known limitation)         │
 └─────────────────────────────────────────────────────────────┘
                              │
                              ↓
@@ -349,8 +355,10 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 ┌─────────────────────────────────────────────────────────────┐
 │                  Coverage Collection & Reporting            │
 ├─────────────────────────────────────────────────────────────┤
-│  1. Execute instrumented WASM                               │
-│     └─> Collect function hit counts from coverage memory    │
+│  1. Execute instrumented WASM (failsafe mode)               │
+│     ├─> Collect function hit counts from coverage memory    │
+│     ├─> Suppress failure reporting (source maps inaccurate) │
+│     └─> Re-run failures on clean binary for accurate errors │
 │                                                             │
 │  2. Convert to Istanbul format                              │
 │     ├─> Use native addon DebugInfo for metadata             │
@@ -369,11 +377,10 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 ```
 
 **v1 Key Details:**
-- ✅ **Instrumented source maps accurate** - Instrumentation happens before compiler emits binary
-- ✅ **No failsafe mode** - Single-pass execution
 - ✅ **Istanbul integration** - Unified coverage reports with JS/TS code
 - ✅ **Hybrid provider** - Supports mixed JS + AS projects
 - ✅ **Native addon foundation** - Rich debug info ready for v2 block-level coverage
+- ⚠️ **Failsafe mode required** - Post-processing breaks source maps, requiring two-pass execution for accurate errors
 - ⚠️ **Function-level coverage only** - Statement/branch/line coverage deferred to v2
 
 ---
