@@ -1,3 +1,11 @@
+/**
+ * AssemblyScript Pool for Vitest
+ *
+ * This pool implements pipeline parallelism so that each file flows through
+ * its pipeline independently, maximizing CPU utilization and minimizing idle time,
+ * while keeping each test execution confined to an isolated WASM instance.
+ */
+
 import type { ProcessPool, Vitest, TestProject, TestSpecification, RunnerTestCase, RunnerTestFile, ResolvedConfig } from 'vitest/node';
 import type { TestContext } from '@vitest/runner';
 import { createFileTask } from '@vitest/runner/utils';
@@ -18,12 +26,9 @@ import type {
   ExecuteTestWithCoverageTask,
   ExecuteTestResult,
   ReportFileSummaryTask,
-  FileCoverageData,
-  AggregatedCoverage,
   CoverageData,
   ProjectInfo,
   PoolTestResult,
-  DebugInfo,
 } from '../types.js';
 import { ASSEMBLYSCRIPT_POOL_NAME } from '../types.js';
 import { setDebugMode, debug } from '../utils/debug.mjs';
@@ -38,36 +43,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const WORKER_PATH = resolve(__dirname, 'worker/index.js');
 
-/**
- * AssemblyScript Pool for Vitest - True Pipeline Parallelism Architecture
- *
- * This pool implements true pipeline parallelism where each file flows through
- * its pipeline independently, maximizing CPU utilization and minimizing idle time.
- *
- * Architecture:
- *   File 1: compile → discover → [test1, test2, test3] → coverage
- *   File 2: compile → discover → [test4, test5]       → coverage
- *   File 3: compile → discover → [test6, test7, test8] → coverage
- *   All happening concurrently with maximum overlap
- *
- * Key Principle: Start next phase ASAP
- *   - Discovery: Starts as soon as that file's compilation completes
- *   - Test Execution: Starts as soon as that file's discovery completes
- *   - Coverage: Starts as soon as test execution and binary compilation complete
- *
- * Benefits:
- *   - True parallelism: Fast-compiling files start discovery before slow files finish
- *   - Pipeline efficiency: Phases overlap across files, workers stay busy
- *   - Better CPU utilization: Can mix fast/slow work
- *   - No artificial batching: Each file progresses independently
- *   - Maximum throughput: All workers utilized throughout execution
- */
-
 // Error code for cache invalidation failures (stale generation)
 const CACHE_INVALIDATED_ERROR_CODE = 'CACHE_INVALIDATED';
 
 // Accumulate coverage data across all test files for single LCOV report
-const coverageMap = new Map<string, FileCoverageData>();
+const coverageMap = new Map<string, CoverageData>();
 
 // Single sequential compilation queue for V8 warmup
 let compilationQueue: Promise<CachedCompilation> = Promise.resolve() as unknown as Promise<CachedCompilation>;
@@ -99,12 +79,10 @@ function extractProjectInfo(spec: TestSpecification): ProjectInfo {
  *
  * @param testFilePath - Path to test file (absolute path)
  * @param testResults - Test results from Phase 3
- * @param debugInfo - DebugInfo from the instrumented binary used to collect coverage
  */
 function accumulateCoverage(
   testFilePath: string,
-  testResults: PoolTestResult[],
-  debugInfo: DebugInfo
+  testResults: PoolTestResult[]
 ): void {
   debug(`[Pipeline ${basename(testFilePath)}] Accumulating coverage from test results`);
 
@@ -114,22 +92,39 @@ function accumulateCoverage(
 
   if (allCoverage.length > 0) {
     // Aggregate coverage by summing hit counts across all tests
-    const aggregatedCoverage = allCoverage.reduce((acc, cov) => {
-      // Merge function coverage
-      for (const funcIdx in cov.functions) {
-        acc.functions[funcIdx] = (acc.functions[funcIdx] ?? 0) + cov.functions[funcIdx]!;
-      }
-      // Merge block coverage
-      for (const blockKey in cov.blocks) {
-        acc.blocks[blockKey] = (acc.blocks[blockKey] ?? 0) + cov.blocks[blockKey]!;
-      }
-      return acc;
-    }, { functions: {}, blocks: {} } as AggregatedCoverage);
+    const aggregatedCoverage: CoverageData = {
+      functionsByFilePath: {},
+    };
 
-    coverageMap.set(testFilePath, {
-      coverage: aggregatedCoverage,
-      debugInfo,
-    });
+    for (const cov of allCoverage) {
+      for (const [filePath, functions] of Object.entries(cov.functionsByFilePath)) {
+        if (!aggregatedCoverage.functionsByFilePath[filePath]) {
+          aggregatedCoverage.functionsByFilePath[filePath] = {};
+        }
+
+        for (const [funcName, funcCovInfo] of Object.entries(functions)) {
+          const existing = aggregatedCoverage.functionsByFilePath[filePath][funcName];
+          if (existing) {
+            // Sum hit counts
+            existing.hitCount += funcCovInfo.hitCount;
+          } else {
+            // Copy the coverage info (first occurrence)
+            aggregatedCoverage.functionsByFilePath[filePath][funcName] = {
+              info: funcCovInfo.info,
+              hitCount: funcCovInfo.hitCount,
+            };
+          }
+        }
+      }
+    }
+
+    debug(`[Pipeline ${basename(testFilePath)}] Setting coverage for test file: ${testFilePath}`);
+    const fileCount = Object.keys(aggregatedCoverage.functionsByFilePath).length;
+    const funcCount = Object.values(aggregatedCoverage.functionsByFilePath)
+      .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
+    debug(`[Pipeline ${basename(testFilePath)}]   ${fileCount} files, ${funcCount} functions`);
+
+    coverageMap.set(testFilePath, aggregatedCoverage);
 
     debug(`[Pipeline ${basename(testFilePath)}] Coverage accumulation complete`);
   }
@@ -723,11 +718,8 @@ async function runTests(
       // Accumulate coverage from these test runs into the coverage map
       if (isCoverageEnabled(config)) {
         const covStart = Date.now();
-        if (!cached.debugInfo) {
-          throw new Error(`Coverage is enabled, but debugInfo not available for ${testFilePath}`);
-        }
 
-        accumulateCoverage(testFilePath, testResults, cached.debugInfo);
+        accumulateCoverage(testFilePath, testResults);
 
         const covMs = Date.now() - covStart;
         debug(`[Pipeline ${basename(testFilePath)}] Post Phase 3 - Coverage Accumulation Pipeline Timing: ${covMs}ms`);

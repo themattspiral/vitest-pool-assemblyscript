@@ -15,11 +15,7 @@ import { createMemory } from '../utils/wasm-memory.js';
 import type { TestResult, CoverageData, DiscoveredTest, DebugInfo } from '../types.js';
 import { COVERAGE_MEMORY_PAGES_MAX, ERROR_NAMES } from '../types.js';
 import { debug, debugError } from '../utils/debug.mjs';
-import {
-  createDiscoveryImports,
-  createTestExecutionImports,
-  createCoverageCollectionOnlyImports,
-} from './imports.js';
+import { createDiscoveryImports, createTestExecutionImports } from './imports.js';
 import { enhanceErrorWithSourceMap } from './errors.js';
 
 // ============================================================================
@@ -117,8 +113,7 @@ export async function executeSingleTest(
   const instance = new WebAssembly.Instance(module, importObject);
   const exports = instance.exports as Record<string, unknown>;
 
-  // Call _start to run top-level code (registers tests)
-  // TODO - Determine if this is necessary here!!!!
+  // Call _start to run top-level code (stub registration, but needed to initialize any user-defined globals)
   if (typeof exports._start === 'function') {
     exports._start();
   }
@@ -195,24 +190,40 @@ export async function executeSingleTest(
       }
 
       const coverage: CoverageData = {
-        functions: {},
-        blocks: {},
+        functionsByFilePath: {},
       };
 
       // Read counters from coverage memory
-      const numFunctions = debugInfo.functions.length;
+      const numFunctions = Object.keys(debugInfo.filePathByFunctionName).length;
       const counters = new Uint32Array(coverageMemory.buffer, 0, numFunctions);
 
-      // Populate coverage.functions from counter array
-      for (let i = 0; i < numFunctions; i++) {
-        const count = counters[i];
-        if (count !== undefined && count > 0) {
-          coverage.functions[String(i)] = count;
+      // Iterate all functions and build coverage data with hit counts
+      let functionsHit = 0;
+      for (const [filePath, functions] of Object.entries(debugInfo.functionsByFilePath)) {
+        if (!coverage.functionsByFilePath[filePath]) {
+          coverage.functionsByFilePath[filePath] = {};
+        }
+
+        for (const [funcName, funcInfo] of Object.entries(functions)) {
+          if (funcInfo.coverageMemoryIndex === undefined) {
+            debug(`[Executor] Warning: function "${funcName}" has no coverageMemoryIndex`);
+            continue;
+          }
+
+          const hitCount = counters[funcInfo.coverageMemoryIndex] ?? 0;
+          coverage.functionsByFilePath[filePath][funcName] = {
+            info: funcInfo,
+            hitCount,
+          };
+
+          if (hitCount > 0) {
+            functionsHit++;
+          }
         }
       }
 
       testResult.coverage = coverage;
-      debug(`[Executor] Extracted coverage data: ${Object.keys(coverage.functions).length} functions hit`);
+      debug(`[Executor] Extracted coverage data: ${functionsHit} functions hit`);
     }
 
     finalResult = testResult;
@@ -232,76 +243,4 @@ export async function executeSingleTest(
   }
 
   return finalResult;
-}
-
-// ============================================================================
-// Public Exports - Coverage Collection (Dual-Mode)
-// ============================================================================
-
-/**
- * Execute coverage collection pass for a single test
- *
- * Runs the test on an instrumented binary to collect accurate coverage data.
- * Only used in dual-mode coverage - single-mode collects coverage during normal execution.
- * Ignores test failures - we only care about coverage data.
- *
- * @param coverageBinary - Instrumented WASM binary
- * @param test - Test to execute for coverage (name and function index)
- * @param debugInfo - Debug info from coverage instrumentation (for extracting counters)
- * @returns Coverage data for this test
- */
-export async function collectCoverageForTest(
-  coverageBinary: Uint8Array,
-  test: DiscoveredTest,
-  debugInfo: DebugInfo
-): Promise<CoverageData> {
-  // Compile the binary to usable WASM module
-  const module = await WebAssembly.compile(coverageBinary as BufferSource);
-
-  const memory = createMemory();
-  const coverageMemory = new WebAssembly.Memory({ initial: 1, maximum: COVERAGE_MEMORY_PAGES_MAX });
-  const importObject = createCoverageCollectionOnlyImports(memory, coverageMemory);
-
-  try {
-    const instance = new WebAssembly.Instance(module, importObject);
-    const exports = instance.exports as Record<string, unknown>;
-
-    // Call _start to register tests
-    if (typeof exports._start === 'function') {
-      exports._start();
-    }
-
-    // Execute test via function table
-    const table = exports.table as WebAssembly.Table | undefined;
-    if (table && typeof table.get === 'function') {
-      const testFn = table.get(test.fnIndex) as (() => void) | null;
-      if (testFn) {
-        testFn();
-      }
-    }
-  } catch (error) {
-    // Ignore errors during coverage collection (test may fail, we just want coverage)
-    debug('[Executor] Test failed during coverage collection (ignored):', error);
-  }
-
-  // Extract coverage from memory
-  const coverage: CoverageData = {
-    functions: {},
-    blocks: {},
-  };
-
-  const numFunctions = debugInfo.functions.length;
-  const counters = new Uint32Array(coverageMemory.buffer, 0, numFunctions);
-
-  // Populate coverage.functions from counter array
-  for (let i = 0; i < numFunctions; i++) {
-    const count = counters[i];
-    if (count !== undefined && count > 0) {
-      coverage.functions[String(i)] = count;
-    }
-  }
-
-  debug(`[Executor] Coverage collection: ${Object.keys(coverage.functions).length} functions hit`);
-
-  return coverage;
 }

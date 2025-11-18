@@ -50,6 +50,6 @@ export function failAnonCallbackInNamedCallsArrow(): i32 {
 }
 
 // This function won't be called in tests - should show 0% coverage
-export function unusedFunction(): string {
-  return 'never called';
+export function unusedFunction(): i32 {
+  return 42;
 }

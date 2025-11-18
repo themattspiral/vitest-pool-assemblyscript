@@ -4,7 +4,7 @@
  */
 
 import { test, assert } from '../../assembly';
-import { add, subtract, multiply, divide } from '../assembly-src/math';
+import { add, subtract, multiply, divide, addOneLiner, subtractOneLiner } from '../assembly-src/math';
 
 test("addition works", () => {
   const sum: i32 = add(1, 1);
@@ -24,4 +24,14 @@ test("multiplication works", () => {
 test("division works", () => {
   const quotient: i32 = divide(10, 2);
   assert(quotient == 5, "10 / 2 should equal 5");
+});
+
+test("addition OL works - should merge coverage count for addOneLiner source with call from quick-tests.as.test.ts", () => {
+  const sum: i32 = addOneLiner(1, 1);
+  assert(sum == 2, "1 + 1 should equal 2");
+});
+
+test("subtraction OL works", () => {
+  const diff: i32 = subtractOneLiner(5, 3);
+  assert(diff == 2, "5 - 3 should equal 2");
 });

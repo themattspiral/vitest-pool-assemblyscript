@@ -21,6 +21,7 @@ import type {
   ReportFileSummaryTask,
   ExecuteBeforeAllHooksTask,
   ExecuteAfterAllHooksTask,
+  AssemblyScriptCoveragePayload,
 } from '../types.js';
 import { ModuleCacheMap } from 'vite-node/client';
 import { installSourcemapsSupport } from 'vite-node/source-map';
@@ -278,12 +279,12 @@ export async function reportFileSummary(taskData: ReportFileSummaryTask): Promis
     // Report coverage if available
     if (taskData.coverageData) {
       debug('[Worker] Reporting coverage via onAfterSuiteRun for:', taskData.testFile);
+      const coverage: AssemblyScriptCoveragePayload = {
+        __format: 'assemblyscript',
+        coverageData: taskData.coverageData,
+      };
       await rpc.onAfterSuiteRun({
-        coverage: {
-          __format: 'assemblyscript',
-          coverage: taskData.coverageData.coverage,
-          debugInfo: taskData.coverageData.debugInfo,
-        },
+        coverage,
         testFiles: [taskData.testFile],
         transformMode: 'ssr',
         projectName: taskData.fileTask.projectName,

@@ -5,7 +5,7 @@
  * Manages compiler options, transforms, and in-memory compilation.
  */
 
-import asc from 'assemblyscript/dist/asc.js';
+import asc from 'assemblyscript/asc';
 import { basename } from 'path';
 import { fileURLToPath } from 'url';
 import { writeFileSync } from 'node:fs';
@@ -20,7 +20,6 @@ import { BinaryenCoverageInstrumenter } from './coverage-utils/instrumentation.j
 // Using absolute paths ensures the built compiler can be imported anywhere and work.
 const STRIP_INLINE_TRANSFORM = fileURLToPath(new URL('./transforms/strip-inline.mjs', import.meta.url));
 const EXTRACT_METADATA_TRANSFORM = fileURLToPath(new URL('./transforms/extract-function-metadata.mjs', import.meta.url));
-// const TEST_AFTERCOMPILE_TRANSFORM = fileURLToPath(new URL('./transforms/test-aftercompile.mjs', import.meta.url));
 const DEBUG_WRITE_FILES = false;
 
 /**
@@ -129,12 +128,6 @@ export async function compileAssemblyScript(
     );
     debug('[ASC Compiler] Added Transform - Extract Function Metadata (coverage enabled)');
   }
-
-  // TEMP: Add test transform to investigate afterCompile
-  // compilerFlags.push(
-  //   '--transform', TEST_AFTERCOMPILE_TRANSFORM
-  // );
-  // debug('[ASC Compiler] Added Transform - Test AfterCompile Hook');
 
   // Compile with AssemblyScript compiler
   const ascStart = performance.now();

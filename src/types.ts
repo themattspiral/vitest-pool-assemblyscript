@@ -268,74 +268,61 @@ export interface WebAssemblyCallSite {
 }
 
 // ============================================================================
-// Coverage Data & Reporting
+// Debug Info, Function Metadata, & Coverage Reporting
 // ============================================================================
-
-/**
- * Coverage data collected during test execution
- *
- * Uses POJOs instead of Maps for serialization compatibility (worker communication).
- * Keys are stringified numbers for functions, and "funcIdx:blockIdx" strings for blocks.
- */
-export interface CoverageData {
-  /** Record of funcIdx (as string) to number of times executed */
-  functions: Record<string, number>;
-  /** Record of "funcIdx:blockIdx" to number of times executed */
-  blocks: Record<string, number>;
-}
-
-/**
- * Aggregated coverage data across multiple tests
- *
- * Uses POJOs instead of Maps for serialization compatibility (worker communication).
- * Keys are stringified numbers for functions, and "funcIdx:blockIdx" strings for blocks.
- */
-export interface AggregatedCoverage {
-  /** Record of funcIdx (as string) to total hit count across all tests */
-  functions: Record<string, number>;
-  /** Record of blockKey ("funcIdx:blockIdx") to total hit count */
-  blocks: Record<string, number>;
-}
-
-/**
- * Coverage data for a single file (used in pool aggregation)
- */
-export interface FileCoverageData {
-  coverage: AggregatedCoverage;
-  debugInfo: DebugInfo;
-}
-
-// ============================================================================
-// Debug Info & Function Metadata
-// ============================================================================
-
-/**
- * Debug info structure that maps function indices to source locations
- */
-export interface DebugInfo {
-  /** File paths indexed by fileIdx */
-  files: string[];
-  /** Function info indexed by funcIdx */
-  functions: FunctionInfo[];
-}
 
 /**
  * Function information for coverage and debugging
  */
 export interface FunctionInfo {
   name: string;
-  fileIdx: number;
   startLine: number;
   endLine: number;
+  /** Index into coverage memory counters (assigned during instrumentation) */
+  coverageMemoryIndex?: number;
 }
 
 /**
- * Function metadata extracted by AS transform
+ * Combined coverage and metadata for a single function
  */
-export interface FunctionMetadata {
-  name: string;
-  range: [number, number]; // [startLine, endLine]
-  sourcePath: string; // Source file path from AS compiler
+export interface FunctionCoverageInfo {
+  info: FunctionInfo;
+  hitCount: number;
+}
+
+/**
+ * Debug info structure that maps files to their functions
+ *
+ * Provides two access patterns:
+ * - functionsByFilePath: for per-file iteration (coverage reporting)
+ * - filePathByFunctionName: for O(1) lookup of which file contains a function (instrumentation)
+ */
+export interface DebugInfo {
+  /** Outer Record: keyed by absolute file path, Inner Record: keyed by function name */
+  functionsByFilePath: Record<string, Record<string, FunctionInfo>>;
+  /** Reverse lookup: function name -> file path (for instrumentation) */
+  filePathByFunctionName: Record<string, string>;
+}
+
+/**
+ * Coverage data collected during test execution
+ *
+ * Same nested structure as DebugInfo but with hit counts added.
+ * Outer Record: keyed by absolute file path
+ * Inner Record: keyed by function name -> coverage info with hit count
+ */
+export interface CoverageData {
+  functionsByFilePath: Record<string, Record<string, FunctionCoverageInfo>>;
+}
+
+/**
+ * Coverage payload sent via RPC from worker to hybrid coverage provider
+ *
+ * The __format marker distinguishes AS coverage from JS coverage in onAfterSuiteRun.
+ */
+export interface AssemblyScriptCoveragePayload {
+  __format: 'assemblyscript';
+  coverageData: CoverageData;
 }
 
 /**
@@ -343,10 +330,10 @@ export interface FunctionMetadata {
  *
  * The AS transform (src/transforms/extract-function-metadata.mjs) populates this
  * global variable with function metadata during compilation. The Binaryen coverage
- * instrumenter then reads this data to map function indices to source locations.
+ * instrumenter then reads this data to build coverage instrumentation.
  */
 declare global {
-  var __functionMetadata: Map<string, FunctionMetadata[]> | undefined;
+  var __functionMetadata: DebugInfo | undefined;
 }
 
 // ============================================================================
@@ -464,8 +451,8 @@ export interface ReportFileSummaryTask {
   port: MessagePort;
   /** Complete file task with all test results */
   fileTask: RunnerTestFile;
-  /** Coverage data for this file (optional, only when coverage enabled) */
-  coverageData?: FileCoverageData;
+  /** Coverage data for this test suite file (optional, only when coverage enabled) */
+  coverageData?: CoverageData;
 }
 
 // ============================================================================

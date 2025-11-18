@@ -6,6 +6,7 @@ export default defineConfig({
     'src/index.ts',
     'src/worker/index.ts',
     'src/config/config-helpers.ts',
+    'src/coverage-utils/index.ts',
   ],
   format: ['esm'],
   outDir: 'dist', // Explicitly set output directory
@@ -16,12 +17,15 @@ export default defineConfig({
   // Don't bundle dependencies - they should be installed by users
   external: [
     'vitest',
+    '@vitest/coverage-v8',
     '@vitest/runner',
     'assemblyscript',
     'binaryen',
+    'birpc',
     'source-map',
     'tinypool',
     'vite-node',
+    'istanbul-lib-coverage'
   ],
   onSuccess: async () => {
     // Copy transform files to dist

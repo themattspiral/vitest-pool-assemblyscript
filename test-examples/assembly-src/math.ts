@@ -18,3 +18,8 @@ export function multiply(a: i32, b: i32): i32 {
 export function divide(a: i32, b: i32): i32 {
   return a / b;
 }
+
+export function addOneLiner(a: i32, b: i32): i32 { return a + b; }
+// something else
+
+export function subtractOneLiner(a: i32, b: i32): i32 { return a - b; }

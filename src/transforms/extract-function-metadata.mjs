@@ -12,10 +12,19 @@
  */
 
 import { Transform } from 'assemblyscript/transform';
+import { resolve } from 'node:path';
 
-// Initialize global metadata Map once at module load to prevent race conditions
+const DEBUG_MODE = false;
+
+function localDebug(...args) {
+  if (DEBUG_MODE) {
+    console.log(...args);
+  }
+}
+
+// Initialize global metadata once at module load to prevent race conditions
 if (!globalThis.__functionMetadata) {
-  globalThis.__functionMetadata = new Map();
+  globalThis.__functionMetadata = { functionsByFilePath: {}, filePathByFunctionName: {} };
 }
 
 // NodeKind enum values (from AS compiler internals)
@@ -116,8 +125,10 @@ const CommonFlags = {
 export default class FunctionMetadataExtractor extends Transform {
   constructor() {
     super();
-    this.functionInfos = [];
+    this.functionInfos = {};  // Record<string, FunctionInfo> keyed by function name
     this.elementsByDeclaration = new Map();
+
+    localDebug(`[ExtractFunctionMetadata] FunctionMetadataExtractor instance created. Current globalThis.__functionMetadata:`, globalThis.__functionMetadata);
   }
 
   afterInitialize(program) {
@@ -126,21 +137,21 @@ export default class FunctionMetadataExtractor extends Transform {
     // Debug: see what's actually in elementsByDeclaration
     // console.log(`[Transform] elementsByDeclaration has ${this.elementsByDeclaration.size} entries`);
     // console.log('[Transform] ALL elements with internalName (potential functions):');
-    for (const [node, element] of this.elementsByDeclaration.entries()) {
+    // for (const [node, element] of this.elementsByDeclaration.entries()) {
 
-      if (node.range.source.sourceKind !== SourceKind.User && node.range.source.sourceKind !== SourceKind.UserEntry) {
-        // console.log('skip because kind', typeof node.range.source.sourceKind, node.range.source.sourceKind);
-        // continue;
-      }
+    //   if (node.range.source.sourceKind !== SourceKind.User && node.range.source.sourceKind !== SourceKind.UserEntry) {
+    //     localDebug('[ExtractFunctionMetadata] skip because kind', typeof node.range.source.sourceKind, node.range.source.sourceKind);
+    //     continue;
+    //   }
 
-      // if (element.internalName && !element.internalName.startsWith('~lib')) {
-      //   console.log(`[Transform]   kind=${element.kind} internalName="${element.internalName}" sourceKind="${node.range.source.sourceKind}"`);
-      // } else if (node.name?.text && !node.name.text.startsWith('~lib') ) {
-      //   console.log(`[Transform]   kind=${element.kind} name="${node.name.text}" sourceKind="${node.range.source.sourceKind}"`);
-      // } else {
-      //   console.log(`[Transform]   kind=${element.kind} name="<unknown>" sourceKind="${node.range.source.sourceKind}"`);
-      // }
-    }
+    //   if (element.internalName && !element.internalName.startsWith('~lib')) {
+    //     localDebug(`[ExtractFunctionMetadata]   kind=${element.kind} internalName="${element.internalName}" sourceKind="${node.range.source.sourceKind}"`);
+    //   } else if (node.name?.text && !node.name.text.startsWith('~lib') ) {
+    //     localDebug(`[ExtractFunctionMetadata]   kind=${element.kind} name="${node.name.text}" sourceKind="${node.range.source.sourceKind}"`);
+    //   } else {
+    //     localDebug(`[ExtractFunctionMetadata]   kind=${element.kind} name="<unknown>" sourceKind="${node.range.source.sourceKind}"`);
+    //   }
+    // }
 
     // Filter to user sources (both entry files and imported user files)
     // UserEntry = entry point (test file), User = imported source files
@@ -151,13 +162,27 @@ export default class FunctionMetadataExtractor extends Transform {
           !source.normalizedPath.startsWith('~lib/')
       )
       .forEach((source) => {
-        // console.log(`[Transform] Visiting source: ${source.normalizedPath}`);
-        this.functionInfos = [];
+        // Convert relative path to absolute using transform's baseDir
+        const absolutePath = resolve(this.baseDir, source.normalizedPath);
+
+        localDebug(`[ExtractFunctionMetadata] Visiting source: ${source.normalizedPath}`);
+        localDebug(`[ExtractFunctionMetadata]   Absolute path: ${absolutePath}`);
+
+        this.functionInfos = {};  // Reset for each file
         this.visitNode(source);
-        // console.log(`[Transform] Collected ${this.functionInfos.length} functions from ${source.normalizedPath}:`, JSON.stringify(this.functionInfos, null, 2));
-        const functionInfos = globalThis.__functionMetadata || new Map();
-        functionInfos.set(source.normalizedPath, this.functionInfos);
-        globalThis.__functionMetadata = functionInfos;
+        const functionCount = Object.keys(this.functionInfos).length;
+        localDebug(`[ExtractFunctionMetadata] Collected ${functionCount} functions from ${absolutePath}:`, JSON.stringify(this.functionInfos, null, 2));
+
+        // Ensure global metadata exists
+        if (!globalThis.__functionMetadata) {
+          globalThis.__functionMetadata = { functionsByFilePath: {}, filePathByFunctionName: {} };
+        }
+        globalThis.__functionMetadata.functionsByFilePath[absolutePath] = this.functionInfos;
+
+        // Build reverse lookup for each function in this file
+        for (const funcName of Object.keys(this.functionInfos)) {
+          globalThis.__functionMetadata.filePathByFunctionName[funcName] = absolutePath;
+        }
       });
 
     // Debug: log all metadata
@@ -589,16 +614,26 @@ export default class FunctionMetadataExtractor extends Transform {
         }
         const element = this.elementsByDeclaration.get(node);
         const funcName = element?.internalName ?? node.name.text;
-        const sourceFile = node.range.source.normalizedPath;
+
+        // Convert relative path to absolute
+        const absoluteSourcePath = resolve(this.baseDir, node.range.source.normalizedPath);
 
         if (!funcName.startsWith('~lib')) {
-          // console.log(`[Transform]   Found function ${funcName} at lines ${startLine}-${endLine} in source: ${sourceFile}`);
-          // console.log(`[Transform]     - element exists: ${!!element}, internalName: "${element?.internalName}", node.name.text: "${node.name.text}"`);
-          this.functionInfos.push({
+          const functionCount = Object.keys(this.functionInfos).length;
+          localDebug(`[Transform] Adding function: "${funcName}" lines ${startLine}-${endLine} from ${absoluteSourcePath}`);
+          localDebug(`[Transform]   Current functionInfos count before add: ${functionCount}`);
+
+          // Check for duplicates
+          if (this.functionInfos[funcName]) {
+            localDebug(`[Transform]   WARNING: DUPLICATE FOUND for "${funcName}"!`);
+          }
+
+          this.functionInfos[funcName] = {
             name: funcName,
-            range: [startLine, endLine],
-            sourcePath: sourceFile,
-          });
+            startLine,
+            endLine,
+          };
+          localDebug(`[Transform]   Current functionInfos count after add: ${Object.keys(this.functionInfos).length}`);
         }
       }
     }

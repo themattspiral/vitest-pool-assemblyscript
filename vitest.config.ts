@@ -11,16 +11,18 @@ export default defineConfig({
 
     // Coverage configuration (must be global in vitest)
     coverage: {
-      // DISABLED INTENTIONALLY so vitest won't explode until we can
-      // provide our coverage in the correct format (hybrid provider pending)
-      enabled: false,
+      enabled: true,
+      reportOnFailure: true,
       
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
 
       // Include only AS source files in coverage reports
       // note: test.includes files are auto-excluded from coverage by Vitest
-      include: ['src/*.ts', 'test-examples/assembly-src/**/*.ts'],
+      include: [
+        'test-examples/js-src/*.ts',
+        'test-examples/assembly-src/**/*.ts'
+      ],
     },
 
     projects: [
