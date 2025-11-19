@@ -273,11 +273,23 @@ export interface WebAssemblyCallSite {
 
 /**
  * Function information for coverage and debugging
+ *
+ * All line and column values are 1-based for internal consistency.
+ * Conversion to 0-based columns happens at Istanbul output boundary.
  */
 export interface FunctionInfo {
-  name: string;
+  /** Fully qualified name: relativePath/functionName (matches native addon format) */
+  qualifiedName: string;
+  /** Short function name for display purposes */
+  shortName: string;
+  /** Start line (1-based) */
   startLine: number;
+  /** End line (1-based) */
   endLine: number;
+  /** Start column (1-based, required for v2 containment matching) */
+  startColumn: number;
+  /** End column (1-based, required for v2 containment matching) */
+  endColumn: number;
   /** Index into coverage memory counters (assigned during instrumentation) */
   coverageMemoryIndex?: number;
 }
@@ -294,14 +306,17 @@ export interface FunctionCoverageInfo {
  * Debug info structure that maps files to their functions
  *
  * Provides two access patterns:
- * - functionsByFilePath: for per-file iteration (coverage reporting)
- * - filePathByFunctionName: for O(1) lookup of which file contains a function (instrumentation)
+ * - qualifiedFunctionsByAbsoluteFilePath: for per-file iteration (coverage reporting)
+ * - absoluteFilePathByQualifiedFunctionName: for O(1) lookup of which file contains a function (instrumentation)
+ *
+ * All lookups use qualified function names (relativePath/functionName) to prevent
+ * collisions when multiple files contain functions with the same short name.
  */
 export interface DebugInfo {
-  /** Outer Record: keyed by absolute file path, Inner Record: keyed by function name */
-  functionsByFilePath: Record<string, Record<string, FunctionInfo>>;
-  /** Reverse lookup: function name -> file path (for instrumentation) */
-  filePathByFunctionName: Record<string, string>;
+  /** Outer Record: keyed by absolute file path, Inner Record: keyed by qualified function name */
+  qualifiedFunctionsByAbsoluteFilePath: Record<string, Record<string, FunctionInfo>>;
+  /** Reverse lookup: qualified function name -> absolute file path (for instrumentation) */
+  absoluteFilePathByQualifiedFunctionName: Record<string, string>;
 }
 
 /**
@@ -309,10 +324,10 @@ export interface DebugInfo {
  *
  * Same nested structure as DebugInfo but with hit counts added.
  * Outer Record: keyed by absolute file path
- * Inner Record: keyed by function name -> coverage info with hit count
+ * Inner Record: keyed by qualified function name -> coverage info with hit count
  */
 export interface CoverageData {
-  functionsByFilePath: Record<string, Record<string, FunctionCoverageInfo>>;
+  qualifiedFunctionsByAbsoluteFilePath: Record<string, Record<string, FunctionCoverageInfo>>;
 }
 
 /**

@@ -25,11 +25,31 @@ type AnyConfigExport<T extends ViteUserConfig> =
  * This augmentation adds the missing optional fields that work at runtime but
  * aren't typed in vitest v3.
  *
+ * Additionally, we add AssemblyScript-specific coverage fields that our hybrid
+ * coverage provider uses to glob AS source files separately from JS sources.
+ *
  * By placing this augmentation here, it automatically loads when users import
  * our config helpers, providing proper coverage typing alongside pool typing.
  */
 declare module 'vitest/node' {
-  interface CustomProviderOptions extends BaseCoverageOptions {}
+  interface CustomProviderOptions extends BaseCoverageOptions {
+    /**
+     * Glob patterns for AssemblyScript source files to include in coverage.
+     * Used by pool's hybrid coverage provider to build the complete AS coverage map.
+     *
+     * The standard `include` patterns are used by the v8 provider for JS/TS files.
+     *
+     * @example ['assembly/**\/*.as.ts']
+     */
+    assemblyScriptInclude?: string[];
+
+    /**
+     * Glob patterns for AssemblyScript files to exclude from coverage.
+     *
+     * @example ['**\/*.as.test.ts']
+     */
+    assemblyScriptExclude?: string[];
+  }
 }
 
 /**
@@ -87,8 +107,9 @@ export type AssemblyScriptProjectConfigExport = AssemblyScriptUserConfig<UserWor
  *     coverage: {
  *       provider: 'custom',
  *       customProviderModule: 'vitest-pool-assemblyscript/coverage',
- *       include: ['assembly/**‍/*.as.ts'], // example assembly src
- *       // ... other coverage options supported by pool's hybrid coverage provider
+ *       include: ['src/**‍/*.ts'],  // example JS/TS sources (v8 provider)
+ *       assemblyScriptInclude: ['assembly/**‍/*.ts'],  // example AS sources (pool's hybrid provider)
+ *       assemblyScriptExclude: ['**‍/*.as.test.ts'],   // exclude AS test files
  *     },
  *   },
  * });
@@ -143,13 +164,14 @@ export function defineAssemblyScriptConfig(
  *           },
  *         },
  *       }),
- *       coverage: {    // coverage section is still global only in vitest
- *         provider: 'custom',
- *         customProviderModule: 'vitest-pool-assemblyscript/coverage',
- *         include: ['src/**‍/*.ts', 'assembly/**‍/*.as.ts'],  // example, include JS and AS src
- *         // ... other coverage options supported by pool's hybrid coverage provider
- *       },
  *     ],
+ *     coverage: {    // coverage section is global only in vitest
+ *       provider: 'custom',
+ *       customProviderModule: 'vitest-pool-assemblyscript/coverage',
+ *       include: ['src/**‍/*.ts'],  // example JS/TS sources (v8 provider)
+ *       assemblyScriptInclude: ['assembly/**‍/*.ts'],  // example AS sources (pool's hybrid provider)
+ *       assemblyScriptExclude: ['**‍/*.as.test.ts'],   // exclude AS test files
+ *     },
  *   },
  * });
  * ```

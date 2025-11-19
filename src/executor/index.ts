@@ -190,28 +190,28 @@ export async function executeSingleTest(
       }
 
       const coverage: CoverageData = {
-        functionsByFilePath: {},
+        qualifiedFunctionsByAbsoluteFilePath: {},
       };
 
       // Read counters from coverage memory
-      const numFunctions = Object.keys(debugInfo.filePathByFunctionName).length;
+      const numFunctions = Object.keys(debugInfo.absoluteFilePathByQualifiedFunctionName).length;
       const counters = new Uint32Array(coverageMemory.buffer, 0, numFunctions);
 
       // Iterate all functions and build coverage data with hit counts
       let functionsHit = 0;
-      for (const [filePath, functions] of Object.entries(debugInfo.functionsByFilePath)) {
-        if (!coverage.functionsByFilePath[filePath]) {
-          coverage.functionsByFilePath[filePath] = {};
+      for (const [filePath, functions] of Object.entries(debugInfo.qualifiedFunctionsByAbsoluteFilePath)) {
+        if (!coverage.qualifiedFunctionsByAbsoluteFilePath[filePath]) {
+          coverage.qualifiedFunctionsByAbsoluteFilePath[filePath] = {};
         }
 
-        for (const [funcName, funcInfo] of Object.entries(functions)) {
+        for (const [qualifiedName, funcInfo] of Object.entries(functions)) {
           if (funcInfo.coverageMemoryIndex === undefined) {
-            debug(`[Executor] Warning: function "${funcName}" has no coverageMemoryIndex`);
+            debug(`[Executor] Warning: function "${qualifiedName}" has no coverageMemoryIndex`);
             continue;
           }
 
           const hitCount = counters[funcInfo.coverageMemoryIndex] ?? 0;
-          coverage.functionsByFilePath[filePath][funcName] = {
+          coverage.qualifiedFunctionsByAbsoluteFilePath[filePath][qualifiedName] = {
             info: funcInfo,
             hitCount,
           };

@@ -40,12 +40,14 @@
   "dependencies": {
     "birpc": "^2.4.0",
     "source-map": "^0.7.6",
+    "test-exclude": "^7.0.1",
     "tinypool": "^2.0.0"
   },
   "devDependencies": {
     "@types/istanbul-lib-coverage": "^2.0.6",
     "@types/node": "^24.8.1",
     "@types/source-map": "^0.5.2",
+    "@types/test-exclude": "^6.0.2",
     "@vitest/coverage-v8": "^3.2.4",
     "@vitest/runner": "^3.2.4",
     "assemblyscript": "^0.28.9",

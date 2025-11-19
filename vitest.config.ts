@@ -17,31 +17,32 @@ export default defineConfig({
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
 
-      // Include only AS source files in coverage reports
-      // note: test.includes files are auto-excluded from coverage by Vitest
-      include: [
-        'test-examples/js-src/*.ts',
+      // JS/TS sources to report coverage for
+      include: [ 'test-examples/js-src/*.ts' ],
+      
+      // AS sources to report coverage for
+      assemblyScriptInclude: [
         'test-examples/assembly-src/**/*.ts'
-      ],
+      ]
     },
 
     projects: [
+      // JavaScript/TypeScript tests (built-in pool)
       defineProject({
         test: {
-          // JavaScript/TypeScript tests (built-in pool)
           name: {
             label: 'typescript-example-tests',
             color: 'blue'
           },
 
-          // pool: 'threads',  // or 'forks', 'vmThreads'
           include: ['test-examples/js/*.test.ts'],
           exclude: ['**/node_modules/**'],
+          
+          testTimeout: 5000,
+          retry: 1,
+          bail: 1,
 
-          // Per-project test execution settings
-          // testTimeout: 5000,
-          // retry: 0,
-          // bail: undefined,
+          // pool: 'threads',  // or 'forks', 'vmThreads'
           // poolOptions: {
           //   threads: {
           //     // execArgv: ['--enable-source-maps'],
@@ -49,6 +50,8 @@ export default defineConfig({
           // }
         }
       }),
+
+      // AssemblyScript tests (custom pool)
       defineAssemblyScriptProject({
         test: {
           name: {
@@ -58,19 +61,19 @@ export default defineConfig({
 
           include: ['test-examples/assembly/**/*.as.test.ts'],
 
-          // Use our custom AssemblyScript pool (built version for dev)
-          pool: './dist/index.js',
+          // testTimeout: 7000,
+          // retry: 0,
+          // bail: 5,
 
-          // Pool-specific configuration
+          // Use AssemblyScript pool to execute tests in this project (dist version for dev)
+          pool: './dist/index.js',
           poolOptions: {
             assemblyScript: {
-              debug: false,             // Enable verbose debug logging (default: false)
-              stripInline: true,        // Strip @inline decorators for coverage (default: true)
-              coverageMode: 'failsafe', // Coverage collection mode (default: 'failsafe')
-
-              // maxThreads: undefined, // Max worker threads (default: Math.max(cpus - 1, 1))
+              debug: false,
+              stripInline: true,
+              coverageMode: 'failsafe',
+              // maxThreads: undefined,
             },
-
           },
         }
       }),

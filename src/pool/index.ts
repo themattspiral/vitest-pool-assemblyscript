@@ -46,8 +46,12 @@ const WORKER_PATH = resolve(__dirname, 'worker/index.js');
 // Error code for cache invalidation failures (stale generation)
 const CACHE_INVALIDATED_ERROR_CODE = 'CACHE_INVALIDATED';
 
-// Accumulate coverage data across all test files for single LCOV report
-const coverageMap = new Map<string, CoverageData>();
+// Pipeline storage: holds aggregated coverage for each test file during execution
+// Key: test file path (e.g., math.as.test.ts)
+// Value: merged coverage from all tests in that file (organized by source file paths internally)
+// Used to pass coverage data from phase 3 (test execution) to phase 5 (finalize/report)
+// TODO: Can be eliminated when failsafe mode is removed (phase 4), allowing direct reporting at end of phase 3
+const pipelineCoverageByTestFile = new Map<string, CoverageData>();
 
 // Single sequential compilation queue for V8 warmup
 let compilationQueue: Promise<CachedCompilation> = Promise.resolve() as unknown as Promise<CachedCompilation>;
@@ -72,44 +76,46 @@ function extractProjectInfo(spec: TestSpecification): ProjectInfo {
 }
 
 /**
- * Accumulate coverage data from test results and store in coverage map
+ * Aggregate per-test coverage into per-file coverage for pipeline storage
  *
- * Extracts coverage from test results, aggregates them by summing hit counts,
- * and stores the result in the global coverage map.
+ * Takes coverage results from individual test executions (phase 3), merges them
+ * by summing hit counts for each function, and stores the result in pipeline
+ * storage for later reporting in phase 5.
  *
  * @param testFilePath - Path to test file (absolute path)
- * @param testResults - Test results from Phase 3
+ * @param testResults - Test results from phase 3 execution
  */
-function accumulateCoverage(
+function aggregateTestCoverageForFile(
   testFilePath: string,
   testResults: PoolTestResult[]
 ): void {
-  debug(`[Pipeline ${basename(testFilePath)}] Accumulating coverage from test results`);
+  debug(`[Pipeline ${basename(testFilePath)}] Aggregating per-test coverage into per-file coverage`);
 
-  const allCoverage = testResults
+  // Extract coverage data from each individual test result
+  const perTestCoverage = testResults
     .map(({ result }) => result.coverage)
     .filter((cov): cov is CoverageData => cov !== undefined);
 
-  if (allCoverage.length > 0) {
-    // Aggregate coverage by summing hit counts across all tests
-    const aggregatedCoverage: CoverageData = {
-      functionsByFilePath: {},
+  if (perTestCoverage.length > 0) {
+    // Merge all per-test coverage by summing hit counts for each function
+    const fileCoverage: CoverageData = {
+      qualifiedFunctionsByAbsoluteFilePath: {},
     };
 
-    for (const cov of allCoverage) {
-      for (const [filePath, functions] of Object.entries(cov.functionsByFilePath)) {
-        if (!aggregatedCoverage.functionsByFilePath[filePath]) {
-          aggregatedCoverage.functionsByFilePath[filePath] = {};
+    for (const testCoverage of perTestCoverage) {
+      for (const [sourceFilePath, functions] of Object.entries(testCoverage.qualifiedFunctionsByAbsoluteFilePath)) {
+        if (!fileCoverage.qualifiedFunctionsByAbsoluteFilePath[sourceFilePath]) {
+          fileCoverage.qualifiedFunctionsByAbsoluteFilePath[sourceFilePath] = {};
         }
 
-        for (const [funcName, funcCovInfo] of Object.entries(functions)) {
-          const existing = aggregatedCoverage.functionsByFilePath[filePath][funcName];
+        for (const [qualifiedName, funcCovInfo] of Object.entries(functions)) {
+          const existing = fileCoverage.qualifiedFunctionsByAbsoluteFilePath[sourceFilePath][qualifiedName];
           if (existing) {
-            // Sum hit counts
+            // Sum hit counts across tests
             existing.hitCount += funcCovInfo.hitCount;
           } else {
-            // Copy the coverage info (first occurrence)
-            aggregatedCoverage.functionsByFilePath[filePath][funcName] = {
+            // First occurrence - copy the coverage info
+            fileCoverage.qualifiedFunctionsByAbsoluteFilePath[sourceFilePath][qualifiedName] = {
               info: funcCovInfo.info,
               hitCount: funcCovInfo.hitCount,
             };
@@ -118,15 +124,15 @@ function accumulateCoverage(
       }
     }
 
-    debug(`[Pipeline ${basename(testFilePath)}] Setting coverage for test file: ${testFilePath}`);
-    const fileCount = Object.keys(aggregatedCoverage.functionsByFilePath).length;
-    const funcCount = Object.values(aggregatedCoverage.functionsByFilePath)
+    // Store in pipeline storage for phase 5 reporting
+    const sourceFileCount = Object.keys(fileCoverage.qualifiedFunctionsByAbsoluteFilePath).length;
+    const functionCount = Object.values(fileCoverage.qualifiedFunctionsByAbsoluteFilePath)
       .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
-    debug(`[Pipeline ${basename(testFilePath)}]   ${fileCount} files, ${funcCount} functions`);
+    debug(`[Pipeline ${basename(testFilePath)}] Aggregated coverage: ${sourceFileCount} source files, ${functionCount} functions`);
 
-    coverageMap.set(testFilePath, aggregatedCoverage);
+    pipelineCoverageByTestFile.set(testFilePath, fileCoverage);
 
-    debug(`[Pipeline ${basename(testFilePath)}] Coverage accumulation complete`);
+    debug(`[Pipeline ${basename(testFilePath)}] Coverage aggregation complete`);
   }
 }
 
@@ -540,7 +546,7 @@ async function executePhase5FinalizeFileResults(
       poolOptions,
       port: summaryPort,
       fileTask,
-      coverageData: coverageMap.get(testFilePath),
+      coverageData: pipelineCoverageByTestFile.get(testFilePath),
     };
 
     await pool.run(summaryTask, {
@@ -715,14 +721,14 @@ async function runTests(
       const p3Ms = Date.now() - p3Start;
       debug(`[Pipeline ${basename(testFilePath)}] Phase 3 Pipeline Timing: ${p3Ms}ms`);
 
-      // Accumulate coverage from these test runs into the coverage map
+      // Aggregate per-test coverage into per-file coverage for phase 5 reporting
       if (isCoverageEnabled(config)) {
         const covStart = Date.now();
 
-        accumulateCoverage(testFilePath, testResults);
+        aggregateTestCoverageForFile(testFilePath, testResults);
 
         const covMs = Date.now() - covStart;
-        debug(`[Pipeline ${basename(testFilePath)}] Post Phase 3 - Coverage Accumulation Pipeline Timing: ${covMs}ms`);
+        debug(`[Pipeline ${basename(testFilePath)}] Post Phase 3 - Coverage Aggregation PipeLine Timing: ${covMs}ms`);
       }
 
       // PHASE 4: Failsafe reruns - returns updated results with clean binary results for failures
@@ -762,12 +768,6 @@ async function runTests(
 
   // Wait for all file pipelines to complete
   await Promise.all(filePipelines);
-
-  // Write coverage report
-  // OLD coverage approach before hybrid provider
-  // if (isCoverageEnabled(config) && coverageMap.size > 0) {
-  //   await writeCoverageReport(coverageMap, 'coverage/lcov.info');
-  // }
 
   debug('[Pool] runTests completed');
 }
@@ -856,7 +856,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
       
       debug('[Pool] Clearing cache');
       compilationCache.clear();
-      coverageMap.clear();
+      pipelineCoverageByTestFile.clear();
 
       debug('[Pool] Exiting');
     },

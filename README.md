@@ -92,21 +92,19 @@ See the [Architecture docs](docs/architecture.md) for more detailed information.
 - Binary caching between collection/execution phases for watch mode
 - Source-mapped error messages (accurate file:line:column)
 - Function-level coverage
-- Manual LCOV output
+- Hybrid Coverage Provider for unified istanbul reporting between JS/AS in mixed projects
 - Failsafe re-run mode (temporary workaround - see below)
 
 **⚠️ Known Limitations:**
 - **Function-level coverage only**: No statement, branch, or line coverage yet
--  **No Istanbul integration**: Coverage not yet merged with JS coverage in mixed projects
 - **Basic assertions only**: No describe blocks, setup/teardown hooks, or rich matchers yet
 - **Failing tests run twice**: Current post-processing instrumentation current breaks source maps, requiring "failsafe mode" (first run collects coverage, failed tests re-run on clean binary for accurate errors)
-- **vitest config limited**: Many vitest config options are not yet respected (`testTimeout`, `retry`, `bail`)
+- **vitest config limited**: Some vitest config options are not yet respected (`testTimeout`, `retry`, `bail`)
 - **vitest 3.x**: Building against 3.x API but 4.x will come very soon
 
 ### v1 Release Roadmap (Current Focus)
 
 **Release Goals**: Native addon integration + hybrid coverage provider + eliminate failsafe mode + vitest 4.x
-- **afterCompile hook instrumentation**: Source maps accurate even with instrumentation, no failsafe re-run
 - **Native addon (C++) for debug extraction using Binaryen**: Foundation for future block-level coverage
 - **Honor key vitest configs**: e.g. `testTimeout`, `retry`, `bail`
 - **Hybrid Coverage Provider**: Hybrid JS + AS coverage collection across pools for unified reports
@@ -211,14 +209,14 @@ import { defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/config';
 export default defineConfig({
   test: {
     // Coverage config MUST be at root level (Vitest limitation - applies to all projects)
-    // TBD - COVERAGE WILL NOT WORK USING THIS YET - STAY TUNED!
     coverage: {
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       enabled: true,
       reportsDirectory: './coverage',
       reporter: ['text', 'lcov', 'html'],
-      include: ['src/**/*.ts', 'assembly/**/*.ts'], // example, include both JS and AS sources
+      include: ['src/**/*.ts'],                    // example, include JS/TS sources
+      assemblyScriptInclude: ['assembly/**/*.ts'], // example, include AS sources
     },
 
     projects: [

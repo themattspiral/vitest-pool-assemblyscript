@@ -24,7 +24,7 @@ function localDebug(...args) {
 
 // Initialize global metadata once at module load to prevent race conditions
 if (!globalThis.__functionMetadata) {
-  globalThis.__functionMetadata = { functionsByFilePath: {}, filePathByFunctionName: {} };
+  globalThis.__functionMetadata = { qualifiedFunctionsByAbsoluteFilePath: {}, absoluteFilePathByQualifiedFunctionName: {} };
 }
 
 // NodeKind enum values (from AS compiler internals)
@@ -175,13 +175,13 @@ export default class FunctionMetadataExtractor extends Transform {
 
         // Ensure global metadata exists
         if (!globalThis.__functionMetadata) {
-          globalThis.__functionMetadata = { functionsByFilePath: {}, filePathByFunctionName: {} };
+          globalThis.__functionMetadata = { qualifiedFunctionsByAbsoluteFilePath: {}, absoluteFilePathByQualifiedFunctionName: {} };
         }
-        globalThis.__functionMetadata.functionsByFilePath[absolutePath] = this.functionInfos;
+        globalThis.__functionMetadata.qualifiedFunctionsByAbsoluteFilePath[absolutePath] = this.functionInfos;
 
-        // Build reverse lookup for each function in this file
-        for (const funcName of Object.keys(this.functionInfos)) {
-          globalThis.__functionMetadata.filePathByFunctionName[funcName] = absolutePath;
+        // Build reverse lookup for each function in this file (keyed by qualified name)
+        for (const qualifiedName of Object.keys(this.functionInfos)) {
+          globalThis.__functionMetadata.absoluteFilePathByQualifiedFunctionName[qualifiedName] = absolutePath;
         }
       });
 
@@ -628,10 +628,23 @@ export default class FunctionMetadataExtractor extends Transform {
             localDebug(`[Transform]   WARNING: DUPLICATE FOUND for "${funcName}"!`);
           }
 
+          // Get column information for v2 containment matching
+          // AS parser columnAt() is 1-based, keep as-is for internal consistency
+          // Conversion to 0-based happens at Istanbul output boundary
+          const source = node.range.source;
+          const startColumn = source.columnAt(node.range.start);
+          const endColumn = source.columnAt(node.range.end);
+
+          // Extract short name from node (without path prefix)
+          const shortName = node.name.text;
+
           this.functionInfos[funcName] = {
-            name: funcName,
+            qualifiedName: funcName,
+            shortName,
             startLine,
             endLine,
+            startColumn,
+            endColumn,
           };
           localDebug(`[Transform]   Current functionInfos count after add: ${Object.keys(this.functionInfos).length}`);
         }

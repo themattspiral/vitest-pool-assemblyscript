@@ -14,40 +14,9 @@
  * Future Enhancement (v2): Block-level statement and branch coverage
  */
 
+import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
 import type { CoverageData } from '../types.js';
 import { debug } from '../utils/debug.mjs';
-
-/**
- * Istanbul range format (line and column positions)
- */
-interface IstanbulRange {
-  start: { line: number; column: number };
-  end: { line: number; column: number };
-}
-
-/**
- * Istanbul function mapping format
- */
-interface IstanbulFunctionMapping {
-  name: string;
-  decl: IstanbulRange;
-  loc: IstanbulRange;
-  line: number;
-}
-
-/**
- * Raw Istanbul file coverage data structure
- * This is what istanbul-lib-coverage expects when calling addFileCoverage()
- */
-interface IstanbulFileCoverageData {
-  path: string;
-  statementMap: Record<string, IstanbulRange>;
-  fnMap: Record<string, IstanbulFunctionMapping>;
-  branchMap: Record<string, any>;
-  s: Record<string, number>;
-  f: Record<string, number>;
-  b: Record<string, number[]>;
-}
 
 /**
  * Convert AssemblyScript coverage data to Istanbul format
@@ -68,11 +37,11 @@ interface IstanbulFileCoverageData {
 export function convertToIstanbulFormat(
   coverageData: CoverageData,
   filePath: string
-): IstanbulFileCoverageData {
+): FileCoverageData {
   debug(`[IstanbulConverter] Converting coverage for file: ${filePath}`);
 
   // Get functions for this specific file
-  const fileFunctions = coverageData.functionsByFilePath[filePath];
+  const fileFunctions = coverageData.qualifiedFunctionsByAbsoluteFilePath[filePath];
   if (!fileFunctions) {
     debug(`[IstanbulConverter] No functions found for ${filePath}`);
     return {
@@ -90,16 +59,16 @@ export function convertToIstanbulFormat(
   debug(`[IstanbulConverter] File has ${funcCount} functions`);
 
   // Initialize Istanbul data structures
-  const fnMap: Record<string, IstanbulFunctionMapping> = {};
-  const f: Record<string, number> = {};
-  const statementMap: Record<string, IstanbulRange> = {};
-  const s: Record<string, number> = {};
-  const branchMap: Record<string, any> = {};
-  const b: Record<string, number[]> = {};
+  const fnMap: { [key: string]: FunctionMapping } = {};
+  const f: { [key: string]: number } = {};
+  const statementMap: { [key: string]: Range } = {};
+  const s: { [key: string]: number } = {};
+  const branchMap: { [key: string]: BranchMapping } = {};
+  const b: { [key: string]: number[] } = {};
 
   // Convert function coverage to Istanbul format
   let funcIdx = 0;
-  for (const [funcName, funcCovInfo] of Object.entries(fileFunctions)) {
+  for (const [qualifiedName, funcCovInfo] of Object.entries(fileFunctions)) {
     const { info, hitCount } = funcCovInfo;
 
     // Skip functions without valid metadata
@@ -109,20 +78,19 @@ export function convertToIstanbulFormat(
       continue;
     }
 
-    debug(`[IstanbulConverter] Function ${funcIdx}: "${funcName}" hit ${hitCount} times, lines ${info.startLine}-${info.endLine}`);
+    debug(`[IstanbulConverter] Function ${funcIdx}: "${info.shortName}" (${qualifiedName}) hit ${hitCount} times, lines ${info.startLine}-${info.endLine}`);
 
     // Create function mapping
     // Both 'decl' (declaration) and 'loc' (location) use the same range
-    // We don't track column numbers, so use 0 for all columns
-    // TODO - why don't we track column numbers???
-    const range: IstanbulRange = {
-      start: { line: info.startLine, column: 0 },
-      end: { line: info.endLine, column: 0 }
+    // Internal FunctionInfo uses 1-based columns, Istanbul expects 0-based
+    const range: Range = {
+      start: { line: info.startLine, column: info.startColumn - 1 },
+      end: { line: info.endLine, column: info.endColumn - 1 }
     };
 
     const idxStr = funcIdx.toString();
     fnMap[idxStr] = {
-      name: funcName,
+      name: info.shortName,
       decl: range,
       loc: range,
       line: info.startLine

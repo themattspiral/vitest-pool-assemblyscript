@@ -30,7 +30,7 @@ import type { DebugInfo, FunctionInfo } from '../types.js';
  */
 export class BinaryenCoverageInstrumenter {
   /** Output debug info in nested structure */
-  private debugInfo: DebugInfo = { functionsByFilePath: {}, filePathByFunctionName: {} };
+  private debugInfo: DebugInfo = { qualifiedFunctionsByAbsoluteFilePath: {}, absoluteFilePathByQualifiedFunctionName: {} };
   /** Internal counter for coverage memory indexing */
   private coverageMemoryIndex = 0;
 
@@ -102,10 +102,10 @@ export class BinaryenCoverageInstrumenter {
     const metadata = globalThis.__functionMetadata;
 
     if (metadata) {
-      const fileCount = Object.keys(metadata.functionsByFilePath).length;
-      const funcCount = Object.keys(metadata.filePathByFunctionName).length;
+      const fileCount = Object.keys(metadata.qualifiedFunctionsByAbsoluteFilePath).length;
+      const funcCount = Object.keys(metadata.absoluteFilePathByQualifiedFunctionName).length;
       debug(`[Binaryen Coverage] Loading metadata from ${fileCount} source files`);
-      for (const [path, functions] of Object.entries(metadata.functionsByFilePath)) {
+      for (const [path, functions] of Object.entries(metadata.qualifiedFunctionsByAbsoluteFilePath)) {
         debug(`[Binaryen Coverage]   ${path}: ${Object.keys(functions).length} functions`);
       }
       debug(`[Binaryen Coverage] Total metadata: ${funcCount} unique functions from all sources`);
@@ -174,7 +174,7 @@ export class BinaryenCoverageInstrumenter {
         continue;
       }
 
-      const filePath = metadata.filePathByFunctionName[funcInfo.name];
+      const filePath = metadata.absoluteFilePathByQualifiedFunctionName[funcInfo.name];
       if (!filePath) {
         debug(
           `[Binaryen Coverage] No metadata found for function "${funcInfo.name}". ` +
@@ -184,7 +184,7 @@ export class BinaryenCoverageInstrumenter {
         continue;
       }
 
-      const functionInfo = metadata.functionsByFilePath[filePath]?.[funcInfo.name];
+      const functionInfo = metadata.qualifiedFunctionsByAbsoluteFilePath[filePath]?.[funcInfo.name];
       if (!functionInfo) {
         debug(`[Binaryen Coverage] Function info not found for "${funcInfo.name}" in "${filePath}"`);
         continue;
@@ -222,8 +222,8 @@ export class BinaryenCoverageInstrumenter {
     functionInfo: FunctionInfo
   ): void {
     // Ensure file entry exists in output debugInfo
-    if (!this.debugInfo.functionsByFilePath[filePath]) {
-      this.debugInfo.functionsByFilePath[filePath] = {};
+    if (!this.debugInfo.qualifiedFunctionsByAbsoluteFilePath[filePath]) {
+      this.debugInfo.qualifiedFunctionsByAbsoluteFilePath[filePath] = {};
     }
 
     // Get the current coverage memory index for this function
@@ -235,8 +235,8 @@ export class BinaryenCoverageInstrumenter {
       ...functionInfo,
       coverageMemoryIndex: coverageIdx,
     };
-    this.debugInfo.functionsByFilePath[filePath][funcInfo.name] = instrumentedFunctionInfo;
-    this.debugInfo.filePathByFunctionName[funcInfo.name] = filePath;
+    this.debugInfo.qualifiedFunctionsByAbsoluteFilePath[filePath][funcInfo.name] = instrumentedFunctionInfo;
+    this.debugInfo.absoluteFilePathByQualifiedFunctionName[funcInfo.name] = filePath;
 
     debug(`[Binaryen Coverage] Function ${funcInfo.name}: lines ${functionInfo.startLine}-${functionInfo.endLine}, coverageIdx=${coverageIdx}`);
 

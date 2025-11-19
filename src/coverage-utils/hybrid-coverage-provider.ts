@@ -13,15 +13,21 @@ import type { CoverageMap } from 'istanbul-lib-coverage';
 import libCoverage from 'istanbul-lib-coverage';
 import v8CoverageModule from '@vitest/coverage-v8';
 import { convertToIstanbulFormat } from './istanbul-converter.js';
-import type { AssemblyScriptCoveragePayload } from '../types.js';
+import { parseFunctionsFromFiles } from './ast-parser.js';
+import { globAsFiles } from './glob-utils.js';
+import { mergeCoverageData, buildMergedCoverageData } from './coverage-merge.js';
+import type { AssemblyScriptCoveragePayload, CoverageData } from '../types.js';
 import { debug, setDebugMode } from '../utils/debug.mjs';
 import { getPoolOptions } from '../pool/options.js';
 
 export class HybridCoverageProvider implements CoverageProvider {
   name = 'hybrid-assemblyscript-v8' as const;
 
-  private v8Provider!: CoverageProvider; // TODO - WHY ARE WE DOING NON-NULL ASSERTIONS INSTEAD OF ERROR HANDLING
-  private asCoverageMap = libCoverage.createCoverageMap();
+  private v8Provider: CoverageProvider | undefined;
+  private projectRoot: string | undefined;
+  private accumulatedCoverageData: CoverageData = { qualifiedFunctionsByAbsoluteFilePath: {} };
+  private assemblyScriptInclude: string[] = [];
+  private assemblyScriptExclude: string[] = [];
 
   /**
    * Initialize the provider and get reference to v8 provider
@@ -45,11 +51,35 @@ export class HybridCoverageProvider implements CoverageProvider {
     setDebugMode(poolOptions.debug);
     debug('[HybridCoverageProvider] Initializing...');
 
+    // Store project root for later use in generateCoverage
+    this.projectRoot = ctx.config.root;
+
     // Get v8 provider from the coverage module
     this.v8Provider = await v8CoverageModule.getProvider();
+
+    // Validate required fields are set
+    if (!this.projectRoot || !this.v8Provider) {
+      throw new Error(
+        '[HybridCoverageProvider] Failed to initialize: ' +
+        `projectRoot=${this.projectRoot ? this.projectRoot : 'undefined'}, ` +
+        `v8Provider=${this.v8Provider ? 'set' : 'undefined'}`
+      );
+    }
+
     await this.v8Provider.initialize(ctx);
 
+    // Store AS-specific coverage patterns from config
+    // These are set via CustomProviderOptions augmentation
+    const coverageConfig = ctx.config.coverage as {
+      assemblyScriptInclude?: string[];
+      assemblyScriptExclude?: string[];
+    };
+    this.assemblyScriptInclude = coverageConfig.assemblyScriptInclude ?? [];
+    this.assemblyScriptExclude = coverageConfig.assemblyScriptExclude ?? [];
+
     debug('[HybridCoverageProvider] Initialized with v8 provider');
+    debug(`[HybridCoverageProvider] AS include patterns: ${this.assemblyScriptInclude.join(', ') || '(none)'}`);
+    debug(`[HybridCoverageProvider] AS exclude patterns: ${this.assemblyScriptExclude.join(', ') || '(none)'}`);
   }
 
   /**
@@ -66,26 +96,21 @@ export class HybridCoverageProvider implements CoverageProvider {
       const payload = coverage as AssemblyScriptCoveragePayload;
       const { coverageData } = payload;
 
-      const fileCount = Object.keys(coverageData.functionsByFilePath).length;
-      const funcCount = Object.values(coverageData.functionsByFilePath)
+      const fileCount = Object.keys(coverageData.qualifiedFunctionsByAbsoluteFilePath).length;
+      const funcCount = Object.values(coverageData.qualifiedFunctionsByAbsoluteFilePath)
         .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
       debug(`[HybridCoverageProvider] AS coverage payload: ${fileCount} files, ${funcCount} functions`);
 
-      // Convert each file to Istanbul format and merge into accumulated map
-      for (const filePath of Object.keys(coverageData.functionsByFilePath)) {
-        debug(`[HybridCoverageProvider] Converting and merging coverage for file: ${filePath}`);
+      // Merge incoming coverage data into accumulated (by qualified name, summing hit counts)
+      mergeCoverageData(this.accumulatedCoverageData, coverageData);
 
-        const istanbulData = convertToIstanbulFormat(coverageData, filePath);
-        const fileMap = libCoverage.createCoverageMap();
-        fileMap.addFileCoverage(istanbulData);
-        this.asCoverageMap.merge(fileMap);
-
-        debug(`[HybridCoverageProvider] Merged ${Object.keys(istanbulData.f).length} functions for ${filePath}`);
-      }
-
-      debug(`[HybridCoverageProvider] AS coverage map now has ${Object.keys(this.asCoverageMap.data).length} files`);
+      const accumulatedFileCount = Object.keys(this.accumulatedCoverageData.qualifiedFunctionsByAbsoluteFilePath).length;
+      debug(`[HybridCoverageProvider] Accumulated coverage now has ${accumulatedFileCount} files`);
     } else {
       // Delegate to v8 provider for all other formats (JS, etc.)
+      if (!this.v8Provider) {
+        throw new Error('[HybridCoverageProvider] Not initialized. Call initialize() first.');
+      }
       debug('[HybridCoverageProvider] Delegating to v8 provider');
       await this.v8Provider.onAfterSuiteRun(meta);
     }
@@ -93,25 +118,72 @@ export class HybridCoverageProvider implements CoverageProvider {
 
   /**
    * Generate unified coverage map (merging JS and AS coverage)
+   *
+   * Flow:
+   * 1. Glob ALL AS files from assemblyScriptInclude patterns
+   * 2. Parse them to get sourceDebugInfo (source of truth for line numbers)
+   * 3. Build merged CoverageData (all source functions + accumulated hit counts)
+   * 4. Convert merged CoverageData to Istanbul format
+   * 5. Get JS coverage from v8 provider
+   * 6. Merge AS coverage into JS coverage
    */
   async generateCoverage(context: ReportContext): Promise<unknown> {
     debug('[HybridCoverageProvider] Generating coverage...');
 
-    // Get JS coverage from v8 provider (already in Istanbul format)
+    // Validate initialization
+    if (!this.v8Provider || !this.projectRoot) {
+      throw new Error('[HybridCoverageProvider] Not initialized. Call initialize() first.');
+    }
+
+    // Build AS coverage map
+    let asCoverageMap = libCoverage.createCoverageMap();
+
+    if (this.assemblyScriptInclude.length > 0) {
+      // Step 1: Glob AS files matching include/exclude patterns
+      debug(`[HybridCoverageProvider] Globbing AS files with patterns: ${this.assemblyScriptInclude.join(', ')}`);
+      const asFiles = await globAsFiles(
+        this.assemblyScriptInclude,
+        this.assemblyScriptExclude,
+        this.projectRoot
+      );
+      debug(`[HybridCoverageProvider] Found ${asFiles.length} AS source files`);
+
+      if (asFiles.length > 0) {
+        // Step 2: Parse ALL AS files to get complete function list
+        debug('[HybridCoverageProvider] Parsing AS files for function metadata...');
+        const sourceDebugInfo = parseFunctionsFromFiles(asFiles, this.projectRoot);
+        const fileCount = Object.keys(sourceDebugInfo.qualifiedFunctionsByAbsoluteFilePath).length;
+        const funcCount = Object.values(sourceDebugInfo.qualifiedFunctionsByAbsoluteFilePath)
+          .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
+        debug(`[HybridCoverageProvider] Parsed ${funcCount} functions from ${fileCount} files`);
+
+        // Step 3: Build merged CoverageData (all source functions + accumulated hit counts)
+        const accumulatedFuncCount = Object.values(this.accumulatedCoverageData.qualifiedFunctionsByAbsoluteFilePath)
+          .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
+        debug(`[HybridCoverageProvider] Accumulated coverage has ${accumulatedFuncCount} functions`);
+
+        const mergedCoverageData = buildMergedCoverageData(sourceDebugInfo, this.accumulatedCoverageData);
+
+        // Step 4: Convert merged CoverageData to Istanbul format
+        for (const filePath of Object.keys(mergedCoverageData.qualifiedFunctionsByAbsoluteFilePath)) {
+          const istanbulData = convertToIstanbulFormat(mergedCoverageData, filePath);
+          asCoverageMap.addFileCoverage(istanbulData);
+        }
+        debug(`[HybridCoverageProvider] Built AS coverage map with ${Object.keys(asCoverageMap.data).length} files`);
+      }
+    } else {
+      debug('[HybridCoverageProvider] No assemblyScriptInclude patterns configured, skipping AS source globbing');
+    }
+
+    // Step 5: Get JS coverage from v8 provider
     debug('[HybridCoverageProvider] Getting JS coverage from v8 provider');
     const jsCoverage = await this.v8Provider.generateCoverage(context) as CoverageMap;
     debug(`[HybridCoverageProvider] JS coverage has ${Object.keys(jsCoverage.data).length} files`);
-    debug(`[HybridCoverageProvider] JS coverage file paths:`, Object.keys(jsCoverage.data));
 
-    // AS coverage already accumulated in Istanbul format
-    debug(`[HybridCoverageProvider] AS coverage has ${Object.keys(this.asCoverageMap.data).length} files`);
-    debug(`[HybridCoverageProvider] AS coverage file paths:`, Object.keys(this.asCoverageMap.data));
-
-    // Merge both coverage maps
-    debug('[HybridCoverageProvider] Merging coverage maps');
-    jsCoverage.merge(this.asCoverageMap);
-    debug(`[HybridCoverageProvider] Merged coverage has ${Object.keys(jsCoverage.data).length} files`);
-    debug(`[HybridCoverageProvider] Merged coverage file paths:`, Object.keys(jsCoverage.data));
+    // Step 6: Merge AS coverage into JS coverage
+    debug('[HybridCoverageProvider] Merging AS coverage into JS coverage');
+    jsCoverage.merge(asCoverageMap);
+    debug(`[HybridCoverageProvider] Final merged coverage has ${Object.keys(jsCoverage.data).length} files`);
 
     return jsCoverage;
   }
@@ -120,6 +192,9 @@ export class HybridCoverageProvider implements CoverageProvider {
    * Report coverage - delegate to v8 provider
    */
   async reportCoverage(coverage: unknown, context: ReportContext): Promise<void> {
+    if (!this.v8Provider) {
+      throw new Error('[HybridCoverageProvider] Not initialized. Call initialize() first.');
+    }
     debug('[HybridCoverageProvider] Reporting coverage...');
     await this.v8Provider.reportCoverage(coverage, context);
   }
@@ -128,6 +203,9 @@ export class HybridCoverageProvider implements CoverageProvider {
    * Resolve options - delegate to v8 provider
    */
   resolveOptions(): ResolvedCoverageOptions {
+    if (!this.v8Provider) {
+      throw new Error('[HybridCoverageProvider] Not initialized. Call initialize() first.');
+    }
     return this.v8Provider.resolveOptions();
   }
 
@@ -136,8 +214,10 @@ export class HybridCoverageProvider implements CoverageProvider {
    */
   async clean(clean?: boolean): Promise<void> {
     debug('[HybridCoverageProvider] Cleaning coverage data');
-    this.asCoverageMap = libCoverage.createCoverageMap();
-    await this.v8Provider.clean(clean);
+    this.accumulatedCoverageData = { qualifiedFunctionsByAbsoluteFilePath: {} };
+    if (this.v8Provider) {
+      await this.v8Provider.clean(clean);
+    }
   }
 }
 
