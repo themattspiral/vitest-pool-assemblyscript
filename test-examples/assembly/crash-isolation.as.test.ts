@@ -11,7 +11,7 @@ test("first test passes", () => {
 });
 
 test("second test crashes [should fail]", () => {
-  assert(false, "ASSERT_ERROR@14:3 this assertion should fail and cause abort");
+  assert(false, "ASSERT_ERROR@14:3 this assertion should cause abort");
 });
 
 test("third test should still run", () => {
