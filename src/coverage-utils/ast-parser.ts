@@ -17,8 +17,14 @@ import type { DebugInfo, FunctionInfo } from '../types.js';
 // NodeKind enum values (from AS compiler)
 // Defined locally to avoid isolatedModules const enum access issues
 const NodeKind = {
+  // Binary expression (includes assignments): a = b
+  BinaryExpression: 8,
   // Function expression (arrow functions): const foo = () => {}
   Function: 14,
+  // Property access expression: this.property
+  PropertyAccessExpression: 21,
+  // Expression statement: expr;
+  ExpressionStatement: 38,
   // Variable statement containing declarations: const a = 1, b = () => {}
   Variable: 47,
   // Class declaration to recurse and find methods
@@ -228,6 +234,45 @@ function visitNode(
           startColumn,
           endColumn
         };
+
+        // Look for arrow function assignments inside the method body: this.prop = () => {}
+        // This pattern is used when AS doesn't support property initializer syntax
+        if (member.body && member.body.statements) {
+          for (const bodyStmt of member.body.statements) {
+            // Check for expression statement containing assignment
+            if (bodyStmt.kind === NodeKind.ExpressionStatement && bodyStmt.expression) {
+              const expr = bodyStmt.expression;
+
+              // Check for binary expression (assignment) with property access on left and function on right
+              if (expr.kind === NodeKind.BinaryExpression &&
+                  expr.left?.kind === NodeKind.PropertyAccessExpression &&
+                  expr.right?.kind === NodeKind.Function) {
+
+                const propertyName = expr.left.property?.text;
+                if (propertyName) {
+                  // Build name: ClassName#propertyName (same as instance method)
+                  const arrowShortName = `${className}#${propertyName}`;
+                  const arrowQualifiedName = `${modulePath}/${arrowShortName}`;
+
+                  // Use the function expression's range for position
+                  const arrowStartLine = src.lineAt(expr.right.range.start);
+                  const arrowStartColumn = src.columnAt(expr.right.range.start);
+                  const arrowEndLine = src.lineAt(expr.right.range.end);
+                  const arrowEndColumn = src.columnAt(expr.right.range.end);
+
+                  functions[arrowQualifiedName] = {
+                    qualifiedName: arrowQualifiedName,
+                    shortName: arrowShortName,
+                    startLine: arrowStartLine,
+                    endLine: arrowEndLine,
+                    startColumn: arrowStartColumn,
+                    endColumn: arrowEndColumn
+                  };
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

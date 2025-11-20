@@ -28,7 +28,7 @@ import { debug } from '../utils/debug.mjs';
  *    - Add function hit count to f
  *    - Add corresponding statement mapping to statementMap (at function start line)
  *    - Add same hit count to s (statement coverage matches function coverage)
- * 3. Leave branchMap and b empty (0% branch coverage for now)
+ * 3. Add dummy uncovered branch at line 0 (shows 0% instead of misleading 100% for 0/0)
  *
  * @param coverageData - Coverage data with function info and hit counts
  * @param filePath - Absolute path to the source file
@@ -106,6 +106,18 @@ export function convertToIstanbulFormat(
 
     funcIdx++;
   }
+
+  // Add dummy uncovered branch to show 0% instead of 100% (0/0)
+  // We don't have branch coverage yet, so this prevents misleading 100% reports
+  // Uses line 0 which won't appear in source display
+  const dummyRange = { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } };
+  branchMap['0'] = {
+    type: 'binary-expr',
+    loc: dummyRange,
+    locations: [dummyRange],
+    line: 0
+  };
+  b['0'] = [0];
 
   debug(`[IstanbulConverter] Result for ${filePath}: ${Object.keys(fnMap).length} functions added`);
 

@@ -12,20 +12,39 @@ export class Counter {
   private _value: i32;
   private _maxValue: i32;
   
-  memberArrowFunc_IncrementPreview: (a: i32) => i32;
+  plusTwo: (a: i32) => i32;
+  memberNested: (a: i32) => i32;
 
   constructor(initial: i32 = 0, max: i32 = 100) {
     this._value = initial;
     this._maxValue = max;
 
-    this.memberArrowFunc_IncrementPreview = (a: i32): i32 => {
-      const res: i32 = a + 1;
-      return res;
+    this.plusTwo = (a: i32): i32 => {
+      const plusOne = function(a: i32): i32 {
+        return a + 1;
+      }
+
+      const plus1 = (a: i32): i32 => a + 1;
+
+      return plus1(plusOne(a));
     };
+
+    this.memberNested = (a: i32): i32 => {
+      const nested = function(b: i32): i32 {
+        const doubleNested = (c: i32): i32 => { return c + 1; };
+        return doubleNested(b);
+      };
+      const nestedNamedVar = function nestedNamedFcn(b: i32): i32 { return b + 1; };
+      const nestedArrow = (b: i32): i32 => { return b + 1; };
+      const nestedBracelessArrow = (b: i32): i32 => b + 1;
+      const x = 3, y = (b: i32): i32 => b + 1, z = 4;
+
+      return y(nested(nestedNamedVar(nestedArrow(nestedBracelessArrow(a)))));
+    }
   }
 
   previewIncrement(): i32 {
-    return this.memberArrowFunc_IncrementPreview(this._value);
+    return this.plusTwo(this._value);
   }
 
   @inline
@@ -98,6 +117,19 @@ export class Counter {
   // Method that uses private method
   getDoubled(): i32 {
     return this.doubleValue();
+  }
+
+  internalNesting(): i32 {
+    const nested = function(b: i32): i32 {
+      const doubleNested = (c: i32): i32 => { return c + 1; };
+      return doubleNested(b);
+    };
+    const nestedNamedVar = function nestedNamedFcn(b: i32): i32 { return b + 1; };
+    const nestedArrow = (b: i32): i32 => { return b + 1; };
+    const nestedBracelessArrow = (b: i32): i32 => b + 1;
+    const x = 3, y = (b: i32): i32 => b + 1, z = 4;
+
+    return y(nested(nestedNamedVar(nestedArrow(nestedBracelessArrow(this._value)))));
   }
 
   // Note: AS doesn't support #privateMethod syntax (ES2022 private fields)
