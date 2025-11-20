@@ -170,12 +170,12 @@ export async function executeSingleTest(
     }
   }
 
-  // Finalize test result: source mapping and coverage
+  // Handle test result: source mapping and coverage
   let finalResult: TestResult;
   if (currentTestRef.value) {
     const testResult = currentTestRef.value;
 
-    // Apply source mapping if available
+    // If error is present (rawCallStack), apply source mapping to make it useful
     if (sourceMapJson && testResult.rawCallStack) {
       await enhanceErrorWithSourceMap(testResult, sourceMapJson);
     }

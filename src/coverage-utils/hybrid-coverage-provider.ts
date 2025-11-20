@@ -157,11 +157,13 @@ export class HybridCoverageProvider implements CoverageProvider {
           .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
         debug(`[HybridCoverageProvider] Parsed ${funcCount} functions from ${fileCount} files`);
 
-        // Step 3: Build merged CoverageData (all source functions + accumulated hit counts)
         const accumulatedFuncCount = Object.values(this.accumulatedCoverageData.qualifiedFunctionsByAbsoluteFilePath)
           .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
         debug(`[HybridCoverageProvider] Accumulated coverage has ${accumulatedFuncCount} functions`);
-
+        
+        // Step 3: Build merged CoverageData that:
+        //  - contains all source functions from sourceDebugInfo
+        //  - maps accumulated hit counts onto these functions
         const mergedCoverageData = buildMergedCoverageData(sourceDebugInfo, this.accumulatedCoverageData);
 
         // Step 4: Convert merged CoverageData to Istanbul format

@@ -28,8 +28,8 @@ test('Counter constructor with default values', () => {
 // Test regular methods
 test('Counter previewIncrement shows hypothetical increased value', () => {
   const counter = new Counter(8);
-  const preview = counter.previewIncrement();
-  assert(preview == 9, 'Preview should be 9 when starting value is 8');
+  const preview = counter.previewPlusTwo();
+  assert(preview == 10, `Preview should be 10 when starting value is 8`);
 });
 
 test('Counter increment increases value', () => {

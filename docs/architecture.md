@@ -20,25 +20,37 @@ Built on the Vitest 3.x [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.
 │  collectTests(specs):                                       │
 │    • Compile AS -> WASM (with instrumentation)              │
 │    • Extract debug info (native addon)                      │
-│    • Execute to query test registry                         │
+│    • Execute to populate test registry                      │
 │    • Cache binary for runTests (watch mode)                 │
 │    • Report structure via onCollected RPC                   │
 │                                                             │
 │  runTests(specs):                                           │
-│    • Reuse cached binary (watch mode) or Compile AS -> WASM │
+│    • AS -> WASM or Reuse cached binary (watch mode)         |
 │    • Execute each test in fresh WASM instance               │
-│    • Collect results + coverage                             │
-│    • Report via onTaskUpdate RPC                            │
-└─────────────────────────────────────────────────────────────┘
+│    • Collect test results + coverage data                   │
+│    • Report via RPC (onTaskUpdate and onAfterSuiteRun)      │
+└────────────────────────────┬────────────────────────────────┘
                              │
                              ↓
 ┌─────────────────────────────────────────────────────────────┐
-│            Per-Test WASM Execution (Isolation)              │
+│          Per-Test WASM Execution (Isolation)                │
+│     Per-Test Worker Thread Dispatch (Parallelization)       │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
 │  │ Test 1       │  │ Test 2       │  │ Test 3       │       │
 │  │ Fresh WASM   │  │ Fresh WASM   │  │ Fresh WASM   │       │
 │  │ instance     │  │ instance     │  │ instance     │       │
 │  └──────────────┘  └──────────────┘  └──────────────┘       │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                             ↓
+┌─────────────────────────────────────────────────────────────┐
+│            vitest-pool-assemblyscript/covarage              │
+│            Custom "Hybrid" Coverage Provider                │
+├─────────────────────────────────────────────────────────────┤
+│    • Accumulate coverage for entire run                     │
+│    • Process AS, Delegate JS to v8 provider                 │
+│    • Merge AS and JS coverage                               │
+│    • Generate unified coverage reports                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -307,152 +319,187 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 
 ---
 
-### v1 Coverage Architecture (In Progress)
+### Coverage Architecture (v1 In Progress, v2 Planned)
 
-**Goal**: Binaryen.js post-processing instrumentation + native addon debug extraction + Istanbul hybrid coverage provider integration
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   AS Compiler Pipeline                      │
-├─────────────────────────────────────────────────────────────┤
-│  1. Parse AS source -> AST                                  │
-│  2. Type checking & optimization                            │
-│  3. Transforms:                                             │
-│     └─> afterParse: Strip @inline decorator metadata        │
-│  4. Compiler emits clean binary                             │
-│     ├─> WASM binary (clean)                                 │
-│     └─> Source map (accurate for clean binary)              │
-└─────────────────────────────────────────────────────────────┘
-                             │
-                             ↓
-┌─────────────────────────────────────────────────────────────┐
-│            Binaryen Post-Processing (Instrumentation)       │
-├─────────────────────────────────────────────────────────────┤
-│  • Inject __coverage_trace() calls at function entries      │
-│  • Add multi-memory for coverage counters                   │
-│  • ⚠️ Breaks source map accuracy (known limitation)         │
-└─────────────────────────────────────────────────────────────┘
-                             │
-                             ↓
-┌─────────────────────────────────────────────────────────────┐
-│              Native Addon (C++ via node-addon-api)          │
-│                    Debug Info Extraction                    │
-├─────────────────────────────────────────────────────────────┤
-│  extractDebugInfo(wasmBuffer, sourceMapBuffer)              │
-│                                                             │
-│  Uses Binaryen C++ API:                                     │
-│  • WasmBinaryReader - Parse WASM binary                     │
-│  • CFGWalker - Extract basic blocks                         │
-│  • Source map correlation - Map to source locations         │
-│                                                             │
-│  Returns: DebugInfo                                         │
-│  • functions: Function metadata (names, locations)          │
-│  • expressions: Expression-level info (foundation for v2)   │
-│  • basicBlocks: CFG structure (foundation for v2)           │
-└─────────────────────────────────────────────────────────────┘
-                             │
-                             ↓
-┌─────────────────────────────────────────────────────────────┐
-│                  Coverage Collection & Reporting            │
-├─────────────────────────────────────────────────────────────┤
-│  1. Execute instrumented WASM (failsafe mode)               │
-│     ├─> Collect function hit counts from coverage memory    │
-│     ├─> Suppress failure reporting (source maps inaccurate) │
-│     └─> Re-run failures on clean binary for accurate errors │
-│                                                             │
-│  2. Convert to Istanbul format                              │
-│     ├─> Use native addon DebugInfo for metadata             │
-│     ├─> Function coverage (1:1 mapping)                     │
-│     └─> Statement coverage (function -> line mapping)       │
-│                                                             │
-│  3. Hybrid Coverage Provider                                │
-│     ├─> JS coverage (v8)                                    │
-│     ├─> AS coverage (Istanbul format)                       │
-│     └─> Merge into unified CoverageMap                      │
-│                                                             │
-│  4. Standard Istanbul reporters                             │
-│     └─> LCOV, HTML, JSON, text formats                      │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**v1 Key Details:**
-- ✅ **Istanbul integration** - Unified coverage reports with JS/TS code
-- ✅ **Hybrid provider** - Supports mixed JS + AS projects
-- ✅ **Native addon foundation** - Rich debug info ready for v2 block-level coverage
-- ⚠️ **Failsafe mode required** - Post-processing breaks source maps, requiring two-pass execution for accurate errors
-- ⚠️ **Function-level coverage only** - Statement/branch/line coverage deferred to v2
-
----
-
-### v2 Coverage Architecture (Planned - Native Addon Instrumentation)
+**Overview**: Position-based containment matching connects binary execution to source coverage, supporting function-level (v1) and block-level (v2) granularity.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                   AS Compiler Pipeline                      │
-├─────────────────────────────────────────────────────────────┤
-│  1. Parse AS source -> AST                                  │
-│  2. Type checking & optimization                            │
-│  3. Transforms:                                             │
-│     └─> afterParse: Strip @inline decorator metadata        │
-│     └─> afterCompile: REMOVED                               │
-│  4. Compiler emits clean binary                             │
-│     ├─> WASM binary (clean)                                 │
-│     └─> Source map (accurate for clean binary)              │
-└─────────────────────────────────────────────────────────────┘
-                             │
-                             ↓
-┌─────────────────────────────────────────────────────────────┐
-│              Native Addon (C++ via node-addon-api)          │
-│           Instrumentation + Debug Extraction                │
-│                    (Single Operation)                       │
-├─────────────────────────────────────────────────────────────┤
-│  instrumentForCoverage(wasmBuffer, sourceMapBuffer, opts)   │
-│                                                             │
-│  Uses Binaryen C++ API:                                     │
-│  • WasmBinaryReader - Parse WASM binary                     │
-│  • CFGWalker - Identify basic block boundaries              │
-│  • Instrumentation - Insert counters at block boundaries    │
-│  • WasmBinaryWriter - Regenerate WASM with instrumentation  │
-│  • Source map regeneration - Update offsets for new code    │
-│                                                             │
-│  Returns: InstrumentResult                                  │
-│  • instrumentedWasm: Buffer (block-level instrumentation)   │
-│  • sourceMap: string (regenerated, accurate offsets)        │
-│  • debugInfo: DebugInfo (expressions, basic blocks, CFG)    │
-│  • memoryInfo: MemoryInfo (function offsets, block counts)  │
-└─────────────────────────────────────────────────────────────┘
-                             │
-                             ↓
-┌─────────────────────────────────────────────────────────────┐
-│                  Coverage Collection & Reporting            │
-├─────────────────────────────────────────────────────────────┤
-│  1. Execute instrumented WASM                               │
-│     └─> Collect block hit counts from coverage memory       │
-│        (using memoryInfo for offsets)                       │
-│                                                             │
-│  2. Convert to Istanbul format                              │
-│     ├─> Function coverage (from function hit counts)        │
-│     ├─> Statement coverage (line-granular from blocks)      │
-│     └─> Branch coverage (basic block edges)                 │
-│                                                             │
-│  3. Hybrid Provider                                         │
-│     ├─> JS coverage (v8)                                    │
-│     ├─> AS coverage (Istanbul format)                       │
-│     └─> Merge into unified CoverageMap                      │
-│                                                             │
-│  4. Standard Istanbul reporters                             │
-│     └─> Coverage across: function, statement, branch, line  │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    BINARY PREPARATION                        │
+│    (Pool Main Thread, Per Test File, async promise queue)    │
+├──────────────────────────────────────────────────────────────┤
+│  Compilation (AssemblyScript Compiler)                       |
+│                                                              │
+│  • Input: 1 test file                                        │
+│  • Transforms:                                               │
+│    └─> Strip @inline decorators (afterParse)                 │
+│  • Output:                                                   │
+│    ├─> Clean WASM binary                                     │
+│    └─> Source map                                            │
+│                                                              │
+│  ──────────────────────────────────────────────────────────  │
+│                            ↓                                 │
+│  Instrumentation & Binary Debug Info Extraction              │
+│                                                              │
+│  v1: Binaryen.js post-processing                             │
+│  • Inject __coverage_trace() at function entries             │
+│  • ⚠️ Breaks source map accuracy ⚠️                         │
+│  • Add multi-memory for coverage counters                    │
+│  • Extract debug info: instrumented function positions       │
+│  • Returns:                                                  │
+│    ├─> instrumented WASM binary                              │
+│    └─> instrumented binary positions (debug info)            │
+│                                                              │
+│  v2: Binaryen C++ native addon                               │
+│  • instrumentForCoverage() single operation                  │
+│  • Inject counters at basic block boundaries                 │
+│  • Regenerate source map (maintains accuracy)                │
+│  • Extract debug info: expression/block positions            │
+│  • Returns:                                                  │
+│    ├─> instrumentedWasm                                      │
+│    ├─> sourceMap (regenerated)                               │
+│    ├─> debugInfo                                             │
+│    └─> memoryInfo                                            │
+│                                                              │
+│  ──────────────────────────────────────────────────────────  │
+│                            ↓                                 │
+│  CachedCompilation stored in pool:                           |
+|  • Reused between workers executing tests in same file       |
+|  • Reused in watch mode between runs                         │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+                               ↓
+┌──────────────────────────────────────────────────────────────┐
+│     EXECUTION & COLLECTION (Workers + Pool Aggregation)      │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Phase 3: Test Execution (Worker Dispatch)                   │
+│  For each test in test file:                                 │
+│  • Dispatch to worker with instrumented binary               │
+│  • Execute test in fresh WASM instance                       │
+│  • Read hit counts from coverage memory                      │
+│    (v1: per function, v2: per block)                         │
+│  • Return coverage data to pool                              │
+│                                                              │
+│  ──────────────────────────────────────────────────────────  │
+│                            ↓                                 │
+│  Pool Aggregation                                            │
+│  Merge per-test coverage → per-test-file coverage            │
+│  • Accumulate hit counts across source functions imported    |
+     within a given test file (all individual test executions) |
+│  • Store in pipelineCoverageByTestFile                       │
+│  • Covers all functions/expressions across all               │
+│    sources imported by this test file                        │
+│  ──────────────────────────────────────────────────────────  │
+│                            ↓                                 │
+│  Phase 5: Report to Coveraghe Provider (Worker Dispatch)     │
+│  onAfterSuiteRun(coverageData, debugInfo)                    │
+│  • Send aggregated coverage for this test file               │
+│  • Provider accumulates across all test files                │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────┐
+│   COVERAGE PROVIDER (Post-Pipeline, Global, Once Per Run)    │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  onAfterSuiteRun() - Accumulation                            │
+│  For each test file completion:                              │
+│  ├─> AS: Merge coverage data by source position-based key,   │
+│  │       **source position extracted from binary debugInfo** │
+│  │        (DebugInfo's source filePath:line:column is stable |
+|  |         between different test binary executions)         │
+│  │       - Accumulate hit counts across all test files       │
+│  └─> JS: Delegate to v8 provider                             │
+│                                                              |
+|  ──────────────────────────────────────────────────────────  │
+│                            ↓                                 │
+│                                                              │
+│  generateCoverage() - Final Report Generation                │
+│                                                              │
+│  AST Parser                                                  |
+|  ────────────────────                                        │
+│  • Read all source files (coverage.assemblyScriptInclude)    │
+│  • AS parser extracts source position info                   │
+│  • Build sourceDebugInfo:                                    │
+│    ├─> All functions/expressions with ranges                 │
+│    │   (startLine, startColumn, endLine, endColumn)          │
+│    └─> Defines source of truth: what SHOULD be covered       │
+│                                                              │
+│  v1: Functions only                                          │
+│  v2: Functions + statements + branches                       │
+│                                                              │
+│                            ↓                                 │
+│  Coverage Matcher                                            │
+│  ────────────────────                                        │
+│  Containment Matching:                                       │
+│  1. Group source items by file                               │
+│  2. For each unique source position (from merged coverage):  │
+│     • Source position extracted from binary via debugInfo    │
+│     • Parse position key (filePath, line, column)            │
+│     • Find source items whose range contains this point      │
+│     • Use tightest fit for nested items                      │
+│  3. Map source position hit counts → source qualified names  │
+│                                                              │
+│  Build merged CoverageData:                                  │
+│  ├─> All source items basis (from sourceDebugInfo)           │
+│  ├─> With accumulated hit counts (position-based merge)      │
+│  └─> Complete map: covered + uncovered items                 │
+│                                                              │
+│  Strategy Evolution:                                         │
+│  • pre-v1: Name matching (transform metadata)                │
+│  • v1: Containment matching (functions only)                 │
+│  • v2: Containment matching (all expressions)                │
+│                                                              │
+│                            ↓                                 │
+│                                                              │
+│  Istanbul Converter                                          │
+│  ────────────────────                                        │
+│  • Convert internal CoverageData → Istanbul CoverageMap      │
+│  • Per file:                                                 │
+│    ├─> Build fnMap, statementMap, branchMap                  │
+│    └─> Apply hit counts to generate f, s, b arrays           │
+│    └─> v1: Dummy branch coverage to make it display 0%       │
+│    └─> Add file map to overall CoverageMap                   │
+│                                                              │
+│  v1: Function coverage (function → statement map)            │
+│  v2: All 4 types (function, statement, branch, line)         │
+│                                                              │
+│                            ↓                                 │
+│                                                              │
+│  Unified Coverage Merge                                      │
+│  ────────────────────                                        │
+│  ├─> Get JS/TS coverage from v8 provider                     │
+│  ├─> Merge AS Istanbul CoverageMap into JS CoverageMap       │
+│  └─> Return unified CoverageMap                              │
+│                                                              │
+│                            ↓                                 │
+│                                                              │
+│  reportCoverage() - Delegate to v8 provider's reporters:     │
+│  └─> LCOV, HTML, JSON, text formats                          │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-**v2 Key Details:**
-- **Block-level statement coverage** - Line-by-line granularity
-- **Branch coverage** - Using CFG analysis
-- **All 4 coverage types** - Function, statement, branch, line
-- **Source maps accurate** - Native addon regenerates them
-- **Rich debug info** - Expressions, basic blocks, CFG structure
+**Key Architectural Decisions:**
+
+1. **Containment Matching** - Position-based (not name-based)
+   - Handles anonymous functions, nested functions, naming convention changes
+   - Same approach for v1 functions and v2 expressions/statements/branches
+   - Performance: File grouping baseline, with optimization strategies available
+
+2. **Instrumentation Location** - Pool main thread (not separate worker dispatch)
+   - Native addon C++ code is fast, small parallelization benefit vs overhead
+   - Simplicity over premature optimization
+
+3. **AST Parsing Location** - Coverage provider (not pipeline)
+   - Provider owns assemblyScriptInclude glob configuration
+   - Separation of concerns: pipeline collects raw data, provider interprets and reports in the context of what should be covered
+
+4. **Data Flow** - Two-phase approach
+   - Execution Pipeline: Binary execution → hit counts (what was executed)
+   - Coverage Provider: Source parsing → coverage map (what should be covered)
+     - Matcher combines both for complete picture
 
 ---
 

@@ -43,7 +43,7 @@ export class Counter {
     }
   }
 
-  previewIncrement(): i32 {
+  previewPlusTwo(): i32 {
     return this.plusTwo(this._value);
   }
 

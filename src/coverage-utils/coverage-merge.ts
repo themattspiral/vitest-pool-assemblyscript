@@ -76,7 +76,7 @@ export function buildMergedCoverageData(
     const accumulatedFunctions = accumulatedCoverageData.qualifiedFunctionsByAbsoluteFilePath[filePath] ?? {};
 
     for (const [qualifiedName, funcInfo] of Object.entries(functions)) {
-      // Look up hit count from accumulated data
+      // Look up hit count from accumulated data (pre-v1 name matching currently!)
       const accumulatedFunc = accumulatedFunctions[qualifiedName];
       const hitCount = accumulatedFunc?.hitCount ?? 0;
 
