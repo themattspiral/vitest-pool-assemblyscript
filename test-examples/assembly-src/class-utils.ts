@@ -11,13 +11,24 @@
 export class Counter {
   private _value: i32;
   private _maxValue: i32;
+  
+  memberArrowFunc_IncrementPreview: (a: i32) => i32;
 
   constructor(initial: i32 = 0, max: i32 = 100) {
     this._value = initial;
     this._maxValue = max;
+
+    this.memberArrowFunc_IncrementPreview = (a: i32): i32 => {
+      const res: i32 = a + 1;
+      return res;
+    };
   }
 
-  // Regular method
+  previewIncrement(): i32 {
+    return this.memberArrowFunc_IncrementPreview(this._value);
+  }
+
+  @inline
   increment(): void {
     if (this._value < this._maxValue) {
       this._value++;

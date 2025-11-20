@@ -15,7 +15,17 @@ const myFailingArrowFunc = (): i32 => {
   return value;
 }
 
+// @ts-ignore: decorators on top-level variables are supported in AssemblyScript
+@inline
+export const decoratedArrowFunc = (x: i32): i32 => {
+  return x * 2;
+}
 
+export const bracelessArrowFunc = (x: i32): i32 =>  x * 2;
+
+// @ts-ignore: decorators on top-level variables are supported in AssemblyScript
+@inline
+export const decoratedBracelessArrowFunc = (x: i32): i32 =>  x * 2;
 
 export function failNamedFunc(): i32 {
   return myFailingNamedFunc();

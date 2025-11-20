@@ -137,8 +137,10 @@ function visitNode(
     const qualifiedName = `${modulePath}/${shortName}`;
 
     // Get position information (1-based for internal consistency)
-    const startLine = src.lineAt(node.range.start);
-    const startColumn = src.columnAt(node.range.start);
+    // Use name.range.start for start position to skip decorators
+    // (node.range.start includes decorators, but name is on the actual function line)
+    const startLine = src.lineAt(node.name.range.start);
+    const startColumn = src.columnAt(node.name.range.start);
     const endLine = src.lineAt(node.range.end);
     const endColumn = src.columnAt(node.range.end);
 
@@ -211,8 +213,10 @@ function visitNode(
 
         const qualifiedName = `${modulePath}/${shortName}`;
 
-        const startLine = src.lineAt(member.range.start);
-        const startColumn = src.columnAt(member.range.start);
+        // Use name.range.start for start position to skip decorators
+        // (member.range.start includes decorators, but name is on the actual method line)
+        const startLine = src.lineAt(member.name.range.start);
+        const startColumn = src.columnAt(member.name.range.start);
         const endLine = src.lineAt(member.range.end);
         const endColumn = src.columnAt(member.range.end);
 

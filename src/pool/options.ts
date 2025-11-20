@@ -75,12 +75,12 @@ export function getPoolOptions(config: ResolvedConfig): ResolvedAssemblyScriptPo
   const allOptionsFields = [...AS_POOL_FIELDS_WITH_DEFAULTS, ...AS_POOL_OPTIONAL_FIELDS];
 
   for (const configKey of allOptionsFields) {
-    if (!poolOptions[configKey]) {
+    // Use undefined check to preserve false boolean values, 0, etc
+    if (poolOptions[configKey] === undefined) {
       // @ts-ignore
       poolOptions[configKey] = DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS[configKey]!;
     }
   }
 
   return poolOptions as ResolvedAssemblyScriptPoolOptions;
-;
 }

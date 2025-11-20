@@ -26,6 +26,12 @@ test('Counter constructor with default values', () => {
 });
 
 // Test regular methods
+test('Counter previewIncrement shows hypothetical increased value', () => {
+  const counter = new Counter(8);
+  const preview = counter.previewIncrement();
+  assert(preview == 9, 'Preview should be 9 when starting value is 8');
+});
+
 test('Counter increment increases value', () => {
   const counter = new Counter(5);
   counter.increment();
