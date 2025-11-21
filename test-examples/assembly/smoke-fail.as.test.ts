@@ -1,10 +1,7 @@
 import { test, assert } from '../../assembly';
-
-function add(a: i32, b: i32): i32 {
-  return a + b;
-}
+import { fails } from '../assembly-src/smoke-utils';
 
 test('smoke fail [should fail]', () => {
-  const x: i32 = add(1, 1);
-  assert(x == 3);
+  const x: i32 = fails();
+  assert(x == 2);
 });

@@ -193,12 +193,12 @@ export class HybridCoverageProvider implements CoverageProvider {
   /**
    * Report coverage - delegate to v8 provider
    */
-  async reportCoverage(coverage: unknown, context: ReportContext): Promise<void> {
+  async reportCoverage(coverageMap: unknown, context: ReportContext): Promise<void> {
     if (!this.v8Provider) {
-      throw new Error('[HybridCoverageProvider] Not initialized. Call initialize() first.');
+      throw new Error('[HybridCoverageProvider] No v8 Provider available for reporting. Call initialize() first.');
     }
-    debug('[HybridCoverageProvider] Reporting coverage...');
-    await this.v8Provider.reportCoverage(coverage, context);
+    debug(`[HybridCoverageProvider] Reporting coverage (allTestsRun=${context.allTestsRun})`);
+    await this.v8Provider.reportCoverage(coverageMap, context);
   }
 
   /**
@@ -206,7 +206,7 @@ export class HybridCoverageProvider implements CoverageProvider {
    */
   resolveOptions(): ResolvedCoverageOptions {
     if (!this.v8Provider) {
-      throw new Error('[HybridCoverageProvider] Not initialized. Call initialize() first.');
+      throw new Error('[HybridCoverageProvider] No v8 Provider available for resolveOptions. Call initialize() first.');
     }
     return this.v8Provider.resolveOptions();
   }
@@ -228,10 +228,7 @@ export class HybridCoverageProvider implements CoverageProvider {
  */
 export default {
   getProvider: () => new HybridCoverageProvider(),
-  takeCoverage: () => {
-    // Not used - v8 provider handles this for JS, we handle AS in pool
-  },
-  startCoverage: () => {
-    // Not used - v8 provider handles this for JS, we instrument AS at compile time
-  }
+  takeCoverage: v8CoverageModule.takeCoverage,
+  startCoverage: v8CoverageModule.startCoverage,
+  stopCoverage: v8CoverageModule.stopCoverage,
 };
