@@ -12,6 +12,7 @@
 
 import { basename } from 'node:path';
 import type { TaskResultPack, TaskEventPack } from '@vitest/runner';
+import { interpretTaskModes } from '@vitest/runner/utils';
 import type {
   DiscoverTestsTask,
   DiscoverTestsResult,
@@ -55,13 +56,13 @@ installSourcemapsSupport({
  * Discover tests from compiled binary
  *
  * Instantiates the WASM binary and executes _start to register tests.
- * Returns the list of discovered tests with names and function indices.
+ * Applies test name pattern filtering and returns filtered file task.
  * Reports RPC events: onQueued, onCollected, suite-prepare.
  *
  * Called via: pool.run(taskData, { name: 'discoverTests', transferList: [port] })
  *
  * @param taskData - Discovery task data
- * @returns Discovered tests and discovery timings
+ * @returns File task with filtered tests, discovered tests, and discovery timings
  */
 export async function discoverTests(taskData: DiscoverTestsTask): Promise<DiscoverTestsResult> {
   try {
@@ -93,7 +94,23 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
       timings
     );
 
-    // Report onCollected
+    // Apply test name pattern filtering (from -t flag) before reporting to Vitest
+    // This sets test.mode to 'skip' for tests that don't match the pattern
+    interpretTaskModes(
+      collectedFileTask,
+      taskData.testNamePattern,
+      undefined,  // testLocations
+      false,      // onlyMode (will be detected from tasks)
+      false,      // parentIsOnly
+      taskData.allowOnly
+    );
+
+    const skippedCount = collectedFileTask.tasks.filter(t => t.mode === 'skip').length;
+    if (skippedCount > 0) {
+      debug(`[Worker] Filtered ${skippedCount}/${tests.length} tests based on testNamePattern`);
+    }
+
+    // Report onCollected with filtered tasks
     await reportFileCollected(rpc, collectedFileTask);
 
     // Report suite-prepare
@@ -101,7 +118,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
 
     debug('[Worker] discoverTests complete, discovered', tests.length, 'tests');
 
-    return { tests, timings };
+    return { fileTask: collectedFileTask, tests, timings };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     throw new Error(`[Worker] discoverTests failed for ${taskData.testFile}: ${errorMsg}`, { cause: error });
@@ -154,7 +171,7 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
     );
 
     timings.phaseEnd = performance.now();
-    debug(`[TIMING] ${basename(taskData.testFile)} - test ${taskData.testIndex}: ${timings.phaseEnd - timings.phaseStart}ms`);
+    debug(`[TIMING] ${basename(taskData.testFile)} - test "${taskData.test.name}": ${timings.phaseEnd - timings.phaseStart}ms`);
 
     // Report test-finished
     const finishedResult = {
@@ -173,7 +190,6 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
 
     return {
       result: testResult,
-      testIndex: taskData.testIndex,
     };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -224,7 +240,7 @@ export async function executeTestWithCoverage(taskData: ExecuteTestWithCoverageT
     );
 
     timings.phaseEnd = performance.now();
-    debug(`[TIMING] ${basename(taskData.testFile)} - test ${taskData.testIndex}: ${timings.phaseEnd - timings.phaseStart}ms`);
+    debug(`[TIMING] ${basename(taskData.testFile)} - test "${taskData.test.name}": ${timings.phaseEnd - timings.phaseStart}ms`);
 
     // Report test-finished (respecting suppressFailureReporting flag)
     const shouldSuppressReport = taskData.suppressFailureReporting && !testResult.passed;
@@ -249,7 +265,6 @@ export async function executeTestWithCoverage(taskData: ExecuteTestWithCoverageT
 
     return {
       result: testResult,
-      testIndex: taskData.testIndex,
     };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);

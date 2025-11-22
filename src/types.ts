@@ -373,12 +373,18 @@ export interface DiscoverTestsTask {
   compileTimings: PhaseTimings;
   /** Debug info from coverage instrumentation (if binary is instrumented) */
   debugInfo?: DebugInfo;
+  /** Test name pattern for filtering (from -t flag) */
+  testNamePattern?: RegExp;
+  /** Allow .only modifier */
+  allowOnly?: boolean;
 }
 
 /**
  * Result from discoverTests worker function
  */
 export interface DiscoverTestsResult {
+  /** File task with filtered tests (after applying testNamePattern) */
+  fileTask: RunnerTestFile;
   /** Discovered tests with names and function indices */
   tests: DiscoveredTest[];
   /** Discovery phase timings */
@@ -397,8 +403,6 @@ export interface ExecuteTestTask {
   sourceMap?: string;
   /** Test to execute */
   test: DiscoveredTest;
-  /** Test index in file (for ordering) */
-  testIndex: number;
   /** Path to test file */
   testFile: string;
   /** Pool options */
@@ -425,8 +429,6 @@ export interface ExecuteTestWithCoverageTask {
   debugInfo: DebugInfo;
   /** Test to execute */
   test: DiscoveredTest;
-  /** Test index in file (for ordering) */
-  testIndex: number;
   /** Path to test file */
   testFile: string;
   /** Pool options */
@@ -447,8 +449,6 @@ export interface ExecuteTestWithCoverageTask {
 export interface ExecuteTestResult {
   /** Test execution result */
   result: TestResult;
-  /** Test index (for ordering) */
-  testIndex: number;
 }
 
 

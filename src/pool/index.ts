@@ -7,8 +7,6 @@
  */
 
 import type { ProcessPool, Vitest, TestProject, TestSpecification, RunnerTestCase, RunnerTestFile, ResolvedConfig } from 'vitest/node';
-import type { TestContext } from '@vitest/runner';
-import { createFileTask } from '@vitest/runner/utils';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, basename } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -236,14 +234,15 @@ async function executePhase1Compilation(
 /**
  * Phase 2: Discover tests in compiled binary
  * Always uses clean binary, populates cached.discoveredTests
+ * Applies test name pattern filtering and returns file task with filtered tests
  * Throws on discovery failure
  *
  * @param testFilePath - Path to test file (absolute path)
  * @param cached - Cached compilation
  * @param spec - Test specification
- * @param project - Test project
  * @param pool - Tinypool instance
- * @param rpcCollect - true when running a `collectTests()` operation only, false for full `runTests()`
+ * @param isCollectTestsMode - true when running a `collectTests()` operation only, false for full `runTests()`
+ * @returns File task with filtered tests (undefined in collectTests mode)
  * @throws Error on discovery failure
  */
 async function executePhase2Discovery(
@@ -251,17 +250,30 @@ async function executePhase2Discovery(
   cached: CachedCompilation,
   spec: TestSpecification,
   pool: Tinypool,
-  rpcCollect: boolean
-): Promise<void> {
+  isCollectTestsMode: boolean
+): Promise<RunnerTestFile | undefined> {
   // set debug mode within this async context
   const poolOptions = getPoolOptions(spec.project.config);
   setDebugMode(poolOptions.debug);
 
   debug(`[Pipeline ${basename(testFilePath)}] Phase 2 (discover) starting`);
 
-  if (cached.discoveredTests.length === 0) {
+  // Call worker if:
+  //   (1) First discovery (cache empty), OR
+  //   (2) Need fresh fileTask with current filtering for runTests mode
+  //
+  // When shouldCallWorker is false:
+  //   - We're in collectTests mode AND tests already cached
+  //   - This edge case shouldn't happen (watch mode invalidates cache before re-collecting)
+  //   - But if it does (e.g., `vitest list` called twice), returning undefined is correct
+  //     since collectTests mode doesn't need fileTask
+  const shouldCallWorker = cached.discoveredTests.length === 0 || !isCollectTestsMode;
+
+  let fileTask: RunnerTestFile | undefined;
+
+  if (shouldCallWorker) {
     const projectInfo = extractProjectInfo(spec);
-    const { workerPort, poolPort } = createWorkerChannel(spec.project, rpcCollect);
+    const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
 
     try {
       const discoverTask: DiscoverTestsTask = {
@@ -272,6 +284,8 @@ async function executePhase2Discovery(
         projectInfo,
         compileTimings: cached.compileTimings,
         debugInfo: cached.debugInfo,
+        testNamePattern: spec.project.config.testNamePattern,
+        allowOnly: spec.project.config.allowOnly,
       };
 
       const discoverResult = await pool.run(discoverTask, {
@@ -279,8 +293,16 @@ async function executePhase2Discovery(
         transferList: [workerPort],
       }) as DiscoverTestsResult;
 
-      cached.discoveredTests = discoverResult.tests;
-      cached.discoverTimings = discoverResult.timings;
+      // Update cache on first discovery only
+      if (cached.discoveredTests.length === 0) {
+        cached.discoveredTests = discoverResult.tests;
+        cached.discoverTimings = discoverResult.timings;
+      }
+
+      // Return fileTask for runTests mode (with current filtering applied)
+      if (!isCollectTestsMode) {
+        fileTask = discoverResult.fileTask;
+      }
     } finally {
       workerPort.close();
       poolPort.close();
@@ -288,6 +310,7 @@ async function executePhase2Discovery(
   }
 
   debug(`[Pipeline ${basename(testFilePath)}] Phase 2 (discover) complete, found ${cached.discoveredTests.length} tests`);
+  return fileTask;
 }
 
 /**
@@ -321,8 +344,12 @@ async function executePhase3Tests(
 
   debug(`[Pipeline ${basename(testFilePath)}] Phase 3 Execute starting - coverage: ${coverageEnabled}`);
 
-  const testExecutions = testTasks.map(async (testTask, testIndex) => {
-    const test = cached.discoveredTests[testIndex]!;
+  const testExecutions = testTasks.map(async (testTask) => {
+    // Match test task to discovered test by name
+    const test = cached.discoveredTests.find(t => t.name === testTask.name);
+    if (!test) {
+      throw new Error(`Could not find discovered test for task: ${testTask.name}`);
+    }
 
     // Create RPC channel for this test
     const { workerPort: testWorkerPort, poolPort: testPoolPort } = createWorkerChannel(project, false);
@@ -342,7 +369,6 @@ async function executePhase3Tests(
           sourceMap: cached.sourceMap,
           debugInfo: cached.debugInfo,
           test,
-          testIndex,
           testFile: testFilePath,
           poolOptions,
           port: testWorkerPort,
@@ -364,7 +390,6 @@ async function executePhase3Tests(
           binary: cached.clean,
           sourceMap: cached.sourceMap,
           test,
-          testIndex,
           testFile: testFilePath,
           poolOptions,
           port: testWorkerPort,
@@ -403,9 +428,7 @@ async function executePhase3Tests(
  * @param testFilePath - Path to test file (absolute path)
  * @param cached - Cached compilation
  * @param testResults - Results from Phase 3 (instrumented binary)
- * @param testTasks - Array of test tasks
  * @param project - Test project
- * @param config - Vitest resolved config
  * @param pool - Tinypool instance
  * @returns Updated test results with clean binary results for failed tests
  * @throws Error on re-run execution failure
@@ -414,7 +437,6 @@ async function executePhase4FailsafeRerun(
   testFilePath: string,
   cached: CachedCompilation,
   testResults: PoolTestResult[],
-  testTasks: RunnerTestCase[],
   project: TestProject,
   pool: Tinypool
 ): Promise<PoolTestResult[]> {
@@ -433,8 +455,11 @@ async function executePhase4FailsafeRerun(
 
     // Re-run only failed tests on clean binary and collect their results
     const rerunExecutions = failedResults.map(async ({ testTask, result: _originalResult }) => {
-      const testIndex = testTasks.indexOf(testTask);
-      const test = cached.discoveredTests[testIndex]!;
+      // Match test task to discovered test by name
+      const test = cached.discoveredTests.find(t => t.name === testTask.name);
+      if (!test) {
+        throw new Error(`Could not find discovered test for rerun: ${testTask.name}`);
+      }
 
       const { workerPort: rerunPort, poolPort: rerunPoolPort } = createWorkerChannel(project, false);
 
@@ -442,7 +467,6 @@ async function executePhase4FailsafeRerun(
         binary: cached.clean,
         sourceMap: cached.sourceMap,
         test,
-        testIndex,
         testFile: testFilePath,
         poolOptions,
         port: rerunPort,
@@ -527,9 +551,19 @@ async function executePhase5FinalizeFileResults(
   const fileEndTime = Date.now();
   const hasFailures = testResults.some(({ result }) => !result.passed);
 
+  // Check if all tests in the file were skipped
+  const allTestsSkipped = fileTask.tasks.length > 0 &&
+    fileTask.tasks.every(t => t.mode === 'skip');
+
   if (fileTask.result) {
     fileTask.result.duration = fileEndTime - fileTask.result.startTime!;
-    fileTask.result.state = hasFailures ? 'fail' : 'pass'; 
+
+    // Set file state: skip if all tests skipped, fail if any failures, otherwise pass
+    if (allTestsSkipped) {
+      fileTask.result.state = 'skip';
+    } else {
+      fileTask.result.state = hasFailures ? 'fail' : 'pass';
+    }
   }
 
   // Report file summary (suite-finished + final flush)
@@ -653,7 +687,6 @@ async function runTests(
   // Create pipeline for each file
   const filePipelines: Promise<void>[] = specs.map(async (spec: TestSpecification) => {
     const testFilePath: string = spec.moduleId; // absolute path
-    const projectInfo = extractProjectInfo(spec);
     const poolOptions = getPoolOptions(spec.project.config);
 
     // set debug mode within this async context
@@ -667,53 +700,40 @@ async function runTests(
       const p1Ms = Date.now() - p1Start;
       debug(`[Pipeline ${basename(testFilePath)}] Phase 1 Pipeline Timing: ${p1Ms}ms`);
 
-      // PHASE 2: Discover
+      // PHASE 2: Discover (with filtering applied in worker)
       const p2Start = Date.now();
-      await executePhase2Discovery(testFilePath, cached, spec, pool, false);
+      const fileTask = await executePhase2Discovery(testFilePath, cached, spec, pool, false);
       const p2End = Date.now();
       const p2Ms = p2End - p2Start;
       debug(`[Pipeline ${basename(testFilePath)}] Phase 2 Pipeline Timing: ${p2Ms}ms`);
+
+      if (!fileTask) {
+        throw new Error(`Phase 2 discovery did not return file task for ${testFilePath}`);
+      }
 
       debug(`[Pipeline ${basename(testFilePath)}] Phase 2 complete, found ${cached.discoveredTests.length} tests`);
 
       // Get coverage mode
       const { isFailsafeMode } = getCoverageModeFlags(config);
 
-      // Create file task for test execution
-      const fileTask = createFileTask(
-        testFilePath,
-        projectInfo.projectRoot,
-        projectInfo.projectName,
-        ASSEMBLYSCRIPT_POOL_NAME
-      );
-      fileTask.mode = 'run';
+      // Extract test tasks from file task
+      const testTasks: RunnerTestCase[] = fileTask.tasks as RunnerTestCase[];
 
-      // Add test tasks to file
-      const testTasks: RunnerTestCase[] = [];
-      for (const test of cached.discoveredTests) {
-        const testTask: RunnerTestCase = {
-          type: 'test',
-          name: test.name,
-          id: `${fileTask.id}_${test.name}`,
-          context: {} as TestContext & object,
-          suite: fileTask,
-          mode: 'run',
-          meta: {},
-          file: fileTask,
-          timeout: projectInfo.testTimeout,
-          annotations: [],
-        };
-        fileTask.tasks.push(testTask);
-        testTasks.push(testTask);
+      // Filter to only execute non-skipped tests
+      const testsToExecute = testTasks.filter(t => t.mode !== 'skip');
+      const skippedCount = testTasks.length - testsToExecute.length;
+
+      if (skippedCount > 0) {
+        debug(`[Pipeline ${basename(testFilePath)}] Skipping ${skippedCount}/${testTasks.length} tests due to testNamePattern filter`);
       }
 
-      // PHASE 3: Execute all tests
+      // PHASE 3: Execute non-skipped tests
       const p3Start = Date.now();
       fileTask.result = { state: 'run', startTime: Date.now() };
       const testResults = await executePhase3Tests(
         testFilePath,
         cached,
-        testTasks,
+        testsToExecute,
         spec.project,
         pool,
         isFailsafeMode
@@ -735,7 +755,7 @@ async function runTests(
       let finalTestResults = testResults;
       if (isFailsafeMode) {
         const p4Start = Date.now();
-        finalTestResults = await executePhase4FailsafeRerun(testFilePath, cached, testResults, testTasks, spec.project, pool);
+        finalTestResults = await executePhase4FailsafeRerun(testFilePath, cached, testResults, spec.project, pool);
         const p4Ms = Date.now() - p4Start;
         debug(`[Pipeline ${basename(testFilePath)}] Phase 4 Pipeline Timing: ${p4Ms}ms`);
       }
