@@ -39,8 +39,8 @@ export default defineConfig({
           exclude: ['**/node_modules/**'],
           
           testTimeout: 5000,
-          retry: 1,
-          bail: 1,
+          // retry: 1,
+          // bail: 1,
 
           // pool: 'threads',  // or 'forks', 'vmThreads'
           // poolOptions: {
@@ -62,7 +62,7 @@ export default defineConfig({
           include: ['test-examples/assembly/**/*.as.test.ts'],
 
           // testTimeout: 7000,
-          // retry: 0,
+          // retry: 1,
           // bail: 5,
 
           // Use AssemblyScript pool to execute tests in this project (dist version for dev)

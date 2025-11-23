@@ -472,6 +472,7 @@ async function executePhase4FailsafeRerun(
         port: rerunPort,
         testTaskId: testTask.id,
         testTaskName: testTask.name,
+        suppressPrepareReporting: true,  // test-prepare already reported in Phase 3
       };
 
       try {

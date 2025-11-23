@@ -413,6 +413,8 @@ export interface ExecuteTestTask {
   testTaskId: string;
   /** Test task name (for RPC reporting) */
   testTaskName: string;
+  /** Suppress reporting of test-prepare event */
+  suppressPrepareReporting?: boolean;
 }
 
 /**

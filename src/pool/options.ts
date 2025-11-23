@@ -54,9 +54,8 @@ export function getCoverageModeFlags(config: ResolvedConfig): CoverageModeFlags 
  * @param config - Vitest resolved config
  * @returns True if coverage collection is enabled
  */
-export function isCoverageEnabled(_config: ResolvedConfig): boolean {
-  // return config.coverage.enabled;
-  return true; // until we implement hybrid coverage.reporter
+export function isCoverageEnabled(config: ResolvedConfig): boolean {
+  return config.coverage.enabled;
 }
 
 /**

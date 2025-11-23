@@ -149,16 +149,20 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
     const rpc = createRpcClient(taskData.port);
 
     // Report test-prepare
-    const testStartTime = Date.now();
-    const prepareResult = {
-      state: 'run' as const,
-      startTime: testStartTime,
-    };
-    const prepareTaskPack: TaskResultPack = [taskData.testTaskId, prepareResult, {}];
-    const prepareEventPack: TaskEventPack = [taskData.testTaskId, 'test-prepare', undefined];
+    if (taskData.suppressPrepareReporting) {
+      debug('[Worker] Suppressing test-prepare for failsafe rerun:', taskData.testTaskName);
+    } else {
+      const testStartTime = Date.now();
+      const prepareResult = {
+        state: 'run' as const,
+        startTime: testStartTime,
+      };
+      const prepareTaskPack: TaskResultPack = [taskData.testTaskId, prepareResult, {}];
+      const prepareEventPack: TaskEventPack = [taskData.testTaskId, 'test-prepare', undefined];
 
-    debug('[Worker] Reporting test-prepare for:', taskData.testTaskName);
-    await rpc.onTaskUpdate([prepareTaskPack], [prepareEventPack]);
+      debug('[Worker] Reporting test-prepare for:', taskData.testTaskName);
+      await rpc.onTaskUpdate([prepareTaskPack], [prepareEventPack]);
+    }
 
     // Execute single test via executor (no coverage)
     const timings = createPhaseTimings();
