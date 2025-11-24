@@ -392,7 +392,7 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 │    sources imported by this test file                        │
 │  ──────────────────────────────────────────────────────────  │
 │                            ↓                                 │
-│  Phase 5: Report to Coveraghe Provider (Worker Dispatch)     │
+│  Phase 5: Report to Coverage Provider (Worker Dispatch)      │
 │  onAfterSuiteRun(coverageData, debugInfo)                    │
 │  • Send aggregated coverage for this test file               │
 │  • Provider accumulates across all test files                │
