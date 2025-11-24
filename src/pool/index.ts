@@ -35,6 +35,7 @@ import { createPhaseTimings } from '../utils/timing.mjs';
 import { createWorkerChannel } from './worker-channel.js';
 import { getCoverageModeFlags, isCoverageEnabled, getPoolOptions } from './options.js';
 import { createCompilationCache, type CompilationCache } from './cache.js';
+import { mergeCoverageData } from '../coverage-utils/coverage-merge.js';
 
 // ESM-compatible __dirname (import.meta.url is transformed by tsup/esbuild)
 const __filename = fileURLToPath(import.meta.url);
@@ -100,26 +101,9 @@ function aggregateTestCoverageForFile(
       positionCoverageByAbsoluteFilePath: {},
     };
 
+    // Use shared merge logic for each per-test coverage
     for (const testCoverage of perTestCoverage) {
-      for (const [sourceFilePath, positions] of Object.entries(testCoverage.positionCoverageByAbsoluteFilePath)) {
-        if (!fileCoverage.positionCoverageByAbsoluteFilePath[sourceFilePath]) {
-          fileCoverage.positionCoverageByAbsoluteFilePath[sourceFilePath] = {};
-        }
-
-        for (const [positionKey, funcCovInfo] of Object.entries(positions)) {
-          const existing = fileCoverage.positionCoverageByAbsoluteFilePath[sourceFilePath][positionKey];
-          if (existing) {
-            // Sum hit counts across tests
-            existing.hitCount += funcCovInfo.hitCount;
-          } else {
-            // First occurrence - copy the coverage info
-            fileCoverage.positionCoverageByAbsoluteFilePath[sourceFilePath][positionKey] = {
-              info: funcCovInfo.info,
-              hitCount: funcCovInfo.hitCount,
-            };
-          }
-        }
-      }
+      mergeCoverageData(fileCoverage, testCoverage);
     }
 
     // Store in pipeline storage for phase 5 reporting
