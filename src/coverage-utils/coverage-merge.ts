@@ -5,13 +5,13 @@
  * from source debug info and accumulated execution data.
  */
 
-import type { CoverageData, DebugInfo } from '../types.js';
+import type { CoverageData, DebugInfo, FunctionCoverageInfo } from '../types.js';
 import { debug } from '../utils/debug.mjs';
 
 /**
  * Merge incoming CoverageData into accumulated CoverageData
  *
- * Combines by filepath + qualified name, summing hit counts.
+ * Combines by filepath + position, summing hit counts.
  * Mutates the accumulated object in place.
  *
  * @param accumulated - Accumulated coverage data (mutated)
@@ -21,21 +21,21 @@ export function mergeCoverageData(
   accumulated: CoverageData,
   incoming: CoverageData
 ): void {
-  for (const [filePath, functions] of Object.entries(incoming.qualifiedFunctionsByAbsoluteFilePath)) {
+  for (const [filePath, positions] of Object.entries(incoming.positionCoverageByAbsoluteFilePath)) {
     // Ensure file exists in accumulated
-    if (!accumulated.qualifiedFunctionsByAbsoluteFilePath[filePath]) {
-      accumulated.qualifiedFunctionsByAbsoluteFilePath[filePath] = {};
+    if (!accumulated.positionCoverageByAbsoluteFilePath[filePath]) {
+      accumulated.positionCoverageByAbsoluteFilePath[filePath] = {};
     }
 
-    const accumulatedFunctions = accumulated.qualifiedFunctionsByAbsoluteFilePath[filePath];
+    const accumulatedPositions = accumulated.positionCoverageByAbsoluteFilePath[filePath];
 
-    for (const [qualifiedName, funcCovInfo] of Object.entries(functions)) {
-      if (accumulatedFunctions[qualifiedName]) {
-        // Function exists - sum hit counts
-        accumulatedFunctions[qualifiedName].hitCount += funcCovInfo.hitCount;
+    for (const [positionKey, funcCovInfo] of Object.entries(positions)) {
+      if (accumulatedPositions[positionKey]) {
+        // Position exists - sum hit counts
+        accumulatedPositions[positionKey].hitCount += funcCovInfo.hitCount;
       } else {
-        // New function - copy it
-        accumulatedFunctions[qualifiedName] = {
+        // New position - copy it
+        accumulatedPositions[positionKey] = {
           info: { ...funcCovInfo.info },
           hitCount: funcCovInfo.hitCount
         };
@@ -54,7 +54,7 @@ export function mergeCoverageData(
  * not just executed ones, preventing false 100% coverage reports.
  *
  * @param sourceDebugInfo - All functions from parsed source files (source of truth for line numbers)
- * @param accumulatedCoverageData - Accumulated execution coverage data
+ * @param accumulatedCoverageData - Accumulated execution coverage data (keyed by position)
  * @returns CoverageData with all source functions and correct hit counts
  */
 export function buildMergedCoverageData(
@@ -62,25 +62,34 @@ export function buildMergedCoverageData(
   accumulatedCoverageData: CoverageData
 ): CoverageData {
   const result: CoverageData = {
-    qualifiedFunctionsByAbsoluteFilePath: {}
+    positionCoverageByAbsoluteFilePath: {}
   };
 
   let totalFunctions = 0;
   let functionsWithHits = 0;
 
   for (const [filePath, functions] of Object.entries(sourceDebugInfo.qualifiedFunctionsByAbsoluteFilePath)) {
-    result.qualifiedFunctionsByAbsoluteFilePath[filePath] = {};
-    const resultFunctions = result.qualifiedFunctionsByAbsoluteFilePath[filePath];
+    result.positionCoverageByAbsoluteFilePath[filePath] = {};
+    const resultPositions = result.positionCoverageByAbsoluteFilePath[filePath];
 
-    // Get accumulated functions for this file (if any)
-    const accumulatedFunctions = accumulatedCoverageData.qualifiedFunctionsByAbsoluteFilePath[filePath] ?? {};
+    // Get accumulated coverage for this file (if any) - position-keyed
+    const accumulatedPositions = accumulatedCoverageData.positionCoverageByAbsoluteFilePath[filePath] ?? {};
+
+    // Build reverse index: qualified name -> FunctionCoverageInfo
+    // This allows name-based matching even though accumulated data is position-keyed
+    const accumulatedByName: Record<string, FunctionCoverageInfo> = {};
+    for (const funcCovInfo of Object.values(accumulatedPositions)) {
+      accumulatedByName[funcCovInfo.info.qualifiedName] = funcCovInfo;
+    }
 
     for (const [qualifiedName, funcInfo] of Object.entries(functions)) {
-      // Look up hit count from accumulated data (pre-v1 name matching currently!)
-      const accumulatedFunc = accumulatedFunctions[qualifiedName];
+      // Look up hit count by qualified name (v1: exact match, v2: will use containment matching)
+      const accumulatedFunc = accumulatedByName[qualifiedName];
       const hitCount = accumulatedFunc?.hitCount ?? 0;
 
-      resultFunctions[qualifiedName] = {
+      // Output using source position as key
+      const positionKey = `${funcInfo.startLine}:${funcInfo.startColumn}`;
+      resultPositions[positionKey] = {
         info: funcInfo,
         hitCount
       };

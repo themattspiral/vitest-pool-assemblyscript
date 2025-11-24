@@ -322,12 +322,12 @@ export interface DebugInfo {
 /**
  * Coverage data collected during test execution
  *
- * Same nested structure as DebugInfo but with hit counts added.
+ * Uses position-based keys for stable merging across test files.
  * Outer Record: keyed by absolute file path
- * Inner Record: keyed by qualified function name -> coverage info with hit count
+ * Inner Record: keyed by position ("line:column") -> coverage info with hit count
  */
 export interface CoverageData {
-  qualifiedFunctionsByAbsoluteFilePath: Record<string, Record<string, FunctionCoverageInfo>>;
+  positionCoverageByAbsoluteFilePath: Record<string, Record<string, FunctionCoverageInfo>>;
 }
 
 /**
@@ -336,7 +336,7 @@ export interface CoverageData {
  * The __format marker distinguishes AS coverage from JS coverage in onAfterSuiteRun.
  */
 export interface AssemblyScriptCoveragePayload {
-  __format: 'assemblyscript';
+  readonly __format: 'assemblyscript';
   coverageData: CoverageData;
 }
 

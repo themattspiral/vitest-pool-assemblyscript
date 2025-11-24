@@ -40,8 +40,8 @@ export function convertToIstanbulFormat(
 ): FileCoverageData {
   debug(`[IstanbulConverter] Converting coverage for file: ${filePath}`);
 
-  // Get functions for this specific file
-  const fileFunctions = coverageData.qualifiedFunctionsByAbsoluteFilePath[filePath];
+  // Get functions for this specific file (keyed by position)
+  const fileFunctions = coverageData.positionCoverageByAbsoluteFilePath[filePath];
   if (!fileFunctions) {
     debug(`[IstanbulConverter] No functions found for ${filePath}`);
     return {
@@ -68,7 +68,7 @@ export function convertToIstanbulFormat(
 
   // Convert function coverage to Istanbul format
   let funcIdx = 0;
-  for (const [qualifiedName, funcCovInfo] of Object.entries(fileFunctions)) {
+  for (const [positionKey, funcCovInfo] of Object.entries(fileFunctions)) {
     const { info, hitCount } = funcCovInfo;
 
     // Skip functions without valid metadata
@@ -78,7 +78,7 @@ export function convertToIstanbulFormat(
       continue;
     }
 
-    debug(`[IstanbulConverter] Function ${funcIdx}: "${info.shortName}" (${qualifiedName}) hit ${hitCount} times, lines ${info.startLine}-${info.endLine}`);
+    debug(`[IstanbulConverter] Function ${funcIdx}: "${info.shortName}" (${info.qualifiedName}) at ${positionKey} hit ${hitCount} times, lines ${info.startLine}-${info.endLine}`);
 
     // Create function mapping
     // Both 'decl' (declaration) and 'loc' (location) use the same range

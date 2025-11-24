@@ -25,7 +25,7 @@ export class HybridCoverageProvider implements CoverageProvider {
 
   private v8Provider: CoverageProvider | undefined;
   private projectRoot: string | undefined;
-  private accumulatedCoverageData: CoverageData = { qualifiedFunctionsByAbsoluteFilePath: {} };
+  private accumulatedCoverageData: CoverageData = { positionCoverageByAbsoluteFilePath: {} };
   private assemblyScriptInclude: string[] = [];
   private assemblyScriptExclude: string[] = [];
 
@@ -96,15 +96,15 @@ export class HybridCoverageProvider implements CoverageProvider {
       const payload = coverage as AssemblyScriptCoveragePayload;
       const { coverageData } = payload;
 
-      const fileCount = Object.keys(coverageData.qualifiedFunctionsByAbsoluteFilePath).length;
-      const funcCount = Object.values(coverageData.qualifiedFunctionsByAbsoluteFilePath)
+      const fileCount = Object.keys(coverageData.positionCoverageByAbsoluteFilePath).length;
+      const funcCount = Object.values(coverageData.positionCoverageByAbsoluteFilePath)
         .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
       debug(`[HybridCoverageProvider] AS coverage payload: ${fileCount} files, ${funcCount} functions`);
 
-      // Merge incoming coverage data into accumulated (by qualified name, summing hit counts)
+      // Merge incoming coverage data into accumulated (by position, summing hit counts)
       mergeCoverageData(this.accumulatedCoverageData, coverageData);
 
-      const accumulatedFileCount = Object.keys(this.accumulatedCoverageData.qualifiedFunctionsByAbsoluteFilePath).length;
+      const accumulatedFileCount = Object.keys(this.accumulatedCoverageData.positionCoverageByAbsoluteFilePath).length;
       debug(`[HybridCoverageProvider] Accumulated coverage now has ${accumulatedFileCount} files`);
     } else {
       // Delegate to v8 provider for all other formats (JS, etc.)
@@ -157,7 +157,7 @@ export class HybridCoverageProvider implements CoverageProvider {
           .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
         debug(`[HybridCoverageProvider] Parsed ${funcCount} functions from ${fileCount} files`);
 
-        const accumulatedFuncCount = Object.values(this.accumulatedCoverageData.qualifiedFunctionsByAbsoluteFilePath)
+        const accumulatedFuncCount = Object.values(this.accumulatedCoverageData.positionCoverageByAbsoluteFilePath)
           .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
         debug(`[HybridCoverageProvider] Accumulated coverage has ${accumulatedFuncCount} functions`);
         
@@ -167,7 +167,7 @@ export class HybridCoverageProvider implements CoverageProvider {
         const mergedCoverageData = buildMergedCoverageData(sourceDebugInfo, this.accumulatedCoverageData);
 
         // Step 4: Convert merged CoverageData to Istanbul format
-        for (const filePath of Object.keys(mergedCoverageData.qualifiedFunctionsByAbsoluteFilePath)) {
+        for (const filePath of Object.keys(mergedCoverageData.positionCoverageByAbsoluteFilePath)) {
           const istanbulData = convertToIstanbulFormat(mergedCoverageData, filePath);
           asCoverageMap.addFileCoverage(istanbulData);
         }
@@ -216,7 +216,7 @@ export class HybridCoverageProvider implements CoverageProvider {
    */
   async clean(clean?: boolean): Promise<void> {
     debug('[HybridCoverageProvider] Cleaning coverage data');
-    this.accumulatedCoverageData = { qualifiedFunctionsByAbsoluteFilePath: {} };
+    this.accumulatedCoverageData = { positionCoverageByAbsoluteFilePath: {} };
     if (this.v8Provider) {
       await this.v8Provider.clean(clean);
     }

@@ -190,7 +190,7 @@ export async function executeSingleTest(
       }
 
       const coverage: CoverageData = {
-        qualifiedFunctionsByAbsoluteFilePath: {},
+        positionCoverageByAbsoluteFilePath: {},
       };
 
       // Read counters from coverage memory
@@ -198,10 +198,11 @@ export async function executeSingleTest(
       const counters = new Uint32Array(coverageMemory.buffer, 0, numFunctions);
 
       // Iterate all functions and build coverage data with hit counts
+      // Use position-based keys (line:column) for stable merging across test files
       let functionsHit = 0;
       for (const [filePath, functions] of Object.entries(debugInfo.qualifiedFunctionsByAbsoluteFilePath)) {
-        if (!coverage.qualifiedFunctionsByAbsoluteFilePath[filePath]) {
-          coverage.qualifiedFunctionsByAbsoluteFilePath[filePath] = {};
+        if (!coverage.positionCoverageByAbsoluteFilePath[filePath]) {
+          coverage.positionCoverageByAbsoluteFilePath[filePath] = {};
         }
 
         for (const [qualifiedName, funcInfo] of Object.entries(functions)) {
@@ -211,7 +212,10 @@ export async function executeSingleTest(
           }
 
           const hitCount = counters[funcInfo.coverageMemoryIndex] ?? 0;
-          coverage.qualifiedFunctionsByAbsoluteFilePath[filePath][qualifiedName] = {
+
+          // Use position as key for stable merging (same source position = same function across compilations)
+          const positionKey = `${funcInfo.startLine}:${funcInfo.startColumn}`;
+          coverage.positionCoverageByAbsoluteFilePath[filePath][positionKey] = {
             info: funcInfo,
             hitCount,
           };

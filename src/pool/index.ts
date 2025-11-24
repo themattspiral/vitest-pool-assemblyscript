@@ -95,25 +95,25 @@ function aggregateTestCoverageForFile(
     .filter((cov): cov is CoverageData => cov !== undefined);
 
   if (perTestCoverage.length > 0) {
-    // Merge all per-test coverage by summing hit counts for each function
+    // Merge all per-test coverage by summing hit counts for each position
     const fileCoverage: CoverageData = {
-      qualifiedFunctionsByAbsoluteFilePath: {},
+      positionCoverageByAbsoluteFilePath: {},
     };
 
     for (const testCoverage of perTestCoverage) {
-      for (const [sourceFilePath, functions] of Object.entries(testCoverage.qualifiedFunctionsByAbsoluteFilePath)) {
-        if (!fileCoverage.qualifiedFunctionsByAbsoluteFilePath[sourceFilePath]) {
-          fileCoverage.qualifiedFunctionsByAbsoluteFilePath[sourceFilePath] = {};
+      for (const [sourceFilePath, positions] of Object.entries(testCoverage.positionCoverageByAbsoluteFilePath)) {
+        if (!fileCoverage.positionCoverageByAbsoluteFilePath[sourceFilePath]) {
+          fileCoverage.positionCoverageByAbsoluteFilePath[sourceFilePath] = {};
         }
 
-        for (const [qualifiedName, funcCovInfo] of Object.entries(functions)) {
-          const existing = fileCoverage.qualifiedFunctionsByAbsoluteFilePath[sourceFilePath][qualifiedName];
+        for (const [positionKey, funcCovInfo] of Object.entries(positions)) {
+          const existing = fileCoverage.positionCoverageByAbsoluteFilePath[sourceFilePath][positionKey];
           if (existing) {
             // Sum hit counts across tests
             existing.hitCount += funcCovInfo.hitCount;
           } else {
             // First occurrence - copy the coverage info
-            fileCoverage.qualifiedFunctionsByAbsoluteFilePath[sourceFilePath][qualifiedName] = {
+            fileCoverage.positionCoverageByAbsoluteFilePath[sourceFilePath][positionKey] = {
               info: funcCovInfo.info,
               hitCount: funcCovInfo.hitCount,
             };
@@ -123,8 +123,8 @@ function aggregateTestCoverageForFile(
     }
 
     // Store in pipeline storage for phase 5 reporting
-    const sourceFileCount = Object.keys(fileCoverage.qualifiedFunctionsByAbsoluteFilePath).length;
-    const functionCount = Object.values(fileCoverage.qualifiedFunctionsByAbsoluteFilePath)
+    const sourceFileCount = Object.keys(fileCoverage.positionCoverageByAbsoluteFilePath).length;
+    const functionCount = Object.values(fileCoverage.positionCoverageByAbsoluteFilePath)
       .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
     debug(`[Pipeline ${basename(testFilePath)}] Aggregated coverage: ${sourceFileCount} source files, ${functionCount} functions`);
 
