@@ -12,13 +12,13 @@ import type {
   DebugInfo,
   InstrumentOptions,
   InstrumentResult,
-} from './types.js';
+} from './addon-types.js';
 
 // Export all types
-export * from './types.js';
+export * from './addon-types.js';
 
 // Load the native addon
-// The .node file is built by node-gyp into build/Release/
+// The .node file is built by node-gyp into build/Release/ (see binding.gyp)
 const req = createRequire(import.meta.dirname);
 const addon = req('../build/Release/wasm_binaryen_debug.node');
 
@@ -101,11 +101,8 @@ export function extractDebugInfoFromFiles(
  *
  * @throws {Error} Not yet implemented
  */
-export function instrumentForCoverage(
-  wasmBuffer: Buffer,
-  sourceMapBuffer: Buffer,
-  options?: InstrumentOptions
-): InstrumentResult {
+// @ts-ignore
+export function instrumentForCoverage(wasmBuffer: Buffer, sourceMapBuffer: Buffer, options?: InstrumentOptions): InstrumentResult {
   throw new Error('instrumentForCoverage is not yet implemented');
 }
 
@@ -119,10 +116,7 @@ export function instrumentForCoverage(
  *
  * @throws {Error} Not yet implemented
  */
-export function instrumentForCoverageFromFiles(
-  wasmPath: string,
-  sourceMapPath: string,
-  options?: InstrumentOptions
-): InstrumentResult {
+// @ts-ignore
+export function instrumentForCoverageFromFiles(wasmPath: string, sourceMapPath: string, options?: InstrumentOptions): InstrumentResult {
   throw new Error('instrumentForCoverageFromFiles is not yet implemented');
 }

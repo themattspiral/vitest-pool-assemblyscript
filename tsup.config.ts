@@ -4,9 +4,9 @@ import { copyFileSync, mkdirSync } from 'fs';
 export default defineConfig({
   entry: [
     'src/index.ts',
-    'src/worker/index.ts',
-    'src/config/config-helpers.ts',
-    'src/coverage-utils/index.ts',
+    'src/pool-worker/index.ts',
+    'src/config/index.ts',
+    'src/coverage-provider/index.ts',
   ],
   format: ['esm'],
   outDir: 'dist', // Explicitly set output directory
@@ -16,21 +16,24 @@ export default defineConfig({
   splitting: false,
   // Don't bundle dependencies - they should be installed by users
   external: [
-    'vitest',
     '@vitest/coverage-v8',
     '@vitest/runner',
     'assemblyscript',
     'binaryen',
     'birpc',
+    'istanbul-lib-coverage',
+    'node-addon-api',
     'source-map',
+    'test-exclude',
     'tinypool',
+    'typescript',
     'vite-node',
-    'istanbul-lib-coverage'
+    'vitest',
   ],
   onSuccess: async () => {
     // Copy transform files to dist
-    mkdirSync('dist/transforms', { recursive: true });
-    copyFileSync('src/transforms/strip-inline.mjs', 'dist/transforms/strip-inline.mjs');
-    copyFileSync('src/transforms/extract-function-metadata.mjs', 'dist/transforms/extract-function-metadata.mjs');
+    mkdirSync('dist/compiler-transforms', { recursive: true });
+    copyFileSync('src/compiler/transforms/strip-inline.mjs', 'dist/compiler-transforms/strip-inline.mjs');
+    copyFileSync('src/compiler/transforms/extract-function-metadata.mjs', 'dist/compiler-transforms/extract-function-metadata.mjs');
   },
 });

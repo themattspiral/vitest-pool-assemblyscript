@@ -29,7 +29,7 @@ import { installSourcemapsSupport } from 'vite-node/source-map';
 import {
   discoverTests as discoverTestsFromExecutor,
   executeSingleTest,
-} from '../executor/index.js';
+} from '../pool-executor/index.js';
 import { setDebugMode, debug } from '../utils/debug.mjs';
 import { createPhaseTimings } from '../utils/timing.mjs';
 import {

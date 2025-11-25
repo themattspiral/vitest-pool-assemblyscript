@@ -30,17 +30,17 @@ import type {
 } from '../types.js';
 import { ASSEMBLYSCRIPT_POOL_NAME } from '../types.js';
 import { setDebugMode, debug } from '../utils/debug.mjs';
-import { compileAssemblyScript } from '../compiler.js';
+import { compileAssemblyScript } from '../compiler/index.js';
 import { createPhaseTimings } from '../utils/timing.mjs';
 import { createWorkerChannel } from './worker-channel.js';
 import { getCoverageModeFlags, isCoverageEnabled, getPoolOptions } from './options.js';
 import { createCompilationCache, type CompilationCache } from './cache.js';
-import { mergeCoverageData } from '../coverage-utils/coverage-merge.js';
+import { mergeCoverageData } from '../coverage-provider/coverage-merge.js';
 
 // ESM-compatible __dirname (import.meta.url is transformed by tsup/esbuild)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const WORKER_PATH = resolve(__dirname, 'worker/index.js');
+const WORKER_PATH = resolve(__dirname, 'pool-worker/index.js');
 
 // Error code for cache invalidation failures (stale generation)
 const CACHE_INVALIDATED_ERROR_CODE = 'CACHE_INVALIDATED';

@@ -1,7 +1,7 @@
 
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { extractDebugInfo } from '../../src/native/debug.js';
+import { extractDebugInfo } from '../../src/native/addon-interface.js';
 import { compileFixture, compileInvalidFixture, type CompileResult } from '../helpers/compile-fixture.js';
 import { resolve } from 'path';
 

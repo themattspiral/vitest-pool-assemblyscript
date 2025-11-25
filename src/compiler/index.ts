@@ -10,16 +10,16 @@ import { basename } from 'path';
 import { fileURLToPath } from 'url';
 import { writeFileSync } from 'node:fs';
 
-import type { CompileResult, AssemblyScriptCompilerOptions, DebugInfo } from './types.js';
-import { debug } from './utils/debug.mjs';
-import { BinaryenCoverageInstrumenter } from './coverage-utils/instrumentation.js';
+import type { CompileResult, AssemblyScriptCompilerOptions, DebugInfo } from '../types.js';
+import { debug } from '../utils/debug.mjs';
+import { BinaryenCoverageInstrumenter } from '../coverage-provider/instrumentation.js';
 
 // Absolute paths to transform modules (resolved relative to dist directory)
 // At runtime, this module is at dist/index.js (bundled), transforms are at dist/transforms/*.mjs
 // From dist/index.js, transforms are at ./transforms/*.mjs
 // Using absolute paths ensures the built compiler can be imported anywhere and work.
-const STRIP_INLINE_TRANSFORM = fileURLToPath(new URL('./transforms/strip-inline.mjs', import.meta.url));
-const EXTRACT_METADATA_TRANSFORM = fileURLToPath(new URL('./transforms/extract-function-metadata.mjs', import.meta.url));
+const STRIP_INLINE_TRANSFORM = fileURLToPath(new URL('./compiler-transforms/strip-inline.mjs', import.meta.url));
+const EXTRACT_METADATA_TRANSFORM = fileURLToPath(new URL('./compiler-transforms/extract-function-metadata.mjs', import.meta.url));
 const DEBUG_WRITE_FILES = false;
 
 /**
