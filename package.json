@@ -30,15 +30,27 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/themattspiral/vitest-pool-assemblyscript.git"
+  },
+  "bugs": {
+    "url": "https://github.com/themattspiral/vitest-pool-assemblyscript/issues"
+  },
+  "homepage": "https://github.com/themattspiral/vitest-pool-assemblyscript#readme",
   "scripts": {
     "build": "tsup",
+    "tc": "tsc --noEmit",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tc": "tsc --noEmit"
+    "//------------ Native Addon ------------": "",
+    "setup-binaryen": "node scripts/setup-binaryen.js",
+    "build:native": "node-gyp rebuild"
   },
   "dependencies": {
     "birpc": "^2.4.0",
+    "node-addon-api": "^8.5.0",
     "source-map": "^0.7.6",
     "test-exclude": "^7.0.1",
     "tinypool": "^2.0.0"
@@ -54,6 +66,7 @@
     "binaryen": "^124.0.0",
     "birpc": "^2.4.0",
     "istanbul-lib-coverage": "^3.2.2",
+    "node-gyp": "^12.1.0",
     "tsup": "^8.5.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",

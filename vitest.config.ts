@@ -35,7 +35,7 @@ export default defineConfig({
             color: 'blue'
           },
 
-          include: ['test-examples/js/*.test.ts'],
+          include: ['test-examples/js/*.test.ts', 'test/**/*.test.ts'],
           exclude: ['**/node_modules/**'],
           
           testTimeout: 5000,
