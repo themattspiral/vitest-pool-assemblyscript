@@ -9,6 +9,8 @@ import asc from 'assemblyscript/asc';
 import { resolve, basename, dirname } from 'path';
 import { writeFileSync, mkdirSync } from 'fs';
 
+const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, '../../src/compiler/transforms/strip-inline.mjs');
+
 export interface CompileOptions {
   /** Enable debug info (default: true) */
   debug?: boolean;
@@ -22,6 +24,8 @@ export interface CompileOptions {
   outDir?: string;
   /** Additional compiler options */
   extra?: string[];
+  /** strips `@inline` decorators for fixture compilation (default: false) */
+  stripInline?: boolean;
 }
 
 export interface CompileResult {
@@ -60,6 +64,7 @@ export async function compileFixture(
     writeFiles = false,
     outDir = resolve(dirname(entryPath), '../fixtures'),
     extra = [],
+    stripInline = false
   } = options;
 
   const absolutePath = resolve(entryPath);
@@ -70,6 +75,8 @@ export async function compileFixture(
     absolutePath,
     '--outFile', `${outputName}.wasm`,
     '--optimizeLevel', String(optimize),
+    '--runtime', 'stub',
+
   ];
 
   if (debug) {
@@ -82,6 +89,12 @@ export async function compileFixture(
 
   // Add any extra options
   args.push(...extra);
+
+  if (stripInline === true) {
+    args.push(
+      '--transform', STRIP_INLINE_TRANSFORM
+    );
+  }
 
   // Capture output
   let binary: Uint8Array | undefined;

@@ -9,7 +9,7 @@
  * - Static methods
  */
 
-import { test, assert } from '../../assembly/index';
+import { test, assert } from '../../assembly';
 import { Counter } from '../assembly-src/class-utils';
 
 // Test constructor

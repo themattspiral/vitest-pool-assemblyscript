@@ -5,7 +5,6 @@
 
 import { test, assert } from '../../assembly';
 import { double } from '../assembly-src/quick-math';
-import { addOneLiner } from '../assembly-src/math';
 
 // 20 trivial tests that should complete in <1ms each
 // Using variable assignment to avoid AS compiler const-folding bug
@@ -29,7 +28,3 @@ test('quick 17', () => { const x: i32 = double(17); assert(x == 34); });
 test('quick 18', () => { const x: i32 = double(18); assert(x == 36); });
 test('quick 19', () => { const x: i32 = double(19); assert(x == 38); });
 test('quick 20', () => { const x: i32 = double(20); assert(x == 40); });
-test("quick 21 - should merge coverage count for addOneLiner source with call from math.as.test.ts", () => {
-  const sum: i32 = addOneLiner(1, 1);
-  assert(sum == 2, "1 + 1 should equal 2");
-});

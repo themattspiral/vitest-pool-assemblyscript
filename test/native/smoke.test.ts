@@ -5,7 +5,7 @@ import { extractDebugInfo } from '../../src/native/addon-interface.js';
 import { compileFixture, compileInvalidFixture, type CompileResult } from '../helpers/compile-fixture.js';
 import { resolve } from 'path';
 
-const SMOKE_FIXTURE = '../../test-examples/assembly-src/math.ts';
+const SMOKE_FIXTURE = '../../test-fixtures/assembly-src/math.ts';
 
 describe('extractDebugInfo', () => {
   it('should extract debug info from valid WASM with source map', async () => {

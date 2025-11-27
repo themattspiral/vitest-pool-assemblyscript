@@ -11,7 +11,7 @@
  * - WITH stripping: @inline functions appear in coverage
  */
 
-import { test, assert } from '../../assembly/index';
+import { test, assert } from '../../assembly';
 import { addInlined, addNormal, multiplyInlined, multiplyNormal, throwsError } from '../assembly-src/inline-utils';
 
 test('inline functions are called', (): void => {

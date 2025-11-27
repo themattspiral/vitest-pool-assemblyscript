@@ -15,7 +15,7 @@ const myFailingArrowFunc = (): i32 => {
   return value;
 };
 
-const a = 1, arrowDeclaration = (a: i32): i32 => a + 1, c = 'something', d = function(b: i32): i32 {
+export const a = 1, arrowDeclaration = (a: i32): i32 => a + 1, c = 'something', d = function(b: i32): i32 {
   return b + 1;
 };
 

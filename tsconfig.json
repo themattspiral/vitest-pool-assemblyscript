@@ -44,6 +44,7 @@
     "dist",
     "build",
     "assembly",
-    "test-examples/**/*",
+    "test-fixtures/assembly/**/*",
+    "test-fixtures/assembly-src/**/*",
   ]
 }

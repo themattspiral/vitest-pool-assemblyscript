@@ -67,6 +67,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     }
 
     await this.v8Provider.initialize(ctx);
+    this.v8Provider.name = 'hybrid-assemblyscript-v8 (delegated reporter)';
 
     // Store AS-specific coverage patterns from config
     // These are set via CustomProviderOptions augmentation
@@ -228,7 +229,16 @@ export class HybridCoverageProvider implements CoverageProvider {
  */
 export default {
   getProvider: () => new HybridCoverageProvider(),
-  takeCoverage: v8CoverageModule.takeCoverage,
-  startCoverage: v8CoverageModule.startCoverage,
-  stopCoverage: v8CoverageModule.stopCoverage,
+  takeCoverage: async (...args: any[]) => {
+    debug('[HybridCoverageProvider] takeCoverage called');
+    return await (v8CoverageModule.takeCoverage as any)(...args);
+  },
+  startCoverage: async (...args: any[]) => {
+    debug('[HybridCoverageProvider] startCoverage called');
+    return await (v8CoverageModule.startCoverage as any)(...args);
+  },
+  stopCoverage: async (...args: any[]) => {
+    debug('[HybridCoverageProvider] stopCoverage called');
+    return await (v8CoverageModule.stopCoverage as any)(...args);
+  },
 };
