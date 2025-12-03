@@ -14,9 +14,13 @@
  * Future Enhancement (v2): Block-level statement and branch coverage
  */
 
+import { relative, resolve } from 'node:path';
 import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
 import type { CoverageData, ParsedSourceInfo } from '../types.js';
 import { debug } from '../utils/debug.mjs';
+
+// resolve the correct root - this file is built to dist/coverage-provider
+const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
 
 /**
  * Convert AssemblyScript coverage data to Istanbul format
@@ -31,8 +35,8 @@ import { debug } from '../utils/debug.mjs';
  *    - Add same hit count to s (statement coverage matches function coverage)
  * 4. Add dummy uncovered branch at line 0 (shows 0% instead of misleading 100% for 0/0)
  *
- * @param parsedSourceInfo - Parsed source info with function metadata (names, ranges)
- * @param coverageData - Coverage data with hit counts (position -> hit count)
+ * @param parsedSourceInfo - Parsed source info with function metadata (names, ranges), keyed by absolute path
+ * @param coverageData - Coverage data with hit counts (position -> hit count), keyed by relative path
  * @param filePath - Absolute path to the source file
  * @returns Istanbul FileCoverage object
  */
@@ -59,7 +63,9 @@ export function convertToIstanbulFormat(
   }
 
   // Get hit counts for this file
-  const fileHitCounts = coverageData.hitCountsByFileAndPosition[filePath] ?? {};
+  // coverageData is keyed by relative path, so convert absolute filePath to relative
+  const relativeFilePath = relative(PROJECT_ROOT, filePath);
+  const fileHitCounts = coverageData.hitCountsByFileAndPosition[relativeFilePath] ?? {};
 
   // DEBUG: Show what keys exist
   debug(`[IstanbulConverter] Looking up filePath: ${filePath}`);
