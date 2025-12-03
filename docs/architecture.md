@@ -472,7 +472,6 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 │  • Per file:                                                 │
 │    ├─> Build fnMap, statementMap, branchMap                  │
 │    └─> Apply hit counts to generate f, s, b arrays           │
-│    └─> v1: Dummy branch coverage to make it display 0%       │
 │    └─> Add file map to overall CoverageMap                   │
 │                                                              │
 │  v1: Function coverage (function → statement map)            │

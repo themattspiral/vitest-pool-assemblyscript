@@ -33,7 +33,6 @@ const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
  *    - Add function hit count to f (from coverageData)
  *    - Add corresponding statement mapping to statementMap (at function start line)
  *    - Add same hit count to s (statement coverage matches function coverage)
- * 4. Add dummy uncovered branch at line 0 (shows 0% instead of misleading 100% for 0/0)
  *
  * @param parsedSourceInfo - Parsed source info with function metadata (names, ranges), keyed by absolute path
  * @param coverageData - Coverage data with hit counts (position -> hit count), keyed by relative path
@@ -127,18 +126,6 @@ export function convertToIstanbulFormat(
 
     funcIdx++;
   }
-
-  // Add dummy uncovered branch to show 0% instead of 100% (0/0)
-  // We don't have branch coverage yet, so this prevents misleading 100% reports
-  // Uses line 0 which won't appear in source display
-  const dummyRange = { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } };
-  branchMap['0'] = {
-    type: 'binary-expr',
-    loc: dummyRange,
-    locations: [dummyRange],
-    line: 0
-  };
-  b['0'] = [0];
 
   debug(`[IstanbulConverter] Result for ${filePath}: ${Object.keys(fnMap).length} functions added`);
 
