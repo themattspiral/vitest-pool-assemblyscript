@@ -613,8 +613,8 @@ describe('validator functions', () => {
 
         const result = validateDebugInfoFunctionSourceLocations(debugInfo);
 
-        expect(result.valid).toBe(false);
-        expect(result.errors[0]).toBe(
+        expect(result.valid).toBe(true);
+        expect(result.warnings[0]).toBe(
           `Unexpected WASM function "${nonExistentFuncName}" - Expected source name: "nonExistentFunc" not found in source file "${MATH_SOURCE_PATH}"`
         );
       });
