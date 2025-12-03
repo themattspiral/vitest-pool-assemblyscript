@@ -34,6 +34,5 @@ export default defineConfig({
     // Copy transform files to dist
     mkdirSync('dist/compiler-transforms', { recursive: true });
     copyFileSync('src/compiler/transforms/strip-inline.mjs', 'dist/compiler-transforms/strip-inline.mjs');
-    copyFileSync('src/compiler/transforms/extract-function-metadata.mjs', 'dist/compiler-transforms/extract-function-metadata.mjs');
   },
 });

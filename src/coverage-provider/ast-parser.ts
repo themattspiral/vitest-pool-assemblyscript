@@ -6,13 +6,16 @@
  *
  * Source AST is the source of truth for what SHOULD be covered.
  * Binary instrumentation tells us what we CAN measure (hit counts).
+ *
+ * Functions are keyed by first-expression position (line:column of first statement
+ * in the function body), which matches BinaryDebugInfo's representativeLocation
+ * for direct position-based lookup.
  */
 
 import { readFileSync } from 'fs';
-import { relative, parse as parsePath } from 'path';
-import { Parser } from 'assemblyscript';
-import type { RawSourceMap } from 'source-map';
-import type { DebugInfo, FunctionInfo } from '../types.js';
+import { relative, parse as parsePath } from 'node:path';
+import { Parser, Source, BlockStatement } from 'assemblyscript';
+import type { ParsedSourceInfo, ParsedSourceFunctionInfo, SourceRange } from '../types.js';
 
 // NodeKind enum values (from AS compiler)
 // Defined locally to avoid isolatedModules const enum access issues
@@ -54,35 +57,31 @@ const CommonFlags = {
  * Parse functions from AS source files
  *
  * Used in generateCoverage to build empty coverage map from coverage.include.
- * Returns DebugInfo with all functions at count=0 (not executed yet).
+ * Returns ParsedSourceInfo with functions keyed by first-expression position.
  *
  * @param filePaths - Absolute paths to AS source files
  * @param projectRoot - Project root for building relative paths
- * @returns DebugInfo with function metadata
+ * @returns ParsedSourceInfo with function metadata keyed by position
  */
 export function parseFunctionsFromFiles(
   filePaths: string[],
   projectRoot: string
-): DebugInfo {
-  const qualifiedFunctionsByAbsoluteFilePath: Record<string, Record<string, FunctionInfo>> = {};
-  const absoluteFilePathByQualifiedFunctionName: Record<string, string> = {};
+): ParsedSourceInfo {
+  const functionsByFileAndPosition: Record<string, Record<string, ParsedSourceFunctionInfo>> = {};
 
   for (const filePath of filePaths) {
     const functions = parseFunctionsFromFile(filePath, projectRoot);
 
     if (Object.keys(functions).length > 0) {
-      qualifiedFunctionsByAbsoluteFilePath[filePath] = functions;
-
-      // Build reverse lookup
-      for (const qualifiedName of Object.keys(functions)) {
-        absoluteFilePathByQualifiedFunctionName[qualifiedName] = filePath;
-      }
+      functionsByFileAndPosition[filePath] = functions;
     }
   }
 
   return {
-    qualifiedFunctionsByAbsoluteFilePath,
-    absoluteFilePathByQualifiedFunctionName
+    functionsByFileAndPosition,
+    // v2 only - not implemented yet
+    statementsByFileAndPosition: {},
+    branchesByFileAndPosition: {}
   };
 }
 
@@ -91,14 +90,14 @@ export function parseFunctionsFromFiles(
  *
  * @param filePath - Absolute path to AS source file
  * @param projectRoot - Project root for building relative paths
- * @returns Record of qualified name to FunctionInfo
+ * @returns Record of position key to ParsedSourceFunctionInfo
  */
 function parseFunctionsFromFile(
   filePath: string,
   projectRoot: string
-): Record<string, FunctionInfo> {
+): Record<string, ParsedSourceFunctionInfo> {
   const source = readFileSync(filePath, 'utf8');
-  const functions: Record<string, FunctionInfo> = {};
+  const functions: Record<string, ParsedSourceFunctionInfo> = {};
 
   // Build the module path (strip any extension, use forward slashes)
   const relativePath = relative(projectRoot, filePath).replace(/\\/g, '/');
@@ -107,7 +106,7 @@ function parseFunctionsFromFile(
 
   // Parse with AssemblyScript parser
   const parser = new Parser();
-  parser.parseFile(source, filePath, true);
+  parser.parseFile(source, relativePath, true);
 
   const src = parser.currentSource;
   if (!src) {
@@ -116,10 +115,53 @@ function parseFunctionsFromFile(
 
   // Visit all top-level statements
   for (const stmt of src.statements) {
-    visitNode(stmt, src, modulePath, functions);
+    visitNode(stmt, src, modulePath, filePath, functions);
   }
 
   return functions;
+}
+
+/**
+ * Get the position of the first statement in a function body
+ *
+ * This position is used as the key for position-based matching with
+ * BinaryDebugInfo's representativeLocation.
+ */
+function getFirstExpressionPosition(
+  body: BlockStatement | null,
+  src: Source
+): { line: number; column: number } | undefined {
+  if (!body || body.statements.length === 0) {
+    return undefined;
+  }
+
+  const firstStmt = body.statements[0];
+  if (!firstStmt) {
+    return undefined;
+  }
+
+  return {
+    line: src.lineAt(firstStmt.range.start),
+    column: src.columnAt()
+  };
+}
+
+/**
+ * Add a function to the functions record, keyed by first-expression position
+ */
+function addFunction(
+  functions: Record<string, ParsedSourceFunctionInfo>,
+  qualifiedName: string,
+  shortName: string,
+  range: SourceRange,
+  firstExprPos: { line: number; column: number }
+): void {
+  const positionKey = `${firstExprPos.line}:${firstExprPos.column}`;
+  functions[positionKey] = {
+    qualifiedName,
+    shortName,
+    range
+  };
 }
 
 /**
@@ -129,12 +171,12 @@ function visitNode(
   node: any,
   src: any,
   modulePath: string,
-  functions: Record<string, FunctionInfo>
+  filePath: string,
+  functions: Record<string, ParsedSourceFunctionInfo>
 ): void {
   // Handle function declarations
   if (node.kind === NodeKind.FunctionDeclaration) {
     // Skip functions without names (shouldn't happen for declarations)
-    // v1 only, probably
     if (!node.name || !node.name.text) {
       return;
     }
@@ -142,22 +184,23 @@ function visitNode(
     const shortName = node.name.text;
     const qualifiedName = `${modulePath}/${shortName}`;
 
-    // Get position information (1-based for internal consistency)
-    // Use name.range.start for start position to skip decorators
-    // (node.range.start includes decorators, but name is on the actual function line)
-    const startLine = src.lineAt(node.name.range.start);
-    const startColumn = src.columnAt(node.name.range.start);
-    const endLine = src.lineAt(node.range.end);
-    const endColumn = src.columnAt(node.range.end);
+    // Get first expression position for keying
+    const firstExprPos = getFirstExpressionPosition(node.body, src);
+    if (!firstExprPos) {
+      // Skip functions with empty bodies (no statements)
+      return;
+    }
 
-    functions[qualifiedName] = {
-      qualifiedName,
-      shortName,
-      startLine,
-      endLine,
-      startColumn,
-      endColumn
+    // Build range for the function (using name.range.start to skip decorators)
+    const range: SourceRange = {
+      filePath,
+      startLine: src.lineAt(node.name.range.start),
+      startColumn: src.columnAt(node.name.range.start),
+      endLine: src.lineAt(node.range.end),
+      endColumn: src.columnAt(node.range.end)
     };
+
+    addFunction(functions, qualifiedName, shortName, range, firstExprPos);
   }
 
   // Handle variable statements (may contain arrow functions)
@@ -168,20 +211,23 @@ function visitNode(
         const shortName = decl.name.text;
         const qualifiedName = `${modulePath}/${shortName}`;
 
-        // Use the declaration's range for the function
-        const startLine = src.lineAt(decl.range.start);
-        const startColumn = src.columnAt(decl.range.start);
-        const endLine = src.lineAt(decl.range.end);
-        const endColumn = src.columnAt(decl.range.end);
+        // Get first expression position for keying
+        const firstExprPos = getFirstExpressionPosition(decl.initializer.body, src);
+        if (!firstExprPos) {
+          // Skip functions with empty bodies
+          continue;
+        }
 
-        functions[qualifiedName] = {
-          qualifiedName,
-          shortName,
-          startLine,
-          endLine,
-          startColumn,
-          endColumn
+        // Use the declaration's range for the function
+        const range: SourceRange = {
+          filePath,
+          startLine: src.lineAt(decl.range.start),
+          startColumn: src.columnAt(decl.range.start),
+          endLine: src.lineAt(decl.range.end),
+          endColumn: src.columnAt(decl.range.end)
         };
+
+        addFunction(functions, qualifiedName, shortName, range, firstExprPos);
       }
     }
   }
@@ -219,21 +265,23 @@ function visitNode(
 
         const qualifiedName = `${modulePath}/${shortName}`;
 
-        // Use name.range.start for start position to skip decorators
-        // (member.range.start includes decorators, but name is on the actual method line)
-        const startLine = src.lineAt(member.name.range.start);
-        const startColumn = src.columnAt(member.name.range.start);
-        const endLine = src.lineAt(member.range.end);
-        const endColumn = src.columnAt(member.range.end);
+        // Get first expression position for keying
+        const firstExprPos = getFirstExpressionPosition(member.body, src);
+        if (!firstExprPos) {
+          // Skip methods with empty bodies
+          continue;
+        }
 
-        functions[qualifiedName] = {
-          qualifiedName,
-          shortName,
-          startLine,
-          endLine,
-          startColumn,
-          endColumn
+        // Use name.range.start for start position to skip decorators
+        const range: SourceRange = {
+          filePath,
+          startLine: src.lineAt(member.name.range.start),
+          startColumn: src.columnAt(member.name.range.start),
+          endLine: src.lineAt(member.range.end),
+          endColumn: src.columnAt(member.range.end)
         };
+
+        addFunction(functions, qualifiedName, shortName, range, firstExprPos);
 
         // Look for arrow function assignments inside the method body: this.prop = () => {}
         // This pattern is used when AS doesn't support property initializer syntax
@@ -254,20 +302,22 @@ function visitNode(
                   const arrowShortName = `${className}#${propertyName}`;
                   const arrowQualifiedName = `${modulePath}/${arrowShortName}`;
 
-                  // Use the function expression's range for position
-                  const arrowStartLine = src.lineAt(expr.right.range.start);
-                  const arrowStartColumn = src.columnAt(expr.right.range.start);
-                  const arrowEndLine = src.lineAt(expr.right.range.end);
-                  const arrowEndColumn = src.columnAt(expr.right.range.end);
+                  // Get first expression position for keying
+                  const arrowFirstExprPos = getFirstExpressionPosition(expr.right.body, src);
+                  if (!arrowFirstExprPos) {
+                    continue;
+                  }
 
-                  functions[arrowQualifiedName] = {
-                    qualifiedName: arrowQualifiedName,
-                    shortName: arrowShortName,
-                    startLine: arrowStartLine,
-                    endLine: arrowEndLine,
-                    startColumn: arrowStartColumn,
-                    endColumn: arrowEndColumn
+                  // Use the function expression's range for position
+                  const arrowRange: SourceRange = {
+                    filePath,
+                    startLine: src.lineAt(expr.right.range.start),
+                    startColumn: src.columnAt(expr.right.range.start),
+                    endLine: src.lineAt(expr.right.range.end),
+                    endColumn: src.columnAt(expr.right.range.end)
                   };
+
+                  addFunction(functions, arrowQualifiedName, arrowShortName, arrowRange, arrowFirstExprPos);
                 }
               }
             }
@@ -280,94 +330,7 @@ function visitNode(
   // Recurse into namespace members
   if (node.kind === NodeKind.NamespaceDeclaration && node.members) {
     for (const member of node.members) {
-      visitNode(member, src, modulePath, functions);
+      visitNode(member, src, modulePath, filePath, functions);
     }
   }
-}
-
-/**
- * Parse functions from source map's embedded content
- *
- * Used in v2 onAfterSuiteRun for containment matching when we need
- * to parse sources that are embedded in the source map.
- *
- * @param sourceMap - Raw source map with sourcesContent
- * @param projectRoot - Project root for building relative paths
- * @returns DebugInfo with function metadata
- */
-export function parseFunctionsFromSourceMap(
-  sourceMap: RawSourceMap,
-  projectRoot: string
-): DebugInfo {
-  const qualifiedFunctionsByAbsoluteFilePath: Record<string, Record<string, FunctionInfo>> = {};
-  const absoluteFilePathByQualifiedFunctionName: Record<string, string> = {};
-
-  if (!sourceMap.sourcesContent) {
-    return {
-      qualifiedFunctionsByAbsoluteFilePath,
-      absoluteFilePathByQualifiedFunctionName
-    };
-  }
-
-  for (let i = 0; i < sourceMap.sources.length; i++) {
-    const sourcePath = sourceMap.sources[i];
-    const content = sourceMap.sourcesContent[i];
-
-    // Skip sources without content, undefined paths, or ~lib/ sources (runtime)
-    if (!content || !sourcePath || sourcePath.startsWith('~lib/')) {
-      continue;
-    }
-
-    const functions = parseFunctionsFromContent(content, sourcePath, projectRoot);
-
-    if (Object.keys(functions).length > 0) {
-      qualifiedFunctionsByAbsoluteFilePath[sourcePath] = functions;
-
-      for (const qualifiedName of Object.keys(functions)) {
-        absoluteFilePathByQualifiedFunctionName[qualifiedName] = sourcePath;
-      }
-    }
-  }
-
-  return {
-    qualifiedFunctionsByAbsoluteFilePath,
-    absoluteFilePathByQualifiedFunctionName
-  };
-}
-
-/**
- * Parse functions from source content string
- *
- * @param content - Source file content
- * @param sourcePath - Path to use for qualified names
- * @param projectRoot - Project root for building relative paths
- * @returns Record of qualified name to FunctionInfo
- */
-function parseFunctionsFromContent(
-  content: string,
-  sourcePath: string,
-  projectRoot: string
-): Record<string, FunctionInfo> {
-  const functions: Record<string, FunctionInfo> = {};
-
-  // Build the module path (strip any extension, use forward slashes)
-  const relativePath = relative(projectRoot, sourcePath).replace(/\\/g, '/');
-  const parsed = parsePath(relativePath);
-  const modulePath = parsed.dir ? `${parsed.dir}/${parsed.name}` : parsed.name;
-
-  // Parse with AssemblyScript parser
-  const parser = new Parser();
-  parser.parseFile(content, sourcePath, true);
-
-  const src = parser.currentSource;
-  if (!src) {
-    return functions;
-  }
-
-  // Visit all top-level statements
-  for (const stmt of src.statements) {
-    visitNode(stmt, src, modulePath, functions);
-  }
-
-  return functions;
 }

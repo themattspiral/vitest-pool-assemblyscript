@@ -16,14 +16,16 @@ describe('extractDebugInfo', () => {
     const debugInfo = extractDebugInfo(result.binary, result.sourceMap!);
 
     expect(debugInfo).toBeDefined();
-    expect(debugInfo.debugFiles).toBeDefined();
-    expect(Array.isArray(debugInfo.debugFiles)).toBe(true);
-    expect(debugInfo.debugFiles.length).toBeGreaterThan(0);
+    expect(debugInfo.debugSourceFiles).toBeDefined();
+    expect(Array.isArray(debugInfo.debugSourceFiles)).toBe(true);
+    expect(debugInfo.debugSourceFiles.length).toBeGreaterThan(0);
 
-    expect(debugInfo.functions).toBeDefined();
-    expect(typeof debugInfo.functions).toBe('object');
+    expect(debugInfo.functionsByName).toBeDefined();
+    expect(typeof debugInfo.functionsByName).toBe('object');
+    expect(debugInfo.functionsByFileAndPosition).toBeDefined();
+    expect(typeof debugInfo.functionsByFileAndPosition).toBe('object');
 
-    const functionNames = Object.keys(debugInfo.functions);
+    const functionNames = Object.keys(debugInfo.functionsByName);
     expect(functionNames.length).toBeGreaterThan(0);
   });
 
@@ -115,12 +117,12 @@ describe('extractDebugInfo', () => {
         const debugInfo = extractDebugInfo(missingDebugResult.binary, missingDebugResult.sourceMap!);
 
         expect(debugInfo).toBeDefined();
-        expect(debugInfo.functions).toBeDefined();
+        expect(debugInfo.functionsByName).toBeDefined();
 
         // Functions should exist but may have no debug locations
-        const functionNames = Object.keys(debugInfo.functions);
+        const functionNames = Object.keys(debugInfo.functionsByName);
         if (functionNames.length > 0) {
-          const firstFunc = debugInfo.functions[functionNames[0]];
+          const firstFunc = debugInfo.functionsByName[functionNames[0]!]!;
           // Expressions exist but might not have locations
           expect(Array.isArray(firstFunc.expressions)).toBe(true);
         }

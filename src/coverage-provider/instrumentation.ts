@@ -2,35 +2,31 @@
  * Binaryen-Based Coverage Instrumentation
  *
  * Post-processes compiled WASM binaries to inject coverage tracing.
- * This is an alternative to AS transform-based coverage instrumentation.
  *
  * Architecture:
- * 1. AS Transform extracts function metadata (name, source lines) during compilation
- * 2. AS Compiler generates WASM binary
- * 3. Binaryen reads binary and manipulates WASM module
- * 4. Inject memory operations to increment counters in separate coverage memory
- * 5. Use metadata to map funcIdx → {name, file, lines} in debug info
+ * 1. Native addon extracts debug info (BinaryDebugInfo) from WASM + source map
+ * 2. Binaryen reads binary and manipulates WASM module
+ * 3. Inject memory operations to increment counters in separate coverage memory
+ * 4. Assign coverageMemoryIndex to each FunctionDebugInfo for runtime correlation
  *
  * Multi-Memory Coverage (Node 20+):
- * - Uses WebAssembly multi-memory to store coverage counters in separate 
- *   WebAssembly.Memory instance, avoid test/user memory conflicts.
- * - Instrumentation injects native WASM memory operations (load/add/store) 
- *   to avoid WASM→JS boundary crossings using imports/exports to track executions
+ * - Uses WebAssembly multi-memory to store coverage counters in separate
+ *   WebAssembly.Memory instance, avoiding test/user memory conflicts.
+ * - Instrumentation injects native WASM memory operations (load/add/store)
+ *   to avoid WASM→JS boundary crossings
  */
 
 import binaryen from 'binaryen';
 import { debug } from '../utils/debug.mjs';
-import type { DebugInfo, FunctionInfo } from '../types.js';
+import type { BinaryDebugInfo, FunctionDebugInfo } from '../types.js';
 
 /**
  * Coverage instrumenter using Binaryen
  *
  * Implements function-level coverage by injecting trace calls at function entry.
- * Provides debug info mapping compatible with the existing AS transform approach.
+ * Takes BinaryDebugInfo from native addon and assigns coverageMemoryIndex to each function.
  */
 export class BinaryenCoverageInstrumenter {
-  /** Output debug info in nested structure */
-  private debugInfo: DebugInfo = { qualifiedFunctionsByAbsoluteFilePath: {}, absoluteFilePathByQualifiedFunctionName: {} };
   /** Internal counter for coverage memory indexing */
   private coverageMemoryIndex = 0;
 
@@ -38,13 +34,13 @@ export class BinaryenCoverageInstrumenter {
    * Instrument WASM binary with coverage tracing
    *
    * @param wasmBuffer - Compiled WASM binary from AS compiler
-   * @param sourceFile - Source file path (for metadata lookup)
-   * @returns Object with instrumented binary and debug info
+   * @param binaryDebugInfo - Debug info extracted from WASM via native addon
+   * @returns Object with instrumented binary and updated debug info (with coverageMemoryIndex assigned)
    */
   instrument(
     wasmBuffer: Uint8Array,
-    sourceFile: string
-  ): { binary: Uint8Array; debugInfo: DebugInfo } {
+    binaryDebugInfo: BinaryDebugInfo
+  ): { binary: Uint8Array; debugInfo: BinaryDebugInfo } {
     debug('[Binaryen Coverage] Starting coverage instrumentation');
     const startTime = performance.now();
 
@@ -60,7 +56,7 @@ export class BinaryenCoverageInstrumenter {
     );
 
     // Inject coverage tracing
-    this.injectCoverageTracing(module, sourceFile);
+    this.injectCoverageTracing(module, binaryDebugInfo);
 
     // Validate the module after instrumentation
     const isValid = module.validate();
@@ -80,7 +76,7 @@ export class BinaryenCoverageInstrumenter {
 
     return {
       binary: instrumentedBuffer,
-      debugInfo: this.getDebugInfo(),
+      debugInfo: binaryDebugInfo, // Return same object with coverageMemoryIndex assigned
     };
   }
 
@@ -88,30 +84,19 @@ export class BinaryenCoverageInstrumenter {
    * Inject coverage tracing into all user functions
    *
    * For each function:
-   * 1. Inject memory operations to increment coverage counter at function entry
-   * 2. Extract debug info (name, file, lines) from AS transform metadata
+   * 1. Look up function in BinaryDebugInfo.functionsByName
+   * 2. Inject memory operations to increment coverage counter at function entry
+   * 3. Assign coverageMemoryIndex to the FunctionDebugInfo
    */
-  private injectCoverageTracing(module: binaryen.Module, _sourceFile: string): void {
+  private injectCoverageTracing(module: binaryen.Module, binaryDebugInfo: BinaryDebugInfo): void {
     debug('[Binaryen Coverage] Injecting coverage memory operations');
 
     // Ensure __coverage_memory import exists
     this.ensureCoverageMemoryImport(module);
 
-    // Load function metadata from transform
-    // The transform collects metadata from all User and UserEntry sources
-    const metadata = globalThis.__functionMetadata;
-
-    if (metadata) {
-      const fileCount = Object.keys(metadata.qualifiedFunctionsByAbsoluteFilePath).length;
-      const funcCount = Object.keys(metadata.absoluteFilePathByQualifiedFunctionName).length;
-      debug(`[Binaryen Coverage] Loading metadata from ${fileCount} source files`);
-      for (const [path, functions] of Object.entries(metadata.qualifiedFunctionsByAbsoluteFilePath)) {
-        debug(`[Binaryen Coverage]   ${path}: ${Object.keys(functions).length} functions`);
-      }
-      debug(`[Binaryen Coverage] Total metadata: ${funcCount} unique functions from all sources`);
-    } else {
-      debug(`[Binaryen Coverage] No metadata found in globalThis.__functionMetadata`);
-    }
+    const fileCount = Object.keys(binaryDebugInfo.functionsByFileAndPosition).length;
+    const funcCount = Object.keys(binaryDebugInfo.functionsByName).length;
+    debug(`[Binaryen Coverage] BinaryDebugInfo has ${funcCount} functions from ${fileCount} files`);
 
     const numFunctions = module.getNumFunctions();
     debug(`[Binaryen Coverage] Found ${numFunctions} functions in module`);
@@ -119,83 +104,69 @@ export class BinaryenCoverageInstrumenter {
     // FIRST PASS: Collect all functions to instrument
     // Do NOT modify the module during this pass to avoid index shifting
     const functionsToInstrument: Array<{
-      funcInfo: binaryen.FunctionInfo;
-      functionInfo: FunctionInfo;
-      filePath: string;
+      binaryenFuncInfo: binaryen.FunctionInfo;
+      functionDebugInfo: FunctionDebugInfo;
     }> = [];
 
     debug(`[Binaryen Coverage] PASS 1: Collecting functions to instrument`);
 
     for (let i = 0; i < numFunctions; i++) {
       const funcRef = module.getFunctionByIndex(i);
-      const funcInfo = binaryen.getFunctionInfo(funcRef);
+      const binaryenFuncInfo = binaryen.getFunctionInfo(funcRef);
 
-      debug(`[Binaryen Coverage] Function ${i}: name="${funcInfo.name}", module="${funcInfo.module}", hasBody=${!!funcInfo.body}`);
+      debug(`[Binaryen Coverage] Function ${i}: name="${binaryenFuncInfo.name}", module="${binaryenFuncInfo.module}", hasBody=${!!binaryenFuncInfo.body}`);
 
       // Skip if this is an import (has non-empty module name)
-      if (funcInfo.module !== null && funcInfo.module !== '') {
-        debug(`[Binaryen Coverage] Skipping import: ${funcInfo.name}`);
+      if (binaryenFuncInfo.module !== null && binaryenFuncInfo.module !== '') {
+        debug(`[Binaryen Coverage] Skipping import: ${binaryenFuncInfo.name}`);
         continue;
       }
 
       // Skip framework functions (start with __)
-      if (funcInfo.name.startsWith('__')) {
-        debug(`[Binaryen Coverage] Skipping framework function: ${funcInfo.name}`);
+      if (binaryenFuncInfo.name.startsWith('__')) {
+        debug(`[Binaryen Coverage] Skipping framework function: ${binaryenFuncInfo.name}`);
         continue;
       }
 
       // Skip test framework functions (from assembly/index.ts)
-      if (funcInfo.name.startsWith('assembly/index/')) {
-        debug(`[Binaryen Coverage] Skipping test framework function: ${funcInfo.name}`);
+      if (binaryenFuncInfo.name.startsWith('assembly/index/')) {
+        debug(`[Binaryen Coverage] Skipping test framework function: ${binaryenFuncInfo.name}`);
         continue;
       }
 
       // Skip stdlib functions (start with ~lib/)
-      if (funcInfo.name.startsWith('~lib/')) {
-        debug(`[Binaryen Coverage] Skipping stdlib function: ${funcInfo.name}`);
+      if (binaryenFuncInfo.name.startsWith('~lib/')) {
+        debug(`[Binaryen Coverage] Skipping stdlib function: ${binaryenFuncInfo.name}`);
         continue;
       }
 
       // Skip runtime functions (start with ~)
-      if (funcInfo.name.startsWith('~')) {
-        debug(`[Binaryen Coverage] Skipping runtime function: ${funcInfo.name}`);
+      if (binaryenFuncInfo.name.startsWith('~')) {
+        debug(`[Binaryen Coverage] Skipping runtime function: ${binaryenFuncInfo.name}`);
         continue;
       }
 
       // Skip if no body
-      if (!funcInfo.body) {
-        debug(`[Binaryen Coverage] Skipping empty function (no body): ${funcInfo.name}`);
+      if (!binaryenFuncInfo.body) {
+        debug(`[Binaryen Coverage] Skipping empty function (no body): ${binaryenFuncInfo.name}`);
         continue;
       }
 
-      // Get metadata for this function using reverse lookup
-      if (!metadata) {
-        debug(`[Binaryen Coverage] No metadata available, skipping function "${funcInfo.name}"`);
-        continue;
-      }
-
-      const filePath = metadata.absoluteFilePathByQualifiedFunctionName[funcInfo.name];
-      if (!filePath) {
+      // Look up function in BinaryDebugInfo by name
+      const functionDebugInfo = binaryDebugInfo.functionsByName[binaryenFuncInfo.name];
+      if (!functionDebugInfo) {
         debug(
-          `[Binaryen Coverage] No metadata found for function "${funcInfo.name}". ` +
-          `This indicates the transform failed to collect metadata for this function. ` +
-          `Function is present in WASM binary but missing from transform metadata.`
+          `[Binaryen Coverage] No debug info found for function "${binaryenFuncInfo.name}". ` +
+          `Function is present in WASM binary but not in native addon's extracted debug info.`
         );
         continue;
       }
 
-      const functionInfo = metadata.qualifiedFunctionsByAbsoluteFilePath[filePath]?.[funcInfo.name];
-      if (!functionInfo) {
-        debug(`[Binaryen Coverage] Function info not found for "${funcInfo.name}" in "${filePath}"`);
-        continue;
-      }
-
       // Add to list of functions to instrument
-      debug(`[Binaryen Coverage] Will instrument function "${funcInfo.name}" from ${filePath}`);
+      debug(`[Binaryen Coverage] Will instrument function "${binaryenFuncInfo.name}"`);
       functionsToInstrument.push({
-        funcInfo,
-        functionInfo,
-        filePath
+        binaryenFuncInfo,
+        functionDebugInfo,
       });
     }
 
@@ -204,9 +175,9 @@ export class BinaryenCoverageInstrumenter {
     // SECOND PASS: Actually instrument the collected functions
     debug(`[Binaryen Coverage] PASS 2: Instrumenting ${functionsToInstrument.length} functions`);
 
-    for (const { funcInfo, functionInfo, filePath } of functionsToInstrument) {
-      debug(`[Binaryen Coverage] Instrumenting function "${funcInfo.name}" (coverage index ${this.coverageMemoryIndex})`);
-      this.instrumentFunction(filePath, module, funcInfo, functionInfo);
+    for (const { binaryenFuncInfo, functionDebugInfo } of functionsToInstrument) {
+      debug(`[Binaryen Coverage] Instrumenting function "${binaryenFuncInfo.name}" (coverage index ${this.coverageMemoryIndex})`);
+      this.instrumentFunction(module, binaryenFuncInfo, functionDebugInfo);
     }
 
     debug(`[Binaryen Coverage] Instrumented ${this.coverageMemoryIndex} functions`);
@@ -216,29 +187,21 @@ export class BinaryenCoverageInstrumenter {
    * Instrument a single function with coverage tracing
    */
   private instrumentFunction(
-    filePath: string,
     module: binaryen.Module,
-    funcInfo: binaryen.FunctionInfo,
-    functionInfo: FunctionInfo
+    binaryenFuncInfo: binaryen.FunctionInfo,
+    functionDebugInfo: FunctionDebugInfo
   ): void {
-    // Ensure file entry exists in output debugInfo
-    if (!this.debugInfo.qualifiedFunctionsByAbsoluteFilePath[filePath]) {
-      this.debugInfo.qualifiedFunctionsByAbsoluteFilePath[filePath] = {};
-    }
-
     // Get the current coverage memory index for this function
     const coverageIdx = this.coverageMemoryIndex;
     this.coverageMemoryIndex++;
 
-    // Store function info in output debugInfo with coverageMemoryIndex
-    const instrumentedFunctionInfo: FunctionInfo = {
-      ...functionInfo,
-      coverageMemoryIndex: coverageIdx,
-    };
-    this.debugInfo.qualifiedFunctionsByAbsoluteFilePath[filePath][funcInfo.name] = instrumentedFunctionInfo;
-    this.debugInfo.absoluteFilePathByQualifiedFunctionName[funcInfo.name] = filePath;
+    // Assign coverageMemoryIndex to the FunctionDebugInfo (mutates in place)
+    functionDebugInfo.coverageMemoryIndex = coverageIdx;
 
-    debug(`[Binaryen Coverage] Function ${funcInfo.name}: lines ${functionInfo.startLine}-${functionInfo.endLine}, coverageIdx=${coverageIdx}`);
+    const locationStr = functionDebugInfo.representativeLocation
+      ? `${functionDebugInfo.representativeLocation.line}:${functionDebugInfo.representativeLocation.column}`
+      : 'no-location';
+    debug(`[Binaryen Coverage] Function ${binaryenFuncInfo.name}: location=${locationStr}, coverageIdx=${coverageIdx}`);
 
     // Create memory operations to increment coverage counter
     // Calculate address: coverageIdx * 4 (4 bytes per i32 counter)
@@ -258,11 +221,11 @@ export class BinaryenCoverageInstrumenter {
 
     // Create new function body: block { stored; original_body; }
     // We wrap in a block to sequence the memory operations before the original body
-    const newBody = module.block(null, [stored, funcInfo.body], funcInfo.results);
+    const newBody = module.block(null, [stored, binaryenFuncInfo.body], binaryenFuncInfo.results);
 
     // Replace the function with the instrumented version
     // We need to remove and re-add since there's no "update" method
-    const functionName = funcInfo.name;
+    const functionName = binaryenFuncInfo.name;
 
     debug(`[Binaryen Coverage] Before removeFunction/addFunction for "${functionName}":`);
     debug(`[Binaryen Coverage]   Total functions in module: ${module.getNumFunctions()}`);
@@ -274,26 +237,14 @@ export class BinaryenCoverageInstrumenter {
 
     module.addFunction(
       functionName,
-      funcInfo.params,
-      funcInfo.results,
-      funcInfo.vars,
+      binaryenFuncInfo.params,
+      binaryenFuncInfo.results,
+      binaryenFuncInfo.vars,
       newBody
     );
 
     debug(`[Binaryen Coverage] After addFunction for "${functionName}":`);
     debug(`[Binaryen Coverage]   Total functions in module: ${module.getNumFunctions()}`);
-
-    // Re-export if it was exported
-    // Check if this function was exported
-    const numExports = module.getNumExports();
-    for (let i = 0; i < numExports; i++) {
-      const exportRef = module.getExportByIndex(i);
-      const exportInfo = binaryen.getExportInfo(exportRef);
-      if (exportInfo && exportInfo.value === functionName) {
-        // Already exported, no need to re-add
-        break;
-      }
-    }
 
     debug(`[Binaryen Coverage] Instrumented function: ${functionName} (coverageIdx=${coverageIdx})`);
   }
@@ -314,13 +265,6 @@ export class BinaryenCoverageInstrumenter {
     );
 
     debug('[Binaryen Coverage] Added __coverage_memory import');
-  }
-
-  /**
-   * Get the debug info mapping after instrumentation
-   */
-  getDebugInfo(): DebugInfo {
-    return this.debugInfo;
   }
 
   /**

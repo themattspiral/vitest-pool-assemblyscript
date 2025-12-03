@@ -4,6 +4,9 @@ node_modules/
 # coverage output
 coverage/
 
+# local config
+.vscode/
+
 # build artifacts
 build/
 dist/

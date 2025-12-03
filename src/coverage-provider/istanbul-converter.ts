@@ -15,33 +15,36 @@
  */
 
 import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
-import type { CoverageData } from '../types.js';
+import type { CoverageData, ParsedSourceInfo } from '../types.js';
 import { debug } from '../utils/debug.mjs';
 
 /**
  * Convert AssemblyScript coverage data to Istanbul format
  *
  * Algorithm:
- * 1. Get functions for the target file from coverageData
- * 2. For each function with valid metadata (startLine > 0):
- *    - Add function mapping to fnMap
- *    - Add function hit count to f
+ * 1. Get functions for the target file from parsedSourceInfo
+ * 2. Get hit counts for the target file from coverageData
+ * 3. For each function with valid metadata (startLine > 0):
+ *    - Add function mapping to fnMap (from parsedSourceInfo)
+ *    - Add function hit count to f (from coverageData)
  *    - Add corresponding statement mapping to statementMap (at function start line)
  *    - Add same hit count to s (statement coverage matches function coverage)
- * 3. Add dummy uncovered branch at line 0 (shows 0% instead of misleading 100% for 0/0)
+ * 4. Add dummy uncovered branch at line 0 (shows 0% instead of misleading 100% for 0/0)
  *
- * @param coverageData - Coverage data with function info and hit counts
+ * @param parsedSourceInfo - Parsed source info with function metadata (names, ranges)
+ * @param coverageData - Coverage data with hit counts (position -> hit count)
  * @param filePath - Absolute path to the source file
  * @returns Istanbul FileCoverage object
  */
 export function convertToIstanbulFormat(
+  parsedSourceInfo: ParsedSourceInfo,
   coverageData: CoverageData,
   filePath: string
 ): FileCoverageData {
   debug(`[IstanbulConverter] Converting coverage for file: ${filePath}`);
 
-  // Get functions for this specific file (keyed by position)
-  const fileFunctions = coverageData.positionCoverageByAbsoluteFilePath[filePath];
+  // Get functions for this specific file from parsed source
+  const fileFunctions = parsedSourceInfo.functionsByFileAndPosition[filePath];
   if (!fileFunctions) {
     debug(`[IstanbulConverter] No functions found for ${filePath}`);
     return {
@@ -54,6 +57,15 @@ export function convertToIstanbulFormat(
       b: {}
     };
   }
+
+  // Get hit counts for this file
+  const fileHitCounts = coverageData.hitCountsByFileAndPosition[filePath] ?? {};
+
+  // DEBUG: Show what keys exist
+  debug(`[IstanbulConverter] Looking up filePath: ${filePath}`);
+  debug(`[IstanbulConverter] parsedSourceInfo keys: ${Object.keys(fileFunctions).slice(0, 3).join(', ')}`);
+  debug(`[IstanbulConverter] fileHitCounts keys: ${Object.keys(fileHitCounts).slice(0, 3).join(', ')}`);
+  debug(`[IstanbulConverter] MATCH CHECK: parsed=${Object.keys(fileFunctions)[0]} vs hits=${Object.keys(fileHitCounts)[0]}`);
 
   const funcCount = Object.keys(fileFunctions).length;
   debug(`[IstanbulConverter] File has ${funcCount} functions`);
@@ -68,32 +80,35 @@ export function convertToIstanbulFormat(
 
   // Convert function coverage to Istanbul format
   let funcIdx = 0;
-  for (const [positionKey, funcCovInfo] of Object.entries(fileFunctions)) {
-    const { info, hitCount } = funcCovInfo;
+  for (const [positionKey, funcInfo] of Object.entries(fileFunctions)) {
+    const { range, shortName } = funcInfo;
 
     // Skip functions without valid metadata
     // Functions with startLine === 0 are compiler-generated or missing metadata
-    if (info.startLine === 0) {
+    if (range.startLine === 0) {
       funcIdx++;
       continue;
     }
 
-    debug(`[IstanbulConverter] Function ${funcIdx}: "${info.shortName}" (${info.qualifiedName}) at ${positionKey} hit ${hitCount} times, lines ${info.startLine}-${info.endLine}`);
+    // Get hit count from coverage data using position key
+    const hitCount = fileHitCounts[positionKey] ?? 0;
+
+    debug(`[IstanbulConverter] Function ${funcIdx}: "${shortName}" at ${positionKey} hit ${hitCount} times (key exists: ${positionKey in fileHitCounts})`);
 
     // Create function mapping
     // Both 'decl' (declaration) and 'loc' (location) use the same range
-    // Internal FunctionInfo uses 1-based columns, Istanbul expects 0-based
-    const range: Range = {
-      start: { line: info.startLine, column: info.startColumn - 1 },
-      end: { line: info.endLine, column: info.endColumn - 1 }
+    // Internal ParsedSourceFunctionInfo uses 1-based columns, Istanbul expects 0-based
+    const istanbulRange: Range = {
+      start: { line: range.startLine, column: range.startColumn - 1 },
+      end: { line: range.endLine, column: range.endColumn - 1 }
     };
 
     const idxStr = funcIdx.toString();
     fnMap[idxStr] = {
-      name: info.shortName,
-      decl: range,
-      loc: range,
-      line: info.startLine
+      name: shortName,
+      decl: istanbulRange,
+      loc: istanbulRange,
+      line: range.startLine
     };
     f[idxStr] = hitCount;
 
@@ -101,7 +116,7 @@ export function convertToIstanbulFormat(
     // For function-level coverage, each function is one "statement"
     // The statement range matches the function range
     // This gives us statement coverage at function granularity
-    statementMap[idxStr] = range;
+    statementMap[idxStr] = istanbulRange;
     s[idxStr] = hitCount;
 
     funcIdx++;

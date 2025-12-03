@@ -6,11 +6,11 @@
  * - Unit tests (test/unit/) import and use specific fixtures they need
  */
 
-import { resolve, basename } from 'path';
+import { resolve, basename } from 'node:path';
 import { readdirSync } from 'fs';
+import type { BinaryDebugInfo, FunctionDebugInfo } from '../../src/types.js';
 import { compileFixture, type CompileResult, type CompileOptions } from './compile-fixture.js';
 import { extractDebugInfo } from '../../src/native/addon-interface.js';
-import type { DebugInfo, FunctionDebugInfo } from '../../src/native/addon-types';
 
 /**
  * Path prefix used in source maps and function names for test fixtures
@@ -40,7 +40,7 @@ export interface CompiledFixture {
   /** Compilation result */
   compiled: CompileResult;
   /** Extracted debug info */
-  debugInfo: DebugInfo;
+  debugInfo: BinaryDebugInfo;
   /** Source code lines */
   sourceLines: string[];
 }
@@ -124,8 +124,8 @@ export async function compileFixtures(
 /**
  * Helper to get functions from our test source (not stdlib)
  */
-export function getTestFunctionNames(debugInfo: DebugInfo, fixtureName: string): string[] {
-  return Object.keys(debugInfo.functions).filter(name =>
+export function getTestFunctionNames(debugInfo: BinaryDebugInfo, fixtureName: string): string[] {
+  return Object.keys(debugInfo.functionsByName).filter(name =>
     name.includes(`${FIXTURE_PATH_PREFIX}${fixtureName}`)
   );
 }
@@ -133,8 +133,8 @@ export function getTestFunctionNames(debugInfo: DebugInfo, fixtureName: string):
 /**
  * Helper to find a specific function by name fragment
  */
-export function findFunctionByName(debugInfo: DebugInfo, nameFragment: string): [string, FunctionDebugInfo] | undefined {
-  const entry = Object.entries(debugInfo.functions).find(([name]) =>
+export function findFunctionByName(debugInfo: BinaryDebugInfo, nameFragment: string): [string, FunctionDebugInfo] | undefined {
+  const entry = Object.entries(debugInfo.functionsByName).find(([name]) =>
     name.includes(nameFragment)
   );
   return entry;
@@ -144,23 +144,24 @@ export function findFunctionByName(debugInfo: DebugInfo, nameFragment: string): 
  * Helper to get expressions that map to our source file (not stdlib)
  */
 export function getTestFileExpressions(
-  debugInfo: DebugInfo,
+  debugInfo: BinaryDebugInfo,
   funcName: string,
   fixtureName: string
 ) {
-  const func = debugInfo.functions[funcName];
+  const func = debugInfo.functionsByName[funcName];
   if (!func) return [];
 
   return func.expressions
-    .map((expr, index) => ({ expr, index }))
-    .filter(({ expr }) => expr.location)
-    .map(({ expr, index }) => ({
-      expr,
-      index,
-      location: expr.location!,
-    }))
-    .filter(({ location }) => {
-      const fileName = debugInfo.debugFiles[location.fileIndex];
-      return fileName.includes(`${FIXTURE_PATH_PREFIX}${fixtureName}`);
-    });
+    ? func.expressions
+      .map((expr, index) => ({ expr, index }))
+      .filter(({ expr }) => expr.location)
+      .map(({ expr, index }) => ({
+        expr,
+        index,
+        location: expr.location!,
+      }))
+      .filter(({ location }) => {
+        return location.filePath.includes(`${FIXTURE_PATH_PREFIX}${fixtureName}`);
+      })
+    : [];
 }

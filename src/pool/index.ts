@@ -98,7 +98,7 @@ function aggregateTestCoverageForFile(
   if (perTestCoverage.length > 0) {
     // Merge all per-test coverage by summing hit counts for each position
     const fileCoverage: CoverageData = {
-      positionCoverageByAbsoluteFilePath: {},
+      hitCountsByFileAndPosition: {},
     };
 
     // Use shared merge logic for each per-test coverage
@@ -107,10 +107,10 @@ function aggregateTestCoverageForFile(
     }
 
     // Store in pipeline storage for phase 5 reporting
-    const sourceFileCount = Object.keys(fileCoverage.positionCoverageByAbsoluteFilePath).length;
-    const functionCount = Object.values(fileCoverage.positionCoverageByAbsoluteFilePath)
-      .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
-    debug(`[Pipeline ${basename(testFilePath)}] Aggregated coverage: ${sourceFileCount} source files, ${functionCount} functions`);
+    const sourceFileCount = Object.keys(fileCoverage.hitCountsByFileAndPosition).length;
+    const positionCount = Object.values(fileCoverage.hitCountsByFileAndPosition)
+      .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
+    debug(`[Pipeline ${basename(testFilePath)}] Aggregated coverage: ${sourceFileCount} source files, ${positionCount} positions`);
 
     pipelineCoverageByTestFile.set(testFilePath, fileCoverage);
 

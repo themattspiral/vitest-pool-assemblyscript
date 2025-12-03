@@ -12,7 +12,7 @@
 import type { RawSourceMap } from 'source-map';
 
 import { createMemory } from '../utils/wasm-memory.js';
-import type { TestResult, CoverageData, DiscoveredTest, DebugInfo } from '../types.js';
+import type { TestResult, CoverageData, DiscoveredTest, BinaryDebugInfo } from '../types.js';
 import { COVERAGE_MEMORY_PAGES_MAX, ERROR_NAMES } from '../types.js';
 import { debug, debugError } from '../utils/debug.mjs';
 import { createDiscoveryImports, createTestExecutionImports } from './imports.js';
@@ -40,7 +40,7 @@ import { enhanceErrorWithSourceMap } from './errors.js';
  */
 export async function discoverTests(
   binary: Uint8Array,
-  debugInfo?: DebugInfo
+  debugInfo?: BinaryDebugInfo
 ): Promise<{ tests: DiscoveredTest[] }> {
   const tests: DiscoveredTest[] = [];
   const module = await WebAssembly.compile(binary as BufferSource);
@@ -85,7 +85,7 @@ export async function executeSingleTest(
   test: DiscoveredTest,
   sourceMap: string | undefined,
   collectCoverage: boolean,
-  debugInfo?: DebugInfo
+  debugInfo?: BinaryDebugInfo
 ): Promise<TestResult> {
 
   // Compile the binary to usable WASM module
@@ -190,38 +190,35 @@ export async function executeSingleTest(
       }
 
       const coverage: CoverageData = {
-        positionCoverageByAbsoluteFilePath: {},
+        hitCountsByFileAndPosition: {},
       };
 
       // Read counters from coverage memory
-      const numFunctions = Object.keys(debugInfo.absoluteFilePathByQualifiedFunctionName).length;
+      const numFunctions = Object.keys(debugInfo.functionsByName).length;
       const counters = new Uint32Array(coverageMemory.buffer, 0, numFunctions);
 
       // Iterate all functions and build coverage data with hit counts
-      // Use position-based keys (line:column) for stable merging across test files
+      // BinaryDebugInfo.functionsByFileAndPosition is already keyed by position (line:column)
       let functionsHit = 0;
-      for (const [filePath, functions] of Object.entries(debugInfo.qualifiedFunctionsByAbsoluteFilePath)) {
-        if (!coverage.positionCoverageByAbsoluteFilePath[filePath]) {
-          coverage.positionCoverageByAbsoluteFilePath[filePath] = {};
+      for (const [filePath, functions] of Object.entries(debugInfo.functionsByFileAndPosition)) {
+        if (!coverage.hitCountsByFileAndPosition[filePath]) {
+          coverage.hitCountsByFileAndPosition[filePath] = {};
         }
 
-        for (const [qualifiedName, funcInfo] of Object.entries(functions)) {
+        for (const [positionKey, funcInfo] of Object.entries(functions)) {
           if (funcInfo.coverageMemoryIndex === undefined) {
-            debug(`[Executor] Warning: function "${qualifiedName}" has no coverageMemoryIndex`);
+            debug(`[Executor] Warning: function "${funcInfo.name}" has no coverageMemoryIndex`);
             continue;
           }
 
           const hitCount = counters[funcInfo.coverageMemoryIndex] ?? 0;
 
-          // Use position as key for stable merging (same source position = same function across compilations)
-          const positionKey = `${funcInfo.startLine}:${funcInfo.startColumn}`;
-          coverage.positionCoverageByAbsoluteFilePath[filePath][positionKey] = {
-            info: funcInfo,
-            hitCount,
-          };
+          // Position key is already the position (line:column) from functionsByFileAndPosition
+          coverage.hitCountsByFileAndPosition[filePath][positionKey] = hitCount;
 
           if (hitCount > 0) {
             functionsHit++;
+            // debug(`[Executor] HIT: ${filePath} ${positionKey} = ${hitCount} (idx=${funcInfo.coverageMemoryIndex})`);
           }
         }
       }

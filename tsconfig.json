@@ -36,7 +36,8 @@
 
   "include": [
     "src/**/*.ts",
-    "*.ts"
+    "*.ts",
+    "test/**/*.ts"
   ],
 
   "exclude": [

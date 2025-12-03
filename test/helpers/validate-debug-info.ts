@@ -4,8 +4,11 @@
  * Verifies that extracted debug info actually maps to correct source code locations
  */
 
-import { readFileSync } from 'fs';
-import type { DebugInfo } from '../../src/native/addon-types';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import type { BinaryDebugInfo } from '../../src/types.ts';
+
+const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
 
 export interface ValidationOptions {
   /** Allow some expressions to have no debug location (default: true) */
@@ -34,7 +37,7 @@ export interface ValidationResult {
 /**
  * Validate that debug info structure is internally consistent
  */
-export function validateDebugInfoStructure(debugInfo: DebugInfo, options: ValidationOptions = {}): ValidationResult {
+export function validateDebugInfoStructure(debugInfo: BinaryDebugInfo, options: ValidationOptions = {}): ValidationResult {
   const {
     allowMissingLocations = true,
     minLocationCoverage = 0,
@@ -50,20 +53,18 @@ export function validateDebugInfoStructure(debugInfo: DebugInfo, options: Valida
     functionsWithDebugInfo: 0,
   };
 
-  // Validate debug files array
-  if (!Array.isArray(debugInfo.debugFiles)) {
-    errors.push('debugFiles must be an array');
-  } else if (debugInfo.debugFiles.length === 0) {
-    warnings.push('No debug files found - binary may not have debug info');
-  }
-
   // Validate functions object
-  if (typeof debugInfo.functions !== 'object' || debugInfo.functions === null) {
-    errors.push('functions must be an object');
+  if (typeof debugInfo.functionsByName !== 'object' || debugInfo.functionsByName === null) {
+    errors.push('functionsByName must be an object');
+    return { valid: false, errors, warnings, stats };
+  }
+  
+  if (typeof debugInfo.functionsByFileAndPosition !== 'object' || debugInfo.functionsByFileAndPosition === null) {
+    errors.push('functionsByFileAndPosition must be an object');
     return { valid: false, errors, warnings, stats };
   }
 
-  const functionNames = Object.keys(debugInfo.functions);
+  const functionNames = Object.keys(debugInfo.functionsByName);
   stats.totalFunctions = functionNames.length;
 
   if (functionNames.length === 0) {
@@ -75,11 +76,11 @@ export function validateDebugInfoStructure(debugInfo: DebugInfo, options: Valida
   const allIndices: number[] = [];
 
   for (const funcName of functionNames) {
-    const func = debugInfo.functions[funcName];
+    const func = debugInfo.functionsByName[funcName]!;
 
     // Validate function structure
-    if (typeof func.index !== 'number') {
-      errors.push(`Function "${funcName}" has invalid index`);
+    if (typeof func.wasmIndex !== 'number') {
+      errors.push(`Function "${funcName}" has invalid wasmIndex`);
       continue;
     }
 
@@ -124,11 +125,11 @@ export function validateDebugInfoStructure(debugInfo: DebugInfo, options: Valida
     }
 
     // Check for duplicate indices
-    if (seenIndices.has(func.index)) {
-      errors.push(`Function "${funcName}" has duplicate index ${func.index}`);
+    if (seenIndices.has(func.wasmIndex)) {
+      errors.push(`Function "${funcName}" has duplicate index ${func.wasmIndex}`);
     }
-    seenIndices.add(func.index);
-    allIndices.push(func.index);
+    seenIndices.add(func.wasmIndex);
+    allIndices.push(func.wasmIndex);
 
     if (!Array.isArray(func.expressions)) {
       errors.push(`Function "${funcName}" has invalid expressions array`);
@@ -147,7 +148,7 @@ export function validateDebugInfoStructure(debugInfo: DebugInfo, options: Valida
 
     // Validate expressions
     for (let i = 0; i < func.expressions.length; i++) {
-      const expr = func.expressions[i];
+      const expr = func.expressions[i]!;
 
       if (typeof expr.type !== 'string' || expr.type.length === 0) {
         errors.push(`Function "${funcName}" expression ${i} has invalid type`);
@@ -157,16 +158,14 @@ export function validateDebugInfoStructure(debugInfo: DebugInfo, options: Valida
         errors.push(`Function "${funcName}" expression ${i} has invalid isBranch`);
       }
 
-      if (typeof expr.branchPaths !== 'number') {
-        errors.push(`Function "${funcName}" expression ${i} has invalid branchPaths`);
-      }
-
       // Validate branch consistency
-      if (expr.isBranch && expr.branchPaths === 0) {
-        errors.push(`Function "${funcName}" expression ${i} is marked as branch but has 0 paths`);
-      }
-
-      if (!expr.isBranch && expr.branchPaths !== 0) {
+      if (expr.isBranch) {
+        if (typeof expr.branchPaths !== 'number') {
+          errors.push(`Function "${funcName}" expression ${i} (isBranch: true) has invalid branchPaths: ${expr.branchPaths}`);
+        } else if (expr.branchPaths === 0) {
+          errors.push(`Function "${funcName}" expression ${i} is marked as branch but has 0 paths`);
+        }
+      } else if (typeof expr.branchPaths === 'number' && expr.branchPaths > 0) {
         errors.push(`Function "${funcName}" expression ${i} is not a branch but has ${expr.branchPaths} paths`);
       }
 
@@ -176,12 +175,8 @@ export function validateDebugInfoStructure(debugInfo: DebugInfo, options: Valida
         funcHasDebugInfo = true;
 
         const loc = expr.location;
-        if (typeof loc.fileIndex !== 'number' || loc.fileIndex < 0) {
-          errors.push(`Function "${funcName}" expression ${i} has invalid fileIndex`);
-        }
-
-        if (loc.fileIndex >= debugInfo.debugFiles.length) {
-          errors.push(`Function "${funcName}" expression ${i} fileIndex ${loc.fileIndex} out of range (max ${debugInfo.debugFiles.length - 1})`);
+        if (typeof loc.filePath !== 'string' || loc.filePath === '') {
+          errors.push(`Function "${funcName}" expression ${i} has invalid filePath: ${loc.filePath}`);
         }
 
         if (typeof loc.line !== 'number' || loc.line <= 0) {
@@ -200,7 +195,7 @@ export function validateDebugInfoStructure(debugInfo: DebugInfo, options: Valida
 
     // Validate basic blocks
     for (let i = 0; i < func.basicBlocks.length; i++) {
-      const block = func.basicBlocks[i];
+      const block = func.basicBlocks[i]!;
 
       if (typeof block.index !== 'number' || block.index !== i) {
         errors.push(`Function "${funcName}" basic block ${i} has incorrect index ${block.index}`);
@@ -225,21 +220,77 @@ export function validateDebugInfoStructure(debugInfo: DebugInfo, options: Valida
 
       // Validate branch targets
       for (const branch of block.branches) {
-        if (typeof branch.toBlock !== 'number' || branch.toBlock < 0 || branch.toBlock >= func.basicBlocks.length) {
-          errors.push(`Function "${funcName}" basic block ${i} has branch to invalid block ${branch.toBlock}`);
+        if (typeof branch.targetBlockIndex !== 'number' || branch.targetBlockIndex < 0 || branch.targetBlockIndex >= func.basicBlocks.length) {
+          errors.push(`Function "${funcName}" basic block ${i} has branch to invalid target block index: ${branch.targetBlockIndex}`);
         }
       }
     }
   }
 
-  // Validate function indices are sequential (0, 1, 2, ...)
-  if (allIndices.length > 0) {
-    const sortedIndices = [...allIndices].sort((a, b) => a - b);
-    for (let i = 0; i < sortedIndices.length; i++) {
-      if (sortedIndices[i] !== i) {
-        errors.push(`Function indices are not sequential: expected ${i} but found ${sortedIndices[i]}`);
-        break;
+  // Validate functionsByFileAndPosition structure and consistency with functionsByName
+  const positionKeyRegex = /^\d+:\d+$/;
+  const functionsInPositionMap = new Set<string>();
+
+  for (const [filePath, positionMap] of Object.entries(debugInfo.functionsByFileAndPosition)) {
+    // Validate file path key
+    if (typeof filePath !== 'string' || filePath.length === 0) {
+      errors.push(`functionsByFileAndPosition has invalid file path key: ${filePath}`);
+      continue;
+    }
+
+    if (typeof positionMap !== 'object' || positionMap === null) {
+      errors.push(`functionsByFileAndPosition["${filePath}"] is not an object`);
+      continue;
+    }
+
+    for (const [positionKey, func] of Object.entries(positionMap)) {
+      // Validate position key format (line:column)
+      if (!positionKeyRegex.test(positionKey)) {
+        errors.push(`functionsByFileAndPosition["${filePath}"] has invalid position key: "${positionKey}" (expected "line:column" format)`);
+        continue;
       }
+
+      // Validate function has representativeLocation
+      if (!func.representativeLocation) {
+        errors.push(`Function "${func.name}" in functionsByFileAndPosition["${filePath}"]["${positionKey}"] has no representativeLocation`);
+        continue;
+      }
+
+      // Validate position key matches representativeLocation
+      const expectedKey = `${func.representativeLocation.line}:${func.representativeLocation.column}`;
+      if (positionKey !== expectedKey) {
+        errors.push(
+          `Function "${func.name}" position key "${positionKey}" does not match representativeLocation "${expectedKey}"`
+        );
+      }
+
+      // Validate representativeLocation filePath matches the file key
+      if (func.representativeLocation.filePath !== filePath) {
+        errors.push(
+          `Function "${func.name}" representativeLocation.filePath "${func.representativeLocation.filePath}" does not match file key "${filePath}"`
+        );
+      }
+
+      // Track function for cross-reference check
+      functionsInPositionMap.add(func.name);
+
+      // Validate function exists in functionsByName with same reference
+      const funcByName = debugInfo.functionsByName[func.name];
+      if (!funcByName) {
+        errors.push(`Function "${func.name}" in functionsByFileAndPosition not found in functionsByName`);
+      } else if (funcByName !== func) {
+        errors.push(`Function "${func.name}" in functionsByFileAndPosition is not the same object as in functionsByName`);
+      }
+    }
+  }
+
+  // Cross-reference: functions with representativeLocation should be in functionsByFileAndPosition
+  for (const funcName of functionNames) {
+    const func = debugInfo.functionsByName[funcName]!;
+    if (func.representativeLocation && !functionsInPositionMap.has(funcName)) {
+      errors.push(
+        `Function "${funcName}" has representativeLocation but is not in functionsByFileAndPosition`
+      );
     }
   }
 
@@ -271,7 +322,7 @@ export function validateDebugInfoStructure(debugInfo: DebugInfo, options: Valida
  * - File indices are valid
  * - Basic source map structure is correct
  */
-export function sanityCheckDebugInfoAgainstSourceMap(debugInfo: DebugInfo, sourceMapJson: string): ValidationResult {
+export function sanityCheckDebugInfoAgainstSourceMap(debugInfo: BinaryDebugInfo, sourceMapJson: string): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const stats = {
@@ -304,7 +355,7 @@ export function sanityCheckDebugInfoAgainstSourceMap(debugInfo: DebugInfo, sourc
 
   // Compare source file entries
   const sourceMapFiles = sourceMap.sources;
-  const debugFiles = debugInfo.debugFiles;
+  const debugFiles = debugInfo.debugSourceFiles;
 
   // Check if source files are consistent (order might differ)
   const sourceMapSet = new Set(sourceMapFiles);
@@ -323,18 +374,18 @@ export function sanityCheckDebugInfoAgainstSourceMap(debugInfo: DebugInfo, sourc
   }
 
   // Validate that all debug locations reference valid file indices
-  const debugFunctionNames = Object.keys(debugInfo.functions);
+  const debugFunctionNames = Object.keys(debugInfo.functionsByName);
   stats.totalFunctions = debugFunctionNames.length;
 
   for (const debugFuncName of debugFunctionNames) {
-    const debugFunc = debugInfo.functions[debugFuncName];
+    const debugFunc = debugInfo.functionsByName[debugFuncName]!;
     stats.totalExpressions += debugFunc.expressions.length;
     stats.totalBasicBlocks += debugFunc.basicBlocks.length;
 
     let funcHasDebugInfo = false;
 
     for (let i = 0; i < debugFunc.expressions.length; i++) {
-      const expr = debugFunc.expressions[i];
+      const expr = debugFunc.expressions[i]!;
 
       if (!expr.location) {
         continue;
@@ -343,18 +394,11 @@ export function sanityCheckDebugInfoAgainstSourceMap(debugInfo: DebugInfo, sourc
       stats.expressionsWithLocations++;
       funcHasDebugInfo = true;
 
-      const { fileIndex, line, column } = expr.location;
-
-      // Validate file index is within range
-      if (fileIndex < 0 || fileIndex >= debugFiles.length) {
-        errors.push(`Function "${debugFuncName}" expression ${i} has fileIndex ${fileIndex} out of range (max ${debugFiles.length - 1})`);
-        continue;
-      }
+      const { filePath } = expr.location;
 
       // Validate the file exists in source map
-      const fileName = debugFiles[fileIndex];
-      if (!sourceMapSet.has(fileName)) {
-        errors.push(`Function "${debugFuncName}" expression ${i} references file "${fileName}" not in source map`);
+      if (!sourceMapSet.has(filePath)) {
+        errors.push(`Function "${debugFuncName}" expression ${i} references file "${filePath}" not in source map`);
       }
     }
 
@@ -388,13 +432,13 @@ function parseFunctionBoundaries(sourceCode: string): Map<string, { start: numbe
   const arrowFuncRegex = /^\s*(?:export\s+)?const\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*\([^)]*\)\s*:\s*[^=]+\s*=>\s*\{/;
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i]!;
     const funcMatch = line.match(funcRegex);
     const arrowMatch = line.match(arrowFuncRegex);
     const match = funcMatch || arrowMatch;
 
     if (match) {
-      const funcName = match[1];
+      const funcName = match[1]!;
       const startLine = i + 1; // Convert to 1-based
 
       // Find the closing brace by tracking brace depth
@@ -403,7 +447,7 @@ function parseFunctionBoundaries(sourceCode: string): Map<string, { start: numbe
       let endLine = startLine;
 
       for (let j = i; j < lines.length; j++) {
-        const currentLine = lines[j];
+        const currentLine = lines[j]!;
 
         // Count braces
         for (const char of currentLine) {
@@ -464,7 +508,7 @@ function extractSourceFunctionName(wasmFuncName: string): string | null {
 
   // Extract last part after /
   const parts = wasmFuncName.split('/');
-  return parts[parts.length - 1];
+  return parts[parts.length - 1] || null;
 }
 
 /**
@@ -473,7 +517,7 @@ function extractSourceFunctionName(wasmFuncName: string): string | null {
  * This parses source files to find function boundaries and verifies that
  * expressions in WASM functions map to lines within the corresponding source functions
  */
-export function validateDebugInfoFunctionSourceLocations(debugInfo: DebugInfo): ValidationResult {
+export function validateDebugInfoFunctionSourceLocations(debugInfo: BinaryDebugInfo): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const stats = {
@@ -485,40 +529,40 @@ export function validateDebugInfoFunctionSourceLocations(debugInfo: DebugInfo): 
   };
 
   // Load source files and parse function boundaries
-  const sourceFiles = new Map<number, string[]>();
-  const functionBoundaries = new Map<number, Map<string, { start: number; end: number }>>();
+  const sourceFiles = new Map<string, string[]>();
+  const functionBoundaries = new Map<string, Map<string, { start: number; end: number }>>();
+  const debugFiles = debugInfo.debugSourceFiles;
 
-  for (let i = 0; i < debugInfo.debugFiles.length; i++) {
-    const filePath = debugInfo.debugFiles[i];
-
+  for (const filePath of debugFiles) {
     // skip AS standard lib files
     if (filePath.startsWith('~lib')) {
       continue;
     }
 
     try {
-      const content = readFileSync(filePath, 'utf-8');
+      const absPath = resolve(PROJECT_ROOT, filePath);
+      const content = readFileSync(absPath, 'utf-8');
       const lines = content.split('\n');
-      sourceFiles.set(i, lines);
+      sourceFiles.set(filePath, lines);
 
       // Parse function boundaries for this file
       const boundaries = parseFunctionBoundaries(content);
-      functionBoundaries.set(i, boundaries);
+      functionBoundaries.set(filePath, boundaries);
     } catch (err) {
         errors.push(`Could not read source file for validation: ${filePath}`);
     }
   }
 
-  const functionNames = Object.keys(debugInfo.functions);
-  stats.totalFunctions = functionNames.length;
+  const debugFunctionNames = Object.keys(debugInfo.functionsByName);
+  stats.totalFunctions = debugFunctionNames.length;
 
-  for (const wasmFuncName of functionNames) {
-    const func = debugInfo.functions[wasmFuncName];
+  for (const debugFuncName of debugFunctionNames) {
+    const func = debugInfo.functionsByName[debugFuncName]!;
     stats.totalExpressions += func.expressions.length;
     stats.totalBasicBlocks += func.basicBlocks.length;
 
     // Extract source function name from WASM function name
-    const sourceFuncName = extractSourceFunctionName(wasmFuncName);
+    const sourceFuncName = extractSourceFunctionName(debugFuncName);
     if (!sourceFuncName) {
       // Skip anonymous functions
       continue;
@@ -528,11 +572,64 @@ export function validateDebugInfoFunctionSourceLocations(debugInfo: DebugInfo): 
     if (!func.hasDebugInfo) {
       continue;
     }
-    
+
+    // Validate representativeLocation if present
+    if (func.representativeLocation) {
+      const repLoc = func.representativeLocation;
+      const repSourceLines = sourceFiles.get(repLoc.filePath);
+
+      if (repSourceLines) {
+        // Basic range check
+        if (repLoc.line < 1 || repLoc.line > repSourceLines.length) {
+          errors.push(
+            `Function "${debugFuncName}" representativeLocation line ${repLoc.line} out of range (file has ${repSourceLines.length} lines)`
+          );
+        } else {
+          // Get function boundaries and validate representativeLocation is within
+          const repBoundaries = functionBoundaries.get(repLoc.filePath);
+          if (repBoundaries) {
+            const repFuncBoundary = repBoundaries.get(sourceFuncName);
+            if (repFuncBoundary) {
+              if (repLoc.line < repFuncBoundary.start || repLoc.line > repFuncBoundary.end) {
+                errors.push(
+                  `Function "${debugFuncName}" representativeLocation at line ${repLoc.line} is outside source function "${sourceFuncName}" bounds (${repFuncBoundary.start}-${repFuncBoundary.end})`
+                );
+              }
+            }
+          }
+
+          // Validate column
+          const repSourceLine = repSourceLines[repLoc.line - 1]!;
+          if (repLoc.column < 0 || repLoc.column > repSourceLine.length) {
+            errors.push(
+              `Function "${debugFuncName}" representativeLocation column ${repLoc.column} out of range (line ${repLoc.line} has ${repSourceLine.length} chars)`
+            );
+          }
+        }
+      }
+
+      // Verify function is in functionsByFileAndPosition at correct key
+      const positionMap = debugInfo.functionsByFileAndPosition[repLoc.filePath];
+      const posKey = `${repLoc.line}:${repLoc.column}`;
+      if (!positionMap) {
+        errors.push(
+          `Function "${debugFuncName}" has representativeLocation in "${repLoc.filePath}" but file not in functionsByFileAndPosition`
+        );
+      } else if (!positionMap[posKey]) {
+        errors.push(
+          `Function "${debugFuncName}" has representativeLocation "${posKey}" but not found at that position in functionsByFileAndPosition`
+        );
+      } else if (positionMap[posKey] !== func) {
+        errors.push(
+          `Function "${debugFuncName}" at position "${posKey}" in functionsByFileAndPosition is different object than in functionsByName`
+        );
+      }
+    }
+
     let funcHasDebugInfo = false;
 
     for (let i = 0; i < func.expressions.length; i++) {
-      const expr = func.expressions[i];
+      const expr = func.expressions[i]!;
 
       if (!expr.location) {
         continue;
@@ -541,10 +638,10 @@ export function validateDebugInfoFunctionSourceLocations(debugInfo: DebugInfo): 
       stats.expressionsWithLocations++;
       funcHasDebugInfo = true;
 
-      const { fileIndex, line, column } = expr.location;
+      const { filePath, line, column } = expr.location;
 
       // Check if source file was loaded
-      const sourceLines = sourceFiles.get(fileIndex);
+      const sourceLines = sourceFiles.get(filePath);
       if (!sourceLines) {
         // Already warned above
         continue;
@@ -552,12 +649,12 @@ export function validateDebugInfoFunctionSourceLocations(debugInfo: DebugInfo): 
 
       // Basic range check
       if (line < 1 || line > sourceLines.length) {
-        errors.push(`Function "${wasmFuncName}" expression ${i} has line ${line} out of range (file has ${sourceLines.length} lines)`);
+        errors.push(`Function "${debugFuncName}" expression ${i} has line ${line} out of range (file has ${sourceLines.length} lines)`);
         continue;
       }
 
       // Get function boundaries for this file
-      const boundariesForFile = functionBoundaries.get(fileIndex);
+      const boundariesForFile = functionBoundaries.get(filePath);
       if (!boundariesForFile) {
         // No boundaries parsed for this file
         continue;
@@ -567,29 +664,29 @@ export function validateDebugInfoFunctionSourceLocations(debugInfo: DebugInfo): 
       const funcBoundary = boundariesForFile.get(sourceFuncName);
       if (!funcBoundary) {
         // Function not found in source - unexpected data included in debug info
-        warnings.push(`Unexpected WASM function "${wasmFuncName}" - Expected source name: "${sourceFuncName}" not found in source file "${debugInfo.debugFiles[fileIndex]}" (index: ${fileIndex})`);
+        warnings.push(`Unexpected WASM function "${debugFuncName}" - Expected source name: "${sourceFuncName}" not found in source file "${filePath}"`);
         continue;
       }
 
       // Verify expression location is within the source function boundaries
       if (line < funcBoundary.start || line > funcBoundary.end) {
         errors.push(
-          `WASM function "${wasmFuncName}" expression ${i} at line ${line} is outside source function "${sourceFuncName}" bounds (${funcBoundary.start}-${funcBoundary.end})`
+          `WASM function "${debugFuncName}" expression ${i} at line ${line} is outside source function "${sourceFuncName}" bounds (${funcBoundary.start}-${funcBoundary.end})`
         );
       }
 
       // Check if line contains actual code
-      const sourceLine = sourceLines[line - 1]; // Convert to 0-based
+      const sourceLine = sourceLines[line - 1]!; // Convert to 0-based
       if (!isCodeLine(sourceLine)) {
         errors.push(
-          `WASM function "${wasmFuncName}" expression ${i} at line ${line} points to non-code (comment/whitespace)`
+          `WASM function "${debugFuncName}" expression ${i} at line ${line} points to non-code (comment/whitespace)`
         );
       }
 
       // Validate column (0-based)
       if (column < 0 || column > sourceLine.length) {
         errors.push(
-          `WASM function "${wasmFuncName}" expression ${i} has column ${column} out of range (line ${line} has ${sourceLine.length} chars)`
+          `WASM function "${debugFuncName}" expression ${i} has column ${column} out of range (line ${line} has ${sourceLine.length} chars)`
         );
       }
     }
@@ -602,17 +699,15 @@ export function validateDebugInfoFunctionSourceLocations(debugInfo: DebugInfo): 
   // Verify all source functions exist in debug info
   // Build efficient lookup maps first
   const globalNameToWasm = new Map<string, string>();
-  for (const wasmFuncName of functionNames) {
-    const func = debugInfo.functions[wasmFuncName];
+  for (const wasmFuncName of debugFunctionNames) {
+    const func = debugInfo.functionsByName[wasmFuncName]!;
     if (func.globalName) {
       globalNameToWasm.set(func.globalName, wasmFuncName);
     }
   }
 
   // Confirm each source function is present in the debug info
-  for (const [fileIndex, boundaries] of functionBoundaries.entries()) {
-    const filePath = debugInfo.debugFiles[fileIndex];
-
+  for (const [filePath, boundaries] of functionBoundaries.entries()) {
     for (const [sourceFuncName, boundary] of boundaries.entries()) {
       // skip functions starting with "unused" as these are intentionally
       // not called (and get tree-shaken by the AS compiler)
@@ -622,16 +717,16 @@ export function validateDebugInfoFunctionSourceLocations(debugInfo: DebugInfo): 
 
       // Try to find this source function in debug info
       let matchingWasmFunc: string | null = null;
-
-      // Check 1: Look for WASM function with full path ending in this function name
       const expectedWasmName = filePath.replace(/\.ts$/, '') + '/' + sourceFuncName;
-      if (functionNames.includes(expectedWasmName)) {
+
+      // Check 1: Look for WASM function
+      if (debugFunctionNames.includes(expectedWasmName)) {
         matchingWasmFunc = expectedWasmName;
       }
 
       // Check 2: Look in globalName map
       if (!matchingWasmFunc && globalNameToWasm.has(expectedWasmName)) {
-        matchingWasmFunc = globalNameToWasm.get(expectedWasmName)!;
+        matchingWasmFunc = globalNameToWasm.get(expectedWasmName) || null;
       }
 
       if (!matchingWasmFunc) {
@@ -642,26 +737,36 @@ export function validateDebugInfoFunctionSourceLocations(debugInfo: DebugInfo): 
       }
 
       // Verify the matched function has expressions within the source boundaries
-      const func = debugInfo.functions[matchingWasmFunc];
+      const func = debugInfo.functionsByName[matchingWasmFunc]!;
       if (func.hasDebugInfo && func.expressions.length > 0) {
-        let hasValidLocation = false;
-
+        let hasAnyValidLocation = false;
+        let allLocationsValid = true;
+        
         for (let i = 0; i < func.expressions.length; i++) {
-          const expr = func.expressions[i];
-          if (!expr.location) continue;
+          const expr = func.expressions[i]!;
+          if (!expr.location) {
+            continue;
+          }
 
-          const { fileIndex: exprFileIndex, line } = expr.location;
+          const { filePath: exprFilePath, line } = expr.location;
 
           // Check if expression is in the correct file and within boundaries
-          if (exprFileIndex === fileIndex && line >= boundary.start && line <= boundary.end) {
-            hasValidLocation = true;
-            break;
+          if (exprFilePath === filePath && line >= boundary.start && line <= boundary.end) {
+            hasAnyValidLocation = true;
+          } else {
+            allLocationsValid = false;
           }
         }
 
-        if (!hasValidLocation) {
-          warnings.push(
+        if (!hasAnyValidLocation) {
+          errors.push(
             `Source function "${sourceFuncName}" in "${filePath}" (lines ${boundary.start}-${boundary.end}) found as "${matchingWasmFunc}" but has no debug locations within source boundaries`
+          );
+        }
+        
+        if (!allLocationsValid) {
+          errors.push(
+            `Source function "${sourceFuncName}" in "${filePath}" (lines ${boundary.start}-${boundary.end}) found as "${matchingWasmFunc}" but some expression debug locations are outside source boundaries`
           );
         }
       }
@@ -681,7 +786,7 @@ export function validateDebugInfoFunctionSourceLocations(debugInfo: DebugInfo): 
  *
  * Used to verify that source map regeneration produces the same debug info
  */
-export function compareDebugInfo(original: DebugInfo, regenerated: DebugInfo): ValidationResult {
+export function compareDebugInfo(original: BinaryDebugInfo, regenerated: BinaryDebugInfo): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const stats = {
@@ -693,19 +798,21 @@ export function compareDebugInfo(original: DebugInfo, regenerated: DebugInfo): V
   };
 
   // Compare debug files
-  if (original.debugFiles.length !== regenerated.debugFiles.length) {
-    errors.push(`Debug files count mismatch: ${original.debugFiles.length} vs ${regenerated.debugFiles.length}`);
+  const originalFiles = Object.keys(original.functionsByFileAndPosition);
+  const regeneratedFiles = Object.keys(regenerated.functionsByFileAndPosition);
+  if (originalFiles.length !== regeneratedFiles.length) {
+    errors.push(`Debug files count mismatch: ${originalFiles.length} vs ${regeneratedFiles.length}`);
   } else {
-    for (let i = 0; i < original.debugFiles.length; i++) {
-      if (original.debugFiles[i] !== regenerated.debugFiles[i]) {
-        warnings.push(`Debug file ${i} differs: "${original.debugFiles[i]}" vs "${regenerated.debugFiles[i]}"`);
+    for (let i = 0; i < originalFiles.length; i++) {
+      if (originalFiles[i] !== regeneratedFiles[i]) {
+        warnings.push(`Debug file ${i} differs: "${originalFiles[i]}" vs "${regeneratedFiles[i]}"`);
       }
     }
   }
 
   // Compare functions
-  const originalFuncs = Object.keys(original.functions).sort();
-  const regeneratedFuncs = Object.keys(regenerated.functions).sort();
+  const originalFuncs = Object.keys(original.functionsByName).sort();
+  const regeneratedFuncs = Object.keys(regenerated.functionsByName).sort();
 
   if (originalFuncs.length !== regeneratedFuncs.length) {
     errors.push(`Function count mismatch: ${originalFuncs.length} vs ${regeneratedFuncs.length}`);
@@ -714,17 +821,17 @@ export function compareDebugInfo(original: DebugInfo, regenerated: DebugInfo): V
   stats.totalFunctions = originalFuncs.length;
 
   for (const funcName of originalFuncs) {
-    if (!regenerated.functions[funcName]) {
+    if (!regenerated.functionsByName[funcName]) {
       errors.push(`Function "${funcName}" missing in regenerated debug info`);
       continue;
     }
 
-    const origFunc = original.functions[funcName];
-    const regenFunc = regenerated.functions[funcName];
+    const origFunc = original.functionsByName[funcName]!;
+    const regenFunc = regenerated.functionsByName[funcName];
 
     // Compare function index
-    if (origFunc.index !== regenFunc.index) {
-      errors.push(`Function "${funcName}" index mismatch: ${origFunc.index} vs ${regenFunc.index}`);
+    if (origFunc.wasmIndex !== regenFunc.wasmIndex) {
+      errors.push(`Function "${funcName}" index mismatch: ${origFunc.wasmIndex} vs ${regenFunc.wasmIndex}`);
     }
 
     // Compare expressions count
@@ -737,8 +844,8 @@ export function compareDebugInfo(original: DebugInfo, regenerated: DebugInfo): V
 
     // Compare each expression
     for (let i = 0; i < origFunc.expressions.length; i++) {
-      const origExpr = origFunc.expressions[i];
-      const regenExpr = regenFunc.expressions[i];
+      const origExpr = origFunc.expressions[i]!;
+      const regenExpr = regenFunc.expressions[i]!;
 
       if (origExpr.type !== regenExpr.type) {
         errors.push(`Function "${funcName}" expression ${i} type mismatch: "${origExpr.type}" vs "${regenExpr.type}"`);
@@ -759,12 +866,12 @@ export function compareDebugInfo(original: DebugInfo, regenerated: DebugInfo): V
       if (origLoc && regenLoc) {
         stats.expressionsWithLocations++;
 
-        if (origLoc.fileIndex !== regenLoc.fileIndex ||
+        if (origLoc.filePath !== regenLoc.filePath ||
             origLoc.line !== regenLoc.line ||
             origLoc.column !== regenLoc.column) {
           errors.push(`Function "${funcName}" expression ${i} location mismatch: ` +
-            `[${origLoc.fileIndex}:${origLoc.line}:${origLoc.column}] vs ` +
-            `[${regenLoc.fileIndex}:${regenLoc.line}:${regenLoc.column}]`);
+            `[${origLoc.filePath}:${origLoc.line}:${origLoc.column}] vs ` +
+            `[${regenLoc.filePath}:${regenLoc.line}:${regenLoc.column}]`);
         }
       } else if (origLoc && !regenLoc) {
         warnings.push(`Function "${funcName}" expression ${i} lost debug location in regeneration`);
@@ -782,9 +889,9 @@ export function compareDebugInfo(original: DebugInfo, regenerated: DebugInfo): V
     stats.totalBasicBlocks += origFunc.basicBlocks.length;
 
     // Compare each basic block
-    for (let i = 0; i < origFunc.basicBlocks.length; i++) {
-      const origBlock = origFunc.basicBlocks[i];
-      const regenBlock = regenFunc.basicBlocks[i];
+    for (let i = 0; i < origFunc.basicBlocks.length || 0; i++) {
+      const origBlock = origFunc.basicBlocks[i]!;
+      const regenBlock = regenFunc.basicBlocks[i]!;
 
       if (origBlock.expressionIndices.length !== regenBlock.expressionIndices.length) {
         errors.push(`Function "${funcName}" block ${i} expression indices count mismatch`);
@@ -800,21 +907,21 @@ export function compareDebugInfo(original: DebugInfo, regenerated: DebugInfo): V
         errors.push(`Function "${funcName}" block ${i} branch count mismatch`);
       } else {
         for (let j = 0; j < origBlock.branches.length; j++) {
-          if (origBlock.branches[j].toBlock !== regenBlock.branches[j].toBlock) {
+          if (origBlock.branches[j]?.targetBlockIndex !== regenBlock.branches[j]?.targetBlockIndex) {
             errors.push(`Function "${funcName}" block ${i} branch ${j} target mismatch`);
           }
         }
       }
     }
 
-    if (origFunc.expressions.some(e => e.location)) {
+    if (origFunc.expressions?.some(e => e.location)) {
       stats.functionsWithDebugInfo++;
     }
   }
 
   // Check for extra functions in regenerated
   for (const funcName of regeneratedFuncs) {
-    if (!original.functions[funcName]) {
+    if (!original.functionsByName[funcName]) {
       errors.push(`Function "${funcName}" unexpectedly present in regenerated debug info`);
     }
   }

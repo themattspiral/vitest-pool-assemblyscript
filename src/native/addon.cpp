@@ -95,9 +95,9 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
       info.hasDebugLocation = true;
     } else {
       // No debug location - set defaults
-      info.fileIndex = 0;
-      info.lineNumber = 0;
-      info.columnNumber = 0;
+      info.fileIndex = -1;
+      info.lineNumber = -1;
+      info.columnNumber = -1;
     }
 
     // Determine if this is a branch expression and count paths
@@ -233,6 +233,80 @@ std::map<uint32_t, Name> buildElementToFunctionMap(Module& module) {
 }
 
 /**
+ * Extract the "home file" base path from a function name
+ *
+ * Function names follow patterns like:
+ *   - "test-fixtures/assembly-src/class-utils/Counter#constructor~anonymous|1"
+ *   - "start:test-fixtures/assembly/class.as.test~anonymous|2"
+ *   - "~lib/rt/stub/__alloc"
+ *
+ * This extracts the base file path (without extension) that should match
+ * an entry in debugSourceFiles.
+ *
+ * Algorithm:
+ *   1. Truncate at first '~' (removes anonymous suffixes)
+ *   2. If starts with "start:", remove prefix - remaining IS the file path
+ *   3. Otherwise, remove last '/' component (class/function name)
+ *
+ * Returns empty string if extraction fails.
+ */
+std::string extractHomeFilePath(const std::string& funcName) {
+  std::string path = funcName;
+
+  // Step 1: Truncate at first '~' (removes ~anonymous|N suffixes)
+  size_t tildePos = path.find('~');
+  if (tildePos != std::string::npos) {
+    path = path.substr(0, tildePos);
+  }
+
+  // Step 2: Check for "start:" prefix
+  const std::string startPrefix = "start:";
+  if (path.rfind(startPrefix, 0) == 0) {
+    // Remove "start:" prefix - the remaining path IS the file path
+    return path.substr(startPrefix.length());
+  }
+
+  // Step 3: Remove last '/' component (function name or ClassName#method)
+  size_t lastSlash = path.rfind('/');
+  if (lastSlash != std::string::npos && lastSlash > 0) {
+    return path.substr(0, lastSlash);
+  }
+
+  // Couldn't extract - return empty
+  return "";
+}
+
+/**
+ * Find the file index in debugSourceFiles that matches a base path
+ *
+ * Compares by checking if the source file path starts with the base path.
+ * For example: base "test-fixtures/assembly-src/class-utils" matches
+ * source file "test-fixtures/assembly-src/class-utils.ts"
+ *
+ * Returns -1 if no match found.
+ */
+int findHomeFileIndex(const std::string& basePath, const std::vector<std::string>& debugSourceFiles) {
+  if (basePath.empty()) {
+    return -1;
+  }
+
+  for (size_t i = 0; i < debugSourceFiles.size(); i++) {
+    const std::string& sourceFile = debugSourceFiles[i];
+    // Check if source file starts with base path
+    if (sourceFile.rfind(basePath, 0) == 0) {
+      // Make sure it's a proper match (base path followed by '.' or end)
+      // This prevents "class-utils" from matching "class-utils-other.ts"
+      if (sourceFile.length() == basePath.length() ||
+          sourceFile[basePath.length()] == '.') {
+        return static_cast<int>(i);
+      }
+    }
+  }
+
+  return -1;
+}
+
+/**
  * Build a mapping from function names to global names
  * For arrow functions stored as globals, this maps:
  *   "start:test/assembly/anonymous~anonymous|1" -> "test/assembly/anonymous/distinctiveArrow"
@@ -316,28 +390,46 @@ Napi::Object ExtractDebugInfo(const Napi::CallbackInfo& info) {
     // Build result object
     Napi::Object result = Napi::Object::New(env);
 
-    // Extract debug file names
-    Napi::Array debugFiles = Napi::Array::New(env, module.debugInfoFileNames.size());
+    // Provide all debug source file names
+    Napi::Array debugSourceFiles = Napi::Array::New(env, module.debugInfoFileNames.size());
     for (size_t i = 0; i < module.debugInfoFileNames.size(); i++) {
-      debugFiles[i] = Napi::String::New(env, module.debugInfoFileNames[i]);
+      debugSourceFiles[i] = Napi::String::New(env, module.debugInfoFileNames[i]);
     }
-    result.Set("debugFiles", debugFiles);
+    result.Set("debugSourceFiles", debugSourceFiles);
+
+    // Store debug file names locally for resolving fileIndex -> filePath
+    const auto& debugFileNames = module.debugInfoFileNames;
 
     // Build mapping from function names to global names (for arrow functions)
     std::map<std::string, std::string> funcToGlobal = buildFunctionToGlobalMap(module);
 
     // Extract function information using our custom walker
-    Napi::Object functions = Napi::Object::New(env);
+    // Output as flat array (TS wrapper will group by file and position)
+    Napi::Array functions = Napi::Array::New(env);
     DebugInfoWalker walker(&module);
+    size_t funcArrayIndex = 0;
 
-    Index funcIndex = 0;
     ModuleUtils::iterDefinedFunctions(module, [&](Function* func) {
+      std::string funcName = func->name.toString();
+
+      // Skip stdlib functions - they can't be resolved to user source files
+      if (funcName.rfind("~lib/", 0) == 0) {
+        return;
+      }
+
       // Walk this function to collect expressions and basic blocks
       walker.walkFunctionInModule(func, &module);
 
+      // Determine this function's "home" file index for representativeLocation filtering
+      std::string homeFilePath = extractHomeFilePath(funcName);
+      int homeFileIndex = findHomeFileIndex(homeFilePath, debugFileNames);
+
       // Create function info object
       Napi::Object funcInfo = Napi::Object::New(env);
-      funcInfo.Set("index", Napi::Number::New(env, funcIndex));
+
+      // Add function name and WASM index
+      funcInfo.Set("name", Napi::String::New(env, funcName));
+      funcInfo.Set("wasmIndex", Napi::Number::New(env, funcArrayIndex));
 
       // Add hasDebugInfo flag
       bool hasDebugInfo = !func->debugLocations.empty();
@@ -376,27 +468,58 @@ Napi::Object ExtractDebugInfo(const Napi::CallbackInfo& info) {
       }
 
       // Convert expressions to JavaScript array
+      // Also track first expression from HOME FILE for representativeLocation
+      // (ignores expressions from inlined code in other files)
       Napi::Array expressions = Napi::Array::New(env, walker.expressions.size());
+      const ExpressionInfo* firstHomeFileExpression = nullptr;
+
       for (size_t i = 0; i < walker.expressions.size(); i++) {
         const auto& expr = walker.expressions[i];
         Napi::Object exprObj = Napi::Object::New(env);
 
         exprObj.Set("type", Napi::String::New(env, expr.type));
         exprObj.Set("isBranch", Napi::Boolean::New(env, expr.isBranch));
-        exprObj.Set("branchPaths", Napi::Number::New(env, expr.branchPaths));
 
-        // Add location if it exists
+        // Only include branchPaths if this is a branch expression
+        if (expr.isBranch) {
+          exprObj.Set("branchPaths", Napi::Number::New(env, expr.branchPaths));
+        }
+
         if (expr.hasDebugLocation) {
+          // Add location if it exists
           Napi::Object location = Napi::Object::New(env);
           location.Set("fileIndex", Napi::Number::New(env, expr.fileIndex));
           location.Set("line", Napi::Number::New(env, expr.lineNumber));
           location.Set("column", Napi::Number::New(env, expr.columnNumber));
           exprObj.Set("location", location);
+
+          // Track earliest expression from HOME FILE only for representativeLocation
+          // This prevents inlined code from other files from being selected
+          if (homeFileIndex >= 0 && expr.fileIndex == static_cast<uint32_t>(homeFileIndex)) {
+            if (firstHomeFileExpression == nullptr) {
+              firstHomeFileExpression = &expr;
+            } else if (expr.lineNumber < firstHomeFileExpression->lineNumber) {
+              firstHomeFileExpression = &expr;
+            } else if (expr.lineNumber == firstHomeFileExpression->lineNumber &&
+                       expr.columnNumber < firstHomeFileExpression->columnNumber) {
+              firstHomeFileExpression = &expr;
+            }
+          }
         }
 
         expressions[i] = exprObj;
       }
       funcInfo.Set("expressions", expressions);
+
+      // Add representativeLocation only if we found an expression from the home file
+      // Functions with only inlined code (no home file expressions) get no representativeLocation
+      if (firstHomeFileExpression != nullptr) {
+        Napi::Object representativeLocation = Napi::Object::New(env);
+        representativeLocation.Set("fileIndex", Napi::Number::New(env, firstHomeFileExpression->fileIndex));
+        representativeLocation.Set("line", Napi::Number::New(env, firstHomeFileExpression->lineNumber));
+        representativeLocation.Set("column", Napi::Number::New(env, firstHomeFileExpression->columnNumber));
+        funcInfo.Set("representativeLocation", representativeLocation);
+      }
 
       // Convert basic blocks to JavaScript array
       Napi::Array basicBlocks = Napi::Array::New(env, walker.blocks.size());
@@ -413,12 +536,12 @@ Napi::Object ExtractDebugInfo(const Napi::CallbackInfo& info) {
         }
         blockObj.Set("expressionIndices", exprIndices);
 
-        // Branch targets (as array of objects with toBlock field)
+        // Branch targets (as array of BranchEdgeDebugInfo objects)
         Napi::Array branches = Napi::Array::New(env, block.branches.size());
         for (size_t j = 0; j < block.branches.size(); j++) {
           Napi::Object branchObj = Napi::Object::New(env);
-          branchObj.Set("toBlock", Napi::Number::New(env, block.branches[j]));
-          // Note: we could add expressionIndex here if we track which expression causes the branch
+          branchObj.Set("targetBlockIndex", Napi::Number::New(env, block.branches[j]));
+          // Note: sourceExpressionIndex could be added here if we track which expression causes the branch
           branches[j] = branchObj;
         }
         blockObj.Set("branches", branches);
@@ -427,11 +550,10 @@ Napi::Object ExtractDebugInfo(const Napi::CallbackInfo& info) {
       }
       funcInfo.Set("basicBlocks", basicBlocks);
 
-      // Use function name as key (following the format from debug-info-format-ref.md)
-      std::string funcName = func->name.toString();
-      functions.Set(funcName, funcInfo);
+      // Add to flat array (TS wrapper will group by file and position)
+      functions[funcArrayIndex] = funcInfo;
 
-      funcIndex++;
+      funcArrayIndex++;
     });
 
     result.Set("functions", functions);

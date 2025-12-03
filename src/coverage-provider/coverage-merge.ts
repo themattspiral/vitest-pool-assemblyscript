@@ -1,12 +1,19 @@
 /**
  * Coverage Data Merge Utilities
  *
- * Functions for merging CoverageData objects and building merged coverage
- * from source debug info and accumulated execution data.
+ * Functions for merging CoverageData objects (hit counts only).
+ * Function metadata comes from ParsedSourceInfo, not CoverageData.
+ *
+ * Uses direct position-based lookup for matching source functions to
+ * accumulated coverage (both are keyed by first-expression position).
  */
 
-import type { CoverageData, DebugInfo, FunctionCoverageInfo } from '../types.js';
+import { relative, resolve } from 'node:path';
+import type { CoverageData, ParsedSourceInfo } from '../types.js';
 import { debug } from '../utils/debug.mjs';
+
+// resolve the correct root - this file is built to dist/coverage-provider
+const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
 
 /**
  * Merge incoming CoverageData into accumulated CoverageData
@@ -21,78 +28,67 @@ export function mergeCoverageData(
   accumulated: CoverageData,
   incoming: CoverageData
 ): void {
-  for (const [filePath, positions] of Object.entries(incoming.positionCoverageByAbsoluteFilePath)) {
+  for (const [filePath, positions] of Object.entries(incoming.hitCountsByFileAndPosition)) {
     // Ensure file exists in accumulated
-    if (!accumulated.positionCoverageByAbsoluteFilePath[filePath]) {
-      accumulated.positionCoverageByAbsoluteFilePath[filePath] = {};
+    if (!accumulated.hitCountsByFileAndPosition[filePath]) {
+      accumulated.hitCountsByFileAndPosition[filePath] = {};
     }
 
-    const accumulatedPositions = accumulated.positionCoverageByAbsoluteFilePath[filePath];
+    const accumulatedPositions = accumulated.hitCountsByFileAndPosition[filePath];
 
-    for (const [positionKey, funcCovInfo] of Object.entries(positions)) {
-      if (accumulatedPositions[positionKey]) {
+    for (const [positionKey, hitCount] of Object.entries(positions)) {
+      if (accumulatedPositions[positionKey] !== undefined) {
         // Position exists - sum hit counts
-        accumulatedPositions[positionKey].hitCount += funcCovInfo.hitCount;
+        accumulatedPositions[positionKey] += hitCount;
       } else {
-        // New position - copy it
-        accumulatedPositions[positionKey] = {
-          info: { ...funcCovInfo.info },
-          hitCount: funcCovInfo.hitCount
-        };
+        // New position - set hit count
+        accumulatedPositions[positionKey] = hitCount;
       }
     }
   }
 }
 
 /**
- * Build merged CoverageData from source debug info and accumulated coverage
+ * Build merged CoverageData from parsed source info and accumulated coverage
  *
- * Creates CoverageData containing ALL functions from sourceDebugInfo,
+ * Creates CoverageData containing ALL source function positions,
  * with hit counts from accumulatedCoverageData where available (else 0).
  *
- * This ensures the final Istanbul format includes all source functions,
+ * This ensures the final coverage includes all source functions,
  * not just executed ones, preventing false 100% coverage reports.
  *
- * @param sourceDebugInfo - All functions from parsed source files (source of truth for line numbers)
+ * Uses direct position-based lookup: both source functions and accumulated
+ * coverage are keyed by first-expression position (line:column).
+ *
+ * @param parsedSourceInfo - All functions from parsed source files (keyed by first-expression position)
  * @param accumulatedCoverageData - Accumulated execution coverage data (keyed by position)
- * @returns CoverageData with all source functions and correct hit counts
+ * @returns CoverageData with all source function positions and correct hit counts
  */
 export function buildMergedCoverageData(
-  sourceDebugInfo: DebugInfo,
+  parsedSourceInfo: ParsedSourceInfo,
   accumulatedCoverageData: CoverageData
 ): CoverageData {
   const result: CoverageData = {
-    positionCoverageByAbsoluteFilePath: {}
+    hitCountsByFileAndPosition: {}
   };
 
   let totalFunctions = 0;
   let functionsWithHits = 0;
 
-  for (const [filePath, functions] of Object.entries(sourceDebugInfo.qualifiedFunctionsByAbsoluteFilePath)) {
-    result.positionCoverageByAbsoluteFilePath[filePath] = {};
-    const resultPositions = result.positionCoverageByAbsoluteFilePath[filePath];
-
+  for (const [filePath, functions] of Object.entries(parsedSourceInfo.functionsByFileAndPosition)) {
+    // the resulting CoverageData is keyed by absolute path to pass to istanbul, to match JS reporting format
+    result.hitCountsByFileAndPosition[filePath] = {};
+    const resultPositions = result.hitCountsByFileAndPosition[filePath];
+    
     // Get accumulated coverage for this file (if any) - position-keyed
-    const accumulatedPositions = accumulatedCoverageData.positionCoverageByAbsoluteFilePath[filePath] ?? {};
+    const relativeFilePath = relative(PROJECT_ROOT, filePath);  // lookup file records with relative path
+    const accumulatedPositions = accumulatedCoverageData.hitCountsByFileAndPosition[relativeFilePath] ?? {};
 
-    // Build reverse index: qualified name -> FunctionCoverageInfo
-    // This allows name-based matching even though accumulated data is position-keyed
-    const accumulatedByName: Record<string, FunctionCoverageInfo> = {};
-    for (const funcCovInfo of Object.values(accumulatedPositions)) {
-      accumulatedByName[funcCovInfo.info.qualifiedName] = funcCovInfo;
-    }
+    for (const positionKey of Object.keys(functions)) {
+      // Direct position-based lookup - both source and accumulated use same key format
+      const hitCount = accumulatedPositions[positionKey] ?? 0;
 
-    for (const [qualifiedName, funcInfo] of Object.entries(functions)) {
-      // Look up hit count by qualified name (v1: exact match, v2: will use containment matching)
-      const accumulatedFunc = accumulatedByName[qualifiedName];
-      const hitCount = accumulatedFunc?.hitCount ?? 0;
-
-      // Output using source position as key
-      const positionKey = `${funcInfo.startLine}:${funcInfo.startColumn}`;
-      resultPositions[positionKey] = {
-        info: funcInfo,
-        hitCount
-      };
+      resultPositions[positionKey] = hitCount;
 
       totalFunctions++;
       if (hitCount > 0) {

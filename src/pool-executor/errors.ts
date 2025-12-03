@@ -84,16 +84,16 @@ export async function enhanceErrorWithSourceMap(
       .filter(frame => {
         // Filter out internal assertion framework frames (like Vitest filters /vitest/dist/)
         // For assertion errors, skip our internal assert() implementation
-        if (isAssertionFailure && frame.fileName.includes('/vitest-pool-assemblyscript/assembly/')) {
+        if (isAssertionFailure && frame.location.filePath.includes('/vitest-pool-assemblyscript/assembly/')) {
           return false;
         }
         return true;
       })
       .map(frame => ({
-        method: getShortFunctionName(frame.functionName, frame.fileName),
-        file: frame.fileName,
-        line: frame.lineNumber,
-        column: frame.columnNumber + 1, // Convert to 1-indexed for display
+        method: getShortFunctionName(frame.functionName, frame.location.filePath),
+        file: frame.location.filePath,
+        line: frame.location.line,
+        column: frame.location.column + 1, // Convert to 1-indexed for display
       }));
 
     // Create enhanced error as plain object implementing AssemblyScriptTestError interface

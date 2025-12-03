@@ -25,7 +25,7 @@ export class HybridCoverageProvider implements CoverageProvider {
 
   private v8Provider: CoverageProvider | undefined;
   private projectRoot: string | undefined;
-  private accumulatedCoverageData: CoverageData = { positionCoverageByAbsoluteFilePath: {} };
+  private accumulatedCoverageData: CoverageData = { hitCountsByFileAndPosition: {} };
   private assemblyScriptInclude: string[] = [];
   private assemblyScriptExclude: string[] = [];
 
@@ -97,15 +97,15 @@ export class HybridCoverageProvider implements CoverageProvider {
       const payload = coverage as AssemblyScriptCoveragePayload;
       const { coverageData } = payload;
 
-      const fileCount = Object.keys(coverageData.positionCoverageByAbsoluteFilePath).length;
-      const funcCount = Object.values(coverageData.positionCoverageByAbsoluteFilePath)
-        .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
-      debug(`[HybridCoverageProvider] AS coverage payload: ${fileCount} files, ${funcCount} functions`);
+      const fileCount = Object.keys(coverageData.hitCountsByFileAndPosition).length;
+      const positionCount = Object.values(coverageData.hitCountsByFileAndPosition)
+        .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
+      debug(`[HybridCoverageProvider] AS coverage payload: ${fileCount} files, ${positionCount} positions`);
 
       // Merge incoming coverage data into accumulated (by position, summing hit counts)
       mergeCoverageData(this.accumulatedCoverageData, coverageData);
 
-      const accumulatedFileCount = Object.keys(this.accumulatedCoverageData.positionCoverageByAbsoluteFilePath).length;
+      const accumulatedFileCount = Object.keys(this.accumulatedCoverageData.hitCountsByFileAndPosition).length;
       debug(`[HybridCoverageProvider] Accumulated coverage now has ${accumulatedFileCount} files`);
     } else {
       // Delegate to v8 provider for all other formats (JS, etc.)
@@ -152,24 +152,25 @@ export class HybridCoverageProvider implements CoverageProvider {
       if (asFiles.length > 0) {
         // Step 2: Parse ALL AS files to get complete function list
         debug('[HybridCoverageProvider] Parsing AS files for function metadata...');
-        const sourceDebugInfo = parseFunctionsFromFiles(asFiles, this.projectRoot);
-        const fileCount = Object.keys(sourceDebugInfo.qualifiedFunctionsByAbsoluteFilePath).length;
-        const funcCount = Object.values(sourceDebugInfo.qualifiedFunctionsByAbsoluteFilePath)
+        const parsedSourceInfo = parseFunctionsFromFiles(asFiles, this.projectRoot);
+        const fileCount = Object.keys(parsedSourceInfo.functionsByFileAndPosition).length;
+        const funcCount = Object.values(parsedSourceInfo.functionsByFileAndPosition)
           .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
         debug(`[HybridCoverageProvider] Parsed ${funcCount} functions from ${fileCount} files`);
 
-        const accumulatedFuncCount = Object.values(this.accumulatedCoverageData.positionCoverageByAbsoluteFilePath)
-          .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
-        debug(`[HybridCoverageProvider] Accumulated coverage has ${accumulatedFuncCount} functions`);
-        
+        const accumulatedPositionCount = Object.values(this.accumulatedCoverageData.hitCountsByFileAndPosition)
+          .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
+        debug(`[HybridCoverageProvider] Accumulated coverage has ${accumulatedPositionCount} positions`);
+
         // Step 3: Build merged CoverageData that:
-        //  - contains all source functions from sourceDebugInfo
-        //  - maps accumulated hit counts onto these functions
-        const mergedCoverageData = buildMergedCoverageData(sourceDebugInfo, this.accumulatedCoverageData);
+        //  - contains all source function positions from parsedSourceInfo
+        //  - maps accumulated hit counts onto these positions (direct position-based lookup)
+        const mergedCoverageData = buildMergedCoverageData(parsedSourceInfo, this.accumulatedCoverageData);
 
         // Step 4: Convert merged CoverageData to Istanbul format
-        for (const filePath of Object.keys(mergedCoverageData.positionCoverageByAbsoluteFilePath)) {
-          const istanbulData = convertToIstanbulFormat(mergedCoverageData, filePath);
+        // Pass parsedSourceInfo for function metadata (names, ranges), mergedCoverageData for hit counts
+        for (const filePath of Object.keys(mergedCoverageData.hitCountsByFileAndPosition)) {
+          const istanbulData = convertToIstanbulFormat(parsedSourceInfo, mergedCoverageData, filePath);
           asCoverageMap.addFileCoverage(istanbulData);
         }
         debug(`[HybridCoverageProvider] Built AS coverage map with ${Object.keys(asCoverageMap.data).length} files`);
@@ -217,7 +218,7 @@ export class HybridCoverageProvider implements CoverageProvider {
    */
   async clean(clean?: boolean): Promise<void> {
     debug('[HybridCoverageProvider] Cleaning coverage data');
-    this.accumulatedCoverageData = { positionCoverageByAbsoluteFilePath: {} };
+    this.accumulatedCoverageData = { hitCountsByFileAndPosition: {} };
     if (this.v8Provider) {
       await this.v8Provider.clean(clean);
     }

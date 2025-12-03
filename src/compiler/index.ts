@@ -10,35 +10,35 @@ import { basename } from 'path';
 import { fileURLToPath } from 'url';
 import { writeFileSync } from 'node:fs';
 
-import type { CompileResult, AssemblyScriptCompilerOptions, DebugInfo } from '../types.js';
+import type { CompileResult, AssemblyScriptCompilerOptions, BinaryDebugInfo } from '../types.js';
 import { debug } from '../utils/debug.mjs';
 import { BinaryenCoverageInstrumenter } from '../coverage-provider/instrumentation.js';
+import { extractDebugInfo } from '../native/addon-interface.js';
 
 // Absolute paths to transform modules (resolved relative to dist directory)
 // At runtime, this module is at dist/index.js (bundled), transforms are at dist/transforms/*.mjs
 // From dist/index.js, transforms are at ./transforms/*.mjs
 // Using absolute paths ensures the built compiler can be imported anywhere and work.
 const STRIP_INLINE_TRANSFORM = fileURLToPath(new URL('./compiler-transforms/strip-inline.mjs', import.meta.url));
-const EXTRACT_METADATA_TRANSFORM = fileURLToPath(new URL('./compiler-transforms/extract-function-metadata.mjs', import.meta.url));
 const DEBUG_WRITE_FILES = false;
 
 /**
  * Instrument WASM binary for coverage collection
  *
  * @param wasmBinary - Clean WASM binary from AS compiler
- * @param filename - Source filename (for debug info)
- * @returns Instrumented binary and debugInfo
+ * @param binaryDebugInfo - Debug info extracted from WASM via native addon
+ * @returns Instrumented binary and updated debugInfo (with coverageMemoryIndex assigned)
  */
 function instrumentBinaryForCoverage(
   wasmBinary: Uint8Array,
-  filename: string
+  binaryDebugInfo: BinaryDebugInfo
 ): {
   binary: Uint8Array;
-  debugInfo: DebugInfo;
+  debugInfo: BinaryDebugInfo;
 } {
   debug('[Compiler] Instrumenting binary for coverage');
   const coverageInstrumenter = new BinaryenCoverageInstrumenter();
-  const result = coverageInstrumenter.instrument(wasmBinary, filename);
+  const result = coverageInstrumenter.instrument(wasmBinary, binaryDebugInfo);
 
   debug('[Compiler] Instrumentation complete');
 
@@ -121,14 +121,6 @@ export async function compileAssemblyScript(
     debug('[ASC Compiler] Added Transform - Strip @inline decorators');
   }
 
-  // Add transform for coverage metadata extraction if coverage enabled
-  if (options.instrument) {
-    compilerFlags.push(
-      '--transform', EXTRACT_METADATA_TRANSFORM
-    );
-    debug('[ASC Compiler] Added Transform - Extract Function Metadata (coverage enabled)');
-  }
-
   // Compile with AssemblyScript compiler
   const ascStart = performance.now();
   const result = await asc.main(compilerFlags, {
@@ -208,11 +200,26 @@ export async function compileAssemblyScript(
 
   // Instrument binary for coverage if requested
   let instrumentedBinary: Uint8Array | undefined;
-  let debugInfo: DebugInfo | undefined;
+  let debugInfo: BinaryDebugInfo | undefined;
 
   if (options.instrument) {
+    // Extract debug info from WASM binary using native addon
+    // This requires the source map to be available
+    if (!wasmSourceMap) {
+      throw new Error('Source map is required for coverage instrumentation');
+    }
+
+    const extractStart = performance.now();
+    const wasmBuffer = Buffer.from(cleanBinary);
+    const sourceMapBuffer = Buffer.from(wasmSourceMap);
+    const binaryDebugInfo = extractDebugInfo(wasmBuffer, sourceMapBuffer);
+    const extractEnd = performance.now();
+    debug(`[TIMING] ${basename(filename)} - native addon extract: ${extractEnd - extractStart}ms`);
+    debug(`[Compiler] Extracted debug info: ${Object.keys(binaryDebugInfo.functionsByName).length} functions`);
+
+    // Instrument the binary with coverage tracing
     const instrumentStart = performance.now();
-    const instrumentResult = instrumentBinaryForCoverage(cleanBinary, filename);
+    const instrumentResult = instrumentBinaryForCoverage(cleanBinary, binaryDebugInfo);
     const instrumentEnd = performance.now();
     debug(`[TIMING] ${basename(filename)} - instrumentation: ${instrumentEnd - instrumentStart}ms`);
 
