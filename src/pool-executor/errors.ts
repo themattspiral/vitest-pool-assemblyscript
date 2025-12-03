@@ -93,7 +93,7 @@ export async function enhanceErrorWithSourceMap(
         method: getShortFunctionName(frame.functionName, frame.location.filePath),
         file: frame.location.filePath,
         line: frame.location.line,
-        column: frame.location.column + 1, // Convert to 1-indexed for display
+        column: frame.location.column + 1, // Convert from 0-indexed to 1-indexed for display
       }));
 
     // Create enhanced error as plain object implementing AssemblyScriptTestError interface

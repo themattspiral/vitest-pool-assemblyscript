@@ -44,8 +44,8 @@ const req = createRequire(rootPath);
 const addon = req(addonPath);
 
 /**
- * Convert a raw location (0-based columns, relative path) to processed location
- * (1-based columns, absolute path)
+ * Convert a raw location (0-indexed columns, path indexes) to 
+ * processed location (1-indexed columns, path strings)
  */
 function convertLocation(
   rawLocation: NativeSourceLocation,
@@ -59,7 +59,7 @@ function convertLocation(
   return filePath ? {
     filePath,
     line: rawLocation.line,
-    column: rawLocation.column + 1,
+    column: rawLocation.column + 1,  // convert from 0-indexed to 1-indexed
   } : undefined;
 }
 
@@ -90,6 +90,14 @@ function convertExpression(
 }
 
 /**
+ * Generate a position key to identify the SourceLocation uniquely
+ * within a file. Does NOT include the file identifier.
+ */
+function getPositionKey(location: SourceLocation) {
+  return `${location.line}:${location.column}`;
+}
+
+/**
  * Convert a raw function to processed format and compute position key
  * Returns undefined if function has no valid representative location
  */
@@ -102,6 +110,7 @@ function convertFunction(
     : undefined;
 
   // Skip functions without a valid representative location (can't group them)
+  // TODO - add these to a separate collection for debugging/tracking (maybe functionsByName)
   if (!representativeLocation) {
     return undefined;
   }
@@ -129,7 +138,7 @@ function convertFunction(
   }
 
   const filePath = representativeLocation.filePath;
-  const positionKey = `${representativeLocation.line}:${representativeLocation.column}`;
+  const positionKey = getPositionKey(representativeLocation);
 
   return { func: converted, filePath, positionKey };
 }
@@ -163,14 +172,14 @@ function transformDebugInfo(
       const existingPos = existing.representativeLocation
         ? `${existing.representativeLocation.filePath}:${existing.representativeLocation.line}:${existing.representativeLocation.column}`
         : 'NO_POS';
-      debug(`[AddonInterface] NAME COLLISION: "${func.name}" already at ${existingPos}, new at ${filePath}:${positionKey}`);
+      debug(`[AddonInterface] ERROR - NAME COLLISION: "${func.name}" already at ${existingPos}, new at ${filePath}:${positionKey}`);
       nameCollisionCount++;
     }
 
     // Check for and log position collisions
     if (functionsByFileAndPosition[filePath]?.[positionKey]) {
       const existing = functionsByFileAndPosition[filePath][positionKey];
-      debug(`[AddonInterface] POSITION COLLISION at ${filePath}:${positionKey}: "${existing.name}" will be replaced by "${func.name}"`);
+      debug(`[AddonInterface] ERROR - POSITION COLLISION at ${filePath}:${positionKey}: "${existing.name}" will be replaced by "${func.name}"`);
       positionCollisionCount++;
     }
 
@@ -180,7 +189,7 @@ function transformDebugInfo(
     }
     functionsByFileAndPosition[filePath][positionKey] = func;
 
-    // Also build name lookup for v1 instrumentation
+    // Name lookup for v1 instrumentation and potential matching optimization
     functionsByName[func.name] = func;
   }
 

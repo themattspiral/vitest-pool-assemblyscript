@@ -3,6 +3,7 @@ node_modules/
 
 # coverage output
 coverage/
+coverage-fixtures/
 
 # local config
 .vscode/

@@ -142,7 +142,7 @@ function getFirstExpressionPosition(
 
   return {
     line: src.lineAt(firstStmt.range.start),
-    column: src.columnAt()
+    column: src.columnAt() // "Gets the column number at the last position queried with lineAt. Starts at 1"
   };
 }
 
