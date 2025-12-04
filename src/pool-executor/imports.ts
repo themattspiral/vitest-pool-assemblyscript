@@ -82,6 +82,9 @@ export function createDiscoveryImports(
         const errorMsg = `AssemblyScript abort during test discovery: ${message}${location ? `\n  at ${location}` : ''}`;
         throw new Error(errorMsg);
       },
+      trace(_msg: any, n: any, a0: any, a1: any, a2: any, a3: any) {
+        console.log(`WASM trace${n !== undefined ? ` (${String(n)})` : ''}:`, a0, a1, a2, a3);
+      }
     },
   };
 }
@@ -153,6 +156,10 @@ export function createTestExecutionImports(
         // Per-test isolation ensures the next test still runs (in a fresh instance).
         throw new Error('AssemblyScript abort');
       },
+
+      trace(_msg: any, n: any, a0: any, a1: any, a2: any, a3: any) {
+        console.log(`WASM trace${n !== undefined  ? ` (${String(n)})` : ''}:`, a0, a1, a2, a3);
+      }
     },
   };
 }
