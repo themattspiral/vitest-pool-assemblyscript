@@ -15,6 +15,7 @@ import {
   getDayType,
   processMatrix,
   complexCondition,
+  complexCondition2,
   ternaryLoop,
 } from '../assembly-src/flow-control-utils';
 
@@ -131,6 +132,17 @@ test('complexCondition evaluates complex boolean expressions', () => {
   const bothPositive: bool = complexCondition(1, 1, 0);
   const negCAndDiff: bool = complexCondition(1, 2, -1);
   const neitherTrue: bool = complexCondition(-1, -1, 1);
+
+  assert(bothPositive == true, 'both positive should be true');
+  assert(negCAndDiff == true, 'negative c with different a,b should be true');
+  assert(neitherTrue == false, 'neither condition met should be false');
+});
+
+// Complex boolean expressions test
+test('complexCondition evaluates complex boolean expressions', () => {
+  const bothPositive: bool = complexCondition2(1, 1, 0, 1);
+  const negCAndDiff: bool = complexCondition2(1, 2, -1, 2);
+  const neitherTrue: bool = complexCondition2(-1, -1, 1, 6);
 
   assert(bothPositive == true, 'both positive should be true');
   assert(negCAndDiff == true, 'negative c with different a,b should be true');

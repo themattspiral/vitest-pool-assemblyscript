@@ -15,12 +15,6 @@ const myFailingArrowFunc = (): i32 => {
   return value;
 };
 
-export const a = 1, arrowDeclaration = (a: i32): i32 => a + 1, c = 'something', d = function(b: i32): i32 {
-  return b + 1;
-};
-
-export const bracelessArrowFunc = (x: i32): i32 =>  x * 2;
-
 export function failNamedFunc(): i32 {
   return myFailingNamedFunc();
 }
@@ -51,9 +45,4 @@ export function failAnonCallbackInNamedCallsNamed(): i32 {
 
 export function failAnonCallbackInNamedCallsArrow(): i32 {
   return myNamedFuncWithCallbackArg(() => myFailingArrowFunc());
-}
-
-// This function won't be called in tests - should show 0% coverage
-export function unusedFunction(): i32 {
-  return 42;
 }

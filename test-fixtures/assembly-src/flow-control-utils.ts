@@ -133,6 +133,27 @@ export function complexCondition(a: i32, b: i32, c: i32): bool {
   return false;
 }
 
+// Edge case: complex boolean expressions
+export function complexCondition2(a: i32, b: i32, c: i32, d: i32): bool {
+  if (c < -5) {
+    switch (d) {
+      case 1:
+        if ((a > 0 && b > 0) || (c < 0 && a !== b)) {
+          return true;
+        }
+      case 2:
+        if ((c > 0 && b > 0) || (a < 0 && a !== b)) {
+          return true;
+        }
+      default:
+        if ((d > 5 && b > 0) || (d < 5 && a !== b)) {
+        return true;
+      }
+    };
+  }
+  return false;
+}
+
 // Edge case: ternary inside loop
 export function ternaryLoop(n: i32): i32 {
   let sum: i32 = 0;
