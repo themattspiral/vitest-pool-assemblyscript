@@ -35,8 +35,3 @@ test('failAnonCallbackInNamedCallsArrow [should fail]', () => {
   const val = fail.failAnonCallbackInNamedCallsArrow();
   assert(val == 3);
 });
-
-test('decoratedArrowFunc should return input plus 5', () => {
-  const val = fail.decoratedArrowFunc(3);
-  assert(val == 8);
-});

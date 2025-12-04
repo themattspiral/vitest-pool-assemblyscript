@@ -19,26 +19,7 @@ export const a = 1, arrowDeclaration = (a: i32): i32 => a + 1, c = 'something', 
   return b + 1;
 };
 
-// @ts-ignore: decorators on top-level variables are supported in AssemblyScript
-@inline
-export const decoratedArrowFunc = (a: i32): i32 => {
-  const nested = function(b: i32): i32 {
-    const doubleNested = (c: i32): i32 => { return c + 1; };
-    return doubleNested(b);
-  };
-  const nestedNamedVar = function nestedNamedFcn(b: i32): i32 { return b + 1; };
-  const nestedArrow = (b: i32): i32 => { return b + 1; };
-  const nestedBracelessArrow = (b: i32): i32 => b + 1;
-  const x = 3, y = (b: i32): i32 => b + 1, z = 4;
-
-  return y(nested(nestedNamedVar(nestedArrow(nestedBracelessArrow(a)))));
-}
-
 export const bracelessArrowFunc = (x: i32): i32 =>  x * 2;
-
-// @ts-ignore: decorators on top-level variables are supported in AssemblyScript
-@inline
-export const decoratedBracelessArrowFunc = (x: i32): i32 =>  x * 2;
 
 export function failNamedFunc(): i32 {
   return myFailingNamedFunc();

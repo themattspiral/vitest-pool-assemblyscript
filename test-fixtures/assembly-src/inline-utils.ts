@@ -17,8 +17,12 @@ export function addNormal(a: i32, b: i32): i32 {
 // Another @inline function
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @inline
-export function multiplyInlined(a: i32, b: i32): i32 {
+const multiplyArrowInlined = (a: i32, b: i32): i32 => {
   return a * b;
+};
+
+export function multiplyWithInternalInlining(a: i32, b: i32): i32 {
+  return multiplyArrowInlined(a, b);
 }
 
 // Another normal function
