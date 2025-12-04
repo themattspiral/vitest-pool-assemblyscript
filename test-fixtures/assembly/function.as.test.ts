@@ -35,20 +35,28 @@ test('d function expression adds 1', () => {
 // Test arrow function with nested functions
 test('arrowFunc exercises nested functions', () => {
   const result: i32 = arrowFunc(1);
-  // arrowFunc has complex nesting:
-  // - nestedBracelessArrow: 1 + 1 = 2
-  // - nestedArrow: 2 + 2 = 4 (two double-nested calls each add 1)
-  // - nestedNamedVar: 4 + 1 = 5
-  // - nestedNamedFunc: 5 + 1 = 6 (via doubleNestedArrowInNamedFunc)
-  // - nestedArrowMulti: 6 + 1 = 7
-  // - nestedArrowMultiSpanLines: 7 + 1 = 8
-  // - nestedNamedFuncMultiSpanLines: 8 + 1 = 9
-  assert(result == 9, 'arrowFunc(1) should be 9');
+  // Trace with a=1:
+  // 1. nestedBracelessArrow(1) = 1 + 1 = 2
+  // 2. nestedArrow(2) = 2*2 + 2 = 6  (res1=b+1, res2=b+1, return res1+res2)
+  // 3. nestedNamedVar(6) = 6 + 1 = 7
+  // 4. nestedNamedFunc(7) = 7 + 1 = 8
+  // 5. nestedArrowMulti(8) = 8 + 1 = 9 (thing1)
+  // 6. nestedArrowMultiSpanLines(9) = 9 + 1 = 10
+  // 7. nestedNamedFuncMultiSpanLines(10) = 10 + 1 = 11
+  assert(result == 11, 'arrowFunc(1) should be 11');
 });
 
 test('arrowFunc with different input', () => {
   const result: i32 = arrowFunc(0);
-  assert(result == 8, 'arrowFunc(0) should be 8');
+  // Trace with a=0:
+  // 1. nestedBracelessArrow(0) = 0 + 1 = 1
+  // 2. nestedArrow(1) = 2*1 + 2 = 4
+  // 3. nestedNamedVar(4) = 4 + 1 = 5
+  // 4. nestedNamedFunc(5) = 5 + 1 = 6
+  // 5. nestedArrowMulti(6) = 6 + 1 = 7 (thing1)
+  // 6. nestedArrowMultiSpanLines(7) = 7 + 1 = 8
+  // 7. nestedNamedFuncMultiSpanLines(8) = 8 + 1 = 9
+  assert(result == 9, 'arrowFunc(0) should be 9');
 });
 
 // Test braceless arrow function
@@ -72,8 +80,9 @@ test('callbackPassNamedFunc uses basicAdd callback', () => {
 // Test callback passing with arrow function
 test('callbackPassArrowFunc uses arrowFunc callback', () => {
   const result: i32 = callbackPassArrowFunc();
-  // namedFuncWithCallbackArg(2, arrowFunc) = arrowFunc(2) + 1 = 10 + 1 = 11
-  assert(result == 11, 'callbackPassArrowFunc() should be 11');
+  // namedFuncWithCallbackArg(2, arrowFunc) = arrowFunc(2) + 1 = 13 + 1 = 14
+  // arrowFunc(2) trace: 3 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13
+  assert(result == 14, 'callbackPassArrowFunc() should be 14');
 });
 
 // Test callback passing with anonymous function
