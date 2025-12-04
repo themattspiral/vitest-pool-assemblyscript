@@ -12,43 +12,69 @@ export class Counter {
   private _value: i32;
   private _maxValue: i32;
   
-  plusTwo: (a: i32) => i32;
-  memberNested: (a: i32) => i32;
+  private member: (a: i32) => i32;
+  bracelessMember: (a: i32) => i32;
+  voidMember: () => void;
 
   constructor(initial: i32 = 0, max: i32 = 100) {
     this._value = initial;
     this._maxValue = max;
 
-    this.plusTwo = (a: i32): i32 => {
-      const plusOne = function(a: i32): i32 {
-        return a + 1;
-      }
-
-      const plus1 = (a: i32): i32 => a + 1;
-
-      return plus1(plusOne(a));
-    };
-
-    this.memberNested = (a: i32): i32 => {
-      const nested = function(b: i32): i32 {
-        const doubleNested = (c: i32): i32 => { return c + 1; };
-        return doubleNested(b);
+    this.member = (a: i32): i32 => {
+      const nestedNamedFunc = function(b: i32): i32 {
+        const doubleNestedArrowInNamedFunc = (c: i32): i32 => { return c + 1; };
+        return doubleNestedArrowInNamedFunc(b);
       };
       const nestedNamedVar = function nestedNamedFcn(b: i32): i32 { return b + 1; };
-      const nestedArrow = (b: i32): i32 => { return b + 1; };
+      const nestedArrow = (b: i32): i32 => {
+        const doubleNestedArrow = (c: i32): i32 => {
+          let tripleNestedLet = (d: i32): i32 => d + 1;
+          var tripleNestedVar = (d: i32): i32 => d + 2;
+          const tripleNested = (d: i32): i32 => d + 3;
+          const tripleNestedNamed = function(d: i32): i32 {
+            return d + 4;
+          };
+          return tripleNestedNamed(tripleNested(tripleNestedLet(tripleNestedVar(c))));
+        };
+        const doubleNestedNamedFunc = function(c: i32): i32 { return c + 1; };
+        const res1 = doubleNestedArrow(b);
+        const res2 = doubleNestedNamedFunc(b);
+        const res = res1 + res2;
+        return res;
+      };
       const nestedBracelessArrow = (b: i32): i32 => b + 1;
-      const x = 3, y = (b: i32): i32 => b + 1, z = 4;
 
-      return y(nested(nestedNamedVar(nestedArrow(nestedBracelessArrow(a)))));
-    }
+      // not sure why this would ever be needed since AS doesn't support JS-style closures,
+      // but let's make sure we support it just in case
+      const nestedVoid = (): void => { ; };
+      
+      const x = 3, nestedNamedFuncMulti = function(b: i32): i32 { return b + 1; }, nestedArrowMulti = (b: i32): i32 => { return b + 1; }, nestedBracelessArrowMulti = (b: i32): i32 => b + 1, z = 4, nestedNamedFuncMultiSpanLines = function(b: i32): i32 {
+        return b + 1;
+      }, nestedArrowMultiSpanLines = (b: i32): i32 => {
+        return b + 1;
+      };
+
+      const thing1 = nestedArrowMulti(nestedNamedFunc(nestedNamedVar(nestedArrow(nestedBracelessArrow(a)))));
+      const thing2 = nestedNamedFuncMultiSpanLines(nestedArrowMultiSpanLines(a));
+      return thing1
+        + thing2;
+    };
+
+    this.bracelessMember = (a: i32): i32 => a + 2;
+
+    this.voidMember = () => { ; };
+  }
+
+  previewComplex(): i32 {
+    return this.member(this.value);
   }
 
   previewPlusTwo(): i32 {
-    return this.plusTwo(this._value);
+     return this.bracelessMember(this.value);
   }
 
   @inline
-  increment(): void {
+  incrementInlined(): void {
     if (this._value < this._maxValue) {
       this._value++;
     }
@@ -94,9 +120,9 @@ export class Counter {
     }
   }
 
-  // Method that uses other methods
+  // Method that uses setter method
   reset(): void {
-    this._value = 0;
+    this.value = 0;
   }
 
   // Static method
@@ -119,21 +145,48 @@ export class Counter {
     return this.doubleValue();
   }
 
-  internalNesting(): i32 {
-    const nested = function(b: i32): i32 {
-      const doubleNested = (c: i32): i32 => { return c + 1; };
-      return doubleNested(b);
-    };
-    const nestedNamedVar = function nestedNamedFcn(b: i32): i32 { return b + 1; };
-    const nestedArrow = (b: i32): i32 => { return b + 1; };
-    const nestedBracelessArrow = (b: i32): i32 => b + 1;
-    const x = 3, y = (b: i32): i32 => b + 1, z = 4;
-
-    return y(nested(nestedNamedVar(nestedArrow(nestedBracelessArrow(this._value)))));
-  }
-
   // Note: AS doesn't support #privateMethod syntax (ES2022 private fields)
   // Only the `private` keyword is supported for access modifiers
+
+  internalNesting(a: i32): i32 {
+    const nestedNamedFunc = function(b: i32): i32 {
+      const doubleNestedArrowInNamedFunc = (c: i32): i32 => { return c + 1; };
+      return doubleNestedArrowInNamedFunc(b);
+    };
+    const nestedNamedVar = function nestedNamedFcn(b: i32): i32 { return b + 1; };
+    const nestedArrow = (b: i32): i32 => {
+      const doubleNestedArrow = (c: i32): i32 => {
+        let tripleNestedLet = (d: i32): i32 => d + 1;
+        var tripleNestedVar = (d: i32): i32 => d + 2;
+        const tripleNested = (d: i32): i32 => d + 3;
+        const tripleNestedNamed = function(d: i32): i32 {
+          return d + 4;
+        };
+        return tripleNestedNamed(tripleNested(tripleNestedLet(tripleNestedVar(c))));
+      };
+      const doubleNestedNamedFunc = function(c: i32): i32 { return c + 1; };
+      const res1 = doubleNestedArrow(b);
+      const res2 = doubleNestedNamedFunc(b);
+      const res = res1 + res2;
+      return res;
+    };
+    const nestedBracelessArrow = (b: i32): i32 => b + 1;
+
+    // not sure why this would ever be needed since AS doesn't support JS-style closures,
+    // but let's make sure we support it just in case
+    const nestedVoid = (): void => { ; };
+    
+    const x = 3, nestedNamedFuncMulti = function(b: i32): i32 { return b + 1; }, nestedArrowMulti = (b: i32): i32 => { return b + 1; }, nestedBracelessArrowMulti = (b: i32): i32 => b + 1, z = 4, nestedNamedFuncMultiSpanLines = function(b: i32): i32 {
+      return b + 1;
+    }, nestedArrowMultiSpanLines = (b: i32): i32 => {
+      return b + 1;
+    };
+
+    const thing1 = nestedArrowMulti(nestedNamedFunc(nestedNamedVar(nestedArrow(nestedBracelessArrow(a)))));
+    const thing2 = nestedNamedFuncMultiSpanLines(nestedArrowMultiSpanLines(a));
+    return thing1
+      + thing2;
+  }
 }
 
 /**

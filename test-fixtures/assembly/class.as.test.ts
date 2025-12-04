@@ -25,16 +25,27 @@ test('Counter constructor with default values', () => {
   assert(value == 0, 'Default initial value should be 0');
 });
 
-// Test regular methods
-test('Counter previewIncrement shows hypothetical increased value', () => {
+test('Counter previewComplex shows hypothetical increased value', () => {
+  const counter = new Counter(8);
+  const preview = counter.previewComplex();
+  assert(preview == 42, `Preview should be 42 when starting value is 8`);
+});
+
+test('Counter previewPlusTwo shows hypothetical increased value', () => {
   const counter = new Counter(8);
   const preview = counter.previewPlusTwo();
   assert(preview == 10, `Preview should be 10 when starting value is 8`);
 });
 
+test('Counter internalNesting shows hypothetical value', () => {
+  const counter = new Counter();
+  const preview = counter.internalNesting(2);
+  assert(preview == 24, `internalNesting should be 24 when given value is 2`);
+});
+
 test('Counter increment increases value', () => {
   const counter = new Counter(5);
-  counter.increment();
+  counter.incrementInlined();
   const value: i32 = counter.value;
   assert(value == 6, 'Value should be 6 after increment');
 });
@@ -105,11 +116,11 @@ test('Counter getDoubled calls private doubleValue', () => {
 // Test boundary conditions
 test('Counter increment respects maxValue', () => {
   const counter = new Counter(99, 100);
-  counter.increment();
+  counter.incrementInlined();
   const value: i32 = counter.value;
   assert(value == 100, 'Value should be 100');
 
-  counter.increment(); // Should not exceed max
+  counter.incrementInlined(); // Should not exceed max
   const valueAfter: i32 = counter.value;
   assert(valueAfter == 100, 'Value should still be 100');
 });
