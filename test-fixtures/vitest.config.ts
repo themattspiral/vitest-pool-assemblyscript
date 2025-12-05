@@ -1,25 +1,34 @@
 import { defineConfig, defineProject } from 'vitest/config';
-import { defineAssemblyScriptProject } from './src/config/index.js';
+import { defineAssemblyScriptProject } from '../src/config/index.js';
 
 export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
+
+    name: 'test-fixtures',
+
+    // Helpful for debugging
     reporters: ['verbose'],
 
+    // Coverage configuration (must be global in vitest)
     coverage: {
-      enabled: false,
+      enabled: true,
       reportOnFailure: true,
-      reportsDirectory: 'coverage/',
+      reportsDirectory: 'coverage-fixtures/',
       
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
 
       // JS/TS sources to report coverage for
-      include: [ 'src/**/*.{ts,js,mts,mjs}' ],
+      include: [
+        'test-fixtures/js-src/**/*.ts',
+      ],
       
       // AS sources to report coverage for
-      assemblyScriptInclude: [ 'assembly/**/*.ts' ]
+      assemblyScriptInclude: [
+        'test-fixtures/assembly-src/**/*.ts'
+      ]
     },
 
     projects: [
@@ -27,12 +36,21 @@ export default defineConfig({
       defineProject({
         test: {
           name: {
-            label: 'ts-pool',
+            label: 'ts-fixtures',
             color: 'blue'
           },
 
-          include: [ 'test/**/*.test.ts' ],
-          exclude: [ 'test/assembly/**/*' ]
+          include: [ 'test-fixtures/js/**/*.test.ts' ],
+
+          // retry: 1,
+          // bail: 1,
+
+          // pool: 'threads',  // or 'forks', 'vmThreads'
+          // poolOptions: {
+          //   threads: {
+          //     // execArgv: ['--enable-source-maps'],
+          //   },
+          // }
         }
       }),
 
@@ -40,13 +58,12 @@ export default defineConfig({
       defineAssemblyScriptProject({
         test: {
           name: {
-            label: 'as-pool',
+            label: 'as-fixtrures',
             color: 'yellow'
           },
 
-          include: ['test/assembly/**/*.as.test.ts'],
+          include: ['test-fixtures/assembly/**/*.as.test.ts'],
 
-          // Use AssemblyScript pool to execute tests in this project
           pool: 'vitest-pool-assemblyscript',
           poolOptions: {
             assemblyScript: {
@@ -56,7 +73,7 @@ export default defineConfig({
             },
           },
         }
-      })
+      }),
     ]
   },
 });

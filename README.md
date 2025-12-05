@@ -146,6 +146,7 @@ See the [Architecture docs](docs/architecture.md) for more detailed information.
 - Node.js 20.0.0+ (required due to our multi-memory coverage approach)
 - Vitest 3.2.4+ (v3.x only for now - v4 support planned)
 - AssemblyScript 0.28+
+- GCC/clang * CMake (dev only - distrubuted package will include prebuilts)
 
 ### Setup
 
@@ -155,13 +156,23 @@ git clone https://github.com/themattspiral/vitest-pool-assemblyscript.git
 cd vitest-pool-assemblyscript
 ```
 
-2. **Install deps and build**
+2. **Install npm deps, then binaryen C++ native deps**
 ```bash
 npm install
+npm run setup-binaryen
+```
+
+3. **Build Native Addon**
+```bash
+npm run build:native
+```
+
+4. **Build Pool**
+```bash
 npm run build
 ```
 
-2. **Link the pool to your project:**
+5. **Link the pool to your project:**
 ```bash
 # In vitest-pool-assemblyscript:
 npm link
@@ -170,7 +181,7 @@ npm link
 npm link vitest-pool-assemblyscript
 ```
 
-3. **Configure Vitest** in your project's `vitest.config.ts`:
+6. **Configure Vitest** in your project's `vitest.config.ts`:
 ```typescript
 import { defineAssemblyScriptConfig } from 'vitest-pool-assemblyscript/config';
 
@@ -251,7 +262,7 @@ export default defineConfig({
 })
 ```
 
-4. **Write a test** in `tests/assembly/example.as.test.ts`:
+7. **Write a test** in `tests/assembly/example.as.test.ts`:
 ```typescript
 import { test, assert } from 'vitest-pool-assemblyscript/assembly';
 
@@ -266,7 +277,8 @@ test('string concatenation', () => {
 });
 ```
 
-5. **Run your tests:**
+8. **Run your tests:**
+8. **Run your tests:**
 ```bash
 # Run all tests once
 npx vitest run

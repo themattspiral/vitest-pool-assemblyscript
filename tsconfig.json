@@ -15,6 +15,7 @@
     "sourceMap": true,
 
     // Strict type checking
+    "types": ["node"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,
@@ -35,13 +36,16 @@
 
   "include": [
     "src/**/*.ts",
-    "*.ts"
+    "*.ts",
+    "test/**/*.ts"
   ],
 
   "exclude": [
     "node_modules",
     "dist",
+    "build",
     "assembly",
-    "test-examples/**/*",
+    "test-fixtures/assembly/**/*",
+    "test-fixtures/assembly-src/**/*",
   ]
 }

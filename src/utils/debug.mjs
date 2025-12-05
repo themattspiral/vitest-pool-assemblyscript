@@ -23,10 +23,11 @@ export function setDebugMode(debugEnabled) {
 
 /**
  * Log debug message (only when debug enabled in current context)
+ * or when environment has a truthy DEBUG variable set.
  */
 export function debug(...args) {
   const state = debugStorage.getStore();
-  if (state?.debug) {
+  if (state?.debug || process.env.DEBUG) {
     console.log(...args);
   }
 }

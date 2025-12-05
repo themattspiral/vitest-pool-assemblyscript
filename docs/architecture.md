@@ -310,18 +310,16 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 
 ---
 
-### Pre-v1 Coverage Architecture (Current - Dev Only)
+### Coverage Architecture (v1 Current, v2 Planned)
 
-**Implementation**: Binaryen.js post-processing instrumentation + transform metadata extraction
-- Function-level coverage via transform metadata and Binaryen post-processing
-- Manual LCOV output generation
+**Overview**: Position-based matching connects binary execution to source coverage, supporting function-level (v1) and block-level (v2) granularity.
+
+- **v1**: Direct position lookup - both binary and source sides key by first-expression position (`line:column`), enabling O(1) matching
+- **v2**: May use containment matching where binary expression points map to source statement/branch ranges
+
+**Implementation**: Binaryen.js post-processing instrumentation + native addon debug extraction
+- Function-level coverage via native addon debug info and Binaryen post-processing
 - ⚠️ **Failsafe mode required** - Post-processing breaks source maps, requiring two-pass execution
-
----
-
-### Coverage Architecture (v1 In Progress, v2 Planned)
-
-**Overview**: Position-based containment matching connects binary execution to source coverage, supporting function-level (v1) and block-level (v2) granularity.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -341,14 +339,14 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 │                            ↓                                 │
 │  Instrumentation & Binary Debug Info Extraction              │
 │                                                              │
-│  v1: Binaryen.js post-processing                             │
-│  • Inject __coverage_trace() at function entries             │
-│  • ⚠️ Breaks source map accuracy ⚠️                         │
+│  v1: Native addon extraction + Binaryen.js instrumentation   │
+│  • Native addon extracts debug info from WASM + source map   │
+│  • Binaryen.js injects __coverage_trace() at func entries    │
+│    • ⚠️ Breaks source map accuracy ⚠️                       │
 │  • Add multi-memory for coverage counters                    │
-│  • Extract debug info: instrumented function positions       │
 │  • Returns:                                                  │
-│    ├─> instrumented WASM binary                              │
-│    └─> instrumented binary positions (debug info)            │
+│    ├─> clean binary positions (debug info)                   │
+│    └─> instrumented WASM binary                              │
 │                                                              │
 │  v2: Binaryen C++ native addon                               │
 │  • instrumentForCoverage() single operation                  │
@@ -432,24 +430,39 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 │                            ↓                                 │
 │  Coverage Matcher                                            │
 │  ────────────────────                                        │
-│  Containment Matching:                                       │
-│  1. Group source items by file                               │
-│  2. For each unique source position (from merged coverage):  │
-│     • Source position extracted from binary via debugInfo    │
-│     • Parse position key (filePath, line, column)            │
-│     • Find source items whose range contains this point      │
-│     • Use tightest fit for nested items                      │
-│  3. Map source position hit counts → source qualified names  │
+│  v1: Direct Position Lookup                                  │
+│  • Both binary (BinaryDebugInfo) and parsed source           |
+│    (ParsedSourceInfo) identify functions by file, then a     |
+│     representative first-expression position (line:column)   │
+|  • BinaryDebugInfo drives instrumentation, so CoverageData   |
+|    hit counts will be identified with the same positions     |
+|  • Given a CoverageData hit at a specific source position... |
+│  • O(1) lookup: position → func info (from ParsedSourceInfo) │
+│  • O(1) lookup: position → hit count (from CoverageData)     │
 │                                                              │
-│  Build merged CoverageData:                                  │
-│  ├─> All source items basis (from sourceDebugInfo)           │
-│  ├─> With accumulated hit counts (position-based merge)      │
-│  └─> Complete map: covered + uncovered items                 │
+│  v2: Containment Matching (planned)                          │
+│  • Both binary (BinaryDebugInfo) and parsed source           |
+│    (ParsedSourceInfo) identify covered items first by file   |
+|  • BinaryDebugInfo drives instrumentation, so CoverageData   |
+|    hit counts will be identified with the same positions     |
+│  • Then ParsedSourceInfo uses ranges (start/end)             |
+|  • Given a CoverageData hit at a specific source position... |
+│     • Find source item whose range contains this point       │
+│       • Iterate parsed source items for file                 │
+│       • Other potential optimizations possible               │
+│     • Use tightest fit for nested items                      │
+│                                                              │
+│  Build merged coverage map:                                  │
+│  ├─> All source items basis from ParsedSourceInfo, 0 hits    │
+│  ├─> Map accumulated hit counts from position-based merged   │
+│  │   CoverageData from onAfterSuiteRun() onto source items   │
+│  │   using v1 (position lookup) or v2 (containment match)    │
+│  └─> Generate Complete Coverage Map: covered + uncovered     │
 │                                                              │
 │  Strategy Evolution:                                         │
 │  • pre-v1: Name matching (transform metadata)                │
-│  • v1: Containment matching (functions only)                 │
-│  • v2: Containment matching (all expressions)                │
+│  • v1: Direct position lookup (functions only)               │
+│  • v2: Containment matching (statements/branches)            │
 │                                                              │
 │                            ↓                                 │
 │                                                              │
@@ -459,7 +472,6 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 │  • Per file:                                                 │
 │    ├─> Build fnMap, statementMap, branchMap                  │
 │    └─> Apply hit counts to generate f, s, b arrays           │
-│    └─> v1: Dummy branch coverage to make it display 0%       │
 │    └─> Add file map to overall CoverageMap                   │
 │                                                              │
 │  v1: Function coverage (function → statement map)            │
@@ -483,10 +495,11 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 
 **Key Architectural Decisions:**
 
-1. **Containment Matching** - Position-based (not name-based)
+1. **Position-based Matching** (not name-based)
    - Handles anonymous functions, nested functions, naming convention changes
-   - Same approach for v1 functions and v2 expressions/statements/branches
-   - Performance: File grouping baseline, with optimization strategies available
+   - v1: Direct position lookup (both sides key by first-expression position)
+   - v2: Containment matching (binary points → source ranges)
+   - Performance: v1 is O(1); v2 uses file grouping baseline with optimization strategies available
 
 2. **Instrumentation Location** - Pool main thread (not separate worker dispatch)
    - Native addon C++ code is fast, small parallelization benefit vs overhead

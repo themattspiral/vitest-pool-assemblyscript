@@ -164,7 +164,7 @@ export interface CompileResult {
   /** Source map JSON (if successful and --sourceMap enabled) */
   sourceMap?: string;
   /** Debug info for coverage reporting (if coverage enabled) */
-  debugInfo?: DebugInfo;
+  debugInfo?: BinaryDebugInfo;
 }
 
 /**
@@ -181,8 +181,8 @@ export interface CachedCompilation {
   clean: Uint8Array;
   instrumented?: Uint8Array;
   sourceMap?: string;
-  debugInfo?: DebugInfo;
-  discoveredTests: DiscoveredTest[];
+  debugInfo?: BinaryDebugInfo;
+  discoveredTests: DiscoveredTests;
   compileTimings: PhaseTimings;
   discoverTimings?: PhaseTimings;
   generation: number;
@@ -196,12 +196,18 @@ export interface CachedCompilation {
  * Discovered test metadata (from registration phase)
  */
 export interface DiscoveredTest {
-  /** Test name */
+  /** Test name (user-defined) */
   name: string;
   /** Function table index for this test */
   fnIndex: number;
+  /** Unique internal id assigned to identify this test. Matches RunnerTestCase.id value */
+  id: string;
 }
 
+/**
+ * Discovered tests indexed by unique id
+ */
+export type DiscoveredTests = Record<string, DiscoveredTest>;
 
 /**
  * Result of a single test execution
@@ -249,12 +255,16 @@ export interface PoolTestResult {
 // ============================================================================
 
 /**
- * Source location in original AssemblyScript code
+ * Source location in original AssemblyScript code (a point, not a range)
+ *
+ * All values are 1-based for internal consistency.
+ * Conversion to 0-based columns happens at Istanbul output boundary.
  */
 export interface SourceLocation {
-  fileName: string;
-  lineNumber: number;
-  columnNumber: number;
+  /** Relative file path */
+  filePath: string;
+  line: number;
+  column: number;
 }
 
 /**
@@ -262,72 +272,24 @@ export interface SourceLocation {
  */
 export interface WebAssemblyCallSite {
   functionName: string;
-  fileName: string;
-  lineNumber: number;
-  columnNumber: number;
+  location: SourceLocation;
 }
 
 // ============================================================================
-// Debug Info, Function Metadata, & Coverage Reporting
+// Coverage Data (Runtime Hit Counts)
 // ============================================================================
-
-/**
- * Function information for coverage and debugging
- *
- * All line and column values are 1-based for internal consistency.
- * Conversion to 0-based columns happens at Istanbul output boundary.
- */
-export interface FunctionInfo {
-  /** Fully qualified name: relativePath/functionName (matches native addon format) */
-  qualifiedName: string;
-  /** Short function name for display purposes */
-  shortName: string;
-  /** Start line (1-based) */
-  startLine: number;
-  /** End line (1-based) */
-  endLine: number;
-  /** Start column (1-based, required for v2 containment matching) */
-  startColumn: number;
-  /** End column (1-based, required for v2 containment matching) */
-  endColumn: number;
-  /** Index into coverage memory counters (assigned during instrumentation) */
-  coverageMemoryIndex?: number;
-}
-
-/**
- * Combined coverage and metadata for a single function
- */
-export interface FunctionCoverageInfo {
-  info: FunctionInfo;
-  hitCount: number;
-}
-
-/**
- * Debug info structure that maps files to their functions
- *
- * Provides two access patterns:
- * - qualifiedFunctionsByAbsoluteFilePath: for per-file iteration (coverage reporting)
- * - absoluteFilePathByQualifiedFunctionName: for O(1) lookup of which file contains a function (instrumentation)
- *
- * All lookups use qualified function names (relativePath/functionName) to prevent
- * collisions when multiple files contain functions with the same short name.
- */
-export interface DebugInfo {
-  /** Outer Record: keyed by absolute file path, Inner Record: keyed by qualified function name */
-  qualifiedFunctionsByAbsoluteFilePath: Record<string, Record<string, FunctionInfo>>;
-  /** Reverse lookup: qualified function name -> absolute file path (for instrumentation) */
-  absoluteFilePathByQualifiedFunctionName: Record<string, string>;
-}
 
 /**
  * Coverage data collected during test execution
  *
- * Uses position-based keys for stable merging across test files.
+ * Simple hit count storage using position-based keys for stable merging.
+ * Function metadata (names, ranges) comes from ParsedSourceInfo, not here.
+ *
  * Outer Record: keyed by absolute file path
- * Inner Record: keyed by position ("line:column") -> coverage info with hit count
+ * Inner Record: keyed by position ("line:column") -> hit count
  */
 export interface CoverageData {
-  positionCoverageByAbsoluteFilePath: Record<string, Record<string, FunctionCoverageInfo>>;
+  hitCountsByFileAndPosition: Record<string, Record<string, number>>;
 }
 
 /**
@@ -340,15 +302,245 @@ export interface AssemblyScriptCoveragePayload {
   coverageData: CoverageData;
 }
 
+
+// ============================================================================
+// Binary Debug Info (from Native Addon) - v1/v2 Coverage Architecture
+// ============================================================================
+//
+// These types represent debug information extracted from compiled WASM binaries
+// via the native addon. Binary debug info only has POINTS (from source map),
+// not ranges. Ranges come from source parsing (ParsedSource* types below).
+//
+// Naming convention: *DebugInfo suffix indicates binary-extracted data.
+
 /**
- * Global metadata storage (populated by AS transform during compilation)
+ * Source range in original AssemblyScript code (start and end points)
  *
- * The AS transform (src/transforms/extract-function-metadata.mjs) populates this
- * global variable with function metadata during compilation. The Binaryen coverage
- * instrumenter then reads this data to build coverage instrumentation.
+ * All values are 1-based for internal consistency.
+ * Conversion to 0-based columns happens at Istanbul output boundary.
  */
-declare global {
-  var __functionMetadata: DebugInfo | undefined;
+export interface SourceRange {
+  /** Relative file path */
+  filePath: string;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+}
+
+/**
+ * WASM function signature (parameter and result types)
+ */
+export interface FunctionSignature {
+  params: string[];
+  results: string[];
+}
+
+/**
+ * Branch edge in control flow graph
+ */
+export interface BranchEdgeDebugInfo {
+  /** Target basic block index */
+  targetBlockIndex: number;
+  /** Index of the expression that creates this branch (e.g., if condition) */
+  sourceExpressionIndex?: number;
+}
+
+/**
+ * Expression debug info extracted from WASM binary
+ *
+ * Expressions are the smallest unit of execution in WASM.
+ * In v2, each expression can be mapped to a source statement for line-level coverage.
+ */
+export interface ExpressionDebugInfo {
+  /** WASM expression type (e.g., "call", "if", "block") */
+  type: string;
+  /** Source location (POINT, not range) from source map */
+  location?: SourceLocation;
+  /** Whether this expression is a branch point (if, switch, select) */
+  isBranch: boolean;
+  /** Number of branch paths (for branch coverage) */
+  branchPaths?: number;
+  /**
+   * Index into coverage memory counters
+   * v2 only: Propagated from containing BasicBlockDebugInfo by TS wrapper
+   */
+  coverageMemoryIndex?: number;
+}
+
+/**
+ * Basic block debug info from CFG analysis
+ *
+ * Basic blocks are sequences of expressions with single entry/exit points.
+ * In v2, counters are placed at basic block boundaries for efficient coverage.
+ */
+export interface BasicBlockDebugInfo {
+  /** Block index within the function */
+  index: number;
+  /** Indices of expressions contained in this block */
+  expressionIndices: number[];
+  /** Outgoing branch edges */
+  branches: BranchEdgeDebugInfo[];
+  /**
+   * Index into coverage memory counters
+   * v2 only: Source of truth for block-level coverage
+   */
+  coverageMemoryIndex?: number;
+}
+
+/**
+ * Function debug info extracted from WASM binary via native addon
+ *
+ * Contains all debug information for a single WASM function including
+ * expressions and basic blocks for v2 coverage support.
+ */
+export interface FunctionDebugInfo {
+  /** WASM function index */
+  wasmIndex: number;
+  /** Function name from WASM (informational) */
+  name: string;
+  /** Global variable name for named arrow functions stored as globals */
+  globalName?: string;
+  /** Whether this function has debug info (source map entries) */
+  hasDebugInfo: boolean;
+  /** Function signature (params and results) */
+  signature: FunctionSignature;
+
+  /**
+   * Representative source location (POINT, not range)
+   * Derived from first expression with a source location.
+   * Used for containment matching to find the source function.
+   */
+  representativeLocation?: SourceLocation;
+  /**
+   * Index into coverage memory counters
+   * v1 only: Function-level counter
+   */
+  coverageMemoryIndex?: number;
+  /** All expressions in this function */
+  expressions: ExpressionDebugInfo[];
+  /** Basic blocks from CFG analysis */
+  basicBlocks: BasicBlockDebugInfo[];
+}
+
+/**
+ * Raw output from native addon's extractDebugInfo() C++ function
+ */
+export interface NativeDebugInfoOutput {
+  /** All source files represented in extracted debug info (directly or inlined) */
+  debugSourceFiles: string[];
+  /** Flat list of all functions with their debug info */
+  functions: NativeFunctionDebugInfo[];
+}
+
+export interface NativeFunctionDebugInfo extends Omit<FunctionDebugInfo, 'expressions' | 'representativeLocation'> {
+  representativeLocation?: NativeSourceLocation;
+  expressions: NativeExpressionDebugInfo[];
+}
+
+export interface NativeExpressionDebugInfo extends Omit<ExpressionDebugInfo, 'location'> {
+  location?: NativeSourceLocation;
+}
+
+export interface NativeSourceLocation extends Omit<SourceLocation, 'filePath'> {
+  /** Index into NativeDebugInfoOutput.debugSourceFiles */
+  fileIndex: number;
+}
+
+/**
+ * Binary debug info extracted from WASM + source map via native addon
+ *
+ * This is the processed output after TS wrapper transforms NativeDebugInfoOutput.
+ * Functions are grouped by file and keyed by position for stable identity.
+ */
+export interface BinaryDebugInfo {
+  /** All source files represented in extracted debug info (directly or inlined) */
+  debugSourceFiles: string[];
+  /**
+   * Functions grouped by file path, then keyed by position ("line:column")
+   * Position key enables stable identity across compilations
+   */
+  functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo>>;
+  /**
+   * lookup by function name for v1 instrumentation
+   * Built by TS wrapper from the primary structure
+   */
+  functionsByName: Record<string, FunctionDebugInfo>;
+}
+
+// ============================================================================
+// Parsed Source Info (from AST Parser) - Coverage Provider
+// ============================================================================
+//
+// These types represent information parsed from source files via AST.
+// Parsed source info has RANGES (start and end positions) for containment matching.
+//
+// Naming convention: ParsedSource* prefix indicates AST-parsed data.
+
+/**
+ * Function info parsed from AssemblyScript source via AST
+ *
+ * Used for containment matching: binary function points are matched
+ * to source function ranges to establish identity.
+ */
+export interface ParsedSourceFunctionInfo {
+  /** Fully qualified name (e.g., "ClassName#methodName" or "moduleName/funcName") */
+  qualifiedName: string;
+  /** Short name for display */
+  shortName: string;
+  /** Source range for containment matching */
+  range: SourceRange;
+}
+
+/**
+ * Statement info parsed from AssemblyScript source via AST
+ *
+ * v2 only: Used for line-level statement coverage.
+ * Binary expression points are matched to source statement ranges.
+ */
+export interface ParsedSourceStatementInfo {
+  /** Source range for containment matching */
+  range: SourceRange;
+  /** Statement type (e.g., "variable", "expression", "return") */
+  statementType?: string;
+}
+
+/**
+ * Branch info parsed from AssemblyScript source via AST
+ *
+ * v2 only: Used for branch coverage.
+ * Binary branch expressions are matched to source branch ranges.
+ */
+export interface ParsedSourceBranchInfo {
+  /** Source range for containment matching */
+  range: SourceRange;
+  /** Type of branch construct */
+  branchType: 'if' | 'ternary' | 'switch' | 'logical';
+}
+
+/**
+ * Complete parsed source info from AST parser
+ *
+ * Generated by coverage provider when processing coverage (not during compilation).
+ * Provides the "what SHOULD be covered" view from source code.
+ */
+export interface ParsedSourceInfo {
+  /**
+   * Functions grouped by file path, then by start line for containment matching.
+   * Multiple functions can start on the same line, but limiting matching to checking
+   * only the functions grouped on the input position's line is very performant.
+   */
+  functionsByFileAndStartLine: Record<string, Record<number, ParsedSourceFunctionInfo[]>>;
+  /**
+   * Statements grouped by file path, then keyed by position ("line:column")
+   * v2 only: For line-level statement coverage
+   */
+  statementsByFileAndPosition: Record<string, Record<string, ParsedSourceStatementInfo>>;
+  /**
+   * Branches grouped by file path, then keyed by position ("line:column")
+   * v2 only: For branch coverage
+   */
+  branchesByFileAndPosition: Record<string, Record<string, ParsedSourceBranchInfo>>;
 }
 
 // ============================================================================
@@ -372,7 +564,7 @@ export interface DiscoverTestsTask {
   /** Compilation phase timings from compile worker */
   compileTimings: PhaseTimings;
   /** Debug info from coverage instrumentation (if binary is instrumented) */
-  debugInfo?: DebugInfo;
+  debugInfo?: BinaryDebugInfo;
   /** Test name pattern for filtering (from -t flag) */
   testNamePattern?: RegExp;
   /** Allow .only modifier */
@@ -385,8 +577,8 @@ export interface DiscoverTestsTask {
 export interface DiscoverTestsResult {
   /** File task with filtered tests (after applying testNamePattern) */
   fileTask: RunnerTestFile;
-  /** Discovered tests with names and function indices */
-  tests: DiscoveredTest[];
+  /** Discovered tests with names, function indices, and unique ids */
+  tests: DiscoveredTests;
   /** Discovery phase timings */
   timings: PhaseTimings;
 }
@@ -428,7 +620,7 @@ export interface ExecuteTestWithCoverageTask {
   /** Source map JSON (for error location mapping) */
   sourceMap?: string;
   /** Debug info from coverage instrumentation */
-  debugInfo: DebugInfo;
+  debugInfo: BinaryDebugInfo;
   /** Test to execute */
   test: DiscoveredTest;
   /** Path to test file */

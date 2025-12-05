@@ -1,8 +1,17 @@
 # dependencies
 node_modules/
 
-# coverage output (root level only, not src/coverage/)
-/coverage/
+# coverage output
+coverage/
+coverage-fixtures/
+
+# local config
+.vscode/
+
+# build artifacts
+build/
 dist/
 
-test-workspace/coverage
+# Binaryen (downloaded via setup script)
+third_party/
+*.tar.gz

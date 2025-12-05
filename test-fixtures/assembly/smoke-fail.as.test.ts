@@ -1,0 +1,7 @@
+import { test, assert } from '../../assembly';
+import { fails } from '../assembly-src/smoke-fail-utils';
+
+test('as smoke fail [should fail]', () => {
+  const x: i32 = fails();
+  assert(x == 2);
+});

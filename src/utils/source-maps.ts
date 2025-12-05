@@ -71,9 +71,9 @@ export async function mapWATtoSource(
   }
 
   return {
-    fileName: original.source,
-    lineNumber: original.line,
-    columnNumber: original.column
+    filePath: original.source,
+    line: original.line,
+    column: original.column
   };
 }
 
@@ -116,16 +116,14 @@ export async function createWebAssemblyCallSite(
         functionName,
         watInput: { line: watLine, column: watColumn },
         sourceMapResult: {
-          line: sourceLocation.lineNumber,
-          column: sourceLocation.columnNumber
+          line: sourceLocation.line,
+          column: sourceLocation.column
         }
       });
 
       return {
         functionName,
-        fileName: sourceLocation.fileName,
-        lineNumber: sourceLocation.lineNumber,
-        columnNumber: sourceLocation.columnNumber
+        location: sourceLocation
       };
     }
   }
@@ -139,8 +137,10 @@ export async function createWebAssemblyCallSite(
   // Fallback to WAT position
   return {
     functionName,
-    fileName: fileName,
-    lineNumber: watLine || -1,
-    columnNumber: watColumn || -1
+    location: {
+      filePath: fileName,
+      line: watLine || -1,
+      column: watColumn || -1
+    }
   };
 }
