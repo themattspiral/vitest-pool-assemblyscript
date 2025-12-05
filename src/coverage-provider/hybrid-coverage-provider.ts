@@ -153,9 +153,9 @@ export class HybridCoverageProvider implements CoverageProvider {
         // Step 2: Parse ALL AS files to get complete function list
         debug('[HybridCoverageProvider] Parsing AS files for function metadata...');
         const parsedSourceInfo = parseFunctionsFromFiles(asFiles, this.projectRoot);
-        const fileCount = Object.keys(parsedSourceInfo.functionsByFileAndPosition).length;
-        const funcCount = Object.values(parsedSourceInfo.functionsByFileAndPosition)
-          .reduce((sum, funcs) => sum + Object.keys(funcs).length, 0);
+        const fileCount = Object.keys(parsedSourceInfo.functionsByFileAndStartLine).length;
+        const funcCount = Object.values(parsedSourceInfo.functionsByFileAndStartLine)
+          .reduce((sum, byLine) => sum + Object.values(byLine).reduce((s, funcs) => s + funcs.length, 0), 0);
         debug(`[HybridCoverageProvider] Parsed ${funcCount} functions from ${fileCount} files`);
 
         const accumulatedPositionCount = Object.values(this.accumulatedCoverageData.hitCountsByFileAndPosition)
@@ -165,7 +165,7 @@ export class HybridCoverageProvider implements CoverageProvider {
         // Step 3: Convert to Istanbul format
         // Iterate all source files from parsedSourceInfo (keyed by absolute path)
         // convertToIstanbulFormat handles the path conversion to look up hit counts
-        for (const filePath of Object.keys(parsedSourceInfo.functionsByFileAndPosition)) {
+        for (const filePath of Object.keys(parsedSourceInfo.functionsByFileAndStartLine)) {
           const istanbulData = convertToIstanbulFormat(parsedSourceInfo, this.accumulatedCoverageData, filePath);
           asCoverageMap.addFileCoverage(istanbulData);
         }

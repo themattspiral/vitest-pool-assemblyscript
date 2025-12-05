@@ -12,11 +12,11 @@ function basicAdd(a: i32): i32 {
   return a + 1;
 }
 
-export const bracelessArrowFunc = (x: i32): i32 =>  x * 2;
-
 export const one = 1, namedFuncMulti = function(b: i32): i32 { return b + 1; }, arrowMulti = (a: i32): i32 => { return a + 1; }, bracelessArrowMulti = (a: i32): i32 => a + 1, c = 'something', namedFuncMultiSpanLines = function(b: i32): i32 {
   return b + 1;
 };
+
+export const bracelessArrowFunc = (x: i32): i32 =>  namedFuncMulti(x) * bracelessArrowMulti(1);
 
 // In theory AS supports class expressions because it parses them, but as of 0.28.9 it fails to compile with:
 //    "ERROR AS100: Not implemented: Block-scoped class declarations or expressions"
@@ -53,16 +53,17 @@ export const arrowFuncWithNesting = (a: i32): i32 => {
 
   // not sure why this would ever be needed since AS doesn't support JS-style closures,
   // but let's make sure we support it just in case
-  const nestedVoid = (): void => { ; };
+  const nestedVoid = (): void => { let x = 4; };
+  nestedVoid();
   
-  const x = 3, nestedNamedFuncMulti = function(b: i32): i32 { return b + 1; }, nestedArrowMulti = (b: i32): i32 => { return b + 1; }, nestedBracelessArrowMulti = (b: i32): i32 => b + 1, z = 4, nestedNamedFuncMultiSpanLines = function(b: i32): i32 {
+  const x = 3, nestedNamedFuncMulti = function(b: i32): i32 { return b + 1; }, nestedArrowMulti = (b: i32): i32 => { return b + 1; }, nestedBracelessArrowMulti = (b: i32): i32 => nestedArrowMulti(b), z = 4, nestedNamedFuncMultiSpanLines = function(b: i32): i32 {
     return b + 1;
   }, nestedArrowMultiSpanLines = (b: i32): i32 => {
-    return b + 1;
+    return nestedNamedFuncMulti(b);
   };
 
   const thing1 = nestedArrowMulti(nestedNamedFunc(nestedNamedVar(nestedArrow(nestedBracelessArrow(a)))));
-  const thing2 = nestedNamedFuncMultiSpanLines(nestedArrowMultiSpanLines(a));
+  const thing2 = nestedBracelessArrowMulti(nestedNamedFuncMultiSpanLines(nestedArrowMultiSpanLines(a)));
   return thing1
     + thing2;
 };
@@ -93,16 +94,17 @@ export function declaredFuncWithNesting(a: i32): i32 {
 
   // not sure why this would ever be needed since AS doesn't support JS-style closures,
   // but let's make sure we support it just in case
-  const nestedVoid = (): void => { ; };
+  const nestedVoid = (): void => { let x = 4; };
+  nestedVoid();
   
-  const x = 3, nestedNamedFuncMulti = function(b: i32): i32 { return b + 1; }, nestedArrowMulti = (b: i32): i32 => { return b + 1; }, nestedBracelessArrowMulti = (b: i32): i32 => b + 1, z = 4, nestedNamedFuncMultiSpanLines = function(b: i32): i32 {
+  const x = 3, nestedNamedFuncMulti = function(b: i32): i32 { return b + 1; }, nestedArrowMulti = (b: i32): i32 => { return b + 1; }, nestedBracelessArrowMulti = (b: i32): i32 => nestedArrowMulti(b), z = 4, nestedNamedFuncMultiSpanLines = function(b: i32): i32 {
     return b + 1;
   }, nestedArrowMultiSpanLines = (b: i32): i32 => {
-    return b + 1;
+    return nestedNamedFuncMulti(b);
   };
 
   const thing1 = nestedArrowMulti(nestedNamedFunc(nestedNamedVar(nestedArrow(nestedBracelessArrow(a)))));
-  const thing2 = nestedNamedFuncMultiSpanLines(nestedArrowMultiSpanLines(a));
+  const thing2 = nestedBracelessArrowMulti(nestedNamedFuncMultiSpanLines(nestedArrowMultiSpanLines(a)));
   return thing1
     + thing2;
 };

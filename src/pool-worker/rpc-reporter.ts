@@ -11,7 +11,7 @@ import type { RuntimeRPC } from 'vitest';
 import type { RunnerTestCase, RunnerTestFile } from 'vitest/node';
 import type { TaskEventPack, TaskResultPack } from '@vitest/runner';
 import { createFileTask } from '@vitest/runner/utils';
-import type { PhaseTimings, DiscoveredTest, TestResult, ProjectInfo } from '../types.js';
+import type { PhaseTimings, TestResult, ProjectInfo, DiscoveredTests } from '../types.js';
 import { ASSEMBLYSCRIPT_POOL_NAME } from '../types.js';
 import { debug } from '../utils/debug.mjs';
 
@@ -62,18 +62,18 @@ export function createInitialFileTask(
 }
 
 /**
- * Create complete file task with tests and timing metadata
+ * Create file task to represent the test suite, its timing metadata,
+ * and to hold tests cases for discovered tests.
  *
  * @param testFile - Path to test file
  * @param projectInfo - Project information for file task creation
- * @param tests - Discovered tests to add as test tasks
  * @param timings - Phase timings for duration metadata
  * @returns File task with test tasks and timing metadata
  */
-export function createFileTaskWithTests(
+export function createRunFileTaskWithTestCases(
   testFile: string,
   projectInfo: ProjectInfo,
-  tests: DiscoveredTest[],
+  tests: DiscoveredTests,
   compileTimings: PhaseTimings,
   discoverTimings: PhaseTimings
 ): RunnerTestFile {
@@ -92,11 +92,11 @@ export function createFileTaskWithTests(
   fileTask.collectDuration = discoverTimings.phaseEnd - discoverTimings.phaseStart;
 
   // Add test tasks
-  for (const test of tests) {
+  for (const test of Object.values(tests)) {
     const testTask: RunnerTestCase = {
       type: 'test',
       name: test.name,
-      id: `${fileTask.id}_${test.name}`,
+      id: test.id,
       context: {} as any,
       suite: fileTask,
       mode: 'run',

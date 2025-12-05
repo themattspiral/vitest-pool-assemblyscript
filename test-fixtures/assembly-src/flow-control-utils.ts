@@ -135,18 +135,18 @@ export function complexCondition(a: i32, b: i32, c: i32): bool {
 
 // Edge case: complex boolean expressions
 export function complexCondition2(a: i32, b: i32, c: i32, d: i32): bool {
-  if (c < -5) {
+  if (d < 5) {
     switch (d) {
       case 1:
-        if ((a > 0 && b > 0) || (c < 0 && a !== b)) {
+        if ((a > 5 && b > 0) || (a < 5 && a !== b)) {
           return true;
         }
       case 2:
-        if ((c > 0 && b > 0) || (a < 0 && a !== b)) {
-          return true;
+        if ((a > 5 && b > 0) || (a < 5 && a !== b)) {
+          return false;
         }
       default:
-        if ((d > 5 && b > 0) || (d < 5 && a !== b)) {
+        if ((a > 5 && b > 0) || (a < 5 && a !== b)) {
         return true;
       }
     };

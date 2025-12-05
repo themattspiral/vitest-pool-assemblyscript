@@ -9,7 +9,7 @@
  */
 
 import { decodeString, decodeAbortInfo } from '../utils/wasm-memory.js';
-import type { DiscoveredTest, TestResult } from '../types.js';
+import type { DiscoveredTests, TestResult } from '../types.js';
 import { ERROR_NAMES } from '../types.js';
 import { debug, debugError } from '../utils/debug.mjs';
 import { extractCallStack } from '../utils/source-maps.js';
@@ -63,7 +63,7 @@ export function logAbort(
  */
 export function createDiscoveryImports(
   memory: WebAssembly.Memory,
-  tests: DiscoveredTest[],
+  tests: DiscoveredTests,
   coverageMemory?: WebAssembly.Memory
 ): WebAssembly.Imports {
   return {
@@ -72,7 +72,8 @@ export function createDiscoveryImports(
       ...(coverageMemory ? { __coverage_memory: coverageMemory } : {}),
       __register_test(namePtr: number, nameLen: number, fnIndex: number) {
         const testName = decodeString(memory, namePtr, nameLen);
-        tests.push({ name: testName, fnIndex });
+        const id = `${testName}_${fnIndex}`;
+        tests[id] = { name: testName, fnIndex, id };
         debug('[Executor] Registered test:', testName, 'at function index', fnIndex);
       },
       __assertion_pass() {},

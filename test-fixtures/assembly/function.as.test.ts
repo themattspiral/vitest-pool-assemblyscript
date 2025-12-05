@@ -38,32 +38,32 @@ test('namedFuncMultiSpanLines function expression adds 1', () => {
 
 test('arrowFuncWithNesting exercises nested functions', () => {
   const result: i32 = arrowFuncWithNesting(1);
-  assert(result == 21, 'arrowFuncWithNesting(1) should be 21');
+  assert(result == 22, 'arrowFuncWithNesting(1) should be 22');
 });
 
 test('arrowFuncWithNesting with different input', () => {
   const result: i32 = arrowFuncWithNesting(0);
-  assert(result == 18, 'arrowFuncWithNesting(0) should be 18');
+  assert(result == 19, 'arrowFuncWithNesting(0) should be 19');
 });
 
 test('declaredFuncWithNesting exercises nested functions', () => {
   const result: i32 = declaredFuncWithNesting(1);
-  assert(result == 21, 'declaredFuncWithNesting(1) should be 21');
+  assert(result == 22, 'declaredFuncWithNesting(1) should be 22');
 });
 
 test('declaredFuncWithNesting with different input', () => {
   const result: i32 = declaredFuncWithNesting(0);
-  assert(result == 18, 'declaredFuncWithNesting(0) should be 18');
+  assert(result == 19, 'declaredFuncWithNesting(0) should be 19');
 });
 
-test('bracelessArrowFunc doubles value', () => {
+test('bracelessArrowFunc doubles value+1', () => {
   const result: i32 = bracelessArrowFunc(7);
-  assert(result == 14, 'bracelessArrowFunc(7) should be 14');
+  assert(result == 16, 'bracelessArrowFunc(7) should be 16');
 });
 
 test('bracelessArrowFunc with zero', () => {
   const result: i32 = bracelessArrowFunc(0);
-  assert(result == 0, 'bracelessArrowFunc(0) should be 0');
+  assert(result == 2, 'bracelessArrowFunc(0) should be 2');
 });
 
 test('callbackPassNamedFunc uses basicAdd callback', () => {
@@ -73,7 +73,7 @@ test('callbackPassNamedFunc uses basicAdd callback', () => {
 
 test('callbackPassArrowFunc uses arrowFunc callback', () => {
   const result: i32 = callbackPassArrowFunc();
-  assert(result == 25, 'callbackPassArrowFunc() should be 25');
+  assert(result == 26, 'callbackPassArrowFunc() should be 25');
 });
 
 test('callbackPassAnonFunc uses inline arrow callback', () => {
@@ -93,7 +93,7 @@ test('arrowCallbackPassNamedFunc uses basicAdd callback', () => {
 
 test('arrowCallbackPassArrowFunc uses arrowFunc callback', () => {
   const result: i32 = arrowCallbackPassArrowFunc();
-  assert(result == 25, 'arrowCallbackPassArrowFunc() should be 25');
+  assert(result == 26, 'arrowCallbackPassArrowFunc() should be 25');
 });
 
 test('arrowCallbackPassAnonFunc uses inline arrow callback', () => {

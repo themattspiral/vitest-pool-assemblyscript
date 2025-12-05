@@ -139,21 +139,21 @@ test('complexCondition evaluates complex boolean expressions', () => {
 });
 
 // Complex boolean expressions test
-test('complexCondition evaluates complex boolean expressions', () => {
-  const bothPositive: bool = complexCondition2(1, 1, 0, 1);
-  const negCAndDiff: bool = complexCondition2(1, 2, -1, 2);
-  const neitherTrue: bool = complexCondition2(-1, -1, 1, 6);
-
-  assert(bothPositive == true, 'both positive should be true');
-  assert(negCAndDiff == true, 'negative c with different a,b should be true');
-  assert(neitherTrue == false, 'neither condition met should be false');
+test('complexCondition2 evaluates complex boolean expressions', () => {
+  assert(complexCondition2(1, 1, 0, 6) == false);
+  assert(complexCondition2(6, 1, 0, 4) == true);
+  assert(complexCondition2(6, -1, 0, 4) == false);
+  assert(complexCondition2(3, -1, 0, 4) == true);
+  assert(complexCondition2(3, 3, 0, 4) == false);
+  assert(complexCondition2(6, 3, 0, 2) == false);
+  assert(complexCondition2(6, -1, 0, 2) == false);
+  assert(complexCondition2(6, 3, 0, 1) == true);
+  assert(complexCondition2(6, -1, 0, 1) == false);
+  assert(complexCondition2(2, -1, 0, 1) == true);
 });
 
-// Ternary in loop test
 test('ternaryLoop uses ternary operator in loop', () => {
   const result: i32 = ternaryLoop(4);
-  // i=0: +0, i=1: -1, i=2: +2, i=3: -3
-  // Total = 0 - 1 + 2 - 3 = -2
   assert(result == -2, 'ternaryLoop(4) should return -2');
 
   const zeroN: i32 = ternaryLoop(0);

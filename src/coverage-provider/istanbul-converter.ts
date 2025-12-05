@@ -6,6 +6,7 @@
  * coverage tools like Codecov, Coveralls, etc.
  *
  * Current Implementation: Function-level coverage only
+ * - Uses containment matching: binary positions → source function ranges
  * - Each function maps to both a function entry AND a statement entry
  * - Statement coverage matches function coverage (function-level granularity)
  * - Branch coverage is 0% (no branches tracked yet)
@@ -16,7 +17,8 @@
 
 import { relative, resolve } from 'node:path';
 import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
-import type { CoverageData, ParsedSourceInfo } from '../types.js';
+import type { CoverageData, ParsedSourceInfo, ParsedSourceFunctionInfo } from '../types.js';
+import { findFunctionContainingPosition } from './containment-matcher.js';
 import { debug } from '../utils/debug.mjs';
 
 // resolve the correct root - this file is built to dist/coverage-provider
@@ -25,13 +27,16 @@ const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
 /**
  * Convert AssemblyScript coverage data to Istanbul format
  *
- * Algorithm:
- * 1. Get functions for the target file from parsedSourceInfo
- * 2. Get hit counts for the target file from coverageData
- * 3. For each function with valid metadata (startLine > 0):
- *    - Add function mapping to fnMap (from parsedSourceInfo)
- *    - Add function hit count to f (from coverageData)
- *    - Add corresponding statement mapping to statementMap (at function start line)
+ * Algorithm (containment matching):
+ * 1. Get functions for the target file from parsedSourceInfo (keyed by start line)
+ * 2. Get hit counts for the target file from coverageData (keyed by position)
+ * 3. For each hit position in coverageData:
+ *    - Use containment matcher to find which source function contains this position
+ *    - Record the hit count for that function
+ * 4. For each function in parsedSourceInfo:
+ *    - Add function mapping to fnMap
+ *    - Add function hit count to f (from matched hits, or 0 if not hit)
+ *    - Add corresponding statement mapping to statementMap
  *    - Add same hit count to s (statement coverage matches function coverage)
  *
  * @param parsedSourceInfo - Parsed source info with function metadata (names, ranges), keyed by absolute path
@@ -46,9 +51,9 @@ export function convertToIstanbulFormat(
 ): FileCoverageData {
   debug(`[IstanbulConverter] Converting coverage for file: ${filePath}`);
 
-  // Get functions for this specific file from parsed source
-  const fileFunctions = parsedSourceInfo.functionsByFileAndPosition[filePath];
-  if (!fileFunctions) {
+  // Get functions for this specific file from parsed source (keyed by start line)
+  const functionsByStartLine = parsedSourceInfo.functionsByFileAndStartLine[filePath];
+  if (!functionsByStartLine) {
     debug(`[IstanbulConverter] No functions found for ${filePath}`);
     return {
       path: filePath,
@@ -66,14 +71,36 @@ export function convertToIstanbulFormat(
   const relativeFilePath = relative(PROJECT_ROOT, filePath);
   const fileHitCounts = coverageData.hitCountsByFileAndPosition[relativeFilePath] ?? {};
 
-  // DEBUG: Show what keys exist
-  debug(`[IstanbulConverter] Looking up filePath: ${filePath}`);
-  debug(`[IstanbulConverter] parsedSourceInfo keys: ${Object.keys(fileFunctions).slice(0, 3).join(', ')}`);
-  debug(`[IstanbulConverter] fileHitCounts keys: ${Object.keys(fileHitCounts).slice(0, 3).join(', ')}`);
-  debug(`[IstanbulConverter] MATCH CHECK: parsed=${Object.keys(fileFunctions)[0]} vs hits=${Object.keys(fileHitCounts)[0]}`);
+  // Count total functions for debugging
+  const funcCount = Object.values(functionsByStartLine).reduce((sum, funcs) => sum + funcs.length, 0);
+  debug(`[IstanbulConverter] File has ${funcCount} functions, ${Object.keys(fileHitCounts).length} hit positions`);
 
-  const funcCount = Object.keys(fileFunctions).length;
-  debug(`[IstanbulConverter] File has ${funcCount} functions`);
+  // Build a map of function -> hit count using containment matching
+  // Key: function identity (qualifiedName), Value: hit count
+  const functionHitCounts = new Map<ParsedSourceFunctionInfo, number>();
+
+  // For each hit position, find which function contains it
+  for (const [positionKey, hitCount] of Object.entries(fileHitCounts)) {
+    // Position key format is "line:column"
+    const parts = positionKey.split(':');
+    const lineStr = parts[0];
+    const columnStr = parts[1];
+
+    if (lineStr && columnStr) {
+      const line = parseInt(lineStr, 10);
+      const column = parseInt(columnStr, 10);
+
+      const containingFunction = findFunctionContainingPosition(functionsByStartLine, line, column);
+      if (containingFunction) {
+        // Accumulate hits (in case multiple positions map to same function)
+        const existingHits = functionHitCounts.get(containingFunction) ?? 0;
+        functionHitCounts.set(containingFunction, Math.max(existingHits, hitCount));
+        debug(`[IstanbulConverter] Position ${positionKey} -> function "${containingFunction.shortName}" (hits: ${hitCount})`);
+      } else {
+        debug(`[IstanbulConverter] Position ${positionKey} has no containing function`);
+      }
+    }
+  }
 
   // Initialize Istanbul data structures
   const fnMap: { [key: string]: FunctionMapping } = {};
@@ -84,47 +111,48 @@ export function convertToIstanbulFormat(
   const b: { [key: string]: number[] } = {};
 
   // Convert function coverage to Istanbul format
+  // Iterate all functions from parsed source (ensures 0-hit functions are included)
   let funcIdx = 0;
-  for (const [positionKey, funcInfo] of Object.entries(fileFunctions)) {
-    const { range, shortName } = funcInfo;
+  for (const functions of Object.values(functionsByStartLine)) {
+    for (const funcInfo of functions) {
+      const { range, shortName } = funcInfo;
 
-    // Skip functions without valid metadata
-    // Functions with startLine === 0 are compiler-generated or missing metadata
-    if (range.startLine === 0) {
+      // Defensive: skip functions with invalid metadata (shouldn't happen - AST parser filters these)
+      if (range.startLine === 0) {
+        continue;
+      }
+
+      // Get hit count from containment matching (or 0 if not hit)
+      const hitCount = functionHitCounts.get(funcInfo) ?? 0;
+
+      debug(`[IstanbulConverter] Function ${funcIdx}: "${shortName}" at ${range.startLine}:${range.startColumn} hit ${hitCount} times`);
+
+      // Create function mapping
+      // Both 'decl' (declaration) and 'loc' (location) use the same range
+      // Internal ParsedSourceFunctionInfo uses 1-based columns, Istanbul expects 0-based
+      const istanbulRange: Range = {
+        start: { line: range.startLine, column: range.startColumn - 1 },
+        end: { line: range.endLine, column: range.endColumn - 1 }
+      };
+
+      const idxStr = funcIdx.toString();
+      fnMap[idxStr] = {
+        name: shortName,
+        decl: istanbulRange,
+        loc: istanbulRange,
+        line: range.startLine
+      };
+      f[idxStr] = hitCount;
+
+      // Create corresponding statement mapping
+      // For function-level coverage, each function is one "statement"
+      // The statement range matches the function range
+      // This gives us statement coverage at function granularity
+      statementMap[idxStr] = istanbulRange;
+      s[idxStr] = hitCount;
+
       funcIdx++;
-      continue;
     }
-
-    // Get hit count from coverage data using position key
-    const hitCount = fileHitCounts[positionKey] ?? 0;
-
-    debug(`[IstanbulConverter] Function ${funcIdx}: "${shortName}" at ${positionKey} hit ${hitCount} times (key exists: ${positionKey in fileHitCounts})`);
-
-    // Create function mapping
-    // Both 'decl' (declaration) and 'loc' (location) use the same range
-    // Internal ParsedSourceFunctionInfo uses 1-based columns, Istanbul expects 0-based
-    const istanbulRange: Range = {
-      start: { line: range.startLine, column: range.startColumn - 1 },
-      end: { line: range.endLine, column: range.endColumn - 1 }
-    };
-
-    const idxStr = funcIdx.toString();
-    fnMap[idxStr] = {
-      name: shortName,
-      decl: istanbulRange,
-      loc: istanbulRange,
-      line: range.startLine
-    };
-    f[idxStr] = hitCount;
-
-    // Create corresponding statement mapping
-    // For function-level coverage, each function is one "statement"
-    // The statement range matches the function range
-    // This gives us statement coverage at function granularity
-    statementMap[idxStr] = istanbulRange;
-    s[idxStr] = hitCount;
-
-    funcIdx++;
   }
 
   debug(`[IstanbulConverter] Result for ${filePath}: ${Object.keys(fnMap).length} functions added`);

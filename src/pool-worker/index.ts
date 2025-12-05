@@ -35,7 +35,7 @@ import { createPhaseTimings } from '../utils/timing.mjs';
 import {
   createRpcClient,
   createInitialFileTask,
-  createFileTaskWithTests,
+  createRunFileTaskWithTestCases,
   reportFileQueued,
   reportFileCollected,
   reportSuitePrepare,
@@ -73,7 +73,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     const rpc = createRpcClient(taskData.port);
 
     // Create phase timings tracker for discovery
-    const timings = createPhaseTimings();
+    const discoverTimings = createPhaseTimings();
 
     // Report onQueued
     const queuedFileTask = createInitialFileTask(taskData.testFile, taskData.projectInfo);
@@ -81,17 +81,17 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
 
     // Discover tests from binary
     const { tests } = await discoverTestsFromExecutor(taskData.binary, taskData.debugInfo);
-    timings.phaseEnd = performance.now();
+    discoverTimings.phaseEnd = performance.now();
 
-    debug(`[TIMING] ${basename(taskData.testFile)} - discover: ${timings.phaseEnd - timings.phaseStart}ms`);
+    debug(`[TIMING] ${basename(taskData.testFile)} - discover: ${discoverTimings.phaseEnd - discoverTimings.phaseStart}ms`);
 
     // Create complete file task for onCollected with duration metadata
-    const collectedFileTask = createFileTaskWithTests(
+    const collectedFileTask = createRunFileTaskWithTestCases(
       taskData.testFile,
       taskData.projectInfo,
       tests,
       taskData.compileTimings,
-      timings
+      discoverTimings
     );
 
     // Apply test name pattern filtering (from -t flag) before reporting to Vitest
@@ -118,7 +118,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
 
     debug('[Worker] discoverTests complete, discovered', tests.length, 'tests');
 
-    return { fileTask: collectedFileTask, tests, timings };
+    return { fileTask: collectedFileTask, tests, timings: discoverTimings };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     throw new Error(`[Worker] discoverTests failed for ${taskData.testFile}: ${errorMsg}`, { cause: error });

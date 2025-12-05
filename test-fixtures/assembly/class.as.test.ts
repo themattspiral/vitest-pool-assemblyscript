@@ -26,9 +26,9 @@ test('Counter constructor with default values', () => {
 });
 
 test('Counter previewComplex shows hypothetical increased value', () => {
-  const counter = new Counter(8);
+  const counter = new Counter(2);
   const preview = counter.previewComplex();
-  assert(preview == 42, `Preview should be 42 when starting value is 8`);
+  assert(preview == 25, `Preview should be 43 when starting value is 2`);
 });
 
 test('Counter previewPlusTwo shows hypothetical increased value', () => {
@@ -40,7 +40,7 @@ test('Counter previewPlusTwo shows hypothetical increased value', () => {
 test('Counter internalNesting shows hypothetical value', () => {
   const counter = new Counter();
   const preview = counter.internalNesting(2);
-  assert(preview == 24, `internalNesting should be 24 when given value is 2`);
+  assert(preview == 25, `internalNesting should be 25 when given value is 2`);
 });
 
 test('Counter increment increases value', () => {

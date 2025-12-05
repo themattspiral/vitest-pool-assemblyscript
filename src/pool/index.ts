@@ -17,7 +17,7 @@ import { installSourcemapsSupport } from 'vite-node/source-map';
 
 import type {
   CachedCompilation,
-  DiscoveredTest,
+  DiscoveredTests,
   DiscoverTestsTask,
   DiscoverTestsResult,
   ExecuteTestTask,
@@ -158,7 +158,7 @@ async function queueCompilation(
       instrumented: compileResult.instrumented,
       sourceMap: compileResult.sourceMap,
       debugInfo: compileResult.debugInfo,
-      discoveredTests: [],
+      discoveredTests: {},
       compileTimings: timings,
       generation,
     };
@@ -251,7 +251,7 @@ async function executePhase2Discovery(
   //   - This edge case shouldn't happen (watch mode invalidates cache before re-collecting)
   //   - But if it does (e.g., `vitest list` called twice), returning undefined is correct
   //     since collectTests mode doesn't need fileTask
-  const shouldCallWorker = cached.discoveredTests.length === 0 || !isCollectTestsMode;
+  const shouldCallWorker = Object.keys(cached.discoveredTests).length === 0 || !isCollectTestsMode;
 
   let fileTask: RunnerTestFile | undefined;
 
@@ -278,7 +278,7 @@ async function executePhase2Discovery(
       }) as DiscoverTestsResult;
 
       // Update cache on first discovery only
-      if (cached.discoveredTests.length === 0) {
+      if (Object.keys(cached.discoveredTests).length === 0) {
         cached.discoveredTests = discoverResult.tests;
         cached.discoverTimings = discoverResult.timings;
       }
@@ -293,7 +293,7 @@ async function executePhase2Discovery(
     }
   }
 
-  debug(`[Pipeline ${basename(testFilePath)}] Phase 2 (discover) complete, found ${cached.discoveredTests.length} tests`);
+  debug(`[Pipeline ${basename(testFilePath)}] Phase 2 (discover) complete, found ${Object.keys(cached.discoveredTests).length} tests`);
   return fileTask;
 }
 
@@ -329,8 +329,8 @@ async function executePhase3Tests(
   debug(`[Pipeline ${basename(testFilePath)}] Phase 3 Execute starting - coverage: ${coverageEnabled}`);
 
   const testExecutions = testTasks.map(async (testTask) => {
-    // Match test task to discovered test by name
-    const test = cached.discoveredTests.find(t => t.name === testTask.name);
+    // Match test task to discovered test by unique id
+    const test = cached.discoveredTests[testTask.id];
     if (!test) {
       throw new Error(`Could not find discovered test for task: ${testTask.name}`);
     }
@@ -439,8 +439,8 @@ async function executePhase4FailsafeRerun(
 
     // Re-run only failed tests on clean binary and collect their results
     const rerunExecutions = failedResults.map(async ({ testTask, result: _originalResult }) => {
-      // Match test task to discovered test by name
-      const test = cached.discoveredTests.find(t => t.name === testTask.name);
+      // Match test task to discovered test by unique id
+      const test = cached.discoveredTests[testTask.id];
       if (!test) {
         throw new Error(`Could not find discovered test for rerun: ${testTask.name}`);
       }
@@ -607,7 +607,7 @@ async function collectTests(
   // Create pipeline for each file
   const filePipelines: Promise<{
     spec: TestSpecification,
-    tests: DiscoveredTest[]
+    tests: DiscoveredTests
   }>[] = specs.map(async (spec: TestSpecification) => {
     const testFilePath: string = spec.moduleId; // absolute path
 
@@ -624,12 +624,12 @@ async function collectTests(
       // Check if cache validation failure (acceptable, return empty list)
       if (error instanceof Error && error.message.startsWith(`${CACHE_INVALIDATED_ERROR_CODE}`)) {
         debug(`[Pipeline ${basename(testFilePath)}] ${error.message}`);
-        return { spec, tests: [] };
+        return { spec, tests: {} };
       }
 
       // Compilation or discovery failures: log and return empty list
       debug(`[Pool] Pipeline failed for ${testFilePath}:`, error);
-      return { spec, tests: [] };
+      return { spec, tests: {} };
     }
   });
 
@@ -696,7 +696,7 @@ async function runTests(
         throw new Error(`Phase 2 discovery did not return file task for ${testFilePath}`);
       }
 
-      debug(`[Pipeline ${basename(testFilePath)}] Phase 2 complete, found ${cached.discoveredTests.length} tests`);
+      debug(`[Pipeline ${basename(testFilePath)}] Phase 2 complete, found ${Object.keys(cached.discoveredTests).length} tests`);
 
       // Get coverage mode
       const { isFailsafeMode } = getCoverageModeFlags(config);

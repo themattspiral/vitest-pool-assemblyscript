@@ -7,14 +7,15 @@
  * Source AST is the source of truth for what SHOULD be covered.
  * Binary instrumentation tells us what we CAN measure (hit counts).
  *
- * Functions are keyed by first-expression position (line:column of first statement
- * in the function body), which matches BinaryDebugInfo's representativeLocation
- * for direct position-based lookup.
+ * Functions are grouped by start line for containment matching:
+ * - Binary gives us a point (representativeLocation) somewhere in the function
+ * - Source gives us function ranges (start/end line/column)
+ * - We find which source function range contains the binary point
+ * - "Tightest fit" handles nested functions (innermost wins)
  *
  * Architecture:
  * - Uses visitor pattern with complete NodeKind coverage (following auf's listFunctions.mts)
  * - Recursively visits ALL node types to find nested functions in any context
- * - First-expression position is calculated by finding minimum position, not assuming array order
  */
 
 import { readFileSync } from 'fs';
@@ -145,12 +146,6 @@ const CommonFlags = {
   Set: 4096,
 } as const;
 
-/** Position within a source file (1-based line and column) */
-interface Position {
-  line: number;
-  column: number;
-}
-
 /** Context passed during AST traversal */
 interface VisitorContext {
   /** Source file being parsed */
@@ -159,8 +154,11 @@ interface VisitorContext {
   modulePath: string;
   /** Absolute file path */
   filePath: string;
-  /** Accumulated function records */
-  functions: Record<string, ParsedSourceFunctionInfo>;
+  /**
+   * Accumulated function records, keyed by start line.
+   * Multiple functions can start on the same line (e.g., nested arrow functions).
+   */
+  functions: Record<number, ParsedSourceFunctionInfo[]>;
   /** Current class name (when inside a class) */
   currentClassName: string | null;
 }
@@ -169,28 +167,28 @@ interface VisitorContext {
  * Parse functions from AS source files
  *
  * Used in generateCoverage to build empty coverage map from coverage.include.
- * Returns ParsedSourceInfo with functions keyed by first-expression position.
+ * Returns ParsedSourceInfo with functions grouped by start line for containment matching.
  *
  * @param filePaths - Absolute paths to AS source files
  * @param projectRoot - Project root for building relative paths
- * @returns ParsedSourceInfo with function metadata keyed by position
+ * @returns ParsedSourceInfo with function metadata grouped by start line
  */
 export function parseFunctionsFromFiles(
   filePaths: string[],
   projectRoot: string
 ): ParsedSourceInfo {
-  const functionsByFileAndPosition: Record<string, Record<string, ParsedSourceFunctionInfo>> = {};
+  const functionsByFileAndStartLine: Record<string, Record<number, ParsedSourceFunctionInfo[]>> = {};
 
   for (const filePath of filePaths) {
     const functions = parseFunctionsFromFile(filePath, projectRoot);
 
     if (Object.keys(functions).length > 0) {
-      functionsByFileAndPosition[filePath] = functions;
+      functionsByFileAndStartLine[filePath] = functions;
     }
   }
 
   return {
-    functionsByFileAndPosition,
+    functionsByFileAndStartLine,
     // v2 only - not implemented yet
     statementsByFileAndPosition: {},
     branchesByFileAndPosition: {}
@@ -202,14 +200,14 @@ export function parseFunctionsFromFiles(
  *
  * @param filePath - Absolute path to AS source file
  * @param projectRoot - Project root for building relative paths
- * @returns Record of position key to ParsedSourceFunctionInfo
+ * @returns Record of start line to array of ParsedSourceFunctionInfo (multiple functions can start on same line)
  */
 function parseFunctionsFromFile(
   filePath: string,
   projectRoot: string
-): Record<string, ParsedSourceFunctionInfo> {
+): Record<number, ParsedSourceFunctionInfo[]> {
   const sourceCode = readFileSync(filePath, 'utf8');
-  const functions: Record<string, ParsedSourceFunctionInfo> = {};
+  const functions: Record<number, ParsedSourceFunctionInfo[]> = {};
 
   // Build the module path (strip any extension, use forward slashes)
   const relativePath = relative(projectRoot, filePath).replace(/\\/g, '/');
@@ -243,195 +241,42 @@ function parseFunctionsFromFile(
 }
 
 /**
- * Get the position of the first (earliest) expression in a function body
+ * Check if a function body has statements (non-empty body)
  *
- * This position is used as the key for position-based matching with
- * BinaryDebugInfo's representativeLocation.
+ * Used to skip functions with empty bodies when building the function list.
  *
  * Handles two cases:
- * 1. Block body (braces): Find minimum position among all statements
- * 2. Expression body (braceless arrow): Use the expression's position directly
- *
- * IMPORTANT: We compare positions to find the minimum, NOT assume array order.
- * The native addon finds the true minimum across all expressions, so we must match.
+ * 1. Block body (braces): Has statements if the block has at least one statement
+ * 2. Expression body (braceless arrow): Always has the expression
  */
-function getFirstExpressionPosition(
-  body: Node,
-  source: Source
-): Position | undefined {
-  // Case 1: Block body with statements - find minimum position
+function hasBodyStatements(body: Node, _source: Source): boolean {
   if (body.kind === NodeKind.Block) {
     const blockBody = body as BlockStatement;
-    if (blockBody.statements.length === 0) {
-      return undefined;
-    }
-
-    let minPosition: Position | undefined;
-
-    for (const stmt of blockBody.statements) {
-      // Get the first EXPRESSION position for this statement
-      // For control flow statements, this is the condition/initializer, not the keyword
-      const stmtPosition = getStatementFirstExpressionPosition(stmt, source);
-
-      if (stmtPosition && (!minPosition || isPositionBefore(stmtPosition, minPosition))) {
-        minPosition = stmtPosition;
-      }
-    }
-
-    return minPosition;
+    return blockBody.statements.length > 0;
   }
-
-  // Case 2: Expression body (braceless arrow) - use expression's position
-  return {
-    line: source.lineAt(body.range.start),
-    column: source.columnAt(),
-  };
+  // Expression body (braceless arrow) - always has the expression
+  return true;
 }
 
 /**
- * Get the first expression position for a statement.
- *
- * For control flow statements (if, switch, for, while, do), returns the
- * position of the condition/initializer expression. This matches the binary's
- * representativeLocation which is the first expression with a source map entry.
- *
- * For other statements (return, variable declarations, expression statements),
- * returns the statement start position.
- *
- * Why this matters:
- * - `if (n < 0)` → binary reports column 7 ('n'), not column 3 ('i' of 'if')
- * - `switch (val)` → binary reports column 11 ('v'), not column 3 ('s' of 'switch')
- * - `for (let i...)` → binary reports column 8 ('l' of 'let'), not column 3 ('f' of 'for')
- */
-function getStatementFirstExpressionPosition(
-  stmt: Node,
-  source: Source
-): Position | undefined {
-  switch (stmt.kind) {
-    case NodeKind.If: {
-      const ifStmt = stmt as IfStatement;
-      return getExpressionLeafPosition(ifStmt.condition, source);
-    }
-
-    case NodeKind.Switch: {
-      const switchStmt = stmt as SwitchStatement;
-      return getExpressionLeafPosition(switchStmt.condition, source);
-    }
-
-    case NodeKind.For: {
-      const forStmt = stmt as ForStatement;
-      // For `for` loops, the initializer is the first expression
-      // If no initializer, use the condition
-      // If no condition, use the incrementor
-      // If none, fall back to statement start
-      if (forStmt.initializer) {
-        return getExpressionLeafPosition(forStmt.initializer, source);
-      }
-      if (forStmt.condition) {
-        return getExpressionLeafPosition(forStmt.condition, source);
-      }
-      if (forStmt.incrementor) {
-        return getExpressionLeafPosition(forStmt.incrementor, source);
-      }
-      // Fall through to default (statement start)
-      break;
-    }
-
-    case NodeKind.ForOf: {
-      const forOfStmt = stmt as ForOfStatement;
-      // For `for...of` loops, the variable declaration is the first expression
-      return getExpressionLeafPosition(forOfStmt.variable, source);
-    }
-
-    case NodeKind.While: {
-      const whileStmt = stmt as WhileStatement;
-      return getExpressionLeafPosition(whileStmt.condition, source);
-    }
-
-    case NodeKind.Do: {
-      const doStmt = stmt as DoStatement;
-      // For `do...while`, the body executes first, then the condition is checked.
-      // The first expression is in the body, not the condition.
-      // If the body is a block, recurse to find the first expression.
-      if (doStmt.body.kind === NodeKind.Block) {
-        return getFirstExpressionPosition(doStmt.body, source);
-      }
-      // Otherwise use the body's start position
-      return {
-        line: source.lineAt(doStmt.body.range.start),
-        column: source.columnAt(),
-      };
-    }
-  }
-
-  // Default: use statement start position
-  // This covers: return, variable declarations, expression statements, etc.
-  return {
-    line: source.lineAt(stmt.range.start),
-    column: source.columnAt(),
-  };
-}
-
-/**
- * Recursively find the leftmost/first leaf expression position.
- *
- * The binary's representativeLocation is the first expression with a source map entry.
- * For compound expressions like `((a > 0 && b > 0) || c)`, we need to recurse
- * to find 'a', not the outer parenthesis.
- *
- * Handles:
- * - ParenthesizedExpression: unwrap and recurse
- * - BinaryExpression: recurse into left operand
- * - Other expressions: return their start position
- */
-function getExpressionLeafPosition(
-  expr: Node,
-  source: Source
-): Position {
-  switch (expr.kind) {
-    case NodeKind.Parenthesized: {
-      const parenExpr = expr as ParenthesizedExpression;
-      return getExpressionLeafPosition(parenExpr.expression, source);
-    }
-
-    case NodeKind.Binary: {
-      const binaryExpr = expr as BinaryExpression;
-      return getExpressionLeafPosition(binaryExpr.left, source);
-    }
-
-    default:
-      return {
-        line: source.lineAt(expr.range.start),
-        column: source.columnAt(),
-      };
-  }
-}
-
-/**
- * Check if position A comes before position B in source order
- */
-function isPositionBefore(a: Position, b: Position): boolean {
-  if (a.line < b.line) return true;
-  if (a.line === b.line && a.column < b.column) return true;
-  return false;
-}
-
-/**
- * Add a function to the context's functions record, keyed by first-expression position
+ * Add a function to the context's functions record, keyed by start line.
+ * Multiple functions can start on the same line (pushed to array).
  */
 function addFunction(
   context: VisitorContext,
   qualifiedName: string,
   shortName: string,
-  range: SourceRange,
-  firstExpressionPosition: Position
+  range: SourceRange
 ): void {
-  const positionKey = `${firstExpressionPosition.line}:${firstExpressionPosition.column}`;
-  context.functions[positionKey] = {
+  const startLine = range.startLine;
+  if (!context.functions[startLine]) {
+    context.functions[startLine] = [];
+  }
+  context.functions[startLine].push({
     qualifiedName,
     shortName,
     range
-  };
+  });
 }
 
 /**
@@ -872,10 +717,10 @@ function visitFieldDeclaration(node: FieldDeclaration, context: VisitorContext):
 function visitFunctionDeclaration(node: FunctionDeclaration, context: VisitorContext): void {
   // Extract function info if it has a body (not just a declaration)
   if (node.body) {
-    const firstExpressionPosition = getFirstExpressionPosition(node.body, context.source);
+    const hasStatements = hasBodyStatements(node.body, context.source);
 
     // Only add functions with statements (skip empty bodies)
-    if (firstExpressionPosition) {
+    if (hasStatements) {
       const shortName = node.name?.text ?? '~anonymous';
       const qualifiedName = `${context.modulePath}/${shortName}`;
 
@@ -883,7 +728,7 @@ function visitFunctionDeclaration(node: FunctionDeclaration, context: VisitorCon
       const nameNode = node.name ?? null;
       const range = buildRange(node, nameNode, context);
 
-      addFunction(context, qualifiedName, shortName, range, firstExpressionPosition);
+      addFunction(context, qualifiedName, shortName, range);
     }
 
     // Recurse into the body to find nested functions
@@ -908,10 +753,10 @@ function visitInterfaceDeclaration(node: InterfaceDeclaration, context: VisitorC
  */
 function visitMethodDeclaration(node: MethodDeclaration, context: VisitorContext): void {
   if (node.body) {
-    const firstExpressionPosition = getFirstExpressionPosition(node.body, context.source);
+    const hasStatements = hasBodyStatements(node.body, context.source);
 
     // Only add methods with statements (skip empty bodies)
-    if (firstExpressionPosition) {
+    if (hasStatements) {
       const methodName = node.name?.text ?? 'constructor';
       const className = context.currentClassName ?? 'Unknown';
       const flags = node.flags;
@@ -943,7 +788,7 @@ function visitMethodDeclaration(node: MethodDeclaration, context: VisitorContext
       const nameNode = node.name ?? null;
       const range = buildRange(node, nameNode, context);
 
-      addFunction(context, qualifiedName, shortName, range, firstExpressionPosition);
+      addFunction(context, qualifiedName, shortName, range);
     }
 
     // Recurse into the body to find nested functions
@@ -972,9 +817,9 @@ function visitVariableDeclaration(node: VariableDeclaration, context: VisitorCon
       const funcDecl = funcExpr.declaration;
 
       if (funcDecl.body) {
-        const firstExpressionPosition = getFirstExpressionPosition(funcDecl.body, context.source);
+        const hasStatements = hasBodyStatements(funcDecl.body, context.source);
 
-        if (firstExpressionPosition) {
+        if (hasStatements) {
           // Use variable name for the function
           const shortName = node.name.text;
           const qualifiedName = `${context.modulePath}/${shortName}`;
@@ -988,7 +833,7 @@ function visitVariableDeclaration(node: VariableDeclaration, context: VisitorCon
             endColumn: context.source.columnAt(),
           };
 
-          addFunction(context, qualifiedName, shortName, range, firstExpressionPosition);
+          addFunction(context, qualifiedName, shortName, range);
         }
 
         // Recurse into the function body to find nested functions

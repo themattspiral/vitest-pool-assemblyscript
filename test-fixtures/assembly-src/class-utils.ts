@@ -46,23 +46,25 @@ export class Counter {
 
       // not sure why this would ever be needed since AS doesn't support JS-style closures,
       // but let's make sure we support it just in case
-      const nestedVoid = (): void => { ; };
+      const nestedVoid = (): void => { let x = 4; };
+      nestedVoid();
       
-      const x = 3, nestedNamedFuncMulti = function(b: i32): i32 { return b + 1; }, nestedArrowMulti = (b: i32): i32 => { return b + 1; }, nestedBracelessArrowMulti = (b: i32): i32 => b + 1, z = 4, nestedNamedFuncMultiSpanLines = function(b: i32): i32 {
+      const x = 3, nestedNamedFuncMulti = function(b: i32): i32 { return b + 1; }, nestedArrowMulti = (b: i32): i32 => { return b + 1; }, nestedBracelessArrowMulti = (b: i32): i32 => nestedArrowMulti(b), z = 4, nestedNamedFuncMultiSpanLines = function(b: i32): i32 {
         return b + 1;
       }, nestedArrowMultiSpanLines = (b: i32): i32 => {
-        return b + 1;
+        return nestedNamedFuncMulti(b);
       };
 
       const thing1 = nestedArrowMulti(nestedNamedFunc(nestedNamedVar(nestedArrow(nestedBracelessArrow(a)))));
-      const thing2 = nestedNamedFuncMultiSpanLines(nestedArrowMultiSpanLines(a));
+      const thing2 = nestedBracelessArrowMulti(nestedNamedFuncMultiSpanLines(nestedArrowMultiSpanLines(a)));
       return thing1
         + thing2;
     };
 
     this.bracelessMember = (a: i32): i32 => a + 2;
 
-    this.voidMember = () => { ; };
+    this.voidMember = () => { let x = 4; };
+    this.voidMember();
   }
 
   previewComplex(): i32 {
@@ -174,16 +176,17 @@ export class Counter {
 
     // not sure why this would ever be needed since AS doesn't support JS-style closures,
     // but let's make sure we support it just in case
-    const nestedVoid = (): void => { ; };
+    const nestedVoid = (): void => { let x = 4; };
+    nestedVoid();
     
-    const x = 3, nestedNamedFuncMulti = function(b: i32): i32 { return b + 1; }, nestedArrowMulti = (b: i32): i32 => { return b + 1; }, nestedBracelessArrowMulti = (b: i32): i32 => b + 1, z = 4, nestedNamedFuncMultiSpanLines = function(b: i32): i32 {
+    const x = 3, nestedNamedFuncMulti = function(b: i32): i32 { return b + 1; }, nestedArrowMulti = (b: i32): i32 => { return b + 1; }, nestedBracelessArrowMulti = (b: i32): i32 => nestedArrowMulti(b), z = 4, nestedNamedFuncMultiSpanLines = function(b: i32): i32 {
       return b + 1;
     }, nestedArrowMultiSpanLines = (b: i32): i32 => {
-      return b + 1;
+      return nestedNamedFuncMulti(b);
     };
 
     const thing1 = nestedArrowMulti(nestedNamedFunc(nestedNamedVar(nestedArrow(nestedBracelessArrow(a)))));
-    const thing2 = nestedNamedFuncMultiSpanLines(nestedArrowMultiSpanLines(a));
+    const thing2 = nestedBracelessArrowMulti(nestedNamedFuncMultiSpanLines(nestedArrowMultiSpanLines(a)));
     return thing1
       + thing2;
   }

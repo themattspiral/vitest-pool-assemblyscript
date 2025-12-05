@@ -12,7 +12,7 @@
 import type { RawSourceMap } from 'source-map';
 
 import { createMemory } from '../utils/wasm-memory.js';
-import type { TestResult, CoverageData, DiscoveredTest, BinaryDebugInfo } from '../types.js';
+import type { TestResult, CoverageData, DiscoveredTest, DiscoveredTests, BinaryDebugInfo } from '../types.js';
 import { COVERAGE_MEMORY_PAGES_MAX, ERROR_NAMES } from '../types.js';
 import { debug, debugError } from '../utils/debug.mjs';
 import { createDiscoveryImports, createTestExecutionImports } from './imports.js';
@@ -41,8 +41,8 @@ import { enhanceErrorWithSourceMap } from './errors.js';
 export async function discoverTests(
   binary: Uint8Array,
   debugInfo?: BinaryDebugInfo
-): Promise<{ tests: DiscoveredTest[] }> {
-  const tests: DiscoveredTest[] = [];
+): Promise<{ tests: DiscoveredTests }> {
+  const tests: DiscoveredTests = {};
   const module = await WebAssembly.compile(binary as BufferSource);
   const memory = createMemory();
 

@@ -182,7 +182,7 @@ export interface CachedCompilation {
   instrumented?: Uint8Array;
   sourceMap?: string;
   debugInfo?: BinaryDebugInfo;
-  discoveredTests: DiscoveredTest[];
+  discoveredTests: DiscoveredTests;
   compileTimings: PhaseTimings;
   discoverTimings?: PhaseTimings;
   generation: number;
@@ -196,12 +196,18 @@ export interface CachedCompilation {
  * Discovered test metadata (from registration phase)
  */
 export interface DiscoveredTest {
-  /** Test name */
+  /** Test name (user-defined) */
   name: string;
   /** Function table index for this test */
   fnIndex: number;
+  /** Unique internal id assigned to identify this test. Matches RunnerTestCase.id value */
+  id: string;
 }
 
+/**
+ * Discovered tests indexed by unique id
+ */
+export type DiscoveredTests = Record<string, DiscoveredTest>;
 
 /**
  * Result of a single test execution
@@ -520,12 +526,11 @@ export interface ParsedSourceBranchInfo {
  */
 export interface ParsedSourceInfo {
   /**
-   * Functions grouped by file path, then keyed by first-expression position ("line:column")
-   *
-   * The position key is the first statement/expression in the function body,
-   * which matches BinaryDebugInfo's representativeLocation for direct lookup.
+   * Functions grouped by file path, then by start line for containment matching.
+   * Multiple functions can start on the same line, but limiting matching to checking
+   * only the functions grouped on the input position's line is very performant.
    */
-  functionsByFileAndPosition: Record<string, Record<string, ParsedSourceFunctionInfo>>;
+  functionsByFileAndStartLine: Record<string, Record<number, ParsedSourceFunctionInfo[]>>;
   /**
    * Statements grouped by file path, then keyed by position ("line:column")
    * v2 only: For line-level statement coverage
@@ -572,8 +577,8 @@ export interface DiscoverTestsTask {
 export interface DiscoverTestsResult {
   /** File task with filtered tests (after applying testNamePattern) */
   fileTask: RunnerTestFile;
-  /** Discovered tests with names and function indices */
-  tests: DiscoveredTest[];
+  /** Discovered tests with names, function indices, and unique ids */
+  tests: DiscoveredTests;
   /** Discovery phase timings */
   timings: PhaseTimings;
 }
