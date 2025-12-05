@@ -25,6 +25,7 @@ using namespace wasm;
  */
 struct ExpressionInfo {
   std::string type;                    // Expression type name
+  Expression::Id typeId;               // Expression type ID (for efficient comparison)
   uint32_t fileIndex;                  // Debug location file index
   uint32_t lineNumber;                 // Debug location line number
   uint32_t columnNumber;               // Debug location column number
@@ -83,6 +84,7 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
     Function* func = getFunction();
     ExpressionInfo info;
     info.type = getExpressionName(curr);  // Use Binaryen's built-in function
+    info.typeId = curr->_id;              // Store ID for efficient comparison
     info.hasDebugLocation = false;
 
     // Check debugLocations map (version_124+ returns std::optional)
@@ -468,10 +470,11 @@ Napi::Object ExtractDebugInfo(const Napi::CallbackInfo& info) {
       }
 
       // Convert expressions to JavaScript array
-      // Also track first expression from HOME FILE for representativeLocation
+      // Also track representative expression from HOME FILE for representativeLocation
       // (ignores expressions from inlined code in other files)
       Napi::Array expressions = Napi::Array::New(env, walker.expressions.size());
-      const ExpressionInfo* firstHomeFileExpression = nullptr;
+      const ExpressionInfo* returnExpression = nullptr;
+      const ExpressionInfo* firstNonConstExpression = nullptr;
 
       for (size_t i = 0; i < walker.expressions.size(); i++) {
         const auto& expr = walker.expressions[i];
@@ -493,16 +496,15 @@ Napi::Object ExtractDebugInfo(const Napi::CallbackInfo& info) {
           location.Set("column", Napi::Number::New(env, expr.columnNumber));
           exprObj.Set("location", location);
 
-          // Track earliest expression from HOME FILE only for representativeLocation
-          // This prevents inlined code from other files from being selected
+          // Track expressions from HOME FILE for representativeLocation selection
+          // Priority: 1) Return expression, 2) First non-Const expression
+          // This avoids selecting inlined default parameter values (always Const)
+          // which would point to the wrong function's source location
           if (homeFileIndex >= 0 && expr.fileIndex == static_cast<uint32_t>(homeFileIndex)) {
-            if (firstHomeFileExpression == nullptr) {
-              firstHomeFileExpression = &expr;
-            } else if (expr.lineNumber < firstHomeFileExpression->lineNumber) {
-              firstHomeFileExpression = &expr;
-            } else if (expr.lineNumber == firstHomeFileExpression->lineNumber &&
-                       expr.columnNumber < firstHomeFileExpression->columnNumber) {
-              firstHomeFileExpression = &expr;
+            if (expr.typeId == Expression::ReturnId && returnExpression == nullptr) {
+              returnExpression = &expr;
+            } else if (expr.typeId != Expression::ConstId && firstNonConstExpression == nullptr) {
+              firstNonConstExpression = &expr;
             }
           }
         }
@@ -511,13 +513,17 @@ Napi::Object ExtractDebugInfo(const Napi::CallbackInfo& info) {
       }
       funcInfo.Set("expressions", expressions);
 
-      // Add representativeLocation only if we found an expression from the home file
-      // Functions with only inlined code (no home file expressions) get no representativeLocation
-      if (firstHomeFileExpression != nullptr) {
+      // Select representativeLocation: prefer Return, fallback to first non-Const
+      const ExpressionInfo* representativeExpression = returnExpression != nullptr
+          ? returnExpression
+          : firstNonConstExpression;
+
+      // Add representativeLocation only if we found a suitable expression from the home file
+      if (representativeExpression != nullptr) {
         Napi::Object representativeLocation = Napi::Object::New(env);
-        representativeLocation.Set("fileIndex", Napi::Number::New(env, firstHomeFileExpression->fileIndex));
-        representativeLocation.Set("line", Napi::Number::New(env, firstHomeFileExpression->lineNumber));
-        representativeLocation.Set("column", Napi::Number::New(env, firstHomeFileExpression->columnNumber));
+        representativeLocation.Set("fileIndex", Napi::Number::New(env, representativeExpression->fileIndex));
+        representativeLocation.Set("line", Napi::Number::New(env, representativeExpression->lineNumber));
+        representativeLocation.Set("column", Napi::Number::New(env, representativeExpression->columnNumber));
         funcInfo.Set("representativeLocation", representativeLocation);
       }
 
