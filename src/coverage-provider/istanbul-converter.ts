@@ -15,72 +15,46 @@
  * Future Enhancement (v2): Block-level statement and branch coverage
  */
 
-import { relative, resolve } from 'node:path';
 import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
-import type { CoverageData, ParsedSourceInfo, ParsedSourceFunctionInfo } from '../types.js';
+import type { ParsedSourceFunctionInfo } from '../types.js';
 import { findFunctionContainingPosition } from './containment-matcher.js';
 import { debug } from '../utils/debug.mjs';
 
-// resolve the correct root - this file is built to dist/coverage-provider
-const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
-
 /**
- * Convert AssemblyScript coverage data to Istanbul format
+ * Convert AssemblyScript coverage data to Istanbul format for a single file
  *
  * Algorithm (containment matching):
- * 1. Get functions for the target file from parsedSourceInfo (keyed by start line)
- * 2. Get hit counts for the target file from coverageData (keyed by position)
- * 3. For each hit position in coverageData:
+ * 1. For each hit position in fileHitCountsByPosition:
  *    - Use containment matcher to find which source function contains this position
  *    - Record the hit count for that function
- * 4. For each function in parsedSourceInfo:
+ * 2. For each function in fileFunctionsByStartLine:
  *    - Add function mapping to fnMap
  *    - Add function hit count to f (from matched hits, or 0 if not hit)
  *    - Add corresponding statement mapping to statementMap
  *    - Add same hit count to s (statement coverage matches function coverage)
  *
- * @param parsedSourceInfo - Parsed source info with function metadata (names, ranges), keyed by absolute path
- * @param coverageData - Coverage data with hit counts (position -> hit count), keyed by relative path
- * @param filePath - Absolute path to the source file
+ * @param fileFunctionsByStartLine - Functions for this file, keyed by start line (from AST parser)
+ * @param fileHitCountsByPosition - Hit counts for this file, keyed by position "line:column" (from accumulated coverage)
+ * @param filePath - Absolute path to the source file (for Istanbul output)
  * @returns Istanbul FileCoverage object
  */
-export function convertToIstanbulFormat(
-  parsedSourceInfo: ParsedSourceInfo,
-  coverageData: CoverageData,
+export async function convertToIstanbulFormat(
+  fileFunctionsByStartLine: Record<number, ParsedSourceFunctionInfo[]>,
+  fileHitCountsByPosition: Record<string, number>,
   filePath: string
-): FileCoverageData {
+): Promise<FileCoverageData> {
   debug(`[IstanbulConverter] Converting coverage for file: ${filePath}`);
 
-  // Get functions for this specific file from parsed source (keyed by start line)
-  const functionsByStartLine = parsedSourceInfo.functionsByFileAndStartLine[filePath];
-  if (!functionsByStartLine) {
-    debug(`[IstanbulConverter] No functions found for ${filePath}`);
-    return {
-      path: filePath,
-      fnMap: {},
-      f: {},
-      statementMap: {},
-      s: {},
-      branchMap: {},
-      b: {}
-    };
-  }
-
-  // Get hit counts for this file
-  // coverageData is keyed by relative path, so convert absolute filePath to relative
-  const relativeFilePath = relative(PROJECT_ROOT, filePath);
-  const fileHitCounts = coverageData.hitCountsByFileAndPosition[relativeFilePath] ?? {};
-
   // Count total functions for debugging
-  const funcCount = Object.values(functionsByStartLine).reduce((sum, funcs) => sum + funcs.length, 0);
-  debug(`[IstanbulConverter] File has ${funcCount} functions, ${Object.keys(fileHitCounts).length} hit positions`);
+  const funcCount = Object.values(fileFunctionsByStartLine).reduce((sum, funcs) => sum + funcs.length, 0);
+  debug(`[IstanbulConverter] File has ${funcCount} functions, ${Object.keys(fileHitCountsByPosition).length} hit positions`);
 
   // Build a map of function -> hit count using containment matching
   // Key: function identity (qualifiedName), Value: hit count
   const functionHitCounts = new Map<ParsedSourceFunctionInfo, number>();
 
   // For each hit position, find which function contains it
-  for (const [positionKey, hitCount] of Object.entries(fileHitCounts)) {
+  for (const [positionKey, hitCount] of Object.entries(fileHitCountsByPosition)) {
     // Position key format is "line:column"
     const parts = positionKey.split(':');
     const lineStr = parts[0];
@@ -90,7 +64,7 @@ export function convertToIstanbulFormat(
       const line = parseInt(lineStr, 10);
       const column = parseInt(columnStr, 10);
 
-      const containingFunction = findFunctionContainingPosition(functionsByStartLine, line, column);
+      const containingFunction = findFunctionContainingPosition(fileFunctionsByStartLine, line, column);
       if (containingFunction) {
         // Accumulate hits (in case multiple positions map to same function)
         const existingHits = functionHitCounts.get(containingFunction) ?? 0;
@@ -113,7 +87,7 @@ export function convertToIstanbulFormat(
   // Convert function coverage to Istanbul format
   // Iterate all functions from parsed source (ensures 0-hit functions are included)
   let funcIdx = 0;
-  for (const functions of Object.values(functionsByStartLine)) {
+  for (const functions of Object.values(fileFunctionsByStartLine)) {
     for (const funcInfo of functions) {
       const { range, shortName } = funcInfo;
 
@@ -124,8 +98,8 @@ export function convertToIstanbulFormat(
 
       // Get hit count from containment matching (or 0 if not hit)
       const hitCount = functionHitCounts.get(funcInfo) ?? 0;
-
-      debug(`[IstanbulConverter] Function ${funcIdx}: "${shortName}" at ${range.startLine}:${range.startColumn} hit ${hitCount} times`);
+      const displayShortName = shortName && shortName !== '' ? shortName : '<anonymous>';
+      debug(`[IstanbulConverter] Function ${funcIdx}: "${displayShortName}" at ${range.startLine}:${range.startColumn} hits: ${hitCount}`);
 
       // Create function mapping
       // Both 'decl' (declaration) and 'loc' (location) use the same range

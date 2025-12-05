@@ -18,10 +18,10 @@
  * - Recursively visits ALL node types to find nested functions in any context
  */
 
-import { readFileSync } from 'fs';
-import { relative, parse as parsePath } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { parse as parsePath } from 'node:path';
 import {
-  Parser,
+  Parser as AssemblyScriptParser,
   Source,
   BlockStatement,
   Node,
@@ -63,7 +63,7 @@ import {
   InterfaceDeclaration,
   VoidStatement,
 } from 'assemblyscript';
-import type { ParsedSourceInfo, ParsedSourceFunctionInfo, SourceRange } from '../types.js';
+import type { ParsedSourceFunctionInfo, SourceRange } from '../types.js';
 
 // NodeKind enum values (from AS compiler)
 // Defined locally to avoid isolatedModules const enum access issues
@@ -163,62 +163,30 @@ interface VisitorContext {
   currentClassName: string | null;
 }
 
-/**
- * Parse functions from AS source files
- *
- * Used in generateCoverage to build empty coverage map from coverage.include.
- * Returns ParsedSourceInfo with functions grouped by start line for containment matching.
- *
- * @param filePaths - Absolute paths to AS source files
- * @param projectRoot - Project root for building relative paths
- * @returns ParsedSourceInfo with function metadata grouped by start line
- */
-export function parseFunctionsFromFiles(
-  filePaths: string[],
-  projectRoot: string
-): ParsedSourceInfo {
-  const functionsByFileAndStartLine: Record<string, Record<number, ParsedSourceFunctionInfo[]>> = {};
-
-  for (const filePath of filePaths) {
-    const functions = parseFunctionsFromFile(filePath, projectRoot);
-
-    if (Object.keys(functions).length > 0) {
-      functionsByFileAndStartLine[filePath] = functions;
-    }
-  }
-
-  return {
-    functionsByFileAndStartLine,
-    // v2 only - not implemented yet
-    statementsByFileAndPosition: {},
-    branchesByFileAndPosition: {}
-  };
-}
 
 /**
  * Parse functions from a single AS source file
  *
- * @param filePath - Absolute path to AS source file
- * @param projectRoot - Project root for building relative paths
+ * @param absoluteSourceFilePath - Absolute path to AS source file
+ * @param relativeSourceFilePath - Relative path to AS source file (derived once in caller and used several places)
  * @returns Record of start line to array of ParsedSourceFunctionInfo (multiple functions can start on same line)
  */
-function parseFunctionsFromFile(
-  filePath: string,
-  projectRoot: string
-): Record<number, ParsedSourceFunctionInfo[]> {
-  const sourceCode = readFileSync(filePath, 'utf8');
+export async function parseFunctionsFromFile(
+  absoluteSourceFilePath: string,
+  relativeSourceFilePath: string,
+): Promise<Record<number, ParsedSourceFunctionInfo[]>> {
+  const sourceCode = await readFile(absoluteSourceFilePath, 'utf8');
   const functions: Record<number, ParsedSourceFunctionInfo[]> = {};
 
   // Build the module path (strip any extension, use forward slashes)
-  const relativePath = relative(projectRoot, filePath).replace(/\\/g, '/');
-  const parsed = parsePath(relativePath);
+  const parsed = parsePath(relativeSourceFilePath);
   const modulePath = parsed.dir ? `${parsed.dir}/${parsed.name}` : parsed.name;
 
   // Parse with AssemblyScript parser
-  const parser = new Parser();
-  parser.parseFile(sourceCode, relativePath, true);
+  const asParser = new AssemblyScriptParser();
+  asParser.parseFile(sourceCode, relativeSourceFilePath, true);
 
-  const source = parser.currentSource;
+  const source = asParser.currentSource;
   if (!source) {
     return functions;
   }
@@ -227,7 +195,7 @@ function parseFunctionsFromFile(
   const context: VisitorContext = {
     source,
     modulePath,
-    filePath,
+    filePath: absoluteSourceFilePath,
     functions,
     currentClassName: null,
   };

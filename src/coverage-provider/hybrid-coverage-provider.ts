@@ -13,7 +13,8 @@ import type { CoverageMap } from 'istanbul-lib-coverage';
 import libCoverage from 'istanbul-lib-coverage';
 import v8CoverageModule from '@vitest/coverage-v8';
 import { convertToIstanbulFormat } from './istanbul-converter.js';
-import { parseFunctionsFromFiles } from './ast-parser.js';
+import { parseFunctionsFromFile } from './ast-parser.js';
+import { relative } from 'node:path';
 import { globAsFiles } from './glob-utils.js';
 import { mergeCoverageData } from './coverage-merge.js';
 import type { AssemblyScriptCoveragePayload, CoverageData } from '../types.js';
@@ -140,7 +141,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     let asCoverageMap = libCoverage.createCoverageMap();
 
     if (this.assemblyScriptInclude.length > 0) {
-      // Step 1: Glob AS files matching include/exclude patterns
+      // Glob AS source files matching include/exclude patterns
       debug(`[HybridCoverageProvider] Globbing AS files with patterns: ${this.assemblyScriptInclude.join(', ')}`);
       const asFiles = await globAsFiles(
         this.assemblyScriptInclude,
@@ -150,37 +151,49 @@ export class HybridCoverageProvider implements CoverageProvider {
       debug(`[HybridCoverageProvider] Found ${asFiles.length} AS source files`);
 
       if (asFiles.length > 0) {
-        // Step 2: Parse ALL AS files to get complete function list
-        debug('[HybridCoverageProvider] Parsing AS files for function metadata...');
-        const parsedSourceInfo = parseFunctionsFromFiles(asFiles, this.projectRoot);
-        const fileCount = Object.keys(parsedSourceInfo.functionsByFileAndStartLine).length;
-        const funcCount = Object.values(parsedSourceInfo.functionsByFileAndStartLine)
-          .reduce((sum, byLine) => sum + Object.values(byLine).reduce((s, funcs) => s + funcs.length, 0), 0);
-        debug(`[HybridCoverageProvider] Parsed ${funcCount} functions from ${fileCount} files`);
+        debug(() => {
+          const accumulatedPositionCount = Object.values(this.accumulatedCoverageData.hitCountsByFileAndPosition)
+            .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
+          return `[HybridCoverageProvider] Accumulated coverage has ${accumulatedPositionCount} positions`;
+        });
 
-        const accumulatedPositionCount = Object.values(this.accumulatedCoverageData.hitCountsByFileAndPosition)
-          .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
-        debug(`[HybridCoverageProvider] Accumulated coverage has ${accumulatedPositionCount} positions`);
+        // Capture projectRoot for use in async callback
+        const projectRoot = this.projectRoot;
 
-        // Step 3: Convert to Istanbul format
-        // Iterate all source files from parsedSourceInfo (keyed by absolute path)
-        // convertToIstanbulFormat handles the path conversion to look up hit counts
-        for (const filePath of Object.keys(parsedSourceInfo.functionsByFileAndStartLine)) {
-          const istanbulData = convertToIstanbulFormat(parsedSourceInfo, this.accumulatedCoverageData, filePath);
+        const fileProcessingPromises = asFiles.map(async (filePath) => {
+          const relativeFilePath = relative(projectRoot, filePath);
+          debug(`[HybridCoverageProvider] Processing AS source file: ${filePath} (file key: ${relativeFilePath})`);
+          
+          const functionsByStartLine = await parseFunctionsFromFile(filePath, relativeFilePath);
+          debug(`[HybridCoverageProvider] Parsed ${Object.keys(functionsByStartLine).length} source functions for ${filePath}`);
+
+          const fileHitCountsByPosition = this.accumulatedCoverageData.hitCountsByFileAndPosition[relativeFilePath] ?? {};
+          debug(`[HybridCoverageProvider] Accumulated coverage has ${Object.keys(fileHitCountsByPosition).length} positions for ${relativeFilePath}`);
+
+          // Containment matching (binary hit position -> source) is performed during conversion
+          return await convertToIstanbulFormat(functionsByStartLine, fileHitCountsByPosition, filePath);
+        });
+
+        // Wait for all files to complete
+        const istanbulResults = await Promise.all(fileProcessingPromises);
+
+        // Add all results to coverage map
+        for (const istanbulData of istanbulResults) {
           asCoverageMap.addFileCoverage(istanbulData);
         }
+
         debug(`[HybridCoverageProvider] Built AS coverage map with ${Object.keys(asCoverageMap.data).length} files`);
       }
     } else {
       debug('[HybridCoverageProvider] No assemblyScriptInclude patterns configured, skipping AS source globbing');
     }
 
-    // Step 4: Get JS coverage from v8 provider
+    // Get JS coverage from v8 provider
     debug('[HybridCoverageProvider] Getting JS coverage from v8 provider');
     const jsCoverage = await this.v8Provider.generateCoverage(context) as CoverageMap;
     debug(`[HybridCoverageProvider] JS coverage has ${Object.keys(jsCoverage.data).length} files`);
 
-    // Step 5: Merge AS coverage into JS coverage
+    // Merge AS coverage into JS coverage
     debug('[HybridCoverageProvider] Merging AS coverage into JS coverage');
     jsCoverage.merge(asCoverageMap);
     debug(`[HybridCoverageProvider] Final merged coverage has ${Object.keys(jsCoverage.data).length} files`);
