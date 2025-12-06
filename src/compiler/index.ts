@@ -7,7 +7,8 @@
 
 import asc from 'assemblyscript/asc';
 import { basename, resolve } from 'node:path';
-import { writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 
 import type { CompileResult, AssemblyScriptCompilerOptions, BinaryDebugInfo } from '../types.js';
 import { debug } from '../utils/debug.mjs';
@@ -17,6 +18,10 @@ import { extractDebugInfo } from '../native/addon-interface.js';
 // Absolute paths to transform modules
 const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, 'compiler/transforms/strip-inline.js');
 const DEBUG_WRITE_FILES = false;
+
+if (!existsSync(STRIP_INLINE_TRANSFORM)) {
+  throw new Error(`ASC Compiler strip inline transform file not found at ${STRIP_INLINE_TRANSFORM}`);
+}
 
 /**
  * Instrument WASM binary for coverage collection
@@ -184,12 +189,12 @@ export async function compileAssemblyScript(
 
       // Format as well-formed JSON
       const formattedSourceMap = JSON.stringify(JSON.parse(wasmSourceMap), null, 2);
-      writeFileSync(sourceMapPath, formattedSourceMap, 'utf8');
+      writeFile(sourceMapPath, formattedSourceMap, { encoding: 'utf8' });
       debug('[ASC Compiler] Wrote source map to:', sourceMapPath);
 
       // Also write WASM binary for inspection
       const wasmPath = sourceMapPath.replace('.map', '.wasm');
-      writeFileSync(wasmPath, cleanBinary);
+      writeFile(wasmPath, cleanBinary);
       debug('[ASC Compiler] Wrote WASM binary to:', wasmPath);
     }
   }

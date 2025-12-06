@@ -26,7 +26,6 @@ export default defineConfig({
     'source-map',
     'test-exclude',
     'tinypool',
-    'typescript',
     'vite-node',
     'vitest',
   ],

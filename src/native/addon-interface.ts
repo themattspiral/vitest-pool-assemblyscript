@@ -23,14 +23,18 @@ import type {
   SourceLocation,
   ExpressionDebugInfo,
 } from '../types.js';
+import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 
 // Load the native addon
 // The .node file is built by node-gyp into build/Release/ (see binding.gyp)
 // We are usually running from dist/ but when executing directly from unit tests
 // the meta.import.dirname is still the src path, so we handle fallback to that
 const ADDON_PATH = 'build/Release/wasm_binaryen_debug.node';
-const rootFromDist = resolve(import.meta.dirname, '..');
-const rootFromSrc = resolve(import.meta.dirname, '../..');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const rootFromDist = resolve(__dirname, '..');
+const rootFromSrc = resolve(__dirname, '../..');
 const addonPathFromDist = resolve(rootFromDist, ADDON_PATH);
 const addonPathFromSrc = resolve(rootFromSrc, ADDON_PATH);
 
@@ -39,7 +43,12 @@ let addonPath = addonPathFromDist;
 if (!existsSync(addonPath)) {
   rootPath = rootFromSrc;
   addonPath = addonPathFromSrc
+
+  if (!existsSync(addonPath)) {
+    throw new Error(`Native addon debug extractor file not found at ${addonPathFromDist} or ${addonPathFromSrc}`);
+  }
 }
+
 const req = createRequire(rootPath);
 const addon = req(addonPath);
 

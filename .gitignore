@@ -8,6 +8,7 @@ coverage-fixtures/
 # local
 .vscode/
 tmp/
+vitest-pool-assemblyscript-*.tgz
 
 # build artifacts
 build/
