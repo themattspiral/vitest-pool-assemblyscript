@@ -6,13 +6,14 @@
  * file:line:column information for better developer experience.
  */
 
+import type { RawSourceMap } from 'source-map';
+import { basename } from 'node:path';
+import type { ParsedStack } from '@vitest/utils';
+
+import { createWebAssemblyCallSite } from './source-maps.js';
 import type { TestResult, AssemblyScriptTestError } from '../types.js';
 import { ERROR_NAMES } from '../types.js';
 import { debug } from '../utils/debug.mjs';
-import { createWebAssemblyCallSite } from '../utils/source-maps.js';
-import type { RawSourceMap } from 'source-map';
-import type { ParsedStack } from '@vitest/utils';
-import { basename } from 'node:path';
 
 /**
  * Enhance error with source map locations

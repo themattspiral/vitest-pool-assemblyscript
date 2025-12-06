@@ -8,7 +8,7 @@
  */
 
 import { SourceMapConsumer, type RawSourceMap } from 'source-map';
-import { debug } from './debug.mjs';
+import { debug } from '../utils/debug.mjs';
 import type { SourceLocation, WebAssemblyCallSite } from '../types.js';
 
 /**

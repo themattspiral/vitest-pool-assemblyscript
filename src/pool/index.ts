@@ -7,8 +7,7 @@
  */
 
 import type { ProcessPool, Vitest, TestProject, TestSpecification, RunnerTestCase, RunnerTestFile, ResolvedConfig } from 'vitest/node';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve, basename } from 'node:path';
+import { resolve, basename } from 'node:path';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import Tinypool from 'tinypool';
@@ -37,10 +36,7 @@ import { getCoverageModeFlags, isCoverageEnabled, getPoolOptions } from './optio
 import { createCompilationCache, type CompilationCache } from './cache.js';
 import { mergeCoverageData } from '../coverage-provider/coverage-merge.js';
 
-// ESM-compatible __dirname (import.meta.url is transformed by tsup/esbuild)
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const WORKER_PATH = resolve(__dirname, 'pool-worker/index.js');
+const WORKER_PATH = resolve(import.meta.dirname, 'pool-worker/index.js');
 
 // Error code for cache invalidation failures (stale generation)
 const CACHE_INVALIDATED_ERROR_CODE = 'CACHE_INVALIDATED';

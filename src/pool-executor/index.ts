@@ -11,11 +11,11 @@
 
 import type { RawSourceMap } from 'source-map';
 
-import { createMemory } from '../utils/wasm-memory.js';
 import type { TestResult, CoverageData, DiscoveredTest, DiscoveredTests, BinaryDebugInfo } from '../types.js';
 import { COVERAGE_MEMORY_PAGES_MAX, ERROR_NAMES } from '../types.js';
 import { debug, debugError } from '../utils/debug.mjs';
-import { createDiscoveryImports, createTestExecutionImports } from './imports.js';
+import { createMemory } from './wasm-memory.js';
+import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
 import { enhanceErrorWithSourceMap } from './errors.js';
 
 // ============================================================================

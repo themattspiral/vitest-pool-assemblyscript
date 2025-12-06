@@ -19,6 +19,113 @@ export const ASSEMBLYSCRIPT_POOL_NAME = 'vitest-pool-assemblyscript';
 
 export const COVERAGE_MEMORY_PAGES_MAX = 4;
 
+
+// ============================================================================
+// AssemblyScript Compiler Enums
+//   - defined locally to avoid isolatedModules const enum access issues
+//   - reference assemblyscript.generated.d.ts
+// ============================================================================
+
+export const ASCommonFlags = {
+  Static: 32,
+  Get: 2048,
+  Set: 4096,
+} as const;
+
+export const ASNodeKind = {
+  Source: 0,
+  NamedType: 1,
+  FunctionType: 2,
+  TypeName: 3,
+  TypeParameter: 4,
+  Parameter: 5,
+  Identifier: 6,
+  Assertion: 7,
+  Binary: 8,
+  Call: 9,
+  Class: 10,
+  Comma: 11,
+  ElementAccess: 12,
+  False: 13,
+  Function: 14,
+  InstanceOf: 15,
+  Literal: 16,
+  New: 17,
+  Null: 18,
+  Omitted: 19,
+  Parenthesized: 20,
+  PropertyAccess: 21,
+  Ternary: 22,
+  Super: 23,
+  This: 24,
+  True: 25,
+  Constructor: 26,
+  UnaryPostfix: 27,
+  UnaryPrefix: 28,
+  Compiled: 29,
+  Block: 30,
+  Break: 31,
+  Continue: 32,
+  Do: 33,
+  Empty: 34,
+  Export: 35,
+  ExportDefault: 36,
+  ExportImport: 37,
+  Expression: 38,
+  For: 39,
+  ForOf: 40,
+  If: 41,
+  Import: 42,
+  Return: 43,
+  Switch: 44,
+  Throw: 45,
+  Try: 46,
+  Variable: 47,
+  Void: 48,
+  While: 49,
+  Module: 50,
+  ClassDeclaration: 51,
+  EnumDeclaration: 52,
+  EnumValueDeclaration: 53,
+  FieldDeclaration: 54,
+  FunctionDeclaration: 55,
+  ImportDeclaration: 56,
+  InterfaceDeclaration: 57,
+  MethodDeclaration: 58,
+  NamespaceDeclaration: 59,
+  TypeDeclaration: 60,
+  VariableDeclaration: 61,
+  Decorator: 62,
+  ExportMember: 63,
+  SwitchCase: 64,
+  IndexSignature: 65,
+  Comment: 66,
+} as const;
+
+export const ASDecoratorKind = {
+  Custom: 0,
+  Global: 1,
+  Operator: 2,
+  OperatorBinary: 3,
+  OperatorPrefix: 4,
+  OperatorPostfix: 5,
+  Unmanaged: 6,
+  Final: 7,
+  Inline: 8,
+  External: 9,
+  ExternalJs: 10,
+  Builtin: 11,
+  Lazy: 12,
+  Unsafe: 13
+} as const;
+
+export const ASSourceKind = {
+  User: 0,
+  UserEntry: 1,
+  Library: 2,
+  LibraryEntry: 3
+} as const;
+
 // ============================================================================
 // Error Types
 // ============================================================================

@@ -1,5 +1,4 @@
 import { defineConfig } from 'tsup';
-import { copyFileSync, mkdirSync } from 'fs';
 
 export default defineConfig({
   entry: [
@@ -7,6 +6,7 @@ export default defineConfig({
     'src/pool-worker/index.ts',
     'src/config/index.ts',
     'src/coverage-provider/index.ts',
+    'src/compiler/transforms/strip-inline.mts',
   ],
   format: ['esm'],
   outDir: 'dist', // Explicitly set output directory
@@ -30,9 +30,4 @@ export default defineConfig({
     'vite-node',
     'vitest',
   ],
-  onSuccess: async () => {
-    // Copy transform files to dist
-    mkdirSync('dist/compiler-transforms', { recursive: true });
-    copyFileSync('src/compiler/transforms/strip-inline.mjs', 'dist/compiler-transforms/strip-inline.mjs');
-  },
 });

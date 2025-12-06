@@ -6,8 +6,7 @@
  */
 
 import asc from 'assemblyscript/asc';
-import { basename } from 'path';
-import { fileURLToPath } from 'url';
+import { basename, resolve } from 'node:path';
 import { writeFileSync } from 'node:fs';
 
 import type { CompileResult, AssemblyScriptCompilerOptions, BinaryDebugInfo } from '../types.js';
@@ -15,11 +14,8 @@ import { debug } from '../utils/debug.mjs';
 import { BinaryenCoverageInstrumenter } from '../coverage-provider/instrumentation.js';
 import { extractDebugInfo } from '../native/addon-interface.js';
 
-// Absolute paths to transform modules (resolved relative to dist directory)
-// At runtime, this module is at dist/index.js (bundled), transforms are at dist/transforms/*.mjs
-// From dist/index.js, transforms are at ./transforms/*.mjs
-// Using absolute paths ensures the built compiler can be imported anywhere and work.
-const STRIP_INLINE_TRANSFORM = fileURLToPath(new URL('./compiler-transforms/strip-inline.mjs', import.meta.url));
+// Absolute paths to transform modules
+const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, 'compiler/transforms/strip-inline.js');
 const DEBUG_WRITE_FILES = false;
 
 /**

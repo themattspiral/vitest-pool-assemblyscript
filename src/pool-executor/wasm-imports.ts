@@ -8,11 +8,11 @@
  * - Coverage collection (instrumented binary)
  */
 
-import { decodeString, decodeAbortInfo } from '../utils/wasm-memory.js';
+import { extractCallStack } from './source-maps.js';
+import { decodeString, decodeAbortInfo } from './wasm-memory.js';
+import { debug, debugError } from '../utils/debug.mjs';
 import type { DiscoveredTests, TestResult } from '../types.js';
 import { ERROR_NAMES } from '../types.js';
-import { debug, debugError } from '../utils/debug.mjs';
-import { extractCallStack } from '../utils/source-maps.js';
 
 // ============================================================================
 // Shared Utilities
