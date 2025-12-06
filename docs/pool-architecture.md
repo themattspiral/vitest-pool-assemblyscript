@@ -1,8 +1,8 @@
-# Architecture Overview
+# Pool Architecture
 
 Built on the Vitest 3.x [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) for alternative runtime execution.
 
-4.x support is comming very soon!
+4.x support is coming very soon!
 
 ## High-Level Pool Architecture
 
@@ -44,7 +44,7 @@ Built on the Vitest 3.x [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.
                              │
                              ↓
 ┌─────────────────────────────────────────────────────────────┐
-│            vitest-pool-assemblyscript/covarage              │
+│            vitest-pool-assemblyscript/coverage              │
 │            Custom "Hybrid" Coverage Provider                │
 ├─────────────────────────────────────────────────────────────┤
 │    • Accumulate coverage for entire run                     │
@@ -130,12 +130,14 @@ File 3:        [Compile] ──> [Discover] ─> [Test6] [Test7] [Test8] ─> [F
 - **Per-test execution**: Individual workers execute *each test* reusing the cached binary for new instances
 - **Maximum overlap**: Files and tests progress through pipeline phases independently
 - **Result aggregation**: Pool collects and merges coverage results for each file as workers complete
-- **Hybrid Coverage Provider**: Hybrid coverage provider coverts AS coverage to Istanbul format and hands off to vitest for report generation, also routes JS/TS coverage to a built-in V8/Istanbul provider, so that global coverage config works for multiple projects/pools
+- **Hybrid Coverage Provider**: Hybrid coverage provider converts AS coverage to Istanbul format and hands off to vitest for report generation, also routes JS/TS coverage to a built-in V8 coverage provider, so that global coverage config works for multiple projects/pools and reports are merged.
 - **Vitest RPC Updates**: Test discovery, execution results, file final results, and coverage are reported to vitest via RPC calls to achieve progressive updates in the runner UI
 
 ---
 
 ### Worker Functions (Tinypool-based Parallelism)
+
+> **Note:** Failsafe mode references below are pending refactor. v1 will move instrumentation to the native addon with source map regeneration, eliminating the need for failsafe re-runs.
 
 The pool implements worker functions for granular phase-specific execution, enabling true pipeline parallelism:
 
@@ -170,6 +172,8 @@ The pool implements worker functions for granular phase-specific execution, enab
 ---
 
 ### Pool Functions (Main Thread Orchestration)
+
+> **Note:** Failsafe mode references below are pending refactor. v1 will move instrumentation to the native addon with source map regeneration, eliminating the need for failsafe re-runs. `executePhase4FailsafeRerun` will be removed.
 
 The pool provides compilation, caching, and pipeline orchestration functions in the main thread:
 
@@ -310,209 +314,9 @@ All callbacks registered in WASM via `@external("env", "callbackName")` declarat
 
 ---
 
-### Coverage Architecture (v1 Current, v2 Planned)
+### Coverage Architecture
 
-**Overview**: Position-based matching connects binary execution to source coverage, supporting function-level (v1) and block-level (v2) granularity.
-
-- **v1**: Direct position lookup - both binary and source sides key by first-expression position (`line:column`), enabling O(1) matching
-- **v2**: May use containment matching where binary expression points map to source statement/branch ranges
-
-**Implementation**: Binaryen.js post-processing instrumentation + native addon debug extraction
-- Function-level coverage via native addon debug info and Binaryen post-processing
-- ⚠️ **Failsafe mode required** - Post-processing breaks source maps, requiring two-pass execution
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    BINARY PREPARATION                        │
-│    (Pool Main Thread, Per Test File, async promise queue)    │
-├──────────────────────────────────────────────────────────────┤
-│  Compilation (AssemblyScript Compiler)                       |
-│                                                              │
-│  • Input: 1 test file                                        │
-│  • Transforms:                                               │
-│    └─> Strip @inline decorators (afterParse)                 │
-│  • Output:                                                   │
-│    ├─> Clean WASM binary                                     │
-│    └─> Source map                                            │
-│                                                              │
-│  ──────────────────────────────────────────────────────────  │
-│                            ↓                                 │
-│  Instrumentation & Binary Debug Info Extraction              │
-│                                                              │
-│  v1: Native addon extraction + Binaryen.js instrumentation   │
-│  • Native addon extracts debug info from WASM + source map   │
-│  • Binaryen.js injects __coverage_trace() at func entries    │
-│    • ⚠️ Breaks source map accuracy ⚠️                       │
-│  • Add multi-memory for coverage counters                    │
-│  • Returns:                                                  │
-│    ├─> clean binary positions (debug info)                   │
-│    └─> instrumented WASM binary                              │
-│                                                              │
-│  v2: Binaryen C++ native addon                               │
-│  • instrumentForCoverage() single operation                  │
-│  • Inject counters at basic block boundaries                 │
-│  • Regenerate source map (maintains accuracy)                │
-│  • Extract debug info: expression/block positions            │
-│  • Returns:                                                  │
-│    ├─> instrumentedWasm                                      │
-│    ├─> sourceMap (regenerated)                               │
-│    ├─> debugInfo                                             │
-│    └─> memoryInfo                                            │
-│                                                              │
-│  ──────────────────────────────────────────────────────────  │
-│                            ↓                                 │
-│  CachedCompilation stored in pool:                           |
-|  • Reused between workers executing tests in same file       |
-|  • Reused in watch mode between runs                         │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-                               ↓
-┌──────────────────────────────────────────────────────────────┐
-│     EXECUTION & COLLECTION (Workers + Pool Aggregation)      │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  Phase 3: Test Execution (Worker Dispatch)                   │
-│  For each test in test file:                                 │
-│  • Dispatch to worker with instrumented binary               │
-│  • Execute test in fresh WASM instance                       │
-│  • Read hit counts from coverage memory                      │
-│    (v1: per function, v2: per block)                         │
-│  • Return coverage data to pool                              │
-│                                                              │
-│  ──────────────────────────────────────────────────────────  │
-│                            ↓                                 │
-│  Pool Aggregation                                            │
-│  Merge per-test coverage → per-test-file coverage            │
-│  • Accumulate hit counts across source functions imported    |
-     within a given test file (all individual test executions) |
-│  • Store in pipelineCoverageByTestFile                       │
-│  • Covers all functions/expressions across all               │
-│    sources imported by this test file                        │
-│  ──────────────────────────────────────────────────────────  │
-│                            ↓                                 │
-│  Phase 5: Report to Coverage Provider (Worker Dispatch)      │
-│  onAfterSuiteRun(coverageData, debugInfo)                    │
-│  • Send aggregated coverage for this test file               │
-│  • Provider accumulates across all test files                │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-                              ↓
-┌──────────────────────────────────────────────────────────────┐
-│   COVERAGE PROVIDER (Post-Pipeline, Global, Once Per Run)    │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  onAfterSuiteRun() - Accumulation                            │
-│  For each test file completion:                              │
-│  ├─> AS: Merge coverage data by source position-based key,   │
-│  │       **source position extracted from binary debugInfo** │
-│  │        (DebugInfo's source filePath:line:column is stable |
-|  |         between different test binary executions)         │
-│  │       - Accumulate hit counts across all test files       │
-│  └─> JS: Delegate to v8 provider                             │
-│                                                              |
-|  ──────────────────────────────────────────────────────────  │
-│                            ↓                                 │
-│                                                              │
-│  generateCoverage() - Final Report Generation                │
-│                                                              │
-│  AST Parser                                                  |
-|  ────────────────────                                        │
-│  • Read all source files (coverage.assemblyScriptInclude)    │
-│  • AS parser extracts source position info                   │
-│  • Build sourceDebugInfo:                                    │
-│    ├─> All functions/expressions with ranges                 │
-│    │   (startLine, startColumn, endLine, endColumn)          │
-│    └─> Defines source of truth: what SHOULD be covered       │
-│                                                              │
-│  v1: Functions only                                          │
-│  v2: Functions + statements + branches                       │
-│                                                              │
-│                            ↓                                 │
-│  Coverage Matcher                                            │
-│  ────────────────────                                        │
-│  v1: Direct Position Lookup                                  │
-│  • Both binary (BinaryDebugInfo) and parsed source           |
-│    (ParsedSourceInfo) identify functions by file, then a     |
-│     representative first-expression position (line:column)   │
-|  • BinaryDebugInfo drives instrumentation, so CoverageData   |
-|    hit counts will be identified with the same positions     |
-|  • Given a CoverageData hit at a specific source position... |
-│  • O(1) lookup: position → func info (from ParsedSourceInfo) │
-│  • O(1) lookup: position → hit count (from CoverageData)     │
-│                                                              │
-│  v2: Containment Matching (planned)                          │
-│  • Both binary (BinaryDebugInfo) and parsed source           |
-│    (ParsedSourceInfo) identify covered items first by file   |
-|  • BinaryDebugInfo drives instrumentation, so CoverageData   |
-|    hit counts will be identified with the same positions     |
-│  • Then ParsedSourceInfo uses ranges (start/end)             |
-|  • Given a CoverageData hit at a specific source position... |
-│     • Find source item whose range contains this point       │
-│       • Iterate parsed source items for file                 │
-│       • Other potential optimizations possible               │
-│     • Use tightest fit for nested items                      │
-│                                                              │
-│  Build merged coverage map:                                  │
-│  ├─> All source items basis from ParsedSourceInfo, 0 hits    │
-│  ├─> Map accumulated hit counts from position-based merged   │
-│  │   CoverageData from onAfterSuiteRun() onto source items   │
-│  │   using v1 (position lookup) or v2 (containment match)    │
-│  └─> Generate Complete Coverage Map: covered + uncovered     │
-│                                                              │
-│  Strategy Evolution:                                         │
-│  • pre-v1: Name matching (transform metadata)                │
-│  • v1: Direct position lookup (functions only)               │
-│  • v2: Containment matching (statements/branches)            │
-│                                                              │
-│                            ↓                                 │
-│                                                              │
-│  Istanbul Converter                                          │
-│  ────────────────────                                        │
-│  • Convert internal CoverageData → Istanbul CoverageMap      │
-│  • Per file:                                                 │
-│    ├─> Build fnMap, statementMap, branchMap                  │
-│    └─> Apply hit counts to generate f, s, b arrays           │
-│    └─> Add file map to overall CoverageMap                   │
-│                                                              │
-│  v1: Function coverage (function → statement map)            │
-│  v2: All 4 types (function, statement, branch, line)         │
-│                                                              │
-│                            ↓                                 │
-│                                                              │
-│  Unified Coverage Merge                                      │
-│  ────────────────────                                        │
-│  ├─> Get JS/TS coverage from v8 provider                     │
-│  ├─> Merge AS Istanbul CoverageMap into JS CoverageMap       │
-│  └─> Return unified CoverageMap                              │
-│                                                              │
-│                            ↓                                 │
-│                                                              │
-│  reportCoverage() - Delegate to v8 provider's reporters:     │
-│  └─> LCOV, HTML, JSON, text formats                          │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-```
-
-**Key Architectural Decisions:**
-
-1. **Position-based Matching** (not name-based)
-   - Handles anonymous functions, nested functions, naming convention changes
-   - v1: Direct position lookup (both sides key by first-expression position)
-   - v2: Containment matching (binary points → source ranges)
-   - Performance: v1 is O(1); v2 uses file grouping baseline with optimization strategies available
-
-2. **Instrumentation Location** - Pool main thread (not separate worker dispatch)
-   - Native addon C++ code is fast, small parallelization benefit vs overhead
-   - Simplicity over premature optimization
-
-3. **AST Parsing Location** - Coverage provider (not pipeline)
-   - Provider owns assemblyScriptInclude glob configuration
-   - Separation of concerns: pipeline collects raw data, provider interprets and reports in the context of what should be covered
-
-4. **Data Flow** - Two-phase approach
-   - Execution Pipeline: Binary execution → hit counts (what was executed)
-   - Coverage Provider: Source parsing → coverage map (what should be covered)
-     - Matcher combines both for complete picture
+See **[Coverage Architecture](coverage-architecture.md)**
 
 ---
 

@@ -5,8 +5,9 @@ node_modules/
 coverage/
 coverage-fixtures/
 
-# local config
+# local
 .vscode/
+tmp/
 
 # build artifacts
 build/

@@ -70,9 +70,10 @@ There are other standalone testing frameworks for AssemblyScript testing, includ
 
 ## Architecture
 
-Built on the Vitest 3.x [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) for alternative runtime execution (4.x support is comming very soon!)
+Built on the Vitest 3.x [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) for alternative runtime execution (4.x support is coming very soon!)
 
-See the [Architecture docs](docs/architecture.md) for more detailed information.
+- **[Pool Architecture](docs/pool-architecture.md)** - Internal pool architecture and vitest integration points
+- **[Coverage Architecture](docs/coverage-architecture.md)** - Coverage instrumentation, collection, and report generation architecture
 
 ---
 
@@ -146,7 +147,9 @@ See the [Architecture docs](docs/architecture.md) for more detailed information.
 - Node.js 20.0.0+ (required due to our multi-memory coverage approach)
 - Vitest 3.2.4+ (v3.x only for now - v4 support planned)
 - AssemblyScript 0.28+
-- GCC/clang * CMake (dev only - distrubuted package will include prebuilts)
+- C++ build tools (dev only - distributed package will include prebuilts):
+  - GCC 7+ or Clang 5+ (C++17 support required)
+  - Python 3.x (required by node-gyp)
 
 ### Setup
 
@@ -156,11 +159,12 @@ git clone https://github.com/themattspiral/vitest-pool-assemblyscript.git
 cd vitest-pool-assemblyscript
 ```
 
-2. **Install npm deps, then binaryen C++ native deps**
+2. **Install npm deps, then Binaryen C++ dependencies**
 ```bash
 npm install
 npm run setup-binaryen
 ```
+The `setup-binaryen` script downloads prebuilt Binaryen libraries and C++ headers to `third_party/binaryen/`. These are used to build the native addon that extracts debug info from WASM binaries.
 
 3. **Build Native Addon**
 ```bash
@@ -277,7 +281,6 @@ test('string concatenation', () => {
 });
 ```
 
-8. **Run your tests:**
 8. **Run your tests:**
 ```bash
 # Run all tests once
