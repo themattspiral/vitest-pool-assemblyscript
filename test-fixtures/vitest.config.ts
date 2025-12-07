@@ -69,7 +69,7 @@ export default defineConfig({
             assemblyScript: {
               debug: false,
               stripInline: true,
-              coverageMode: 'failsafe',
+              coverageMode: 'integrated',
             },
           },
         }

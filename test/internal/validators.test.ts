@@ -151,67 +151,6 @@ describe('validator functions', () => {
         expect(result.valid).toBe(false);
       });
 
-      it('should detect invalid globalName type', () => {
-        const debugInfo = createBinaryDebugInfo({
-          debugSourceFiles: ['test.ts'],
-          functionsByName: {
-            'func1': createFunctionDebugInfo({
-              name: 'func1',
-              wasmIndex: 0,
-              globalName: 123 as unknown as string, // Invalid: not a string
-            }),
-          },
-        });
-
-        const result = validateDebugInfoStructure(debugInfo);
-
-        expect(result.errors[0]).toBe('Function "func1" has invalid globalName (expected string, got number)');
-        expect(result.errors.length).toBe(1);
-        expect(result.warnings).toEqual([]);
-        expect(result.valid).toBe(false);
-      });
-
-      it('should detect empty globalName', () => {
-        const debugInfo = createBinaryDebugInfo({
-          debugSourceFiles: ['test.ts'],
-          functionsByName: {
-            'func1': createFunctionDebugInfo({
-              name: 'func1',
-              wasmIndex: 0,
-              globalName: '', // Invalid: empty string
-            }),
-          },
-        });
-
-        const result = validateDebugInfoStructure(debugInfo);
-
-        expect(result.errors[0]).toBe('Function "func1" has empty globalName');
-        expect(result.errors.length).toBe(1);
-        expect(result.warnings).toEqual([]);
-        expect(result.valid).toBe(false);
-      });
-
-      it('should pass validation with valid globalName', () => {
-        const debugInfo = createBinaryDebugInfo({
-          debugSourceFiles: ['test.ts'],
-          functionsByName: {
-            'func1': createFunctionDebugInfo({
-              name: 'func1',
-              wasmIndex: 0,
-              signature: { params: ['i32'], results: ['i32'] },
-              globalName: 'test/myArrow',
-              expressions: [createExpressionDebugInfo({ type: 'Const' })],
-            }),
-          },
-        });
-
-        const result = validateDebugInfoStructure(debugInfo);
-
-        expect(result.errors).toEqual([]);
-        expect(result.warnings).toEqual([]);
-        expect(result.valid).toBe(true);
-      });
-
       it('should pass validation for well-formed debug info', () => {
         const debugInfo = createBinaryDebugInfo({
           debugSourceFiles: ['test.ts'],

@@ -10,7 +10,7 @@
 
 import { extractCallStack } from './source-maps.js';
 import { decodeString, decodeAbortInfo } from './wasm-memory.js';
-import { debug, debugError } from '../utils/debug.mjs';
+import { debug } from '../utils/debug.mjs';
 import type { DiscoveredTests, TestResult } from '../types.js';
 import { ERROR_NAMES } from '../types.js';
 
@@ -39,7 +39,7 @@ export function logAbort(
   context: string
 ): { message: string; location: string | null } {
   const abortInfo = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
-  debugError(`[Executor] Abort ${context}: ${abortInfo.message}${abortInfo.location ? ` at ${abortInfo.location}` : ''}`);
+  debug(`[Executor] Abort ${context}: ${abortInfo.message}${abortInfo.location ? ` at ${abortInfo.location}` : ''}`);
   return abortInfo;
 }
 

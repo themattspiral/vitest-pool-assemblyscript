@@ -10,10 +10,9 @@ import { basename, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 
-import type { CompileResult, AssemblyScriptCompilerOptions, BinaryDebugInfo } from '../types.js';
+import type { CompileResult, AssemblyScriptCompilerOptions } from '../types.js';
 import { debug } from '../utils/debug.mjs';
-import { BinaryenCoverageInstrumenter } from '../coverage-provider/instrumentation.js';
-import { extractDebugInfo } from '../native/addon-interface.js';
+import { instrumentForCoverage } from '../native/addon-interface.js';
 
 // Absolute paths to transform modules
 const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, 'compiler/transforms/strip-inline.js');
@@ -21,32 +20,6 @@ const DEBUG_WRITE_FILES = false;
 
 if (!existsSync(STRIP_INLINE_TRANSFORM)) {
   throw new Error(`ASC Compiler strip inline transform file not found at ${STRIP_INLINE_TRANSFORM}`);
-}
-
-/**
- * Instrument WASM binary for coverage collection
- *
- * @param wasmBinary - Clean WASM binary from AS compiler
- * @param binaryDebugInfo - Debug info extracted from WASM via native addon
- * @returns Instrumented binary and updated debugInfo (with coverageMemoryIndex assigned)
- */
-function instrumentBinaryForCoverage(
-  wasmBinary: Uint8Array,
-  binaryDebugInfo: BinaryDebugInfo
-): {
-  binary: Uint8Array;
-  debugInfo: BinaryDebugInfo;
-} {
-  debug('[Compiler] Instrumenting binary for coverage');
-  const coverageInstrumenter = new BinaryenCoverageInstrumenter();
-  const result = coverageInstrumenter.instrument(wasmBinary, binaryDebugInfo);
-
-  debug('[Compiler] Instrumentation complete');
-
-  return {
-    binary: result.binary,
-    debugInfo: result.debugInfo,
-  };
 }
 
 /**
@@ -200,39 +173,39 @@ export async function compileAssemblyScript(
   }
 
   // Instrument binary for coverage if requested
-  let instrumentedBinary: Uint8Array | undefined;
-  let debugInfo: BinaryDebugInfo | undefined;
-
   if (options.instrument) {
-    // Extract debug info from WASM binary using native addon
-    // This requires the source map to be available
+    // Instrumentation requires the source map
     if (!wasmSourceMap) {
       throw new Error('Source map is required for coverage instrumentation');
     }
 
-    const extractStart = performance.now();
+    const instrumentStart = performance.now();
     const wasmBuffer = Buffer.from(cleanBinary);
     const sourceMapBuffer = Buffer.from(wasmSourceMap);
-    const binaryDebugInfo = extractDebugInfo(wasmBuffer, sourceMapBuffer);
-    const extractEnd = performance.now();
-    debug(`[TIMING] ${basename(filename)} - native addon extract: ${extractEnd - extractStart}ms`);
-    debug(`[Compiler] Extracted debug info: ${Object.keys(binaryDebugInfo.functionsByName).length} functions`);
 
-    // Instrument the binary with coverage tracing
-    const instrumentStart = performance.now();
-    const instrumentResult = instrumentBinaryForCoverage(cleanBinary, binaryDebugInfo);
+    // Native addon instruments the binary and regenerates source map
+    const instrumentResult = instrumentForCoverage(wasmBuffer, sourceMapBuffer);
+
     const instrumentEnd = performance.now();
-    debug(`[TIMING] ${basename(filename)} - instrumentation: ${instrumentEnd - instrumentStart}ms`);
+    const byPositionCount = Object.values(instrumentResult.debugInfo.functionsByFileAndPosition).reduce((sum, m) => sum + Object.keys(m).length, 0);
+    debug(`[TIMING] ${basename(filename)} - native instrumentation: ${instrumentEnd - instrumentStart}ms`);
+    debug(`[Compiler] Instrumented ${byPositionCount} functions`);
+    debug('[ASC Compiler] Instrumented binary size:', instrumentResult.instrumentedWasm.length, 'bytes');
 
-    instrumentedBinary = instrumentResult.binary;
-    debugInfo = instrumentResult.debugInfo;
-    debug('[ASC Compiler] Instrumented binary size:', instrumentedBinary.length, 'bytes');
+    return {
+      clean: cleanBinary,
+      instrumented: instrumentResult.instrumentedWasm,
+      // Use regenerated source map - accurate for instrumented binary
+      sourceMap: instrumentResult.sourceMap,
+      debugInfo: instrumentResult.debugInfo,
+    };
   }
 
+  // No instrumentation requested
   return {
     clean: cleanBinary,
-    instrumented: instrumentedBinary,
+    instrumented: undefined,
     sourceMap: wasmSourceMap,
-    debugInfo,
+    debugInfo: undefined,
   };
 }

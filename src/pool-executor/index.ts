@@ -12,8 +12,8 @@
 import type { RawSourceMap } from 'source-map';
 
 import type { TestResult, CoverageData, DiscoveredTest, DiscoveredTests, BinaryDebugInfo } from '../types.js';
-import { COVERAGE_MEMORY_PAGES_MAX, ERROR_NAMES } from '../types.js';
-import { debug, debugError } from '../utils/debug.mjs';
+import { COVERAGE_MEMORY_PAGES_MAX, COVERAGE_MEMORY_PAGES_MIN, ERROR_NAMES } from '../types.js';
+import { debug } from '../utils/debug.mjs';
 import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
 import { enhanceErrorWithSourceMap } from './errors.js';
@@ -47,7 +47,9 @@ export async function discoverTests(
   const memory = createMemory();
 
   // If binary is instrumented (has debugInfo), provide stub coverage memory
-  const coverageMemory = debugInfo ? new WebAssembly.Memory({ initial: 1, maximum: COVERAGE_MEMORY_PAGES_MAX }) : undefined;
+  const coverageMemory = debugInfo
+    ? new WebAssembly.Memory({ initial: COVERAGE_MEMORY_PAGES_MIN, maximum: COVERAGE_MEMORY_PAGES_MAX })
+    : undefined;
 
   const importObject = createDiscoveryImports(memory, tests, coverageMemory);
 
@@ -101,7 +103,9 @@ export async function executeSingleTest(
   const memory = createMemory();
 
   // Create coverage memory if collecting coverage (instrumented binary)
-  const coverageMemory = collectCoverage ? new WebAssembly.Memory({ initial: 1, maximum: COVERAGE_MEMORY_PAGES_MAX }) : undefined;
+  const coverageMemory = collectCoverage ?
+    new WebAssembly.Memory({ initial: COVERAGE_MEMORY_PAGES_MIN, maximum: COVERAGE_MEMORY_PAGES_MAX })
+    : undefined;
 
   // Mutable reference for import callbacks to update
   const currentTestRef: { value: TestResult | null } = { value: null };
@@ -146,12 +150,12 @@ export async function executeSingleTest(
     const endTime = Date.now();
     currentTestRef.value.duration = endTime - startTime;
     
-    debugError(`[Executor] Test "${test.name}": executed in ${currentTestRef.value.duration}ms`);
+    debug(`[Executor] Test "${test.name}": executed in ${currentTestRef.value.duration}ms`);
 
     // If we reach here, test passed (no abort occurred)
 
   } catch (error) {
-    debugError('[Executor] Error during test execution:', error);
+    debug('[Executor] Error during test execution:', error);
     // Error should be captured in currentTestRef.value via abort handler
     if (currentTestRef.value !== null) {
       // Calculate duration even on error
@@ -194,7 +198,7 @@ export async function executeSingleTest(
       };
 
       // Read counters from coverage memory
-      const numFunctions = Object.keys(debugInfo.functionsByName).length;
+      const numFunctions = Object.values(debugInfo.functionsByFileAndPosition).reduce((sum, m) => sum + Object.keys(m).length, 0);
       const counters = new Uint32Array(coverageMemory.buffer, 0, numFunctions);
 
       // Iterate all functions and build coverage data with hit counts
@@ -203,22 +207,27 @@ export async function executeSingleTest(
       for (const [filePath, functions] of Object.entries(debugInfo.functionsByFileAndPosition)) {
         if (!coverage.hitCountsByFileAndPosition[filePath]) {
           coverage.hitCountsByFileAndPosition[filePath] = {};
+          debug(`[Executor] Hits for `, filePath);
         }
 
         for (const [positionKey, funcInfo] of Object.entries(functions)) {
           if (funcInfo.coverageMemoryIndex === undefined) {
-            debug(`[Executor] Warning: function "${funcInfo.name}" has no coverageMemoryIndex`);
+            debug(`[Executor]   WARNING: function "${funcInfo.name}" (${positionKey}) has no coverageMemoryIndex`);
             continue;
           }
 
           const hitCount = counters[funcInfo.coverageMemoryIndex] ?? 0;
+          debug(`[Executor]   Extracted hits for function "${funcInfo.name}" at ${positionKey} (coverageMemoryIndex: ${funcInfo.coverageMemoryIndex}):`, hitCount);
 
+          if (coverage.hitCountsByFileAndPosition[filePath][positionKey] !== undefined) {
+            debug(`[Executor]   WARNING: DUPLICATE POSITION "${funcInfo.name}" (${positionKey}) already extracted to coverage for ${filePath}`);
+          }
           // Position key is already the position (line:column) from functionsByFileAndPosition
           coverage.hitCountsByFileAndPosition[filePath][positionKey] = hitCount;
 
           if (hitCount > 0) {
             functionsHit++;
-            // debug(`[Executor] HIT: ${filePath} ${positionKey} = ${hitCount} (idx=${funcInfo.coverageMemoryIndex})`);
+            debug(`[Executor]     HIT: ${positionKey} = ${hitCount} (idx=${funcInfo.coverageMemoryIndex})`);
           }
         }
       }

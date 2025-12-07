@@ -17,6 +17,7 @@ import type { TestError } from '@vitest/utils';
 
 export const ASSEMBLYSCRIPT_POOL_NAME = 'vitest-pool-assemblyscript';
 
+export const COVERAGE_MEMORY_PAGES_MIN = 1;
 export const COVERAGE_MEMORY_PAGES_MAX = 4;
 
 
@@ -275,6 +276,18 @@ export interface CompileResult {
 }
 
 /**
+ * Result of instrumenting a WASM binary for coverage
+ */
+export interface InstrumentationResult {
+  /** Instrumented WASM binary with coverage counter increments */
+  instrumentedWasm: Buffer;
+  /** Regenerated source map (offsets adjusted for instrumentation) */
+  sourceMap: string;
+  /** Debug info with coverageMemoryIndex assigned to each function */
+  debugInfo: BinaryDebugInfo;
+}
+
+/**
  * Cached compilation data (shared between collectTests and runTests)
  *
  * NOTE: WebAssembly.Module is NOT included because it cannot be serialized across
@@ -521,7 +534,7 @@ export interface FunctionDebugInfo {
    * Index into coverage memory counters
    * v1 only: Function-level counter
    */
-  coverageMemoryIndex?: number;
+  coverageMemoryIndex: number;
   /** All expressions in this function */
   expressions: ExpressionDebugInfo[];
   /** Basic blocks from CFG analysis */
@@ -529,8 +542,30 @@ export interface FunctionDebugInfo {
 }
 
 /**
- * Raw output from native addon's extractDebugInfo() C++ function
+ * Binary debug info extracted from WASM + source map via native addon
+ *
+ * This is the processed output after TS wrapper transforms NativeDebugInfoOutput.
+ * Functions are grouped by file and keyed by position for stable identity.
  */
+export interface BinaryDebugInfo {
+  /** All source files represented in extracted debug info (directly or inlined) */
+  debugSourceFiles: string[];
+  /**
+   * Functions grouped by file path, then keyed by position ("line:column")
+   * Position key enables stable identity across compilations
+   */
+  functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo>>;
+}
+
+/**
+ * Raw output from native addon's instrumentForCoverage() C++ function
+ */
+export interface NativeInstrumentationResult {
+  instrumentedWasm: Buffer;
+  sourceMap: string;
+  debugInfo: NativeDebugInfoOutput;
+}
+
 export interface NativeDebugInfoOutput {
   /** All source files represented in extracted debug info (directly or inlined) */
   debugSourceFiles: string[];
@@ -550,27 +585,6 @@ export interface NativeExpressionDebugInfo extends Omit<ExpressionDebugInfo, 'lo
 export interface NativeSourceLocation extends Omit<SourceLocation, 'filePath'> {
   /** Index into NativeDebugInfoOutput.debugSourceFiles */
   fileIndex: number;
-}
-
-/**
- * Binary debug info extracted from WASM + source map via native addon
- *
- * This is the processed output after TS wrapper transforms NativeDebugInfoOutput.
- * Functions are grouped by file and keyed by position for stable identity.
- */
-export interface BinaryDebugInfo {
-  /** All source files represented in extracted debug info (directly or inlined) */
-  debugSourceFiles: string[];
-  /**
-   * Functions grouped by file path, then keyed by position ("line:column")
-   * Position key enables stable identity across compilations
-   */
-  functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo>>;
-  /**
-   * lookup by function name for v1 instrumentation
-   * Built by TS wrapper from the primary structure
-   */
-  functionsByName: Record<string, FunctionDebugInfo>;
 }
 
 // ============================================================================

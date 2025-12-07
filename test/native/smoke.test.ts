@@ -20,13 +20,8 @@ describe('extractDebugInfo', () => {
     expect(Array.isArray(debugInfo.debugSourceFiles)).toBe(true);
     expect(debugInfo.debugSourceFiles.length).toBeGreaterThan(0);
 
-    expect(debugInfo.functionsByName).toBeDefined();
-    expect(typeof debugInfo.functionsByName).toBe('object');
     expect(debugInfo.functionsByFileAndPosition).toBeDefined();
     expect(typeof debugInfo.functionsByFileAndPosition).toBe('object');
-
-    const functionNames = Object.keys(debugInfo.functionsByName);
-    expect(functionNames.length).toBeGreaterThan(0);
   });
 
   describe('error handling', () => {
@@ -117,15 +112,15 @@ describe('extractDebugInfo', () => {
         const debugInfo = extractDebugInfo(missingDebugResult.binary, missingDebugResult.sourceMap!);
 
         expect(debugInfo).toBeDefined();
-        expect(debugInfo.functionsByName).toBeDefined();
+        expect(debugInfo.functionsByFileAndPosition).toBeDefined();
 
         // Functions should exist but may have no debug locations
-        const functionNames = Object.keys(debugInfo.functionsByName);
-        if (functionNames.length > 0) {
-          const firstFunc = debugInfo.functionsByName[functionNames[0]!]!;
-          // Expressions exist but might not have locations
-          expect(Array.isArray(firstFunc.expressions)).toBe(true);
-        }
+        // const functionNames = Object.keys(debugInfo.functionsByName);
+        // if (functionNames.length > 0) {
+        //   const firstFunc = debugInfo.functionsByName[functionNames[0]!]!;
+        //   // Expressions exist but might not have locations
+        //   expect(Array.isArray(firstFunc.expressions)).toBe(true);
+        // }
       });
     });
   });

@@ -44,15 +44,5 @@ export function debug(...args) {
  */
 export function isDebugModeEnabled() {
   const state = debugStorage.getStore();
-  return !!state?.debug;
-}
-
-/**
- * Log error message (only when debug enabled in current context)
- */
-export function debugError(...args) {
-  const state = debugStorage.getStore();
-  if (state?.debug) {
-    console.error(...args);
-  }
+  return !!state?.debug || !!process.env.DEBUG;
 }
