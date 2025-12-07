@@ -148,7 +148,8 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
       blockIndexMap[bb.get()] = blocks.size();
 
       // Record expression indices for this block
-      for (auto* expr : bb->contents.expressions) {
+      size_t expressionCount = bb->contents.expressions.size();
+      for (size_t i = 0; i < expressionCount; i++) {
         blockInfo.expressionIndices.push_back(exprIndex++);
       }
 
@@ -167,72 +168,6 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
     }
   }
 };
-
-/**
- * Evaluate a constant expression to get its i32 value
- * Used for extracting offset values from Const expressions
- */
-uint32_t evaluateConstExpr(Expression* expr) {
-  if (!expr || !expr->is<Const>()) {
-    return 0;
-  }
-  return expr->cast<Const>()->value.geti32();
-}
-
-/**
- * Read an i32 value from data segments at a given memory address
- * Returns 0 if the address is not found in any data segment
- */
-uint32_t readI32FromDataSegments(const std::vector<std::unique_ptr<DataSegment>>& dataSegments, uint32_t memAddr) {
-  for (const auto& segment : dataSegments) {
-    if (segment->isPassive) {
-      continue; // Skip passive segments (not placed in memory at load time)
-    }
-
-    uint32_t segmentOffset = evaluateConstExpr(segment->offset);
-    uint32_t segmentEnd = segmentOffset + segment->data.size();
-
-    // Check if memAddr is within this segment
-    if (memAddr >= segmentOffset && memAddr + 4 <= segmentEnd) {
-      // Extract 4 bytes as little-endian i32
-      uint32_t offset = memAddr - segmentOffset;
-      uint32_t value =
-        (static_cast<uint8_t>(segment->data[offset + 0]) << 0) |
-        (static_cast<uint8_t>(segment->data[offset + 1]) << 8) |
-        (static_cast<uint8_t>(segment->data[offset + 2]) << 16) |
-        (static_cast<uint8_t>(segment->data[offset + 3]) << 24);
-      return value;
-    }
-  }
-
-  return 0; // Address not found in any segment
-}
-
-/**
- * Build a mapping from element table indices to function names
- * This is used to resolve function pointer globals to their actual functions
- */
-std::map<uint32_t, Name> buildElementToFunctionMap(Module& module) {
-  std::map<uint32_t, Name> elementToFunc;
-
-  for (const auto& segment : module.elementSegments) {
-    if (segment->table.isNull() || !segment->offset) {
-      continue; // Skip segments without table or offset
-    }
-
-    uint32_t baseIndex = evaluateConstExpr(segment->offset);
-
-    for (size_t i = 0; i < segment->data.size(); i++) {
-      Expression* elem = segment->data[i];
-      if (elem && elem->is<RefFunc>()) {
-        Name funcName = elem->cast<RefFunc>()->func;
-        elementToFunc[baseIndex + i] = funcName;
-      }
-    }
-  }
-
-  return elementToFunc;
-}
 
 /**
  * Extract the "home file" base path from a function name
@@ -308,42 +243,6 @@ int findHomeFileIndex(const std::string& basePath, const std::vector<std::string
   return -1;
 }
 
-/**
- * Build a mapping from function names to global names
- * For arrow functions stored as globals, this maps:
- *   "start:test/assembly/anonymous~anonymous|1" -> "test/assembly/anonymous/distinctiveArrow"
- */
-std::map<std::string, std::string> buildFunctionToGlobalMap(Module& module) {
-  std::map<std::string, std::string> funcToGlobal;
-
-  // First build element index -> function name map
-  std::map<uint32_t, Name> elementToFunc = buildElementToFunctionMap(module);
-
-  // Then for each global, check if it's a function pointer
-  for (const auto& global : module.globals) {
-    if (!global->init || !global->init->is<Const>()) {
-      continue; // Not a const-initialized global
-    }
-
-    // Get the memory address stored in the global
-    uint32_t memAddr = global->init->cast<Const>()->value.geti32();
-
-    if (memAddr == 0) {
-      continue; // Null pointer
-    }
-
-    // Read the element index from memory
-    uint32_t elementIndex = readI32FromDataSegments(module.dataSegments, memAddr);
-
-    // Look up the function name from element table
-    if (elementToFunc.count(elementIndex)) {
-      Name funcName = elementToFunc[elementIndex];
-      funcToGlobal[std::string(funcName.str)] = std::string(global->name.str);
-    }
-  }
-
-  return funcToGlobal;
-}
 
 /**
  * Extract debug information from a WASM binary with source map
@@ -402,9 +301,6 @@ Napi::Object ExtractDebugInfo(const Napi::CallbackInfo& info) {
     // Store debug file names locally for resolving fileIndex -> filePath
     const auto& debugFileNames = module.debugInfoFileNames;
 
-    // Build mapping from function names to global names (for arrow functions)
-    std::map<std::string, std::string> funcToGlobal = buildFunctionToGlobalMap(module);
-
     // Extract function information using our custom walker
     // Output as flat array (TS wrapper will group by file and position)
     Napi::Array functions = Napi::Array::New(env);
@@ -461,13 +357,6 @@ Napi::Object ExtractDebugInfo(const Napi::CallbackInfo& info) {
       signature.Set("results", results);
 
       funcInfo.Set("signature", signature);
-
-      // Check if this function has a corresponding global (arrow function)
-      std::string funcNameStr(func->name.str);
-      auto it = funcToGlobal.find(funcNameStr);
-      if (it != funcToGlobal.end()) {
-        funcInfo.Set("globalName", Napi::String::New(env, it->second));
-      }
 
       // Convert expressions to JavaScript array
       // Also track representative expression from HOME FILE for representativeLocation

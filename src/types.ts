@@ -506,8 +506,6 @@ export interface FunctionDebugInfo {
   wasmIndex: number;
   /** Function name from WASM (informational) */
   name: string;
-  /** Global variable name for named arrow functions stored as globals */
-  globalName?: string;
   /** Whether this function has debug info (source map entries) */
   hasDebugInfo: boolean;
   /** Function signature (params and results) */

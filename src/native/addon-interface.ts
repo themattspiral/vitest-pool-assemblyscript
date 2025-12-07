@@ -142,10 +142,6 @@ function convertFunction(
     basicBlocks: rawFunc.basicBlocks,
   };
 
-  if (rawFunc.globalName) {
-    converted.globalName = rawFunc.globalName;
-  }
-
   const filePath = representativeLocation.filePath;
   const positionKey = getPositionKey(representativeLocation);
 
