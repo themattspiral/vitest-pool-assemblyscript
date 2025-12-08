@@ -185,17 +185,17 @@ export async function compileAssemblyScript(
 
     // Native addon instruments the binary and regenerates source map
     const instrumentResult = instrumentForCoverage(wasmBuffer, sourceMapBuffer);
+    const instCount = instrumentResult.debugInfo.instrumentedFunctionCount;
+    const total = instrumentResult.debugInfo.totalFunctionCount;
 
     const instrumentEnd = performance.now();
-    const byPositionCount = Object.values(instrumentResult.debugInfo.functionsByFileAndPosition).reduce((sum, m) => sum + Object.keys(m).length, 0);
     debug(`[TIMING] ${basename(filename)} - native instrumentation: ${instrumentEnd - instrumentStart}ms`);
-    debug(`[Compiler] Instrumented ${byPositionCount} functions`);
+    debug(`[Compiler] Instrumented ${instCount} functions (${total} total extracted)`);
     debug('[ASC Compiler] Instrumented binary size:', instrumentResult.instrumentedWasm.length, 'bytes');
 
     return {
       clean: cleanBinary,
       instrumented: instrumentResult.instrumentedWasm,
-      // Use regenerated source map - accurate for instrumented binary
       sourceMap: instrumentResult.sourceMap,
       debugInfo: instrumentResult.debugInfo,
     };

@@ -71,7 +71,7 @@ function extractProjectInfo(spec: TestSpecification): ProjectInfo {
 }
 
 /**
- * Aggregate per-test coverage into per-file coverage for pipeline storage
+ * Aggregate per-test coverage into per-test-file coverage for pipeline storage
  *
  * Takes coverage results from individual test executions (phase 3), merges them
  * by summing hit counts for each function, and stores the result in pipeline
@@ -80,7 +80,7 @@ function extractProjectInfo(spec: TestSpecification): ProjectInfo {
  * @param testFilePath - Path to test file (absolute path)
  * @param testResults - Test results from phase 3 execution
  */
-function aggregateTestCoverageForFile(
+function aggregateCoverageForTestFile(
   testFilePath: string,
   testResults: PoolTestResult[]
 ): void {
@@ -93,22 +93,22 @@ function aggregateTestCoverageForFile(
 
   if (perTestCoverage.length > 0) {
     // Merge all per-test coverage by summing hit counts for each position
-    const fileCoverage: CoverageData = {
+    const testFileCoverage: CoverageData = {
       hitCountsByFileAndPosition: {},
     };
 
     // Use shared merge logic for each per-test coverage
     for (const testCoverage of perTestCoverage) {
-      mergeCoverageData(fileCoverage, testCoverage);
+      mergeCoverageData(testFileCoverage, testCoverage);
     }
 
     // Store in pipeline storage for phase 5 reporting
-    const sourceFileCount = Object.keys(fileCoverage.hitCountsByFileAndPosition).length;
-    const positionCount = Object.values(fileCoverage.hitCountsByFileAndPosition)
+    const sourceFileCount = Object.keys(testFileCoverage.hitCountsByFileAndPosition).length;
+    const positionCount = Object.values(testFileCoverage.hitCountsByFileAndPosition)
       .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
-    debug(`[Pipeline ${basename(testFilePath)}] Aggregated coverage: ${sourceFileCount} source files, ${positionCount} positions`);
+    debug(`[Pipeline ${basename(testFilePath)}] Aggregated coverage: ${sourceFileCount} source files, ${positionCount} unique positions hit`);
 
-    pipelineCoverageByTestFile.set(testFilePath, fileCoverage);
+    pipelineCoverageByTestFile.set(testFilePath, testFileCoverage);
 
     debug(`[Pipeline ${basename(testFilePath)}] Coverage aggregation complete`);
   }
@@ -722,11 +722,11 @@ async function runTests(
       const p3Ms = Date.now() - p3Start;
       debug(`[Pipeline ${basename(testFilePath)}] Phase 3 Pipeline Timing: ${p3Ms}ms`);
 
-      // Aggregate per-test coverage into per-file coverage for phase 5 reporting
+      // Aggregate per-test result coverage into per-test-file coverage for phase 5 reporting
       if (isCoverageEnabled(config)) {
         const covStart = Date.now();
 
-        aggregateTestCoverageForFile(testFilePath, testResults);
+        aggregateCoverageForTestFile(testFilePath, testResults);
 
         const covMs = Date.now() - covStart;
         debug(`[Pipeline ${basename(testFilePath)}] Post Phase 3 - Coverage Aggregation PipeLine Timing: ${covMs}ms`);

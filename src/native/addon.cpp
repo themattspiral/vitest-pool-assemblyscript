@@ -53,6 +53,19 @@ struct BlockContent {
   std::vector<Expression*> expressions;
 };
 
+// Data structure to collect function info during instrumentation
+struct FunctionInfo {
+  std::string name;
+  uint32_t coverageMemoryIndex;
+  int homeFileIndex;
+  bool hasReturnExpression;
+  ExpressionInfo returnExpression;
+  bool hasFirstNonConstExpression;
+  ExpressionInfo firstNonConstExpression;
+  std::vector<ExpressionInfo> expressions;
+  std::vector<BasicBlockInfo> blocks;
+};
+
 /**
  * Walker to extract expression and basic block information using CFGWalker
  *
@@ -378,19 +391,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     // Store debug file names for resolving fileIndex -> filePath
     const auto& debugFileNames = module.debugInfoFileNames;
 
-    // Data structure to collect function info during instrumentation
-    struct InstrumentedFunctionInfo {
-      std::string name;
-      uint32_t coverageMemoryIndex;
-      int homeFileIndex;
-      bool hasReturnExpression;
-      ExpressionInfo returnExpression;
-      bool hasFirstNonConstExpression;
-      ExpressionInfo firstNonConstExpression;
-      std::vector<ExpressionInfo> expressions;
-      std::vector<BasicBlockInfo> blocks;
-    };
-    std::vector<InstrumentedFunctionInfo> instrumentedFunctions;
+    std::vector<FunctionInfo> instrumentedFunctions;
 
     // Create walker for debug info extraction
     DebugInfoWalker walker(&module);
@@ -446,18 +447,9 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         }
       }
 
-      // Skip instrumentation if it does not have a known representative location
-      if (!foundReturn && !foundFirstNonConst) {
-        if (debugMode) {
-          std::cout << "[NativeAddon]   InstrumentingWithNoLoc (reprLoc=NONE): " << std::endl;
-        }
-        return;
-      }
-
       // Store function info for later output
-      InstrumentedFunctionInfo funcInfo;
+      FunctionInfo funcInfo;
       funcInfo.name = funcName;
-      funcInfo.coverageMemoryIndex = coverageIndex;
       funcInfo.homeFileIndex = homeFileIndex;
       funcInfo.hasReturnExpression = foundReturn;
       funcInfo.returnExpression = returnExpr;
@@ -465,7 +457,24 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       funcInfo.firstNonConstExpression = firstNonConst;
       funcInfo.expressions = walker.expressions;
       funcInfo.blocks = walker.blocks;
-      instrumentedFunctions.push_back(funcInfo);
+
+      std::string reprType = foundReturn ? "Return" : (foundFirstNonConst ? "firstNonConst" : "NONE");
+      const uint32_t reprLine = foundReturn ? returnExpr.lineNumber : (foundFirstNonConst ? firstNonConst.lineNumber : 0);
+      const uint32_t reprCol = foundReturn ? returnExpr.columnNumber : (foundFirstNonConst ? firstNonConst.columnNumber : 0);
+
+      // Skip instrumentation if it does not have a known representative location
+      if (foundReturn || foundFirstNonConst) {
+        funcInfo.coverageMemoryIndex = coverageIndex;
+        instrumentedFunctions.push_back(funcInfo);
+      } else {
+        instrumentedFunctions.push_back(funcInfo);
+
+        if (debugMode) {
+          std::cout << "[NativeAddon]   Not Instrumenting, Gathering debug info only (reprLoc=NONE)" << std::endl;
+        }
+
+        return;
+      }
 
       // Create coverage instrumentation code:
       // addr = coverageIndex * 4  (4 bytes per i32 counter)
@@ -516,19 +525,16 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       func->body = builder.makeSequence(storeCounter, func->body, func->body->type);
 
       if (debugMode) {
-        std::string reprType = foundReturn ? "Return" : (foundFirstNonConst ? "firstNonConst" : "NONE");
-        const uint32_t reprLine = foundReturn ? returnExpr.lineNumber : (foundFirstNonConst ? firstNonConst.lineNumber : 0);
-        const uint32_t reprCol = foundReturn ? returnExpr.columnNumber : (foundFirstNonConst ? firstNonConst.columnNumber : 0);
-
-        std::cout << "[NativeAddon]   INSTRUMENTED [" << coverageIndex << "] reprLoc=" << reprType
-                  << " at " << reprLine << ":" << reprCol << std::endl;
+        std::cout << "[NativeAddon]   INSTRUMENTED \"" << funcName << "\"  [idx=" << coverageIndex << "]"
+                  << " reprLoc=" << reprType << " at " << reprLine << ":" << reprCol << std::endl;
       }
 
       coverageIndex++;
     });
 
     if (debugMode) {
-      std::cout << "[NativeAddon] Instrumentation complete: " << coverageIndex << " functions instrumented" << std::endl;
+      std::cout << "[NativeAddon] Instrumentation complete: " << coverageIndex << " functions instrumented"
+                << "(" << instrumentedFunctions.size() << " total with debug info gathered)" << std::endl;
     }
 
     // Write instrumented module with source map regeneration

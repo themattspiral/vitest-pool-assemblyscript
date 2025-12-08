@@ -101,7 +101,7 @@ export class HybridCoverageProvider implements CoverageProvider {
       const fileCount = Object.keys(coverageData.hitCountsByFileAndPosition).length;
       const positionCount = Object.values(coverageData.hitCountsByFileAndPosition)
         .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
-      debug(`[HybridCoverageProvider] AS coverage payload: ${fileCount} files, ${positionCount} positions`);
+      debug(`[HybridCoverageProvider] AS coverage payload: ${fileCount} files, ${positionCount} unique positions hit`);
 
       // Merge incoming coverage data into accumulated (by position, summing hit counts)
       mergeCoverageData(this.accumulatedCoverageData, coverageData);
@@ -154,7 +154,7 @@ export class HybridCoverageProvider implements CoverageProvider {
         debug(() => {
           const accumulatedPositionCount = Object.values(this.accumulatedCoverageData.hitCountsByFileAndPosition)
             .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
-          return `[HybridCoverageProvider] Accumulated coverage has ${accumulatedPositionCount} positions`;
+          return `[HybridCoverageProvider] Accumulated coverage has ${accumulatedPositionCount} unique positions hit`;
         });
 
         // Capture projectRoot for use in async callback
@@ -170,7 +170,7 @@ export class HybridCoverageProvider implements CoverageProvider {
           const fileHitCountsByPosition = this.accumulatedCoverageData.hitCountsByFileAndPosition[relativeFilePath] ?? {};
           debug(`[HybridCoverageProvider] Accumulated coverage has ${Object.keys(fileHitCountsByPosition).length} positions for ${relativeFilePath}`);
 
-          // Containment matching (binary hit position -> source) is performed during conversion
+          // Containment matching (binary hit position → source) is performed during conversion
           return await convertToIstanbulFormat(functionsByStartLine, fileHitCountsByPosition, filePath);
         });
 
@@ -240,15 +240,15 @@ export class HybridCoverageProvider implements CoverageProvider {
 export default {
   getProvider: () => new HybridCoverageProvider(),
   takeCoverage: async (...args: any[]) => {
-    debug('[HybridCoverageProvider] takeCoverage called');
+    debug('[HybridCoverageProvider] takeCoverage called - delegating to v8');
     return await (v8CoverageModule.takeCoverage as any)(...args);
   },
   startCoverage: async (...args: any[]) => {
-    debug('[HybridCoverageProvider] startCoverage called');
+    debug('[HybridCoverageProvider] startCoverage called - delegating to v8');
     return await (v8CoverageModule.startCoverage as any)(...args);
   },
   stopCoverage: async (...args: any[]) => {
-    debug('[HybridCoverageProvider] stopCoverage called');
+    debug('[HybridCoverageProvider] stopCoverage called - delegating to v8');
     return await (v8CoverageModule.stopCoverage as any)(...args);
   },
 };

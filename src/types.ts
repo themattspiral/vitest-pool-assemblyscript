@@ -406,7 +406,7 @@ export interface WebAssemblyCallSite {
  * Function metadata (names, ranges) comes from ParsedSourceInfo, not here.
  *
  * Outer Record: keyed by absolute file path
- * Inner Record: keyed by position ("line:column") -> hit count
+ * Inner Record: keyed by position ("line:column") → hit count
  */
 export interface CoverageData {
   hitCountsByFileAndPosition: Record<string, Record<string, number>>;
@@ -555,6 +555,9 @@ export interface BinaryDebugInfo {
    * Position key enables stable identity across compilations
    */
   functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo>>;
+
+  instrumentedFunctionCount: number;
+  totalFunctionCount: number;
 }
 
 /**

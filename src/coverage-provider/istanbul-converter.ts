@@ -43,15 +43,17 @@ export async function convertToIstanbulFormat(
   fileHitCountsByPosition: Record<string, number>,
   filePath: string
 ): Promise<FileCoverageData> {
-  debug(`[IstanbulConverter] Converting coverage for file: ${filePath}`);
+  const startMatch = performance.now();
 
-  // Count total functions for debugging
-  const funcCount = Object.values(fileFunctionsByStartLine).reduce((sum, funcs) => sum + funcs.length, 0);
-  debug(`[IstanbulConverter] File has ${funcCount} functions, ${Object.keys(fileHitCountsByPosition).length} hit positions`);
+  debug(`[IstanbulConverter] Processing source file: ${filePath}`);
+  debug(`[IstanbulConverter]   Containment matching coverage hit positions to source functions`);
 
-  // Build a map of function -> hit count using containment matching
-  // Key: function identity (qualifiedName), Value: hit count
-  const functionHitCounts = new Map<ParsedSourceFunctionInfo, number>();
+  const sourceFunctionCount = Object.values(fileFunctionsByStartLine).reduce((sum, funcs) => sum + funcs.length, 0);
+  debug(`[IstanbulConverter]   Source: ${sourceFunctionCount} total functions, Coverage: ${Object.keys(fileHitCountsByPosition).length} unique hit positions`);
+
+  // Build a map of function → hit count using containment matching
+  // Key: function source identity (qualifiedName), Value: hit count
+  const hitCountsBySourceFunctionName = new Map<ParsedSourceFunctionInfo, number>();
 
   // For each hit position, find which function contains it
   for (const [positionKey, hitCount] of Object.entries(fileHitCountsByPosition)) {
@@ -67,14 +69,24 @@ export async function convertToIstanbulFormat(
       const containingFunction = findFunctionContainingPosition(fileFunctionsByStartLine, line, column);
       if (containingFunction) {
         // Accumulate hits (in case multiple positions map to same function)
-        const existingHits = functionHitCounts.get(containingFunction) ?? 0;
-        functionHitCounts.set(containingFunction, Math.max(existingHits, hitCount));
-        debug(`[IstanbulConverter] Position ${positionKey} -> function "${containingFunction.shortName}" (hits: ${hitCount})`);
+        const existingHits = hitCountsBySourceFunctionName.get(containingFunction);
+        const existingHitsCount = existingHits ?? 0;
+        const max = Math.max(existingHitsCount, hitCount);
+        hitCountsBySourceFunctionName.set(containingFunction, max); // <-- TODO: Explain this
+
+        if (existingHits !== undefined) {
+          debug(`[IstanbulConverter]     Position ${positionKey} → function "${containingFunction.shortName}" EXISTING HITS: ${existingHits} NEW COUNT: ${max}`);
+        } else {
+          debug(`[IstanbulConverter]     Position ${positionKey} → function "${containingFunction.shortName}" (hits: ${hitCount})`);
+        }
       } else {
-        debug(`[IstanbulConverter] Position ${positionKey} has no containing function`);
+        debug(`[IstanbulConverter]     Position ${positionKey} has no containing function`);
       }
     }
   }
+
+  const startConvert = performance.now();
+  debug(`[IstanbulConverter]   Matching Complete - Converting to Istanbul format`);
 
   // Initialize Istanbul data structures
   const fnMap: { [key: string]: FunctionMapping } = {};
@@ -97,9 +109,12 @@ export async function convertToIstanbulFormat(
       }
 
       // Get hit count from containment matching (or 0 if not hit)
-      const hitCount = functionHitCounts.get(funcInfo) ?? 0;
+      const hitCount = hitCountsBySourceFunctionName.get(funcInfo) ?? 0;
       const displayShortName = shortName && shortName !== '' ? shortName : '<anonymous>';
-      debug(`[IstanbulConverter] Function ${funcIdx}: "${displayShortName}" at ${range.startLine}:${range.startColumn} hits: ${hitCount}`);
+      debug(
+        `[IstanbulConverter]     Istanbul function index ${funcIdx}: "${displayShortName}"`
+        + ` (source ${range.startLine}:${range.startColumn} - ${range.endLine}:${range.endColumn}), hits: ${hitCount}`
+      );
 
       // Create function mapping
       // Both 'decl' (declaration) and 'loc' (location) use the same range
@@ -129,7 +144,15 @@ export async function convertToIstanbulFormat(
     }
   }
 
-  debug(`[IstanbulConverter] Result for ${filePath}: ${Object.keys(fnMap).length} functions added`);
+  const done = performance.now();
+  const matchingMs = (startConvert - startMatch).toFixed(2);
+  const convertMs = (done - startConvert).toFixed(2);
+  const totalMs = (done - startMatch).toFixed(2);
+
+  debug(
+    `[IstanbulConverter]   Coverage Coversion Complete: ${Object.keys(fnMap).length} functions,` 
+    + ` ${totalMs}ms total (matching: ${matchingMs}ms, convert: ${convertMs}ms)`
+  );
 
   return {
     path: filePath,

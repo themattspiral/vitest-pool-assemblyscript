@@ -157,7 +157,6 @@ function transformDebugInfo(
 ): BinaryDebugInfo {
   const functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo>> = {};
 
-  let nameCollisionCount = 0;
   let positionCollisionCount = 0;
   let skippedCount = 0;
 
@@ -185,12 +184,26 @@ function transformDebugInfo(
     functionsByFileAndPosition[filePath][positionKey] = func;
   }
 
-  const byPositionCount = Object.values(functionsByFileAndPosition).reduce((sum, m) => sum + Object.keys(m).length, 0);
-  debug(`[AddonInterface] Transform complete: ${byPositionCount} by position, ${nameCollisionCount} name collisions, ${positionCollisionCount} position collisions, ${skippedCount} skipped`);
+  const functionCounts = Object.values(functionsByFileAndPosition).reduce((counts, fileFunctions) => {
+    Object.values(fileFunctions).forEach(func => {
+      if (func.coverageMemoryIndex !== undefined) {
+        counts.instrumented++;
+      }
+      counts.total++;
+    });
+    return counts;
+  }, { total: 0, instrumented: 0 });
+
+  debug(
+    `[AddonInterface] BinaryDebugInfo transform complete: ${functionCounts.instrumented} instrumented functions`
+    +` (${functionCounts.total} total, ${positionCollisionCount} position collisions, ${skippedCount} skipped)`
+  );
 
   return {
     debugSourceFiles: raw.debugSourceFiles,
     functionsByFileAndPosition,
+    totalFunctionCount: functionCounts.total,
+    instrumentedFunctionCount: functionCounts.instrumented,
   };
 }
 
