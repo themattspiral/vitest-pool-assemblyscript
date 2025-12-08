@@ -163,8 +163,8 @@ export async function executeSingleTest(
         currentTestRef.value.duration = Date.now() - currentTestRef.value.startTime;
       }
 
+      // In case of unexpected execution error (no abort handler called), mark test failed
       if (currentTestRef.value.passed) {
-        // If not already marked as failed, mark it now
         currentTestRef.value.passed = false;
         currentTestRef.value.error = {
           name: ERROR_NAMES.RuntimeError,
@@ -198,26 +198,25 @@ export async function executeSingleTest(
       };
 
       // Read counters from coverage memory
-      const numFunctions = Object.values(debugInfo.functionsByFileAndPosition).reduce((sum, m) => sum + Object.keys(m).length, 0);
-      const counters = new Uint32Array(coverageMemory.buffer, 0, numFunctions);
+      const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, debugInfo.instrumentedFunctionCount);
+      debug(`[Executor] Read coverage memory for ${debugInfo.instrumentedFunctionCount} instrumented functions`);
 
-      // Iterate all functions and build coverage data with hit counts
-      // BinaryDebugInfo.functionsByFileAndPosition is already keyed by position (line:column)
+      // Iterate all instrumented functions and build coverage data with hit counts extracted from coverage memory
       let functionsHit = 0;
-      for (const [filePath, functions] of Object.entries(debugInfo.functionsByFileAndPosition)) {
+      for (const [filePath, debugFunctions] of Object.entries(debugInfo.functionsByFileAndPosition)) {
         if (!coverage.hitCountsByFileAndPosition[filePath]) {
           coverage.hitCountsByFileAndPosition[filePath] = {};
-          debug(`[Executor] Hits for `, filePath);
+          debug(`[Executor] Extracting hits for source file:`, filePath);
         }
 
-        for (const [positionKey, funcInfo] of Object.entries(functions)) {
+        for (const [positionKey, funcInfo] of Object.entries(debugFunctions)) {
           if (funcInfo.coverageMemoryIndex === undefined) {
-            debug(`[Executor]   WARNING: function "${funcInfo.name}" (${positionKey}) has no coverageMemoryIndex`);
+            debug(`[Executor]   Skipping hit extraction for function "${funcInfo.name}" (${positionKey}) - No coverageMemoryIndex (not instrumented)`);
             continue;
           }
 
-          const hitCount = counters[funcInfo.coverageMemoryIndex] ?? 0;
-          debug(`[Executor]   Extracted hits for function "${funcInfo.name}" at ${positionKey} (coverageMemoryIndex: ${funcInfo.coverageMemoryIndex}):`, hitCount);
+          const hitCount = extractedHitCounters[funcInfo.coverageMemoryIndex] ?? 0;
+          debug(`[Executor]   ${hitCount} hits [coverageMemoryIndex: ${funcInfo.coverageMemoryIndex}] for "${funcInfo.name}" at ${positionKey} `);
 
           if (coverage.hitCountsByFileAndPosition[filePath][positionKey] !== undefined) {
             debug(`[Executor]   WARNING: DUPLICATE POSITION "${funcInfo.name}" (${positionKey}) already extracted to coverage for ${filePath}`);
@@ -227,7 +226,6 @@ export async function executeSingleTest(
 
           if (hitCount > 0) {
             functionsHit++;
-            debug(`[Executor]     HIT: ${positionKey} = ${hitCount} (idx=${funcInfo.coverageMemoryIndex})`);
           }
         }
       }

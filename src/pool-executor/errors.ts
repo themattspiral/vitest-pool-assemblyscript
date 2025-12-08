@@ -6,9 +6,9 @@
  * file:line:column information for better developer experience.
  */
 
-import type { RawSourceMap } from 'source-map';
-import { basename } from 'node:path';
+import { SourceMapConsumer, type RawSourceMap } from 'source-map';
 import type { ParsedStack } from '@vitest/utils';
+import { basename } from 'node:path';
 
 import { createWebAssemblyCallSite } from './source-maps.js';
 import type { TestResult, AssemblyScriptTestError } from '../types.js';
@@ -34,11 +34,14 @@ export async function enhanceErrorWithSourceMap(
 
   debug('[Executor] Mapping', currentTest.rawCallStack.length, 'call sites to source locations');
 
-  const mappedStack = await Promise.all(
-    currentTest.rawCallStack.map(callSite =>
-      createWebAssemblyCallSite(callSite, sourceMapJson)
-    )
-  );
+  // Remove sourceRoot if present to prevent source-map library from prepending it to paths
+  // AS compiler sets sourceRoot: "./output" which would make paths like "output/tests/..."
+  // instead of "tests/..." - these paths don't exist and won't be found by Vitest
+  const cleanedSourceMap = { ...sourceMapJson };
+  delete cleanedSourceMap.sourceRoot;
+  const sourceMapConsumer = await new SourceMapConsumer(cleanedSourceMap);
+  const mappedStack = currentTest.rawCallStack.map(callSite => createWebAssemblyCallSite(callSite, sourceMapConsumer));
+  sourceMapConsumer.destroy();
 
   // Filter out null results (non-WASM call sites)
   currentTest.sourceStack = mappedStack.filter((cs): cs is NonNullable<typeof cs> => cs !== null);
@@ -55,15 +58,15 @@ export async function enhanceErrorWithSourceMap(
     const isAssertionFailure = currentTest.assertionsFailed > 0;
 
     // Extract short function name from AS's namespace format
-    // "assembly/index/assert" -> "assert"
-    // "tests/assembly/file.as.test/myFunction" -> "myFunction"
+    // "assembly/index/assert" → "assert"
+    // "tests/assembly/file.as.test/myFunction" → "myFunction"
     // Also strip filename prefix from anonymous functions:
-    // "sourcemap-accuracy-test.as.test~anonymous|1" -> "anonymous|1"
+    // "sourcemap-accuracy-test.as.test~anonymous|1" → "anonymous|1"
     const getShortFunctionName = (fullName: string, fileName: string): string => {
       const parts = fullName.split('/');
       let shortName = parts[parts.length - 1] || fullName;
 
-      // Strip filename prefix if present (e.g., "basename~anonymous|1" -> "anonymous|1")
+      // Strip filename prefix if present (e.g., "basename~anonymous|1" → "anonymous|1")
       // Remove any extension from the filename
       const fileBasename = basename(fileName).replace(/\.[^.]+$/, '');
       if (shortName.startsWith(`${fileBasename}~`)) {
@@ -83,8 +86,7 @@ export async function enhanceErrorWithSourceMap(
     // Note: source-map library returns line (1-indexed, already correct) and column (0-indexed, needs +1 for display)
     const parsedStacks: ParsedStack[] = currentTest.sourceStack
       .filter(frame => {
-        // Filter out internal assertion framework frames (like Vitest filters /vitest/dist/)
-        // For assertion errors, skip our internal assert() implementation
+        // Filter out internal assertion framework frames
         if (isAssertionFailure && frame.location.filePath.includes('/vitest-pool-assemblyscript/assembly/')) {
           return false;
         }
@@ -94,7 +96,7 @@ export async function enhanceErrorWithSourceMap(
         method: getShortFunctionName(frame.functionName, frame.location.filePath),
         file: frame.location.filePath,
         line: frame.location.line,
-        column: frame.location.column + 1, // Convert from 0-indexed to 1-indexed for display
+        column: frame.location.column + 1, // Convert from raw 0-indexed to 1-indexed for display
       }));
 
     // Create enhanced error as plain object implementing AssemblyScriptTestError interface
@@ -104,9 +106,9 @@ export async function enhanceErrorWithSourceMap(
       message: enhancedMessage,
       stacks: parsedStacks,
     };
-
+    
     currentTest.error = enhancedError;
 
-    debug(`[Executor] Enhanced error with source location (type: ${enhancedError.name})`);
+    debug(`[Executor] Enhanced ${currentTest.error.name} error with source locations`);
   }
 }

@@ -145,15 +145,18 @@ export function createTestExecutionImports(
           // Extract V8 call stack BEFORE throwing
           // This gives us WAT line:column positions that can be mapped to AS source
           currentTest.value.rawCallStack = extractCallStack(error);
+          
+          // gets replaced when executor enhances error message
           currentTest.value.error = {
             name: ERROR_NAMES.RuntimeError,
             message: message
           };
 
-          debug('[Executor] Captured V8 call stack with', currentTest.value.rawCallStack.length, 'frames');
+          debug('[Executor] Captured raw V8 call stack with', currentTest.value.rawCallStack.length, 'frames');
         }
+
         // CRITICAL: Must throw to halt WASM execution
-        // Without throwing, execution would continue and incorrectly mark failed tests as passed.
+        // Without throwing after abort is called from an assert() failure, execution would continue
         // Per-test isolation ensures the next test still runs (in a fresh instance).
         throw new Error('AssemblyScript abort');
       },
