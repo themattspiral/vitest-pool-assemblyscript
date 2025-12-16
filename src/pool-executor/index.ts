@@ -11,7 +11,7 @@
 
 import type { ExecuteTestResult, CoverageData, DiscoveredTest, DiscoveredTests, BinaryDebugInfo, AssemblyScriptTestError, ResolvedAssemblyScriptPoolOptions } from '../types.js';
 import { AssemblyScriptPoolError, POOL_ERROR_NAMES } from '../types.js';
-import { debug } from '../utils/debug.js';
+import { debug } from '../util/debug.js';
 import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
 import { enhanceErrorWithSourceMap } from './errors.js';

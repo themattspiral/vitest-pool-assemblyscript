@@ -33,8 +33,8 @@ import {
   discoverTests as discoverTestsFromExecutor,
   executeTest  as executeTestFromExecutor,
 } from '../pool-executor/index.js';
-import { setDebugMode, debug } from '../utils/debug.js';
-import { createPhaseTimings } from '../utils/timing.mjs';
+import { setDebugMode, debug } from '../util/debug.js';
+import { createPhaseTimings } from '../util/timing.js';
 import {
   createRpcClient,
   createInitialFileTask,
@@ -45,7 +45,7 @@ import {
   reportTestPrepare,
   reportTestFinished,
 } from './rpc-reporter.js';
-import { createPoolError } from '../utils/error-util.js';
+import { createPoolError } from '../util/pool-errors.js';
 
 // Singleton module cache for source map support in worker threads
 // Shared across all tasks in this worker to enable accurate 

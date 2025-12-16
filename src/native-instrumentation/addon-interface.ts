@@ -13,7 +13,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { debug, isDebugModeEnabled } from '../utils/debug.js';
+import { debug, isDebugModeEnabled } from '../util/debug.js';
 import {
   NativeInstrumentationResult,
   NativeDebugInfoOutput,

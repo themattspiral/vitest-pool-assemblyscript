@@ -24,7 +24,7 @@ import { convertToIstanbulFormat } from './istanbul-converter.js';
 import { parseFunctionsFromFile } from './ast-parser.js';
 import { globFiles } from './glob-utils.js';
 import { mergeCoverageData } from './coverage-merge.js';
-import { debug, setDebugMode } from '../utils/debug.js';
+import { debug, setDebugMode } from '../util/debug.js';
 import { getPoolOptions } from '../pool/options.js';
 import {
   ASSEMBLYSCRIPT_POOL_NAME,

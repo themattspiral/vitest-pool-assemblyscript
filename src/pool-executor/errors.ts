@@ -13,7 +13,7 @@ import { basename } from 'node:path';
 import { createWebAssemblyCallSite } from './source-maps.js';
 import type { ExecuteTestResult, AssemblyScriptTestError } from '../types.js';
 import { POOL_ERROR_NAMES, POOL_INTERNAL_PATHS } from '../types.js';
-import { debug } from '../utils/debug.js';
+import { debug } from '../util/debug.js';
 
 /**
  * Enhance error with source mapped locations

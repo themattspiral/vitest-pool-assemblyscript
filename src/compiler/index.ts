@@ -12,9 +12,9 @@ import { writeFile, mkdir } from 'node:fs/promises';
 
 import { CompileResult, AssemblyScriptCompilerOptions, AssemblyScriptPoolError } from '../types.js';
 import { POOL_ERROR_NAMES } from '../types.js';
-import { debug } from '../utils/debug.js';
-import { instrumentForCoverage } from '../native/addon-interface.js';
-import { throwPoolErrorIfAborted } from '../utils/error-util.js';
+import { debug } from '../util/debug.js';
+import { instrumentForCoverage } from '../native-instrumentation/addon-interface.js';
+import { throwPoolErrorIfAborted } from '../util/pool-errors.js';
 
 const DEBUG_WRITE_FILES = false;
 

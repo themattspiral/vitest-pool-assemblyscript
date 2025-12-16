@@ -8,4 +8,3 @@
  */
 
 export { default } from './hybrid-coverage-provider.js';
-export { HybridCoverageProvider } from './hybrid-coverage-provider.js';

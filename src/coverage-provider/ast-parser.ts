@@ -30,7 +30,7 @@ import {
 
 import type { ParsedSourceFunctionInfo, SourceRange } from '../types.js';
 import { ASCommonFlags, ASNodeKind } from '../types.js';
-import { ASTVisitor } from '../utils/ast-visitor.js';
+import { ASTVisitor } from '../util/ast-visitor.js';
 
 /**
  * Visitor that extracts function information from AST nodes

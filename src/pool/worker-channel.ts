@@ -6,7 +6,7 @@ import type { RunnerTestFile } from 'vitest/node';
 import { createBirpc } from 'birpc';
 import { MessageChannel } from 'node:worker_threads';
 import type { WorkerChannel } from '../types.js';
-import { debug } from '../utils/debug.js';
+import { debug } from '../util/debug.js';
 
 const DEBUG_RPC = false;
 

@@ -18,7 +18,7 @@
 import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
 import type { ParsedSourceFunctionInfo } from '../types.js';
 import { findFunctionContainingPosition } from './containment-matcher.js';
-import { debug } from '../utils/debug.js';
+import { debug } from '../util/debug.js';
 
 const DEBUG_ISTANBUL = false;
 

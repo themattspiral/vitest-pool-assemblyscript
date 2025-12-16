@@ -46,13 +46,13 @@ import {
   POOL_ERROR_NAMES,
   POOL_INTERNAL_PATHS
 } from '../types.js';
-import { setDebugMode, debug } from '../utils/debug.js';
+import { setDebugMode, debug } from '../util/debug.js';
 import { compileAssemblyScript } from '../compiler/index.js';
-import { createPhaseTimings } from '../utils/timing.mjs';
+import { createPhaseTimings } from '../util/timing.js';
 import { createWorkerChannel } from './worker-channel.js';
 import { getPoolOptions } from './options.js';
 import { mergeCoverageData } from '../coverage-provider/coverage-merge.js';
-import { getTestError, createPoolError, throwPoolErrorIfAborted, isAbortErrorString } from '../utils/error-util.js';
+import { getTestError, createPoolError, throwPoolErrorIfAborted, isAbortErrorString } from '../util/pool-errors.js';
 
 const WORKER_PATH = resolve(import.meta.dirname, 'pool-worker/index.js');
 

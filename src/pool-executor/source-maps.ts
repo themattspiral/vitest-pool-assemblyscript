@@ -8,7 +8,7 @@
  */
 
 import { SourceMapConsumer } from 'source-map';
-import { debug } from '../utils/debug.js';
+import { debug } from '../util/debug.js';
 import type { WebAssemblyCallSite } from '../types.js';
 
 /**
