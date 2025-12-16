@@ -40,8 +40,6 @@ export function createFunctionDebugInfo(
   overrides: Partial<FunctionDebugInfo> & { name: string; wasmIndex: number }
 ): FunctionDebugInfo {
   return {
-    hasDebugInfo: true,
-    signature: { params: [], results: [] },
     expressions: [],
     basicBlocks: [],
     ...overrides,

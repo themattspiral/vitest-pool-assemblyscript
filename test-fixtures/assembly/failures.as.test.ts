@@ -35,3 +35,15 @@ test('failAnonCallbackInNamedCallsArrow [should fail]', () => {
   const val = fail.failAnonCallbackInNamedCallsArrow();
   assert(val == 3);
 });
+
+test('ClassWithFailingMethods.fail() [should fail]', () => {
+  const c = new fail.ClassWithFailingMethods();
+  const val = c.fail();
+  assert(val == 3);
+});
+
+test('ClassWithFailingMethods.failingMemberFunction() [should fail]', () => {
+  const c = new fail.ClassWithFailingMethods();
+  const val = c.failingMemberFunction();
+  assert(val == 3);
+});

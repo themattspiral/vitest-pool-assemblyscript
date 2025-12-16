@@ -8,23 +8,29 @@
 
 import { resolve, basename } from 'node:path';
 import { readdirSync } from 'fs';
-import type { BinaryDebugInfo, FunctionDebugInfo } from '../../src/types.js';
-import { compileFixture, type CompileResult, type CompileOptions } from './compile-fixture.js';
-import { extractDebugInfo } from '../../src/native/addon-interface.js';
+import { readFile } from 'fs/promises';
+import {
+  ASSEMBLYSCRIPT_LIB_PREFIX,
+  POOL_INTERNAL_PATHS,
+  type CompileResult
+} from '../../src/types.js';
 
-/**
- * Path prefix used in source maps and function names for test fixtures
- * Export this for use in tests that need to filter by fixture path
-*/
-export const FIXTURE_PATH_PREFIX = 'test-fixtures/assembly/';
+// test with compiled version because asc strip-inline transform needs transpilation
+// (for now! TODO remove after switching to asc API)
+//@ts-ignore
+import { compileAssemblyScript as casDist } from '../../dist/index.js';
+import { compileAssemblyScript as casSrc } from '../../src/index.js';
+const compileAssemblyScript: typeof casSrc = casDist;
 
-// Get test/assembly directory
-const ASSEMBLY_DIR = resolve(import.meta.dirname, `../../${FIXTURE_PATH_PREFIX}`);
+const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
+const FIXTURE_PATH_PREFIX = 'test-fixtures/assembly/';
+const ASSEMBLY_DIR = resolve(PROJECT_ROOT, FIXTURE_PATH_PREFIX);
 
 /**
  * Test fixture definition
  */
 export interface TestFixture {
+  relPath: string;
   /** Fixture name (without .ts extension) */
   name: string;
   /** Full path to the AS source file */
@@ -38,9 +44,7 @@ export interface CompiledFixture {
   /** Fixture metadata */
   fixture: TestFixture;
   /** Compilation result */
-  compiled: CompileResult;
-  /** Extracted debug info */
-  debugInfo: BinaryDebugInfo;
+  compileResult: CompileResult;
   /** Source code lines */
   sourceLines: string[];
 }
@@ -61,6 +65,7 @@ function discoverFixtures(): Record<string, TestFixture> {
       const path = resolve(ASSEMBLY_DIR, file);
 
       fixtures[name] = {
+        relPath: FIXTURE_PATH_PREFIX + file,
         name,
         path,
       };
@@ -84,29 +89,25 @@ export function getAllFixtures(): TestFixture[] {
  */
 export async function compileAndExtract(
   fixture: TestFixture,
-  options: CompileOptions = { writeFiles: false }
 ): Promise<CompiledFixture> {
-  const compiled = await compileFixture(fixture.path, options);
-
-  if (!compiled.success) {
-    throw new Error(`Failed to compile ${fixture.name}: ${compiled.stderr}`);
-  }
-
-  if (!compiled.sourceMap) {
-    throw new Error(`No source map generated for ${fixture.name}`);
-  }
-
-  const debugInfo = extractDebugInfo(compiled.binary, compiled.sourceMap);
-
-  // Read source lines
-  const { readFileSync } = await import('fs');
-  const sourceCode = readFileSync(fixture.path, 'utf-8');
-  const sourceLines = sourceCode.split('\n');
+  const compilePromise =  compileAssemblyScript(fixture.path, {
+    shouldInstrument: true,
+    stripInline: true,
+    projectRoot: PROJECT_ROOT,
+    instrumentationOptions: {
+      relativeExcludedFiles: [fixture.relPath].concat(...POOL_INTERNAL_PATHS),
+      excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
+      coverageMemoryPagesMin: 1,
+      coverageMemoryPagesMax: 4
+    }
+  });
+  const sourceCodePromise = readFile(fixture.path, 'utf-8');
+  
+  const [compileResult, sourceCode] = await Promise.all([compilePromise, sourceCodePromise]);
 
   return {
     fixture,
-    compiled,
-    debugInfo,
-    sourceLines,
+    compileResult,
+    sourceLines: sourceCode.split('\n'),
   };
 }

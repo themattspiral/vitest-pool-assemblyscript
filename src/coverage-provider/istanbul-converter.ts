@@ -18,7 +18,15 @@
 import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
 import type { ParsedSourceFunctionInfo } from '../types.js';
 import { findFunctionContainingPosition } from './containment-matcher.js';
-import { debug } from '../utils/debug.mjs';
+import { debug } from '../utils/debug.js';
+
+const DEBUG_ISTANBUL = false;
+
+function istanbulDebug(...args: any[]): void {
+  if (DEBUG_ISTANBUL) {
+    debug(...args);
+  }
+};
 
 /**
  * Convert AssemblyScript coverage data to Istanbul format for a single file
@@ -35,21 +43,26 @@ import { debug } from '../utils/debug.mjs';
  *
  * @param fileFunctionsByStartLine - Functions for this file, keyed by start line (from AST parser)
  * @param fileHitCountsByPosition - Hit counts for this file, keyed by position "line:column" (from accumulated coverage)
- * @param filePath - Absolute path to the source file (for Istanbul output)
+ * @param absoluteFilePath - Absolute path to the source file (for Istanbul output)
  * @returns Istanbul FileCoverage object
  */
 export async function convertToIstanbulFormat(
   fileFunctionsByStartLine: Record<number, ParsedSourceFunctionInfo[]>,
   fileHitCountsByPosition: Record<string, number>,
-  filePath: string
+  absoluteFilePath: string
 ): Promise<FileCoverageData> {
   const startMatch = performance.now();
 
-  debug(`[IstanbulConverter] Processing source file: ${filePath}`);
-  debug(`[IstanbulConverter]   Containment matching coverage hit positions to source functions`);
+  istanbulDebug(() => {
+    const sourceFunctionCount = Object.values(fileFunctionsByStartLine).reduce((sum, funcs) => sum + funcs.length, 0);
+    const uniqueHitPosCount = Object.keys(fileHitCountsByPosition).length;
+    const coverageEstimate = sourceFunctionCount === 0 ? Infinity : ((uniqueHitPosCount * 100) / sourceFunctionCount).toFixed(2);
 
-  const sourceFunctionCount = Object.values(fileFunctionsByStartLine).reduce((sum, funcs) => sum + funcs.length, 0);
-  debug(`[IstanbulConverter]   Source: ${sourceFunctionCount} total functions, Coverage: ${Object.keys(fileHitCountsByPosition).length} unique hit positions`);
+    return `[IstanbulConverter]   Processing source file: "${absoluteFilePath}"\n`
+    + `[IstanbulConverter]   Source: ${sourceFunctionCount} total functions, Coverage: ${uniqueHitPosCount} unique hit positions\n`
+    + `[IstanbulConverter]   Sanity Check - AS File Coverage Estimate: ${coverageEstimate}%\n`
+    + `[IstanbulConverter]   Containment matching functions: coverage hit positions to source functions by range`;
+  });
 
   // Build a map of function → hit count using containment matching
   // Key: function source identity (qualifiedName), Value: hit count
@@ -72,21 +85,21 @@ export async function convertToIstanbulFormat(
         const existingHits = hitCountsBySourceFunctionName.get(containingFunction);
         const existingHitsCount = existingHits ?? 0;
         const max = Math.max(existingHitsCount, hitCount);
-        hitCountsBySourceFunctionName.set(containingFunction, max); // <-- TODO: Explain this
+        hitCountsBySourceFunctionName.set(containingFunction, max); // <-- TODO: Explain this max logic
 
         if (existingHits !== undefined) {
-          debug(`[IstanbulConverter]     Position ${positionKey} → function "${containingFunction.shortName}" EXISTING HITS: ${existingHits} NEW COUNT: ${max}`);
+          istanbulDebug(`[IstanbulConverter]     Position ${positionKey} → function "${containingFunction.shortName}" EXISTING HITS: ${existingHits} NEW COUNT: ${max}`);
         } else {
-          debug(`[IstanbulConverter]     Position ${positionKey} → function "${containingFunction.shortName}" (hits: ${hitCount})`);
+          istanbulDebug(`[IstanbulConverter]     Position ${positionKey} → function "${containingFunction.shortName}" (hits: ${hitCount})`);
         }
       } else {
-        debug(`[IstanbulConverter]     Position ${positionKey} has no containing function`);
+        istanbulDebug(`[IstanbulConverter]     Position ${positionKey} has no containing function`);
       }
     }
   }
 
   const startConvert = performance.now();
-  debug(`[IstanbulConverter]   Matching Complete - Converting to Istanbul format`);
+  istanbulDebug(`[IstanbulConverter]   Matching Complete - Converting to Istanbul format`);
 
   // Initialize Istanbul data structures
   const fnMap: { [key: string]: FunctionMapping } = {};
@@ -111,7 +124,7 @@ export async function convertToIstanbulFormat(
       // Get hit count from containment matching (or 0 if not hit)
       const hitCount = hitCountsBySourceFunctionName.get(funcInfo) ?? 0;
       const displayShortName = shortName && shortName !== '' ? shortName : '<anonymous>';
-      debug(
+      istanbulDebug(
         `[IstanbulConverter]     Istanbul function index ${funcIdx}: "${displayShortName}"`
         + ` (source ${range.startLine}:${range.startColumn} - ${range.endLine}:${range.endColumn}), hits: ${hitCount}`
       );
@@ -149,13 +162,13 @@ export async function convertToIstanbulFormat(
   const convertMs = (done - startConvert).toFixed(2);
   const totalMs = (done - startMatch).toFixed(2);
 
-  debug(
+  istanbulDebug(
     `[IstanbulConverter]   Coverage Coversion Complete: ${Object.keys(fnMap).length} functions,` 
     + ` ${totalMs}ms total (matching: ${matchingMs}ms, convert: ${convertMs}ms)`
   );
 
   return {
-    path: filePath,
+    path: absoluteFilePath,
     fnMap,
     f,
     statementMap,

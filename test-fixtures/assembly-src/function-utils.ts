@@ -12,6 +12,10 @@ function basicAdd(a: i32): i32 {
   return a + 1;
 }
 
+export function constantReturn(): i32 {
+  return 1;
+}
+
 export const one = 1, namedFuncMulti = function(b: i32): i32 { return b + 1; }, arrowMulti = (a: i32): i32 => { return a + 1; }, bracelessArrowMulti = (a: i32): i32 => a + 1, c = 'something', namedFuncMultiSpanLines = function(b: i32): i32 {
   return b + 1;
 };

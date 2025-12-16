@@ -6,7 +6,7 @@ import type { RunnerTestFile } from 'vitest/node';
 import { createBirpc } from 'birpc';
 import { MessageChannel } from 'node:worker_threads';
 import type { WorkerChannel } from '../types.js';
-import { debug } from '../utils/debug.mjs';
+import { debug } from '../utils/debug.js';
 
 const DEBUG_RPC = false;
 
@@ -48,7 +48,7 @@ export function createWorkerChannel(project: TestProject, collect: boolean): Wor
     },
   };
 
-  // Create RPC in pool (has access to full TestProject)
+  // Create RPC in pool
   const rpc = createBirpc<RuntimeRPC, typeof wrappedMethods>(
     wrappedMethods,
     {

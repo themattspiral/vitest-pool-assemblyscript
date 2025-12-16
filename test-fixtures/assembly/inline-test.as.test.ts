@@ -12,7 +12,7 @@
  */
 
 import { test, assert } from '../../assembly';
-import { addInlined, addNormal, multiplyWithInternalInlining, multiplyNormal, throwsError } from '../assembly-src/inline-utils';
+import { addInlined, addNormal, multiplyWithInternalInlining, multiplyNormal, throwsError, callsInlinedAdd } from '../assembly-src/inline-utils';
 
 test('inline functions are called', (): void => {
   const sum1: i32 = addInlined(2, 3);
@@ -26,6 +26,11 @@ test('inline functions are called', (): void => {
 
   const prod2: i32 = multiplyNormal(4, 5);
   assert(prod2 == 20, 'normal multiplication works');
+});
+
+test('externally inlined function callsInlinedAdd', () => {
+  const res: i32 = callsInlinedAdd(1, 2);
+  assert(res == 3, 'externally inlined add works');
 });
 
 test('inline function error source mapped to correct line [should fail]', (): void => {

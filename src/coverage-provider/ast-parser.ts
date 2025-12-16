@@ -7,11 +7,7 @@
  * Source AST is the source of truth for what SHOULD be covered.
  * Binary instrumentation tells us what we CAN measure (hit counts).
  *
- * Functions are grouped by start line for containment matching:
- * - Binary gives us a point (representativeLocation) somewhere in the function
- * - Source gives us function ranges (start/end line/column)
- * - We find which source function range contains the binary point
- * - "Tightest fit" handles nested functions (innermost wins)
+ * Functions are grouped by start line for efficient containment matching.
  *
  * Architecture:
  * - Uses shared ASTVisitor for complete NodeKind coverage
@@ -31,6 +27,7 @@ import {
   VariableDeclaration,
   FunctionExpression,
 } from 'assemblyscript';
+
 import type { ParsedSourceFunctionInfo, SourceRange } from '../types.js';
 import { ASCommonFlags, ASNodeKind } from '../types.js';
 import { ASTVisitor } from '../utils/ast-visitor.js';
@@ -223,5 +220,5 @@ export async function parseFunctionsFromFile(
   const visitor = new FunctionExtractorVisitor(source, modulePath, absoluteSourceFilePath);
   visitor.visitSource(source);
 
-  return visitor.functions;
+  return visitor.functions || {};
 }

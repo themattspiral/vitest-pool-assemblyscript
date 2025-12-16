@@ -46,3 +46,27 @@ export function failAnonCallbackInNamedCallsNamed(): i32 {
 export function failAnonCallbackInNamedCallsArrow(): i32 {
   return myNamedFuncWithCallbackArg(() => myFailingArrowFunc());
 }
+
+export class ClassWithFailingMethods {
+  value: i32;
+  failingMemberFunction: () => i32;
+
+  constructor(a: i32 = 0) {
+    this.value = a;
+    this.failingMemberFunction = (): i32 => {
+      const arr: i32[] = [1, 2, 3];
+      const value = arr[10]; // Out of bounds - will abort
+      return value;
+    };
+  }
+
+  get myValueGetter(): i32 {
+    return this.value;
+  }
+
+  fail(): i32 {
+    const arr: i32[] = [1, 2, this.myValueGetter];
+    const value = arr[10]; // Out of bounds - will abort
+    return value;
+  }
+}

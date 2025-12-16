@@ -13,8 +13,8 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { debug, isDebugModeEnabled } from '../utils/debug.mjs';
-import type {
+import { debug, isDebugModeEnabled } from '../utils/debug.js';
+import {
   NativeInstrumentationResult,
   NativeDebugInfoOutput,
   NativeFunctionDebugInfo,
@@ -24,8 +24,11 @@ import type {
   FunctionDebugInfo,
   SourceLocation,
   ExpressionDebugInfo,
-  InstrumentationResult
+  InstrumentationResult,
+  NativeInstrumentationOptions,
+  InstrumentationOptions,
 } from '../types.js';
+import { AssemblyScriptPoolError, POOL_ERROR_NAMES } from '../types.js';
 
 // Load the native addon
 // The .node file is built by node-gyp into build/Release/ (see binding.gyp)
@@ -46,7 +49,10 @@ if (!existsSync(addonPath)) {
   addonPath = addonPathFromSrc
 
   if (!existsSync(addonPath)) {
-    throw new Error(`Native addon debug extractor file not found at ${addonPathFromDist} or ${addonPathFromSrc}`);
+    throw new AssemblyScriptPoolError(
+      `Native addon instrumentation file not found at ${addonPathFromDist} or ${addonPathFromSrc}`,
+      POOL_ERROR_NAMES.WASMInstrumentationError
+    );
   }
 }
 
@@ -60,17 +66,21 @@ const addon = req(addonPath);
 function convertLocation(
   rawLocation: NativeSourceLocation,
   debugSourceFiles: string[]
-): SourceLocation | undefined {
-  if (!rawLocation || !debugSourceFiles) {
-    return undefined;
+): SourceLocation {
+  const filePath = debugSourceFiles[rawLocation.fileIndex];
+
+  if (!filePath) {
+    throw new AssemblyScriptPoolError(
+      `No debug source file with index: ${rawLocation.fileIndex}}`,
+      POOL_ERROR_NAMES.WASMInstrumentationError
+    );
   }
   
-  const filePath = debugSourceFiles[rawLocation.fileIndex];
-  return filePath ? {
-    filePath,
+  return {
+    filePath: filePath!,
     line: rawLocation.line,
     column: rawLocation.column + 1,  // convert from 0-indexed to 1-indexed
-  } : undefined;
+  };
 }
 
 /**
@@ -115,14 +125,7 @@ function convertFunction(
   rawFunc: NativeFunctionDebugInfo,
   debugSourceFiles: string[]
 ): { func: FunctionDebugInfo; filePath: string; positionKey: string } | undefined {
-  const representativeLocation = rawFunc.representativeLocation
-    ? convertLocation(rawFunc.representativeLocation, debugSourceFiles)
-    : undefined;
-
-  // Skip functions without a valid representative location (can't group them)
-  if (!representativeLocation) {
-    return undefined;
-  }
+  const representativeLocation = convertLocation(rawFunc.representativeLocation, debugSourceFiles);
 
   // Convert expressions
   const expressions: ExpressionDebugInfo[] = [];
@@ -135,8 +138,6 @@ function convertFunction(
   const converted: FunctionDebugInfo = {
     wasmIndex: rawFunc.wasmIndex,
     name: rawFunc.name,
-    hasDebugInfo: rawFunc.hasDebugInfo,
-    signature: rawFunc.signature,
     representativeLocation,
     coverageMemoryIndex: rawFunc.coverageMemoryIndex,
     expressions,
@@ -157,53 +158,51 @@ function transformDebugInfo(
 ): BinaryDebugInfo {
   const functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo>> = {};
 
+  debug(`[AddonInterface] Converting ${raw.functions.length} functions`);
+
   let positionCollisionCount = 0;
   let skippedCount = 0;
-
+  let instrumentedFunctionCount = 0;
+  
   for (const rawFunc of raw.functions) {
     const result = convertFunction(rawFunc, raw.debugSourceFiles);
     if (!result) {
-      debug(`[AddonInterface] Skipped function (no representativeLocation): "${rawFunc.name}"`);
+      debug(`[AddonInterface] Skipped function (bad conversion): "${rawFunc.name}"`);
       skippedCount++;
       continue;
     }
 
     const { func, filePath, positionKey } = result;
 
-    // Check for and log position collisions
+    // Check for position collisions
     if (functionsByFileAndPosition[filePath]?.[positionKey]) {
       const existing = functionsByFileAndPosition[filePath][positionKey];
-      debug(`[AddonInterface] ERROR - POSITION COLLISION at ${filePath}:${positionKey}: "${existing.name}" will be replaced by "${func.name}"`);
       positionCollisionCount++;
+      throw new AssemblyScriptPoolError(
+        `ERROR - Function Debug Position Collision at ${filePath}:${positionKey}: "${existing.name}" will be replaced by "${func.name}"`,
+        POOL_ERROR_NAMES.WASMInstrumentationError
+      );
     }
+
+    instrumentedFunctionCount++;
 
     // Group by file and position
     if (!functionsByFileAndPosition[filePath]) {
       functionsByFileAndPosition[filePath] = {};
     }
+
     functionsByFileAndPosition[filePath][positionKey] = func;
   }
 
-  const functionCounts = Object.values(functionsByFileAndPosition).reduce((counts, fileFunctions) => {
-    Object.values(fileFunctions).forEach(func => {
-      if (func.coverageMemoryIndex !== undefined) {
-        counts.instrumented++;
-      }
-      counts.total++;
-    });
-    return counts;
-  }, { total: 0, instrumented: 0 });
-
   debug(
-    `[AddonInterface] BinaryDebugInfo transform complete: ${functionCounts.instrumented} instrumented functions`
-    +` (${functionCounts.total} total, ${positionCollisionCount} position collisions, ${skippedCount} skipped)`
+    `[AddonInterface] BinaryDebugInfo transform complete: ${instrumentedFunctionCount} instrumented functions`
+    +` (${positionCollisionCount} position collisions, ${skippedCount} skipped)`
   );
 
   return {
     debugSourceFiles: raw.debugSourceFiles,
     functionsByFileAndPosition,
-    totalFunctionCount: functionCounts.total,
-    instrumentedFunctionCount: functionCounts.instrumented,
+    instrumentedFunctionCount,
   };
 }
 
@@ -225,35 +224,53 @@ function transformDebugInfo(
  */
 export function instrumentForCoverage(
   wasmBuffer: Buffer,
-  sourceMapBuffer: Buffer
+  sourceMapBuffer: Buffer,
+  instrumentationOptions: InstrumentationOptions
 ): InstrumentationResult {
   if (!Buffer.isBuffer(wasmBuffer)) {
-    throw new TypeError('wasmBuffer must be a Buffer');
+    throw new AssemblyScriptPoolError(
+      'instrumentForCoverage - wasmBuffer must be a Buffer',
+      POOL_ERROR_NAMES.WASMInstrumentationError
+    );
   }
   if (!Buffer.isBuffer(sourceMapBuffer)) {
-    throw new TypeError('sourceMapBuffer must be a Buffer');
+    throw new AssemblyScriptPoolError(
+      'instrumentForCoverage - sourceMapBuffer must be a Buffer',
+      POOL_ERROR_NAMES.WASMInstrumentationError
+    );
   }
 
   debug('[AddonInterface] Calling native instrumentForCoverage');
   const startTime = performance.now();
 
-  // Call native addon
-  const raw: NativeInstrumentationResult = addon.instrumentForCoverage(wasmBuffer, sourceMapBuffer, isDebugModeEnabled());
-
+  const options: NativeInstrumentationOptions = {
+    coverageMemoryPagesMin: instrumentationOptions.coverageMemoryPagesMin,
+    coverageMemoryPagesMax: instrumentationOptions.coverageMemoryPagesMax,
+    excludedFiles: instrumentationOptions.relativeExcludedFiles,
+    excludedLibraryFilePrefix: instrumentationOptions.excludedLibraryFilePrefix,
+    debug: isDebugModeEnabled(),
+  };
+  const nativeResult: NativeInstrumentationResult = addon.instrumentForCoverage(wasmBuffer, sourceMapBuffer, options);
   const addonTime = performance.now();
   debug(`[AddonInterface] Native addon completed in ${(addonTime - startTime).toFixed(2)}ms`);
 
-  // Transform debug info to final format
-  const debugInfo = transformDebugInfo(raw.debugInfo);
+  if (nativeResult.errors?.length) {
+    throw new AssemblyScriptPoolError(
+      `Errors encountered duriing native instrumentation: ${nativeResult.errors.join('\n')}`,
+      POOL_ERROR_NAMES.WASMInstrumentationError,
+    );
+  } 
 
+  const debugInfo = transformDebugInfo(nativeResult.debugInfo);
   const transformTime = performance.now();
   debug(`[AddonInterface] Transform completed in ${(transformTime - addonTime).toFixed(2)}ms`);
-  debug(`[AddonInterface] Instrumented binary size: ${raw.instrumentedWasm.length} bytes`);
-  debug(`[AddonInterface] Source map size: ${raw.sourceMap.length} bytes`);
+  
+  debug(`[AddonInterface] Instrumented binary size: ${nativeResult.instrumentedWasm.length} bytes`);
+  debug(`[AddonInterface] Source map size: ${nativeResult.sourceMap.length} bytes`);
 
   return {
-    instrumentedWasm: raw.instrumentedWasm,
-    sourceMap: raw.sourceMap,
+    instrumentedWasm: nativeResult.instrumentedWasm,
+    sourceMap: nativeResult.sourceMap,
     debugInfo,
   };
 }

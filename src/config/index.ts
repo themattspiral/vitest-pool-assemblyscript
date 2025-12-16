@@ -6,8 +6,8 @@
  */
 
 import type { ViteUserConfig, UserWorkspaceConfig, ConfigEnv } from 'vitest/config';
-import { BaseCoverageOptions } from 'vitest/node';
-import type { AssemblyScriptPoolOptions } from '../types.js';
+import { CoverageV8Options } from 'vitest/node';
+import type { AssemblyScriptPoolOptions, HybridProviderOptions } from '../types.js';
 
 /**
  * Type for config that may be a value, Promise, or function
@@ -32,23 +32,11 @@ type AnyConfigExport<T extends ViteUserConfig> =
  * our config helpers, providing proper coverage typing alongside pool typing.
  */
 declare module 'vitest/node' {
-  interface CustomProviderOptions extends BaseCoverageOptions {
-    /**
-     * Glob patterns for AssemblyScript source files to include in coverage.
-     * Used by pool's hybrid coverage provider to build the complete AS coverage map.
-     *
-     * The standard `include` patterns are used by the v8 provider for JS/TS files.
-     *
-     * @example ['assembly/**\/*.as.ts']
-     */
-    assemblyScriptInclude?: string[];
+  interface CustomProviderOptions extends HybridProviderOptions, Omit<CoverageV8Options, 'provider'> {
+    provider: 'custom',
 
-    /**
-     * Glob patterns for AssemblyScript files to exclude from coverage.
-     *
-     * @example ['**\/*.as.test.ts']
-     */
-    assemblyScriptExclude?: string[];
+    /** Name of the module or path to a file to load the custom provider from */
+	  customProviderModule: string;
   }
 }
 

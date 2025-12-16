@@ -28,7 +28,7 @@ export interface CompileOptions {
   stripInline?: boolean;
 }
 
-export interface CompileResult {
+export interface InternalFixtureCompileResult {
   /** Compiled WASM binary */
   binary: Buffer;
   /** Source map JSON string (if sourceMap option enabled) */
@@ -56,7 +56,7 @@ export interface CompileResult {
 export async function compileFixture(
   entryPath: string,
   options: CompileOptions = { writeFiles: false }
-): Promise<CompileResult> {
+): Promise<InternalFixtureCompileResult> {
   const {
     debug = true,
     optimize = 0,
@@ -168,7 +168,7 @@ export async function compileFixture(
 export async function compileInvalidFixture(
   entryPath: string,
   corruptionType: 'truncate-wasm' | 'corrupt-sourcemap' | 'no-debug' | 'empty-wasm'
-): Promise<CompileResult> {
+): Promise<InternalFixtureCompileResult> {
   // First compile normally
   const result = await compileFixture(entryPath, {
     debug: corruptionType !== 'no-debug',

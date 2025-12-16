@@ -9,7 +9,7 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { BinaryDebugInfo } from '../../src/types.ts';
+import type { BinaryDebugInfo, CompileResult } from '../../src/types.ts';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
 
@@ -80,11 +80,6 @@ export function validateDebugInfoStructure(debugInfo: BinaryDebugInfo, options: 
     if (typeof func.wasmIndex !== 'number') {
       errors.push(`Function "${func.name}" has invalid wasmIndex`);
       continue;
-    }
-
-    // Validate hasDebugInfo field
-    if (typeof func.hasDebugInfo !== 'boolean') {
-      errors.push(`Function "${func.name}" has invalid hasDebugInfo field`);
     }
 
     // Check for duplicate indices
@@ -177,7 +172,7 @@ export function validateDebugInfoStructure(debugInfo: BinaryDebugInfo, options: 
       // Validate expression indices are in range and in order
       for (const exprIdx of block.expressionIndices) {
         if (typeof exprIdx !== 'number' || exprIdx < 0 || exprIdx >= func.expressions.length) {
-          errors.push(`Function "${funcName}" basic block ${i} has expression index ${exprIdx} out of range`);
+          errors.push(`Function "${funcName}" basic block ${i} has expression index ${exprIdx} out of range (total function expressions: ${func.expressions.length})`);
         }
       }
 
@@ -267,7 +262,7 @@ export function validateDebugInfoStructure(debugInfo: BinaryDebugInfo, options: 
  * - File indices are valid
  * - Basic source map structure is correct
  */
-export function sanityCheckDebugInfoAgainstSourceMap(debugInfo: BinaryDebugInfo, sourceMapJson: string): ValidationResult {
+export function sanityCheckDebugInfoAgainstSourceMap(result: CompileResult): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const stats = {
@@ -281,7 +276,7 @@ export function sanityCheckDebugInfoAgainstSourceMap(debugInfo: BinaryDebugInfo,
   // Parse source map
   let sourceMap: any;
   try {
-    sourceMap = JSON.parse(sourceMapJson);
+    sourceMap = JSON.parse(result.sourceMap);
   } catch (err) {
     errors.push(`Failed to parse source map JSON: ${err}`);
     return { valid: false, errors, warnings, stats };
@@ -300,7 +295,7 @@ export function sanityCheckDebugInfoAgainstSourceMap(debugInfo: BinaryDebugInfo,
 
   // Compare source file entries
   const sourceMapFiles = sourceMap.sources;
-  const debugFiles = debugInfo.debugSourceFiles;
+  const debugFiles = result.debugInfo.debugSourceFiles;
 
   // Check if source files are consistent (order might differ)
   const sourceMapSet = new Set(sourceMapFiles);
@@ -319,7 +314,7 @@ export function sanityCheckDebugInfoAgainstSourceMap(debugInfo: BinaryDebugInfo,
   }
 
   // Validate that all debug locations reference valid file indices
-  const functions = Array.from(Object.values(debugInfo.functionsByFileAndPosition))
+  const functions = Array.from(Object.values(result.debugInfo.functionsByFileAndPosition))
     .flatMap(fileFunctionsByPosition => Array.from(Object.values(fileFunctionsByPosition)));
   stats.totalFunctions = functions.length;
 

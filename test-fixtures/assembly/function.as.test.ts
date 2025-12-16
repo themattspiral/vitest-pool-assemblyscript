@@ -24,6 +24,7 @@ import {
   declaredFuncWithNesting,
   callbackPassAnonFuncBraceless,
   arrowCallbackPassAnonFuncBraceless,
+  constantReturn
 } from '../assembly-src/function-utils';
 
 test('arrowMulti adds 1', () => {
@@ -104,4 +105,8 @@ test('arrowCallbackPassAnonFunc uses inline arrow callback', () => {
 test('arrowCallbackPassAnonFuncBraceless uses inline arrow callback', () => {
   const result: i32 = arrowCallbackPassAnonFuncBraceless();
   assert(result == 5, 'arrowCallbackPassAnonFuncBraceless() should be 5');
+});
+
+test('constantReturn', () => {
+  assert(constantReturn() == 1, 'constantReturn returns 1');
 });

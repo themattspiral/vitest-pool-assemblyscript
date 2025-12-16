@@ -8,7 +8,6 @@ export default defineConfig({
 
     name: 'test-fixtures',
 
-    // Helpful for debugging
     reporters: ['verbose'],
 
     // Coverage configuration (must be global in vitest)
@@ -30,6 +29,14 @@ export default defineConfig({
         'test-fixtures/assembly-src/**/*.ts'
       ]
     },
+
+    // js only
+    // coverage: {
+    //   enabled: true,
+    //   reportOnFailure: true,
+    //   reportsDirectory: 'coverage-fixtures/',
+    //   include: ['test-fixtures/js-src/**/*.ts']
+    // },
 
     projects: [
       // JavaScript/TypeScript tests (built-in pool)
@@ -63,13 +70,15 @@ export default defineConfig({
           },
 
           include: ['test-fixtures/assembly/**/*.as.test.ts'],
+          exclude: ['coverage-fixtures/**/*'],
 
           pool: 'vitest-pool-assemblyscript',
           poolOptions: {
             assemblyScript: {
               debug: false,
               stripInline: true,
-              coverageMode: 'integrated',
+              coverageMemoryPagesMin: 1,
+              coverageMemoryPagesMax: 4
             },
           },
         }

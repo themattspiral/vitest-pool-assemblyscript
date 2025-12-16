@@ -11,12 +11,19 @@
 
 import { test, assert } from '../../assembly';
 import { Counter } from '../assembly-src/class-utils';
+import {
+  useCounter,
+  useCounterWithIfBlock,
+  useCounterWithSwitchBlock,
+  useCounterWithIfBlockWithForeignExpression,
+  useCounterWithIfBlockWithConstantCondition
+} from '../assembly-src/class-consumer';
 
 // Test constructor
 test('Counter constructor sets initial value', () => {
-  const counter = new Counter(10);
+  const counter = new Counter(11);
   const value: i32 = counter.value;
-  assert(value == 10, 'Initial value should be 10');
+  assert(value == 11, 'Initial value should be correct');
 });
 
 test('Counter constructor with default values', () => {
@@ -135,3 +142,29 @@ test('Counter decrement does not go below 0', () => {
   const valueAfter: i32 = counter.value;
   assert(valueAfter == 0, 'Value should still be 0');
 });
+
+test('Counter is instantiated from a another source file', () => {
+  const val = useCounter();
+  assert(val == 0, 'Counter value should be default');
+});
+
+test('IF BLOCK Counter is instantiated from a another source file', () => {
+  const val = useCounterWithIfBlock(0);
+  assert(val == 0, 'Counter value should be default');
+});
+
+test('SWITCH BLOCK Counter is instantiated from a another source file', () => {
+  const val = useCounterWithSwitchBlock(2);
+  assert(val == 1, 'Counter value should be 1');
+});
+
+test('IF BLOCK (foreign expression) Counter is instantiated from a another source file', () => {
+  const val = useCounterWithIfBlockWithForeignExpression(0);
+  assert(val == 2, 'Counter value should be 2');
+});
+
+test('IF BLOCKS NESTED (constant conditions)', () => {
+  const val = useCounterWithIfBlockWithConstantCondition();
+  assert(val == 3, 'Counter value should be 3');
+});
+ 

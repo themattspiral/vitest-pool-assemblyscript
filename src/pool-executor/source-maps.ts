@@ -8,7 +8,7 @@
  */
 
 import { SourceMapConsumer } from 'source-map';
-import { debug } from '../utils/debug.mjs';
+import { debug } from '../utils/debug.js';
 import type { WebAssemblyCallSite } from '../types.js';
 
 /**
@@ -61,7 +61,7 @@ export function createWebAssemblyCallSite(
   const watLine = callSite.getLineNumber();
   const watColumn = callSite.getColumnNumber();
   const functionName = callSite.getFunctionName() || 'wasm-function[unknown]';
-  const debugString = `file: ${fileName} | function: "${functionName}" | wasm: ${watLine}:${watColumn}`;
+  const debugString = `function: "${functionName}" | wasm: ${fileName}:${watLine}:${watColumn}`;
 
   // Try to map to source
   if (watLine && watColumn) {
@@ -74,7 +74,7 @@ export function createWebAssemblyCallSite(
       return null;
     }
 
-    debug(`[SourceMap] Mapped ${debugString} → source: ${original.line}:${original.column}`);
+    debug(`[SourceMap] Mapped ${debugString} → source: ${original.source}:${original.line}:${original.column}`);
     
     const callSite: WebAssemblyCallSite = {
       functionName,

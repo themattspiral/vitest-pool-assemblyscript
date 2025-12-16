@@ -2,6 +2,8 @@
  * Utilities for testing @inline decorator behavior
  */
 
+import { addInlinedExternalFile } from './inline-utils-external';
+
 // Function WITH @inline decorator
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @inline
@@ -36,4 +38,9 @@ export function throwsError(): i32 {
   const arr: i32[] = [1, 2, 3];
   const value = arr[10]; // Out of bounds - will abort
   return value;
+}
+
+export function callsInlinedAdd(a: i32, b: i32): i32 {
+  const res = addInlinedExternalFile(a, b);
+  return res;
 }
