@@ -167,4 +167,3 @@ test('IF BLOCKS NESTED (constant conditions)', () => {
   const val = useCounterWithIfBlockWithConstantCondition();
   assert(val == 3, 'Counter value should be 3');
 });
- 

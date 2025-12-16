@@ -801,10 +801,6 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   let multiProjectName;
   
   if (ctx.projects && ctx.projects.length > 0) {
-    ctx.projects.forEach((p, idx) => {
-      debug(`PROJECT [${idx}] - name: "${p.config.name}" pool: "${p.config.pool}"`, )
-    });
-
     // Multi-project mode: find the first project using this pool
     const project = ctx.projects.find(p => p.config.pool.includes(ASSEMBLYSCRIPT_POOL_NAME));
 
