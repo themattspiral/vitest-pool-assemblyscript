@@ -13,33 +13,39 @@
 import { basename } from 'node:path';
 import type { TaskResultPack, TaskEventPack } from '@vitest/runner';
 import { interpretTaskModes } from '@vitest/runner/utils';
-import type {
-  DiscoverTestsTask,
-  DiscoverTestsResult,
-  ExecuteTestTask,
-  ExecuteTestWithCoverageTask,
-  ExecuteTestResult,
-  ReportFileSummaryTask,
-  ExecuteBeforeAllHooksTask,
-  ExecuteAfterAllHooksTask,
-  AssemblyScriptCoveragePayload,
-} from '../types.js';
 import { ModuleCacheMap } from 'vite-node/client';
 import { installSourcemapsSupport } from 'vite-node/source-map';
+
+import {
+  type DiscoverTestsTask,
+  type DiscoverTestsResult,
+  type ExecuteTestTask,
+  type ExecuteTestResult,
+  type ReportFileResultsTask,
+  type ReportFileFailureTask,
+  type ExecuteBeforeAllHooksTask,
+  type ExecuteAfterAllHooksTask,
+  type AssemblyScriptCoveragePayload,
+  AssemblyScriptPoolError,
+  POOL_ERROR_NAMES,
+} from '../types.js';
 import {
   discoverTests as discoverTestsFromExecutor,
-  executeSingleTest,
+  executeTest  as executeTestFromExecutor,
 } from '../pool-executor/index.js';
-import { setDebugMode, debug } from '../utils/debug.mjs';
+import { setDebugMode, debug } from '../utils/debug.js';
 import { createPhaseTimings } from '../utils/timing.mjs';
 import {
   createRpcClient,
   createInitialFileTask,
   createRunFileTaskWithTestCases,
   reportFileQueued,
-  reportFileCollected,
   reportSuitePrepare,
+  reportFileCollected,
+  reportTestPrepare,
+  reportTestFinished,
 } from './rpc-reporter.js';
+import { createPoolError } from '../utils/error-util.js';
 
 // Singleton module cache for source map support in worker threads
 // Shared across all tasks in this worker to enable accurate 
@@ -65,9 +71,11 @@ installSourcemapsSupport({
  * @returns File task with filtered tests, discovered tests, and discovery timings
  */
 export async function discoverTests(taskData: DiscoverTestsTask): Promise<DiscoverTestsResult> {
+  const base = basename(taskData.testFile);
+  
   try {
     setDebugMode(taskData.poolOptions.debug);
-    debug('[Worker] discoverTests started for:', taskData.testFile);
+    debug(`[Worker] discoverTests started for: "${taskData.testFile}"`);
 
     // Create RPC client
     const rpc = createRpcClient(taskData.port);
@@ -76,14 +84,14 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     const discoverTimings = createPhaseTimings();
 
     // Report onQueued
-    const queuedFileTask = createInitialFileTask(taskData.testFile, taskData.projectInfo);
+    const queuedFileTask = createInitialFileTask(taskData.testFile, taskData.projectInfo.projectRoot, taskData.projectInfo.projectName);
     await reportFileQueued(rpc, queuedFileTask);
 
-    // Discover tests from binary
-    const { tests } = await discoverTestsFromExecutor(taskData.binary, taskData.debugInfo);
+    // Discover tests
+    const { tests } = await discoverTestsFromExecutor(taskData.binary, base);
     discoverTimings.phaseEnd = performance.now();
 
-    debug(`[TIMING] ${basename(taskData.testFile)} - discover: ${discoverTimings.phaseEnd - discoverTimings.phaseStart}ms`);
+    debug(`[TIMING] ${basename(taskData.testFile)} - discover: ${(discoverTimings.phaseEnd - discoverTimings.phaseStart).toFixed(2)}ms`);
 
     // Create complete file task for onCollected with duration metadata
     const collectedFileTask = createRunFileTaskWithTestCases(
@@ -107,7 +115,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
 
     const skippedCount = collectedFileTask.tasks.filter(t => t.mode === 'skip').length;
     if (skippedCount > 0) {
-      debug(`[Worker] Filtered ${skippedCount}/${tests.length} tests based on testNamePattern`);
+      debug(`[Worker] Filtered ${skippedCount}/${tests.length} tests`);
     }
 
     // Report onCollected with filtered tasks
@@ -116,163 +124,48 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     // Report suite-prepare
     await reportSuitePrepare(rpc, collectedFileTask);
 
-    debug('[Worker] discoverTests complete, discovered', tests.length, 'tests');
+    debug(`[Worker] discoverTests complete for "${taskData.testFile}"`);
 
-    return { fileTask: collectedFileTask, tests, timings: discoverTimings };
+    return { fileTask: collectedFileTask, tests, discoverTimings };
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new Error(`[Worker] discoverTests failed for ${taskData.testFile}: ${errorMsg}`, { cause: error });
+    throw createPoolError(`${base} - discoverTests failure in worker`, error);
   }
 }
 
 /**
- * Execute a single test with RPC reporting, without coverage collection.
- *
- * Executes one test in a fresh WASM instance and reports lifecycle events:
- * - test-prepare (before execution)
- * - test-finished (after execution with results)
- *
- * This function is called once per test for maximum parallelism and WASM
- * instance isolation.
- *
- * Called via: pool.run(taskData, { name: 'executeTest', transferList: [port] })
- *
- * @param taskData - Test execution task data
- * @returns Test result
+ * Execute a single test
  */
 export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTestResult> {
+  const base = basename(taskData.testFile);
+
   try {
     setDebugMode(taskData.poolOptions.debug);
-    debug('[Worker] executeTest started for:', taskData.testTaskName);
+    debug(`[Worker] executeTest started for: "${taskData.test.name}"`);
 
     // Create RPC client from port
     const rpc = createRpcClient(taskData.port);
 
     // Report test-prepare
-    if (taskData.suppressPrepareReporting) {
-      debug('[Worker] Suppressing test-prepare for failsafe rerun:', taskData.testTaskName);
-    } else {
-      const testStartTime = Date.now();
-      const prepareResult = {
-        state: 'run' as const,
-        startTime: testStartTime,
-      };
-      const prepareTaskPack: TaskResultPack = [taskData.testTaskId, prepareResult, {}];
-      const prepareEventPack: TaskEventPack = [taskData.testTaskId, 'test-prepare', undefined];
+    const { testTaskId, testTaskName, testTaskMeta } = taskData;
+    await reportTestPrepare(rpc, testTaskId, testTaskName, testTaskMeta);
 
-      debug('[Worker] Reporting test-prepare for:', taskData.testTaskName);
-      await rpc.onTaskUpdate([prepareTaskPack], [prepareEventPack]);
-    }
-
-    // Execute single test via executor (no coverage)
-    const timings = createPhaseTimings();
-
-    const testResult = await executeSingleTest(
-      taskData.binary,
+    const testResult = await executeTestFromExecutor(
       taskData.test,
-      taskData.sourceMap,
-      false  // collectCoverage
-    );
-
-    timings.phaseEnd = performance.now();
-    debug(`[TIMING] ${basename(taskData.testFile)} - test "${taskData.test.name}": ${timings.phaseEnd - timings.phaseStart}ms`);
-
-    // Report test-finished
-    const finishedResult = {
-      state: testResult.passed ? ('pass' as const) : ('fail' as const),
-      errors: testResult.error ? [testResult.error] : undefined,
-      duration: testResult.duration,
-      startTime: testResult.startTime,
-    };
-    const finishedTaskPack: TaskResultPack = [taskData.testTaskId, finishedResult, {}];
-    const finishedEventPack: TaskEventPack = [taskData.testTaskId, 'test-finished', undefined];
-
-    debug('[Worker] Reporting test-finished for:', taskData.testTaskName, 'duration:', testResult.duration);
-    await rpc.onTaskUpdate([finishedTaskPack], [finishedEventPack]);
-
-    debug('[Worker] executeTest complete for:', taskData.testTaskName);
-
-    return {
-      result: testResult,
-    };
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new Error(`[Worker] executeTest failed for ${taskData.testTaskName}: ${errorMsg}`, { cause: error });
-  }
-}
-
-/**
- * Execute a single test with coverage collection
- *
- * Executes test on instrumented binary, collects coverage, and reports results via RPC.
- * Supports optional suppression of failure reporting.
- *
- * Called via: pool.run(taskData, { name: 'executeTestWithCoverage', transferList: [port] })
- *
- * @param taskData - Test execution with coverage task data
- * @returns Test result with coverage
- */
-export async function executeTestWithCoverage(taskData: ExecuteTestWithCoverageTask): Promise<ExecuteTestResult> {
-  try {
-    setDebugMode(taskData.poolOptions.debug);
-    debug('[Worker] executeTestWithCoverage started for:', taskData.testTaskName);
-
-    // Create RPC client from port
-    const rpc = createRpcClient(taskData.port);
-
-    // Report test-prepare
-    const testStartTime = Date.now();
-    const prepareResult = {
-      state: 'run' as const,
-      startTime: testStartTime,
-    };
-    const prepareTaskPack: TaskResultPack = [taskData.testTaskId, prepareResult, {}];
-    const prepareEventPack: TaskEventPack = [taskData.testTaskId, 'test-prepare', undefined];
-
-    debug('[Worker] Reporting test-prepare for:', taskData.testTaskName);
-    await rpc.onTaskUpdate([prepareTaskPack], [prepareEventPack]);
-
-    // Execute single test via executor (with coverage)
-    const timings = createPhaseTimings();
-
-    const testResult = await executeSingleTest(
+      base,
+      taskData.poolOptions,
+      taskData.collectCoverage,
       taskData.binary,
-      taskData.test,
       taskData.sourceMap,
-      true,  // collectCoverage
       taskData.debugInfo
     );
 
-    timings.phaseEnd = performance.now();
-    debug(`[TIMING] ${basename(taskData.testFile)} - test "${taskData.test.name}": ${timings.phaseEnd - timings.phaseStart}ms`);
+    await reportTestFinished(rpc, testTaskId, testTaskName, testTaskMeta, testResult);
 
-    // Report test-finished (respecting suppressFailureReporting flag)
-    const shouldSuppressReport = taskData.suppressFailureReporting && !testResult.passed;
+    debug(`[Worker] executeTest complete for: "${taskData.testTaskName}"`);
 
-    if (!shouldSuppressReport) {
-      const finishedResult = {
-        state: testResult.passed ? ('pass' as const) : ('fail' as const),
-        errors: testResult.error ? [testResult.error] : undefined,
-        duration: testResult.duration,
-        startTime: testResult.startTime,
-      };
-      const finishedTaskPack: TaskResultPack = [taskData.testTaskId, finishedResult, {}];
-      const finishedEventPack: TaskEventPack = [taskData.testTaskId, 'test-finished', undefined];
-
-      debug('[Worker] Reporting test-finished for:', taskData.testTaskName, 'duration:', testResult.duration);
-      await rpc.onTaskUpdate([finishedTaskPack], [finishedEventPack]);
-    } else {
-      debug('[Worker] Suppressing test-finished report for failed test:', taskData.testTaskName);
-    }
-
-    debug('[Worker] executeTestWithCoverage complete for:', taskData.testTaskName);
-
-    return {
-      result: testResult,
-    };
+    return testResult;
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new Error(`[Worker] executeTestWithCoverage failed for ${taskData.testTaskName}: ${errorMsg}`, { cause: error });
+    throw createPoolError(`${base} - executeTest failure in worker for test "${taskData.testTaskName}"`, error);
   }
 }
 
@@ -282,22 +175,24 @@ export async function executeTestWithCoverage(taskData: ExecuteTestWithCoverageT
  * Reports suite-finished and final flush events to close out the file execution.
  * This is called after all tests in a file have completed.
  *
- * Called via: pool.run(taskData, { name: 'reportFileSummary', transferList: [port] })
+ * Called via: pool.run(taskData, { name: 'reportFileResults', transferList: [port] })
  *
  * @param taskData - File summary reporting task data
  * @returns void
  */
-export async function reportFileSummary(taskData: ReportFileSummaryTask): Promise<void> {
+export async function reportFileResults(taskData: ReportFileResultsTask): Promise<void> {
+  const base = basename(taskData.testFile);
+
   try {
     setDebugMode(taskData.poolOptions.debug);
-    debug('[Worker] reportFileSummary started for:', taskData.testFile);
+    debug(`[Worker] reportFileSummary started for: "${taskData.testFile}"`);
 
     // Create RPC client
     const rpc = createRpcClient(taskData.port);
 
     // Report coverage if available
     if (taskData.coverageData) {
-      debug('[Worker] Reporting coverage via onAfterSuiteRun for:', taskData.testFile);
+      debug(`[Worker] Reporting coverage via onAfterSuiteRun for: "${taskData.testFile}"`);
       const coverage: AssemblyScriptCoveragePayload = {
         __format: 'assemblyscript',
         coverageData: taskData.coverageData,
@@ -309,7 +204,7 @@ export async function reportFileSummary(taskData: ReportFileSummaryTask): Promis
         projectName: taskData.fileTask.projectName,
       });
     } else {
-      debug('[Worker] No coverage available to report via onAfterSuiteRun for:', taskData.testFile);
+      debug(`[Worker] No coverage available to report via onAfterSuiteRun for: "${taskData.testFile}"`);
     }
 
     // Report suite-finished
@@ -317,7 +212,7 @@ export async function reportFileSummary(taskData: ReportFileSummaryTask): Promis
     const taskPack: TaskResultPack = [fileTask.id, fileTask.result!, fileTask.meta];
     const eventPack: TaskEventPack = [fileTask.id, 'suite-finished', undefined];
 
-    debug('[Worker] Reporting suite-finished for:', taskData.testFile);
+    debug(`[Worker] Reporting suite-finished for: "${taskData.testFile}"`);
     await rpc.onTaskUpdate([taskPack], [eventPack]);
 
     // Final flush
@@ -326,8 +221,40 @@ export async function reportFileSummary(taskData: ReportFileSummaryTask): Promis
 
     debug('[Worker] reportFileSummary complete');
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    throw new Error(`[Worker] reportFileSummary failed for ${taskData.testFile}: ${errorMsg}`, { cause: error });
+    throw createPoolError(`${base} - reportFileSummary failure in worker`, error);
+  }
+}
+
+export async function reportPipelineFileFailure(taskData: ReportFileFailureTask): Promise<void> {
+  const base = basename(taskData.testFile);
+
+  try {
+    setDebugMode(taskData.poolOptions.debug);
+    debug(`[Worker] reportPipelineFileFailure started for: "${taskData.testFile}"`);
+
+    const rpc = createRpcClient(taskData.port);
+
+    debug(`[Worker] RPC Reporting onCollected with TestError for: "${taskData.testFile}"`);
+    
+    const failedFileTask = createInitialFileTask(taskData.testFile, taskData.projectName, taskData.projectRoot);
+    failedFileTask.result = {
+      state: 'fail',
+      errors: [taskData.error]
+    };
+    const now = performance.now();
+    failedFileTask.prepareDuration = (taskData.compileTimings?.phaseEnd ?? now) - (taskData.compileTimings?.phaseStart ?? now - 1);
+    failedFileTask.environmentLoad = 0;
+    failedFileTask.setupDuration = 0;
+    failedFileTask.collectDuration = 0;
+
+    await reportFileQueued(rpc, failedFileTask);
+
+    // Final flush
+    await rpc.onTaskUpdate([], []);
+
+    debug('[Worker] reportPipelineFileFailure complete');
+  } catch (error) {
+    throw createPoolError(`${base} - reportPipelineFileFailure failure in worker`, error);
   }
 }
 
@@ -344,7 +271,7 @@ export async function reportFileSummary(taskData: ReportFileSummaryTask): Promis
 export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask): Promise<void> {
   setDebugMode(taskData.poolOptions.debug);
   debug('[Worker] executeBeforeAllHooks not yet implemented');
-  throw new Error('executeBeforeAllHooks not yet implemented');
+  throw new AssemblyScriptPoolError('executeBeforeAllHooks not yet implemented', POOL_ERROR_NAMES.PoolError);
 }
 
 /**
@@ -359,5 +286,5 @@ export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask)
 export async function executeAfterAllHooks(taskData: ExecuteAfterAllHooksTask): Promise<void> {
   setDebugMode(taskData.poolOptions.debug);
   debug('[Worker] executeAfterAllHooks not yet implemented');
-  throw new Error('executeAfterAllHooks not yet implemented');
+  throw new AssemblyScriptPoolError('executeAfterAllHooks not yet implemented', POOL_ERROR_NAMES.PoolError);
 }

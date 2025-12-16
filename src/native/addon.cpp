@@ -9,23 +9,43 @@
 #include <vector>
 #include <string>
 #include <map>
-#include <set>
+#include <unordered_set>
+#include <sstream>
 
 // Binaryen C++ API headers
 #include "wasm-binary.h"
 #include "wasm-io.h"
+#include "wasm-builder.h"
 #include "ir/module-utils.h"
+#include "ir/names.h"
 #include "cfg/cfg-traversal.h"
 #include "support/name.h"
+#include "pass.h"
 
 using namespace wasm;
+
+// 32
+const uint32_t BYTES_PER_COUNTER = 4;
+
+// 1 page = 64KB / 4bytes (32bits) each = 16384 counters
+const uint32_t COUNTERS_PER_PAGE = 16384;
+
+// GLOBAL: updated by every call. we don't expect it to 
+// change between different calls over the same vitest run
+bool DEBUG = false;
+
+struct SourceDebugLocation {
+  bool exists;
+  uint32_t fileIndex;                  // Debug location file index
+  uint32_t lineNumber;                 // Debug location line number
+  uint32_t columnNumber;               // Debug location column number
+};
 
 /**
  * Structure to hold expression information during AST walk
  */
 struct ExpressionInfo {
   std::string type;                    // Expression type name
-  Expression::Id typeId;               // Expression type ID (for efficient comparison)
   uint32_t fileIndex;                  // Debug location file index
   uint32_t lineNumber;                 // Debug location line number
   uint32_t columnNumber;               // Debug location column number
@@ -40,6 +60,15 @@ struct ExpressionInfo {
 struct BasicBlockInfo {
   std::vector<size_t> expressionIndices;  // Indices into the flat expression array
   std::vector<size_t> branches;            // Indices of blocks this block branches to
+};
+
+// Data structure to collect function info during instrumentation
+struct FunctionInfo {
+  std::string name;
+  uint32_t coverageMemoryIndex;
+  SourceDebugLocation representativeLocation;
+  std::vector<ExpressionInfo> expressions;
+  std::vector<BasicBlockInfo> blocks;
 };
 
 /**
@@ -73,21 +102,19 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
    * Collects expression info and adds to current basic block
    */
   void visitExpression(Expression* curr) {
+    // skip collecting expressions if:
+    //   - Not currently inside a basicBlock (`currBasicBlock` provided by CFGWalker)
+    //   - expression is a Block (Blocks are only containers and have no debug locations)
     if (!currBasicBlock || curr->is<Block>()) {
-      return;  // Skip if no current block or if it's a Block expression
+      return;
     }
-
-    // Add expression to current basic block's content
-    currBasicBlock->contents.expressions.push_back(curr);
 
     // Get debug location from function's debugLocations map
     Function* func = getFunction();
     ExpressionInfo info;
-    info.type = getExpressionName(curr);  // Use Binaryen's built-in function
-    info.typeId = curr->_id;              // Store ID for efficient comparison
     info.hasDebugLocation = false;
 
-    // Check debugLocations map (version_124+ returns std::optional)
+    // Check debugLocations map
     auto it = func->debugLocations.find(curr);
     if (it != func->debugLocations.end() && it->second.has_value()) {
       const auto& loc = it->second.value();
@@ -95,17 +122,21 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
       info.lineNumber = loc.lineNumber;
       info.columnNumber = loc.columnNumber;
       info.hasDebugLocation = true;
-    } else {
-      // No debug location - set defaults
-      info.fileIndex = -1;
-      info.lineNumber = -1;
-      info.columnNumber = -1;
     }
+
+    // skip expressions without debug locations
+    // TODO - determine if this will cause problems in branch coverage
+    if (!info.hasDebugLocation) {
+      return;
+    }
+
+    info.type = getExpressionName(curr);  // Expression type string
 
     // Determine if this is a branch expression and count paths
     info.isBranch = false;
     info.branchPaths = 0;
 
+    // TODO - determine if we're missing any branch types (SIMDTernary?)
     if (curr->is<If>()) {
       info.isBranch = true;
       auto* ifExpr = curr->cast<If>();
@@ -124,6 +155,9 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
 
     // Add to flat expressions array
     expressions.push_back(info);
+
+    // Add expression to current basic block's content
+    currBasicBlock->contents.expressions.push_back(curr);
   }
 
   /**
@@ -139,9 +173,10 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
     // Walk the function using CFGWalker
     CFGWalker<DebugInfoWalker, UnifiedExpressionVisitor<DebugInfoWalker>, BlockContent>::doWalkFunction(func);
 
-    // After walk, build basic block info with expression indices
+    // After walk, build out basic block info with expression indices.
+    // `basicBlocks` provided by CFGWalker, now populated after the function walk
     size_t exprIndex = 0;
-    for (auto& bb : basicBlocks) {
+    for (auto& bb : basicBlocks) {  
       BasicBlockInfo blockInfo;
 
       // Store the index for this block
@@ -169,94 +204,173 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
   }
 };
 
-/**
- * Extract the "home file" base path from a function name
- *
- * Function names follow patterns like:
- *   - "test-fixtures/assembly-src/class-utils/Counter#constructor~anonymous|1"
- *   - "start:test-fixtures/assembly/class.as.test~anonymous|2"
- *   - "~lib/rt/stub/__alloc"
- *
- * This extracts the base file path (without extension) that should match
- * an entry in debugSourceFiles.
- *
- * Algorithm:
- *   1. Truncate at first '~' (removes anonymous suffixes)
- *   2. If starts with "start:", remove prefix - remaining IS the file path
- *   3. Otherwise, remove last '/' component (class/function name)
- *
- * Returns empty string if extraction fails.
- */
-std::string extractHomeFilePath(const std::string& funcName) {
-  std::string path = funcName;
-
-  // Step 1: Truncate at first '~' (removes ~anonymous|N suffixes)
-  size_t tildePos = path.find('~');
-  if (tildePos != std::string::npos) {
-    path = path.substr(0, tildePos);
-  }
-
-  // Step 2: Check for "start:" prefix
-  const std::string startPrefix = "start:";
-  if (path.rfind(startPrefix, 0) == 0) {
-    // Remove "start:" prefix - the remaining path IS the file path
-    return path.substr(startPrefix.length());
-  }
-
-  // Step 3: Remove last '/' component (function name or ClassName#method)
-  size_t lastSlash = path.rfind('/');
-  if (lastSlash != std::string::npos && lastSlash > 0) {
-    return path.substr(0, lastSlash);
-  }
-
-  // Couldn't extract - return empty
-  return "";
+bool startsWith(const std::string& str, const std::string& prefix) {
+  return str.compare(0, prefix.length(), prefix) == 0;
 }
 
 /**
- * Find the file index in debugSourceFiles that matches a base path
- *
- * Compares by checking if the source file path starts with the base path.
- * For example: base "test-fixtures/assembly-src/class-utils" matches
- * source file "test-fixtures/assembly-src/class-utils.ts"
- *
- * Returns -1 if no match found.
+ * Check if a function should be instrumented for coverage
  */
-int findHomeFileIndex(const std::string& basePath, const std::vector<std::string>& debugSourceFiles) {
-  if (basePath.empty()) {
-    return -1;
+bool shouldInstrumentFunction(Function* func, std::string& excludedLibraryFilePrefix) {
+  const std::string& name = func->name.toString();
+
+  // Skip functions without a body
+  if (!func->body) {
+    if (DEBUG) {
+      std::cout << "[NativeAddon]   Skip Reason: Empty Function Body" << std::endl;
+    }
+    return false;
+  }
+  
+  // Skip if this is an import (has non-empty module)
+  if (func->module.size() > 0) {
+    if (DEBUG) {
+      std::cout << "[NativeAddon]   Skip Reason: Imported from \"" << func->module.toString() << "\"" << std::endl;
+    }
+    return false;
   }
 
-  for (size_t i = 0; i < debugSourceFiles.size(); i++) {
-    const std::string& sourceFile = debugSourceFiles[i];
-    // Check if source file starts with base path
-    if (sourceFile.rfind(basePath, 0) == 0) {
-      // Make sure it's a proper match (base path followed by '.' or end)
-      // This prevents "class-utils" from matching "class-utils-other.ts"
-      if (sourceFile.length() == basePath.length() ||
-          sourceFile[basePath.length()] == '.') {
-        return static_cast<int>(i);
+  // Skip library functions
+  if (excludedLibraryFilePrefix.length() > 0 && startsWith(name, excludedLibraryFilePrefix)) {
+    if (DEBUG) {
+      std::cout << "[NativeAddon]   Skip Reason: Library file" << std::endl;
+    }
+    return false;
+  }
+
+  // Compiler-generated entry point
+  if (name.compare("~start") == 0) {
+    if (DEBUG) {
+      std::cout << "[NativeAddon]   Skip Reason: Module entry point" << std::endl;
+    }
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Find representative expression within a function's Block-type body (Return preferred, then first non-Const)
+ */
+SourceDebugLocation getRepresentativeLocationInBlockBody(
+  Block* blockBody,
+  const std::unordered_map<wasm::Expression*, std::optional<wasm::Function::DebugLocation>> debugLocations
+) {
+  SourceDebugLocation repLoc = { exists: false, fileIndex: 0, lineNumber: 0, columnNumber: 0 };
+
+  if (DEBUG) {
+    std::cout << "[NativeAddon]     Checking func Block body: " << blockBody->list.size() << " body expressions" << std::endl;
+  }
+  
+  for (size_t i = 0; i < blockBody->list.size(); i++) {
+    Expression* exprInBlockBody = blockBody->list[i];
+
+    if (exprInBlockBody) {
+      auto it = debugLocations.find(exprInBlockBody);
+      if (it != debugLocations.end() && it->second.has_value()) {
+        const auto& loc = it->second.value();
+
+        repLoc.exists = true;
+        repLoc.fileIndex = loc.fileIndex;
+        repLoc.lineNumber = loc.lineNumber;
+        repLoc.columnNumber = loc.columnNumber;
+
+        if (DEBUG) {
+          std::cout << "[NativeAddon]     Block body expr [" << i << "] (" << getExpressionName(exprInBlockBody) << ")="
+                    << loc.fileIndex << ":" << loc.lineNumber << ":" << loc.columnNumber << " - break" << std::endl;
+        }
+
+        break;
+        
+      } else if (DEBUG) {
+        std::cout << "[NativeAddon]     Block body expr [" << i << "] (" << getExpressionName(exprInBlockBody) << ") - No location" << std::endl;
       }
+    } else if (DEBUG) {
+      std::cout << "[NativeAddon]     WARNING: Block body expr [" << i << "] - EMPTY" << std::endl;
     }
   }
 
-  return -1;
+  return repLoc;
 }
 
+SourceDebugLocation getRepresentativeLocation(Function* func) {
+  SourceDebugLocation repLoc = { exists: false, fileIndex: 0, lineNumber: 0, columnNumber: 0 };
+  
+  // Get body expression debug location
+  Expression* body = func->body;
+
+  if (!body) {
+    if (DEBUG) {
+      std::cout << "[NativeAddon]   Function has no body expression - No debug locations available to check" << std::endl;
+    }
+    return repLoc;
+  }
+
+  const std::string bodyType = getExpressionName(body);
+
+  if (body->is<Block>()) {
+    // Block body:
+    //   - Block expressions are only containers and have no source locations of their own
+    //   - Examine expressions within the block body to find location, if one exists
+    if (DEBUG) {
+      std::cout << "[NativeAddon]   Checking function Block body expression list" << std::endl;
+    }
+
+    return getRepresentativeLocationInBlockBody(body->cast<Block>(), func->debugLocations);
+  } else if (body->is<Load>() || body->is<Store>()) {
+    // Load/Store body:
+    //   - Compiler-generated functions with no expression locations
+    //   - LOAD: Compiler-generated class member getters (field value getters, function member getters)
+    //   - STORE: Compiler-generated class member value setters (field value setters)
+    // 
+    // Note: compiler-generated class member function setters use a Block body also,
+    // but their expressions (Store+Call) have no locations
+    if (DEBUG) {
+      std::cout << "[NativeAddon]   Compiler-generated accessor function (body=" << bodyType << ") - No location" << std::endl;
+    }
+    return repLoc;
+  }
+
+  // use body expression's debug location if available
+  auto it = func->debugLocations.find(body);
+  if (it != func->debugLocations.end() && it->second.has_value()) {
+    const auto& loc = it->second.value();
+    repLoc.exists = true;
+    repLoc.fileIndex = loc.fileIndex;
+    repLoc.lineNumber = loc.lineNumber;
+    repLoc.columnNumber = loc.columnNumber;
+    
+    if (DEBUG) {
+      std::cout << "[NativeAddon]   Using function body (" << bodyType << ")="
+                << repLoc.fileIndex << ":" << repLoc.lineNumber << ":" << repLoc.columnNumber << std::endl;
+    }
+  } else if (DEBUG) {
+    std::cout << "[NativeAddon]     ERROR: Location expected on function body (" << bodyType << ") - No location found" << std::endl;
+  }
+
+  return repLoc;
+}
 
 /**
- * Extract debug information from a WASM binary with source map
+ * Instrument WASM binary for coverage and regenerate source map
+ *
+ * This function:
+ * 1. Reads WASM binary with source map
+ * 2. Adds __coverage_memory import (multi-memory for coverage counters)
+ * 3. Instruments each user function with coverage counter increment
+ * 4. Extracts debug information
+ * 5. Writes instrumented binary with regenerated source map
  *
  * @param wasmBuffer - Node.js Buffer containing WASM binary
  * @param sourceMapBuffer - Node.js Buffer containing source map JSON
- * @returns JavaScript object with debug information structure
+ * @returns Object with { instrumentedWasm, sourceMap, debugInfo }
  */
-Napi::Object ExtractDebugInfo(const Napi::CallbackInfo& info) {
+Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
 
   // Validate arguments
-  if (info.Length() < 2) {
-    Napi::TypeError::New(env, "Expected 2 arguments: wasmBuffer and sourceMapBuffer")
+  if (info.Length() < 3) {
+    Napi::TypeError::New(env, "Expected 3 arguments: wasmBuffer, sourceMapBuffer, instrumentationOptions")
         .ThrowAsJavaScriptException();
     return Napi::Object::New(env);
   }
@@ -272,195 +386,381 @@ Napi::Object ExtractDebugInfo(const Napi::CallbackInfo& info) {
         .ThrowAsJavaScriptException();
     return Napi::Object::New(env);
   }
+  
+  if (!info[2].IsObject()) {
+    Napi::TypeError::New(env, "Argument 2 (instrumentationOptions) must be supplied as an object")
+        .ThrowAsJavaScriptException();
+    return Napi::Object::New(env);
+  }
 
   try {
     // Extract buffer data
     Napi::Buffer<char> wasmBuf = info[0].As<Napi::Buffer<char>>();
     Napi::Buffer<char> sourceMapBuf = info[1].As<Napi::Buffer<char>>();
 
-    // Convert to std::vector for Binaryen API
+    // Extract options
+    const Napi::Object options = info[2].As<Napi::Object>();
+    
+    // Extracted options
+    std::unordered_set<std::string> excludedFiles;
+    std::string excludedLibraryFilePrefix;
+    // 1 page = 64KB / 4bytes (32bits) each = 16384 counters
+    uint32_t coverageMemoryPagesMin = 1;
+    // 4 pages = 256KB / 4bytes (32bits) each = 65536 counters
+    uint32_t coverageMemoryPagesMax = 4;
+    uint32_t maxCounters = coverageMemoryPagesMax * COUNTERS_PER_PAGE;
+
+    if (options.Has("debug")) {
+      Napi::Value debugProperty = options.Get("debug");
+      if (debugProperty.IsBoolean()) {
+        DEBUG = debugProperty.As<Napi::Boolean>().Value();
+
+        if (DEBUG) {
+          std::cout << "[NativeAddon] OPTIONS - DEBUG enabled" << std::endl;
+        }
+      }
+    }
+    
+    if (options.Has("excludedFiles")) {
+      Napi::Value excludedFilesProperty = options.Get("excludedFiles");
+      if (excludedFilesProperty.IsArray()) {
+        const Napi::Array filesArray = excludedFilesProperty.As<Napi::Array>();
+
+        const uint32_t count = filesArray.Length();
+        if (DEBUG && count > 0) {
+          std::cout << "[NativeAddon] OPTIONS - " << count << " Excluded Files:" << std::endl;
+        } else if (DEBUG) {
+          std::cout << "[NativeAddon] 0 Excluded Files" << std::endl;
+        }
+
+        for (size_t i = 0; i < count; i++) {
+          Napi::Value fileItem = filesArray[i];
+          if (fileItem.IsString()) {
+            const std::string file = fileItem.As<Napi::String>().Utf8Value();
+            excludedFiles.insert(file);
+            if (DEBUG) {
+              std::cout << "[NativeAddon]   [" << i << "] \"" << file << "\"" << std::endl;
+            }
+          }
+        }
+      }
+    }
+
+    if (options.Has("excludedLibraryFilePrefix")) {
+      Napi::Value libraryFilePrefixProperty = options.Get("excludedLibraryFilePrefix");
+      if (libraryFilePrefixProperty.IsString()) {
+        excludedLibraryFilePrefix = libraryFilePrefixProperty.As<Napi::String>().Utf8Value();
+        
+        if (DEBUG) {
+          std::cout << "[NativeAddon] OPTIONS - Excluded Library File Prefix: \"" << excludedLibraryFilePrefix << "\"" << std::endl;
+        }
+      }
+    }
+    
+    if (options.Has("coverageMemoryPagesMin")) {
+      Napi::Value coverageMinProperty = options.Get("coverageMemoryPagesMin");
+      if (coverageMinProperty.IsNumber()) {
+        coverageMemoryPagesMin = coverageMinProperty.As<Napi::Number>().Int32Value();
+        
+        if (DEBUG) {
+          const uint32_t minCounters = coverageMemoryPagesMin * COUNTERS_PER_PAGE;
+          std::cout << "[NativeAddon] OPTIONS - Coverage Memory Pages MIN: " << coverageMemoryPagesMin
+                    << " (" << minCounters << " counters)" << std::endl;
+        }
+      }
+    }
+    
+    if (options.Has("coverageMemoryPagesMax")) {
+      Napi::Value coverageMaxProperty = options.Get("coverageMemoryPagesMax");
+      if (coverageMaxProperty.IsNumber()) {
+        coverageMemoryPagesMax = coverageMaxProperty.As<Napi::Number>().Int32Value();
+        maxCounters = coverageMemoryPagesMax * COUNTERS_PER_PAGE;
+        
+        if (DEBUG) {
+          std::cout << "[NativeAddon] OPTIONS - Coverage Memory Pages MAX: " << coverageMemoryPagesMax
+                    << " (" << maxCounters << " counters)" << std::endl;
+        }
+      }
+    }
+
     std::vector<char> wasmData(wasmBuf.Data(), wasmBuf.Data() + wasmBuf.Length());
     std::vector<char> sourceMapData(sourceMapBuf.Data(), sourceMapBuf.Data() + sourceMapBuf.Length());
 
-    // Parse WASM binary with source map using WasmBinaryReader
+    // Parse WASM binary with source map
     Module module;
     WasmBinaryReader reader(module, FeatureSet::All, wasmData, sourceMapData);
-    reader.setDebugInfo(true);  // Enable debug info population
+    reader.setDebugInfo(true);
     reader.read();
 
-    // Build result object
-    Napi::Object result = Napi::Object::New(env);
-
-    // Provide all debug source file names
-    Napi::Array debugSourceFiles = Napi::Array::New(env, module.debugInfoFileNames.size());
-    for (size_t i = 0; i < module.debugInfoFileNames.size(); i++) {
-      debugSourceFiles[i] = Napi::String::New(env, module.debugInfoFileNames[i]);
+    if (DEBUG) {
+      std::cout << "[NativeAddon] Read binary module with " << module.functions.size() << " functions" << std::endl;
+      std::cout << "[NativeAddon] Debug source files: " << module.debugInfoFileNames.size() << std::endl;
+      for (size_t i = 0; i < module.debugInfoFileNames.size(); i++) {
+        std::cout << "[NativeAddon]   [" << i << "] " << module.debugInfoFileNames[i] << std::endl;
+      }
     }
-    result.Set("debugSourceFiles", debugSourceFiles);
 
-    // Store debug file names locally for resolving fileIndex -> filePath
-    const auto& debugFileNames = module.debugInfoFileNames;
+    // Instrument functions and collect debug info
+    Builder builder(module);
+    uint32_t coverageIndex = 0;
+    std::vector<FunctionInfo> instrumentedFunctions;
 
-    // Extract function information using our custom walker
-    // Output as flat array (TS wrapper will group by file and position)
-    Napi::Array functions = Napi::Array::New(env);
+    // Enable multi-memory feature for coverage memory
+    module.features.setMultiMemory(true);
+
+    // Add __coverage_memory import
+    // This is a secondary memory used to store coverage counters
+    Name coverageMemoryName("__coverage_memory");
+    auto coverageMemory = Builder::makeMemory(coverageMemoryName);
+    coverageMemory->module = "env";
+    coverageMemory->base = "__coverage_memory";
+    coverageMemory->initial = coverageMemoryPagesMin;
+    coverageMemory->max = coverageMemoryPagesMax;
+    coverageMemory->shared = false;
+    module.addMemory(std::move(coverageMemory));
+
+    // Create walker for debug info extraction
     DebugInfoWalker walker(&module);
-    size_t funcArrayIndex = 0;
 
     ModuleUtils::iterDefinedFunctions(module, [&](Function* func) {
       std::string funcName = func->name.toString();
 
-      // Skip stdlib functions - they can't be resolved to user source files
-      if (funcName.rfind("~lib/", 0) == 0) {
+      if (coverageIndex >= maxCounters) {
+        if (DEBUG) {
+          std::cout << "[NativeAddon] ERROR: Processing function: \"" << funcName << "\""
+                    << " Further instrumentation would exceed max covergare memory size" << std::endl;
+        }
         return;
       }
 
-      // Walk this function to collect expressions and basic blocks
+      if (DEBUG) {
+        std::cout << "[NativeAddon] Processing function: \"" << funcName << "\"" << std::endl;
+      }
+
+      // Check if this function should be instrumented
+      if (!shouldInstrumentFunction(func, excludedLibraryFilePrefix)) {
+        if (DEBUG) {
+          std::cout << "[NativeAddon]   SKIP function (quick filtered): \"" << funcName << "\"" << std::endl;
+        }
+        return;
+      }
+
+      // Walk function to collect expressions and basic blocks
       walker.walkFunctionInModule(func, &module);
-
-      // Determine this function's "home" file index for representativeLocation filtering
-      std::string homeFilePath = extractHomeFilePath(funcName);
-      int homeFileIndex = findHomeFileIndex(homeFilePath, debugFileNames);
-
-      // Create function info object
-      Napi::Object funcInfo = Napi::Object::New(env);
-
-      // Add function name and WASM index
-      funcInfo.Set("name", Napi::String::New(env, funcName));
-      funcInfo.Set("wasmIndex", Napi::Number::New(env, funcArrayIndex));
-
-      // Add hasDebugInfo flag
-      bool hasDebugInfo = !func->debugLocations.empty();
-      funcInfo.Set("hasDebugInfo", Napi::Boolean::New(env, hasDebugInfo));
-
-      // Add function signature
-      Napi::Object signature = Napi::Object::New(env);
-
-      // Extract parameter types
-      Napi::Array params = Napi::Array::New(env);
-      if (func->type.isSignature()) {
-        wasm::Signature sig = func->type.getSignature();
-        for (size_t i = 0; i < sig.params.size(); i++) {
-          params[i] = Napi::String::New(env, sig.params[i].toString());
-        }
+      
+      if (DEBUG) {
+        std::cout << "[NativeAddon]   CFG Walked function - expressions with locations: " << walker.expressions.size() << std::endl;
       }
-      signature.Set("params", params);
 
-      // Extract result types
-      Napi::Array results = Napi::Array::New(env);
-      if (func->type.isSignature()) {
-        wasm::Signature sig = func->type.getSignature();
-        for (size_t i = 0; i < sig.results.size(); i++) {
-          results[i] = Napi::String::New(env, sig.results[i].toString());
+      const SourceDebugLocation representativeLocation = getRepresentativeLocation(func);
+
+      // skip function if it has no representative location
+      if (!representativeLocation.exists) {
+        if (DEBUG) {
+          std::cout << "[NativeAddon]   SKIP function (No Representative Location, body=" << getExpressionName(func->body) << "): "
+                    << "\"" << funcName << "\"" << std::endl;
         }
+        return;
       }
-      signature.Set("results", results);
 
-      funcInfo.Set("signature", signature);
+      // Skip function if located within excluded file
+      const std::string functionDebugFilePath =  module.debugInfoFileNames[representativeLocation.fileIndex];
+      if (excludedFiles.find(functionDebugFilePath) != excludedFiles.end()) {
+        if (DEBUG) {
+          std::cout << "[NativeAddon]   SKIP function (excluded location file [" << representativeLocation.fileIndex << "] \""
+                    << functionDebugFilePath <<"\"): \"" << funcName << "\"" << std::endl;
+        }
+        return;
+      }
 
-      // Convert expressions to JavaScript array
-      // Also track representative expression from HOME FILE for representativeLocation
-      // (ignores expressions from inlined code in other files)
-      Napi::Array expressions = Napi::Array::New(env, walker.expressions.size());
-      const ExpressionInfo* returnExpression = nullptr;
-      const ExpressionInfo* firstNonConstExpression = nullptr;
+      if (DEBUG) {
+        std::cout << "[NativeAddon]   Selected reprLoc=" << representativeLocation.fileIndex << ":" << representativeLocation.lineNumber
+                  << ":" << representativeLocation.columnNumber << " | Now instrumenting with coverageMemoryIndex [" << coverageIndex << "]"
+                  << " | " << std::endl;
+      }
 
-      for (size_t i = 0; i < walker.expressions.size(); i++) {
-        const auto& expr = walker.expressions[i];
+      // Store function info for later output
+      FunctionInfo funcInfo;
+      funcInfo.name = funcName;
+      funcInfo.representativeLocation = representativeLocation;
+      funcInfo.coverageMemoryIndex = coverageIndex;
+      funcInfo.expressions = walker.expressions;
+      funcInfo.blocks = walker.blocks;
+
+      // add to list
+      instrumentedFunctions.push_back(funcInfo);
+
+      // Coverage instrumentation:
+      //   counter = i32.load(addr, __coverage_memory)
+      //   incremented = counter + 1
+      //   i32.store(addr, incremented, __coverage_memory)
+
+      const uint32_t counterAddressVal = coverageIndex * BYTES_PER_COUNTER;
+      Expression* counterAddress = builder.makeConstantExpression(Literal(counterAddressVal));
+
+      // Load current counter value
+      Expression* counterValue = builder.makeLoad(
+        BYTES_PER_COUNTER,  // bytes - size
+        false,              // signed - false, treat as unsigned (and no extension needed anyway)
+        0,                  // offset - none, we already calculate the address based on data size
+        BYTES_PER_COUNTER,  // align - we should always be aligned
+        counterAddress,     // address
+        Type::i32,
+        coverageMemoryName
+      );
+
+      // Increment counter
+      Expression* incrementedCounter = builder.makeBinary(
+        AddInt32,
+        counterValue,
+        builder.makeConst(1)
+      );
+
+      Expression* storeCounter = builder.makeStore(
+        BYTES_PER_COUNTER,  // bytes
+        0,                  // offset
+        BYTES_PER_COUNTER,  // align hint
+        counterAddress,     // address
+        incrementedCounter, // value
+        Type::i32,
+        coverageMemoryName
+      );
+
+      // Prepend instrumentation to function body
+      func->body = builder.makeSequence(storeCounter, func->body, func->body->type);
+
+      if (DEBUG) {
+        std::cout << "[NativeAddon]   INSTRUMENTED \"" << funcName << "\" | coverageMemoryIndex [" << coverageIndex << "]"
+                  << " | reprLoc=" << representativeLocation.fileIndex << ":" << representativeLocation.lineNumber
+                  << ":" << representativeLocation.columnNumber << std::endl;
+      }
+
+      coverageIndex++;
+    });
+
+    if (DEBUG) {
+      std::cout << "[NativeAddon] Instrumentation complete: " << coverageIndex << " functions instrumented" << std::endl;
+    }
+
+    // Write instrumented module with source map regeneration
+    BufferWithRandomAccess outputBuffer;
+    PassOptions passOptions;
+    WasmBinaryWriter writer(&module, outputBuffer, passOptions);
+    writer.setNamesSection(true);
+
+    // Set up source map output stream
+    std::ostringstream sourceMapStream;
+    writer.setSourceMap(&sourceMapStream, "output.wasm");
+
+    writer.write();
+
+    // Build result object
+    Napi::Object result = Napi::Object::New(env);
+
+    // Convert instrumented binary to Buffer
+    Napi::Buffer<char> instrumentedWasm = Napi::Buffer<char>::Copy(
+      env,
+      reinterpret_cast<const char*>(outputBuffer.data()),
+      outputBuffer.size()
+    );
+    result.Set("instrumentedWasm", instrumentedWasm);
+
+    // Convert source map to string
+    std::string sourceMapStr = sourceMapStream.str();
+    result.Set("sourceMap", Napi::String::New(env, sourceMapStr));
+
+    // Build debug info object (similar structure to ExtractDebugInfo output)
+    Napi::Object debugInfo = Napi::Object::New(env);
+
+    // Add debug source files
+    Napi::Array debugSourceFiles = Napi::Array::New(env, module.debugInfoFileNames.size());
+    for (size_t i = 0; i < module.debugInfoFileNames.size(); i++) {
+      debugSourceFiles[i] = Napi::String::New(env, module.debugInfoFileNames[i]);
+    }
+    debugInfo.Set("debugSourceFiles", debugSourceFiles);
+
+    // Add function information
+    Napi::Array functions = Napi::Array::New(env, instrumentedFunctions.size());
+
+    for (size_t i = 0; i < instrumentedFunctions.size(); i++) {
+      const auto& funcInfo = instrumentedFunctions[i];
+      Napi::Object funcObj = Napi::Object::New(env);
+
+      funcObj.Set("name", Napi::String::New(env, funcInfo.name));
+      funcObj.Set("wasmIndex", Napi::Number::New(env, i));
+      funcObj.Set("coverageMemoryIndex", Napi::Number::New(env, funcInfo.coverageMemoryIndex));
+
+      Napi::Object reprLoc = Napi::Object::New(env);
+      reprLoc.Set("fileIndex", Napi::Number::New(env, funcInfo.representativeLocation.fileIndex));
+      reprLoc.Set("line", Napi::Number::New(env, funcInfo.representativeLocation.lineNumber));
+      reprLoc.Set("column", Napi::Number::New(env, funcInfo.representativeLocation.columnNumber));
+      funcObj.Set("representativeLocation", reprLoc);
+
+      // Add expressions array
+      Napi::Array expressions = Napi::Array::New(env, funcInfo.expressions.size());
+      for (size_t j = 0; j < funcInfo.expressions.size(); j++) {
+        const auto& expr = funcInfo.expressions[j];
         Napi::Object exprObj = Napi::Object::New(env);
 
         exprObj.Set("type", Napi::String::New(env, expr.type));
         exprObj.Set("isBranch", Napi::Boolean::New(env, expr.isBranch));
-
-        // Only include branchPaths if this is a branch expression
         if (expr.isBranch) {
           exprObj.Set("branchPaths", Napi::Number::New(env, expr.branchPaths));
         }
 
         if (expr.hasDebugLocation) {
-          // Add location if it exists
           Napi::Object location = Napi::Object::New(env);
           location.Set("fileIndex", Napi::Number::New(env, expr.fileIndex));
           location.Set("line", Napi::Number::New(env, expr.lineNumber));
           location.Set("column", Napi::Number::New(env, expr.columnNumber));
           exprObj.Set("location", location);
-
-          // Track expressions from HOME FILE for representativeLocation selection
-          // Priority: 1) Return expression, 2) First non-Const expression
-          // This avoids selecting inlined default parameter values (always Const)
-          // which would point to the wrong function's source location
-          if (homeFileIndex >= 0 && expr.fileIndex == static_cast<uint32_t>(homeFileIndex)) {
-            if (expr.typeId == Expression::ReturnId && returnExpression == nullptr) {
-              returnExpression = &expr;
-            } else if (expr.typeId != Expression::ConstId && firstNonConstExpression == nullptr) {
-              firstNonConstExpression = &expr;
-            }
-          }
         }
 
-        expressions[i] = exprObj;
+        expressions[j] = exprObj;
       }
-      funcInfo.Set("expressions", expressions);
+      funcObj.Set("expressions", expressions);
 
-      // Select representativeLocation: prefer Return, fallback to first non-Const
-      const ExpressionInfo* representativeExpression = returnExpression != nullptr
-          ? returnExpression
-          : firstNonConstExpression;
-
-      // Add representativeLocation only if we found a suitable expression from the home file
-      if (representativeExpression != nullptr) {
-        Napi::Object representativeLocation = Napi::Object::New(env);
-        representativeLocation.Set("fileIndex", Napi::Number::New(env, representativeExpression->fileIndex));
-        representativeLocation.Set("line", Napi::Number::New(env, representativeExpression->lineNumber));
-        representativeLocation.Set("column", Napi::Number::New(env, representativeExpression->columnNumber));
-        funcInfo.Set("representativeLocation", representativeLocation);
-      }
-
-      // Convert basic blocks to JavaScript array
-      Napi::Array basicBlocks = Napi::Array::New(env, walker.blocks.size());
-      for (size_t i = 0; i < walker.blocks.size(); i++) {
-        const auto& block = walker.blocks[i];
+      // Add basic blocks array
+      Napi::Array basicBlocks = Napi::Array::New(env, funcInfo.blocks.size());
+      for (size_t j = 0; j < funcInfo.blocks.size(); j++) {
+        const auto& block = funcInfo.blocks[j];
         Napi::Object blockObj = Napi::Object::New(env);
 
-        blockObj.Set("index", Napi::Number::New(env, i));
+        blockObj.Set("index", Napi::Number::New(env, j));
 
-        // Expression indices
         Napi::Array exprIndices = Napi::Array::New(env, block.expressionIndices.size());
-        for (size_t j = 0; j < block.expressionIndices.size(); j++) {
-          exprIndices[j] = Napi::Number::New(env, block.expressionIndices[j]);
+        for (size_t k = 0; k < block.expressionIndices.size(); k++) {
+          exprIndices[k] = Napi::Number::New(env, block.expressionIndices[k]);
         }
         blockObj.Set("expressionIndices", exprIndices);
 
-        // Branch targets (as array of BranchEdgeDebugInfo objects)
         Napi::Array branches = Napi::Array::New(env, block.branches.size());
-        for (size_t j = 0; j < block.branches.size(); j++) {
+        for (size_t k = 0; k < block.branches.size(); k++) {
           Napi::Object branchObj = Napi::Object::New(env);
-          branchObj.Set("targetBlockIndex", Napi::Number::New(env, block.branches[j]));
-          // Note: sourceExpressionIndex could be added here if we track which expression causes the branch
-          branches[j] = branchObj;
+          branchObj.Set("targetBlockIndex", Napi::Number::New(env, block.branches[k]));
+          branches[k] = branchObj;
         }
         blockObj.Set("branches", branches);
 
-        basicBlocks[i] = blockObj;
+        basicBlocks[j] = blockObj;
       }
-      funcInfo.Set("basicBlocks", basicBlocks);
+      funcObj.Set("basicBlocks", basicBlocks);
 
-      // Add to flat array (TS wrapper will group by file and position)
-      functions[funcArrayIndex] = funcInfo;
+      functions[i] = funcObj;
+    }
 
-      funcArrayIndex++;
-    });
+    debugInfo.Set("functions", functions);
 
-    result.Set("functions", functions);
+    result.Set("debugInfo", debugInfo);
 
     return result;
 
   } catch (const std::exception& e) {
-    Napi::Error::New(env, std::string("Failed to extract debug info: ") + e.what())
+    Napi::Error::New(env, std::string("Failed to instrument for coverage: ") + e.what())
         .ThrowAsJavaScriptException();
     return Napi::Object::New(env);
   } catch (...) {
-    Napi::Error::New(env, "Failed to extract debug info: Unknown error")
+    Napi::Error::New(env, "Failed to instrument for coverage: Unknown error")
         .ThrowAsJavaScriptException();
     return Napi::Object::New(env);
   }
@@ -470,8 +770,8 @@ Napi::Object ExtractDebugInfo(const Napi::CallbackInfo& info) {
  * Initialize the addon
  */
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
-  exports.Set("extractDebugInfo", Napi::Function::New(env, ExtractDebugInfo));
+  exports.Set("instrumentForCoverage", Napi::Function::New(env, InstrumentForCoverage));
   return exports;
 }
 
-NODE_API_MODULE(wasm_binaryen_debug, Init)
+NODE_API_MODULE(wasm_binaryen_debug, Init);

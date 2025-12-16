@@ -10,9 +10,10 @@
 
 import { extractCallStack } from './source-maps.js';
 import { decodeString, decodeAbortInfo } from './wasm-memory.js';
-import { debug, debugError } from '../utils/debug.mjs';
-import type { DiscoveredTests, TestResult } from '../types.js';
-import { ERROR_NAMES } from '../types.js';
+import { debug } from '../utils/debug.js';
+import type { AssemblyScriptTestError, DiscoveredTests, PoolErrorName, ExecuteTestResult } from '../types.js';
+import { AssemblyScriptPoolError } from '../types.js';
+import { POOL_ERROR_NAMES } from '../types.js';
 
 // ============================================================================
 // Shared Utilities
@@ -39,7 +40,7 @@ export function logAbort(
   context: string
 ): { message: string; location: string | null } {
   const abortInfo = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
-  debugError(`[Executor] Abort ${context}: ${abortInfo.message}${abortInfo.location ? ` at ${abortInfo.location}` : ''}`);
+  debug(`[Executor] Abort ${context}: ${abortInfo.message}${abortInfo.location ? ` at ${abortInfo.location}` : ''}`);
   return abortInfo;
 }
 
@@ -70,19 +71,23 @@ export function createDiscoveryImports(
     env: {
       memory,
       ...(coverageMemory ? { __coverage_memory: coverageMemory } : {}),
+
       __register_test(namePtr: number, nameLen: number, fnIndex: number) {
         const testName = decodeString(memory, namePtr, nameLen);
         const id = `${testName}_${fnIndex}`;
         tests[id] = { name: testName, fnIndex, id };
-        debug('[Executor] Registered test:', testName, 'at function index', fnIndex);
+        debug(`[Executor] Registered test: "${testName}" with fnIndex ${fnIndex}`);
       },
+
+      // stubs during discovery
       __assertion_pass() {},
       __assertion_fail() {},
+
       abort(msgPtr: number, filePtr: number, line: number, column: number) {
         const { message, location } = logAbort(memory, msgPtr, filePtr, line, column, 'during discovery');
-        const errorMsg = `AssemblyScript abort during test discovery: ${message}${location ? `\n  at ${location}` : ''}`;
-        throw new Error(errorMsg);
+        throw new AssemblyScriptPoolError(`${message}${location ? `\n  at ${location}` : ''}`, POOL_ERROR_NAMES.WASMRuntimeError);
       },
+
       trace(_msg: any, n: any, a0: any, a1: any, a2: any, a3: any) {
         console.log(`WASM trace${n !== undefined ? ` (${String(n)})` : ''}:`, a0, a1, a2, a3);
       }
@@ -100,13 +105,13 @@ export function createDiscoveryImports(
  * for the WASM module to use directly via memory operations (no boundary crossings).
  *
  * @param memory - WebAssembly memory instance
- * @param currentTest - Mutable reference to current test result (updated by imports)
+ * @param testResultRef - Mutable reference to current test result (updated by imports)
  * @param coverageMemory - Optional coverage memory for instrumented binaries
  * @returns WebAssembly import object
  */
 export function createTestExecutionImports(
   memory: WebAssembly.Memory,
-  currentTest: { value: TestResult | null },
+  testResultRef: { value: ExecuteTestResult | null },
   coverageMemory?: WebAssembly.Memory
 ): WebAssembly.Imports {
   return {
@@ -119,43 +124,50 @@ export function createTestExecutionImports(
 
       // Assertion tracking
       __assertion_pass() {
-        if (currentTest.value) {
-          currentTest.value.assertionsPassed++;
+        if (testResultRef.value) {
+          testResultRef.value.assertionsPassed++;
         }
       },
-
       __assertion_fail(msgPtr: number, msgLen: number) {
-        if (currentTest.value) {
-          currentTest.value.assertionsFailed++;
+        if (testResultRef.value) {
+          testResultRef.value.assertionsFailed++;
           const errorMsg = decodeString(memory, msgPtr, msgLen);
           debug('[Executor] Assertion failed:', errorMsg);
         }
       },
 
-      // AS runtime imports
       abort(msgPtr: number, filePtr: number, line: number, column: number) {
         const { message } = logAbort(memory, msgPtr, filePtr, line, column, 'during test execution');
+        let errorName: PoolErrorName = POOL_ERROR_NAMES.WASMRuntimeError;
 
-        if (currentTest.value) {
-          currentTest.value.passed = false;
+        if (testResultRef.value) {
+          testResultRef.value.passed = false;
+          if (testResultRef.value.assertionsFailed > 0) {
+            errorName = POOL_ERROR_NAMES.AssertionFailure;
+          }
 
           // Create error to capture V8 stack trace
           const error = new Error(message);
 
           // Extract V8 call stack BEFORE throwing
           // This gives us WAT line:column positions that can be mapped to AS source
-          currentTest.value.rawCallStack = extractCallStack(error);
-          currentTest.value.error = {
-            name: ERROR_NAMES.RuntimeError,
+          testResultRef.value.rawCallStack = extractCallStack(error);
+          
+          // gets replaced when executor enhances (source-maps) the error in enhanceErrorWithSourceMap()
+          const err: AssemblyScriptTestError = {
+            name: errorName,
             message: message
           };
+          testResultRef.value.error = err;
 
-          debug('[Executor] Captured V8 call stack with', currentTest.value.rawCallStack.length, 'frames');
+          debug('[Executor] Captured raw V8 call stack with', testResultRef.value.rawCallStack.length, 'frames');
         }
-        // CRITICAL: Must throw to halt WASM execution
-        // Without throwing, execution would continue and incorrectly mark failed tests as passed.
-        // Per-test isolation ensures the next test still runs (in a fresh instance).
-        throw new Error('AssemblyScript abort');
+
+        // Must throw here to halt WASM execution
+        // Without throwing after abort is called from an assert() failure, execution would continue
+        // Per-test WASM instance isolation ensures the next test still runs.
+        // This will be caught by the executor and reported as an appropriate test error.
+        throw new AssemblyScriptPoolError('AssemblyScript abort() import called during execution', errorName);
       },
 
       trace(_msg: any, n: any, a0: any, a1: any, a2: any, a3: any) {

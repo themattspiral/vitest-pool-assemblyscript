@@ -6,50 +6,77 @@
  * while keeping each test execution confined to an isolated WASM instance.
  */
 
-import type { ProcessPool, Vitest, TestProject, TestSpecification, RunnerTestCase, RunnerTestFile, ResolvedConfig } from 'vitest/node';
-import { resolve, basename } from 'node:path';
+import type {
+  ProcessPool,
+  Vitest,
+  TestProject,
+  TestSpecification,
+  RunnerTestCase,
+  RunnerTestFile,
+  ResolvedConfig
+} from 'vitest/node';
+import { resolve, basename, relative } from 'node:path';
 import { existsSync } from 'node:fs';
-import os from 'node:os';
+import { availableParallelism } from 'node:os';
 import Tinypool from 'tinypool';
 import { ModuleCacheMap } from 'vite-node/client';
 import { installSourcemapsSupport } from 'vite-node/source-map';
 
 import type {
-  CachedCompilation,
-  DiscoveredTests,
   DiscoverTestsTask,
   DiscoverTestsResult,
   ExecuteTestTask,
-  ExecuteTestWithCoverageTask,
   ExecuteTestResult,
-  ReportFileSummaryTask,
+  ReportFileResultsTask,
   CoverageData,
   ProjectInfo,
   PoolTestResult,
+  InstrumentationOptions,
+  ResolvedHybridProviderOptions,
+  ReportFileFailureTask,
+  AssemblyScriptCompilerOptions,
+  CompileResult,
+  CachedCompilation,
+  AssemblyScriptTestError,
 } from '../types.js';
-import { ASSEMBLYSCRIPT_POOL_NAME } from '../types.js';
-import { setDebugMode, debug } from '../utils/debug.mjs';
+import {
+  ASSEMBLYSCRIPT_LIB_PREFIX,
+  ASSEMBLYSCRIPT_POOL_NAME,
+  AssemblyScriptPoolError,
+  POOL_ERROR_NAMES,
+  POOL_INTERNAL_PATHS
+} from '../types.js';
+import { setDebugMode, debug } from '../utils/debug.js';
 import { compileAssemblyScript } from '../compiler/index.js';
 import { createPhaseTimings } from '../utils/timing.mjs';
 import { createWorkerChannel } from './worker-channel.js';
-import { getCoverageModeFlags, isCoverageEnabled, getPoolOptions } from './options.js';
-import { createCompilationCache, type CompilationCache } from './cache.js';
+import { getPoolOptions } from './options.js';
 import { mergeCoverageData } from '../coverage-provider/coverage-merge.js';
+import { getTestError, createPoolError, throwPoolErrorIfAborted, isAbortErrorString } from '../utils/error-util.js';
 
 const WORKER_PATH = resolve(import.meta.dirname, 'pool-worker/index.js');
 
-// Error code for cache invalidation failures (stale generation)
-const CACHE_INVALIDATED_ERROR_CODE = 'CACHE_INVALIDATED';
+// ============================================================================
+// Module-Level Pool Storage
+// ============================================================================
 
-// Pipeline storage: holds aggregated coverage for each test file during execution
-// Key: test file path (e.g., math.as.test.ts)
-// Value: merged coverage from all tests in that file (organized by source file paths internally)
-// Used to pass coverage data from phase 3 (test execution) to phase 5 (finalize/report)
-// TODO: Can be eliminated when failsafe mode is removed (phase 4), allowing direct reporting at end of phase 3
+/*
+ * This data persists over multiple pool instantiations within the same vitest process,
+ * which is how vitest re-executes on file changes in watch mode: A new pool is instantiated.
+ * Note: No pool instance's close() function is called until the vitest process stops, 
+ * so the data persists across multiple runs of runTests() in different pool instances. 
+ */
+
+// Aggregated coverage for each test file during execution
+//   Key: test file path (e.g., math.as.test.ts)
+//   Value: merged coverage from all tests in that file (organized by source file paths internally)
 const pipelineCoverageByTestFile = new Map<string, CoverageData>();
 
+// Compilation cache 
+const pipelineCompileCacheByTestFile = new Map<string, CachedCompilation>();
+
 // Single sequential compilation queue for V8 warmup
-let compilationQueue: Promise<CachedCompilation> = Promise.resolve() as unknown as Promise<CachedCompilation>;
+let compilationQueue = Promise.resolve({}) as Promise<CompileResult>;
 
 // ============================================================================
 // Helper Functions
@@ -71,7 +98,7 @@ function extractProjectInfo(spec: TestSpecification): ProjectInfo {
 }
 
 /**
- * Aggregate per-test coverage into per-file coverage for pipeline storage
+ * Aggregate per-test coverage into per-test-file coverage for pipeline storage
  *
  * Takes coverage results from individual test executions (phase 3), merges them
  * by summing hit counts for each function, and stores the result in pipeline
@@ -80,11 +107,12 @@ function extractProjectInfo(spec: TestSpecification): ProjectInfo {
  * @param testFilePath - Path to test file (absolute path)
  * @param testResults - Test results from phase 3 execution
  */
-function aggregateTestCoverageForFile(
+function aggregateCoverageForTestFile(
   testFilePath: string,
   testResults: PoolTestResult[]
 ): void {
-  debug(`[Pipeline ${basename(testFilePath)}] Aggregating per-test coverage into per-file coverage`);
+  const base = basename(testFilePath);
+  debug(`[Pipeline] ${base} - Aggregating per-test coverage into per-file coverage`);
 
   // Extract coverage data from each individual test result
   const perTestCoverage = testResults
@@ -93,122 +121,102 @@ function aggregateTestCoverageForFile(
 
   if (perTestCoverage.length > 0) {
     // Merge all per-test coverage by summing hit counts for each position
-    const fileCoverage: CoverageData = {
+    const testFileCoverage: CoverageData = {
       hitCountsByFileAndPosition: {},
     };
 
     // Use shared merge logic for each per-test coverage
     for (const testCoverage of perTestCoverage) {
-      mergeCoverageData(fileCoverage, testCoverage);
+      mergeCoverageData(testFileCoverage, testCoverage);
     }
 
     // Store in pipeline storage for phase 5 reporting
-    const sourceFileCount = Object.keys(fileCoverage.hitCountsByFileAndPosition).length;
-    const positionCount = Object.values(fileCoverage.hitCountsByFileAndPosition)
+    const sourceFileCount = Object.keys(testFileCoverage.hitCountsByFileAndPosition).length;
+    const positionCount = Object.values(testFileCoverage.hitCountsByFileAndPosition)
       .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
-    debug(`[Pipeline ${basename(testFilePath)}] Aggregated coverage: ${sourceFileCount} source files, ${positionCount} positions`);
+    debug(`[Pipeline] ${base} - Aggregated coverage: ${sourceFileCount} source files, ${positionCount} unique positions hit`);
 
-    pipelineCoverageByTestFile.set(testFilePath, fileCoverage);
+    pipelineCoverageByTestFile.set(testFilePath, testFileCoverage);
 
-    debug(`[Pipeline ${basename(testFilePath)}] Coverage aggregation complete`);
+    debug(`[Pipeline] ${base} - Coverage aggregation complete`);
   }
 }
 
-/**
- * Queue compilation sequentially for V8 warmup
- *
- * Compiles once and returns both clean and instrumented binaries (when coverage enabled).
- * Sequential queueing maintains V8 JIT warmup benefits.
- *
- * @param testFilePath - Path to test file (absolute path)
- * @param config - Vitest resolved config
- * @param rpcCollect - true when running a `collectTests()` operation only, false for full `runTests()`
- * @param generation - Cache generation number for validation
- * @returns Promise that resolves with cached compilation
- */
-async function queueCompilation(
-  testFilePath: string,
-  config: ResolvedConfig,
-  rpcCollect: boolean,
-  generation: number
-): Promise<CachedCompilation> {
-  const currentCompilation = compilationQueue.then(async () => {
-    // set debug mode within this async context
-    const poolOptions = getPoolOptions(config);
-    setDebugMode(poolOptions.debug);
-
-    const timings = createPhaseTimings();
-
-    // Single compilation returns both clean and instrumented binaries if needed.
-    // Only instrument when coverage is enabled and when not running a collectTests() operation
-    const compileResult = await compileAssemblyScript(testFilePath, {
-      instrument: isCoverageEnabled(config) && !rpcCollect,
-      stripInline: poolOptions.stripInline,
-    });
-
-    timings.phaseEnd = performance.now();
-    debug(`[TIMING] ${basename(testFilePath)} - compileAssemblyScript total: ${timings.phaseEnd - timings.phaseStart}ms`);
-
-    return {
-      clean: compileResult.clean,
-      instrumented: compileResult.instrumented,
-      sourceMap: compileResult.sourceMap,
-      debugInfo: compileResult.debugInfo,
-      discoveredTests: {},
-      compileTimings: timings,
-      generation,
-    };
-  });
-
-  compilationQueue = currentCompilation.catch((err) => {
-    throw err;
-  });
-
-  return currentCompilation;
-}
 
 // ============================================================================
 // Phase Functions
 // ============================================================================
 
 /**
- * Phase 1: Compile test file
- * Returns cached compilation or compiles if needed
- * Throws on compilation failure or cache validation failure
+ * Phase 1: Queue compilation sequentially in pool main thead so that compiler benefits from V8 JIT warmup.
  *
  * @param testFilePath - Path to test file (absolute path)
- * @param projectConfig - Vitest resolved config for this project
- * @param cache - Compilation cache instance
- * @param rpcCollect - true when running a `collectTests()` operation only, false for full `runTests()`
- * @returns Cached compilation
- * @throws Error on compilation failure or cache validation failure
+ * @param config - Vitest resolved config
+ * @param signal - abort signal
+ * @param isCollectTestsMode - true when running a `collectTests()` operation only, false for full `runTests()`
+ * @returns Promise that resolves with cached compilation
  */
-async function executePhase1Compilation(
+async function pipelineQueueCompilation(
   testFilePath: string,
-  projectConfig: ResolvedConfig,
-  cache: CompilationCache,
-  rpcCollect: boolean
-): Promise<CachedCompilation> {
-  // set debug mode within this async context
-  const poolOptions = getPoolOptions(projectConfig);
-  setDebugMode(poolOptions.debug);
+  config: ResolvedConfig,
+  signal: AbortSignal,
+  isCollectTestsMode: boolean,
+): Promise<CompileResult> {
+  const base = basename(testFilePath);
+  const currentCompilation = compilationQueue
+    .catch(() => {
+      debug(`[Pipeline] ${base} - queueCompilation rejection before queueing (ignoring previous error)`);
+    })
+    .then(async (): Promise<CompileResult> => {
+      throwPoolErrorIfAborted(signal);
 
-  debug(`[Pipeline ${basename(testFilePath)}] Phase 1 (compile) starting`);
-  let cached = cache.get(testFilePath);
+      const poolOptions = getPoolOptions(config);
 
-  if (!cached) {
-    const currentGen = cache.getCurrentGeneration(testFilePath);
-    const result = await queueCompilation(testFilePath, projectConfig, rpcCollect, currentGen);
+      // set debug mode within this async context
+      setDebugMode(poolOptions.debug);
 
-    // Validate generation before caching
-    if (!cache.validateAndCache(testFilePath, result)) {
-      throw new Error(`${CACHE_INVALIDATED_ERROR_CODE}: ${testFilePath}`);
-    }
+      const timings = createPhaseTimings();
+      const isCoverageEnabled = config.coverage.enabled;
 
-    cached = result;
-  }
+      // Only instrument when coverage is enabled and when not running a collectTests() operation
+      const shouldInstrument = isCoverageEnabled && !isCollectTestsMode
 
-  return cached;
+      const instrumentationOptions: InstrumentationOptions = {
+        relativeExcludedFiles: [
+          relative(config.root, testFilePath),
+          ...POOL_INTERNAL_PATHS,
+          ...((config.coverage as ResolvedHybridProviderOptions).globbedAssemblyScriptProjectRelativeExcludeOnly || []),
+        ],
+        excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
+        coverageMemoryPagesMin: poolOptions.coverageMemoryPagesMin,
+        coverageMemoryPagesMax: poolOptions.coverageMemoryPagesMax,
+      };
+      const compilerOptions: AssemblyScriptCompilerOptions = {
+        stripInline: poolOptions.stripInline,
+        projectRoot: config.root,
+        shouldInstrument: shouldInstrument,
+        instrumentationOptions
+      };
+      const compileResult = await compileAssemblyScript(testFilePath, compilerOptions, signal);
+
+      timings.phaseEnd = performance.now();
+      debug(`[TIMING] ${base} - compileAssemblyScript total: ${(timings.phaseEnd - timings.phaseStart).toFixed(2)}ms`);
+
+      return {
+        binary: compileResult.binary,
+        sourceMap: compileResult.sourceMap,
+        isInstrumented: compileResult.isInstrumented,
+        debugInfo: compileResult.debugInfo,
+        compileTimings: timings,
+      };
+    })  
+    .catch((err) => {
+      throw createPoolError(`${base} - queueCompilation`, err);
+    });
+
+  compilationQueue = currentCompilation;
+
+  return currentCompilation;
 }
 
 /**
@@ -218,79 +226,55 @@ async function executePhase1Compilation(
  * Throws on discovery failure
  *
  * @param testFilePath - Path to test file (absolute path)
- * @param cached - Cached compilation
+ * @param cachedContext - Cached compilation
  * @param spec - Test specification
  * @param pool - Tinypool instance
  * @param isCollectTestsMode - true when running a `collectTests()` operation only, false for full `runTests()`
  * @returns File task with filtered tests (undefined in collectTests mode)
  * @throws Error on discovery failure
  */
-async function executePhase2Discovery(
-  testFilePath: string,
-  cached: CachedCompilation,
+async function pipelineDispatchRunDiscovery(
   spec: TestSpecification,
+  cachedContext: CachedCompilation,
   pool: Tinypool,
+  signal: AbortSignal,
   isCollectTestsMode: boolean
-): Promise<RunnerTestFile | undefined> {
+): Promise<DiscoverTestsResult> {
   // set debug mode within this async context
   const poolOptions = getPoolOptions(spec.project.config);
   setDebugMode(poolOptions.debug);
+  const base = basename(cachedContext.testFilePath);
 
-  debug(`[Pipeline ${basename(testFilePath)}] Phase 2 (discover) starting`);
+  debug(`[Pipeline] ${base} - Phase 2 (discover) starting`);
 
-  // Call worker if:
-  //   (1) First discovery (cache empty), OR
-  //   (2) Need fresh fileTask with current filtering for runTests mode
-  //
-  // When shouldCallWorker is false:
-  //   - We're in collectTests mode AND tests already cached
-  //   - This edge case shouldn't happen (watch mode invalidates cache before re-collecting)
-  //   - But if it does (e.g., `vitest list` called twice), returning undefined is correct
-  //     since collectTests mode doesn't need fileTask
-  const shouldCallWorker = Object.keys(cached.discoveredTests).length === 0 || !isCollectTestsMode;
+  const projectInfo = extractProjectInfo(spec);
+  const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
+  
+  try {
+    const discoverTask: DiscoverTestsTask = {
+      binary: cachedContext.binary,
+      testFile: cachedContext.testFilePath,
+      poolOptions,
+      port: workerPort,
+      projectInfo,
+      compileTimings: cachedContext.compileTimings,
+      debugInfo: cachedContext.debugInfo,
+      testNamePattern: spec.project.config.testNamePattern,
+      allowOnly: spec.project.config.allowOnly,
+    };
 
-  let fileTask: RunnerTestFile | undefined;
+    const results: DiscoverTestsResult = await pool.run(discoverTask, {
+      name: 'discoverTests',
+      transferList: [workerPort],
+      signal: signal
+    });
 
-  if (shouldCallWorker) {
-    const projectInfo = extractProjectInfo(spec);
-    const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
-
-    try {
-      const discoverTask: DiscoverTestsTask = {
-        binary: cached.clean,
-        testFile: testFilePath,
-        poolOptions,
-        port: workerPort,
-        projectInfo,
-        compileTimings: cached.compileTimings,
-        debugInfo: cached.debugInfo,
-        testNamePattern: spec.project.config.testNamePattern,
-        allowOnly: spec.project.config.allowOnly,
-      };
-
-      const discoverResult = await pool.run(discoverTask, {
-        name: 'discoverTests',
-        transferList: [workerPort],
-      }) as DiscoverTestsResult;
-
-      // Update cache on first discovery only
-      if (Object.keys(cached.discoveredTests).length === 0) {
-        cached.discoveredTests = discoverResult.tests;
-        cached.discoverTimings = discoverResult.timings;
-      }
-
-      // Return fileTask for runTests mode (with current filtering applied)
-      if (!isCollectTestsMode) {
-        fileTask = discoverResult.fileTask;
-      }
-    } finally {
-      workerPort.close();
-      poolPort.close();
-    }
+    debug(`[Pipeline] ${base} - Phase 2 (discover) complete, found ${Object.keys(results.tests).length} tests`);
+    return results;
+  } finally {
+    workerPort.close();
+    poolPort.close();
   }
-
-  debug(`[Pipeline ${basename(testFilePath)}] Phase 2 (discover) complete, found ${Object.keys(cached.discoveredTests).length} tests`);
-  return fileTask;
 }
 
 /**
@@ -300,90 +284,66 @@ async function executePhase2Discovery(
  * Throws on test execution failure
  *
  * @param testFilePath - Path to test file (absolute path)
- * @param cached - Cached compilation
+ * @param cachedContext - Cached compilation
  * @param testTasks - Array of test tasks to execute
  * @param project - Test project
  * @param config - Vitest resolved config
  * @param pool - Tinypool instance
- * @param isFailsafeMode - Whether failsafe mode is enabled
  * @returns Array of test results with coverage data
  * @throws Error on test execution failure
  */
-async function executePhase3Tests(
-  testFilePath: string,
-  cached: CachedCompilation,
+async function pipelineDispatchRunTests(
+  cachedContext: CachedCompilation,
   testTasks: RunnerTestCase[],
   project: TestProject,
   pool: Tinypool,
-  isFailsafeMode: boolean
+  signal: AbortSignal
 ): Promise<PoolTestResult[]> {
   // set debug mode within this async context
   const poolOptions = getPoolOptions(project.config);
-  const coverageEnabled = isCoverageEnabled(project.config);
   setDebugMode(poolOptions.debug);
+  const base = basename(cachedContext.testFilePath);
 
-  debug(`[Pipeline ${basename(testFilePath)}] Phase 3 Execute starting - coverage: ${coverageEnabled}`);
+  debug(`[Pipeline] ${base} - Phase 3 Execute starting - Coverage: ${project.config.coverage.enabled}`);
+  const testFileSuiteStart = performance.now();
 
   const testExecutions = testTasks.map(async (testTask) => {
     // Match test task to discovered test by unique id
-    const test = cached.discoveredTests[testTask.id];
+    const test = cachedContext.discoveredTests[testTask.id];
     if (!test) {
-      throw new Error(`Could not find discovered test for task: ${testTask.name}`);
+      throw new AssemblyScriptPoolError(
+        `Could not find discovered test for task: ${testTask.name}`,
+        POOL_ERROR_NAMES.WASMExecutionHarnessError
+      );
     }
 
     // Create RPC channel for this test
     const { workerPort: testWorkerPort, poolPort: testPoolPort } = createWorkerChannel(project, false);
 
     try {
-      if (coverageEnabled) {
-        // Unlike JS/TS pools that selectively instrument files, we compile entire test files
-        // (including imported source files) into single WASM binaries and must instrument everything.
-        // Coverage filtering via include/exclude will be applied during Istanbul format conversion.
-        debug(`[Pipeline ${basename(testFilePath)}] Executing test "${test.name}" with coverage on instrumented binary`);
-        if (!cached.instrumented || !cached.debugInfo) {
-          throw new Error(`Instrumented binary not available for ${testFilePath}`);
-        }
+      debug(`[Pipeline] ${base} - Executing test "${test.name}" with coverage enabled`);
 
-        const executeTask: ExecuteTestWithCoverageTask = {
-          binary: cached.instrumented,
-          sourceMap: cached.sourceMap,
-          debugInfo: cached.debugInfo,
-          test,
-          testFile: testFilePath,
-          poolOptions,
-          port: testWorkerPort,
-          testTaskId: testTask.id,
-          testTaskName: testTask.name,
-          suppressFailureReporting: isFailsafeMode,  // Only true for failsafe mode
-        };
+      const executeTask: ExecuteTestTask = {
+        collectCoverage: project.config.coverage.enabled,
+        binary: cachedContext.binary,
+        sourceMap: cachedContext.sourceMap,
+        debugInfo: cachedContext.debugInfo,
+        test,
+        testFile: cachedContext.testFilePath,
+        poolOptions,
+        port: testWorkerPort,
+        testTaskId: testTask.id,
+        testTaskName: testTask.name,
+        testTaskMeta: testTask.meta
+      };
 
-        const result: ExecuteTestResult = await pool.run(executeTask, {
-          name: 'executeTestWithCoverage',
-          transferList: [testWorkerPort],
-        }) as ExecuteTestResult;
+      const result: ExecuteTestResult = await pool.run(executeTask, {
+        name: 'executeTest',
+        transferList: [testWorkerPort],
+        signal
+      });
 
-        return { testTask, result: result.result };
-      } else {
-        // COVERAGE DISABLED: Execute on clean binary without coverage
-        debug(`[Pipeline ${basename(testFilePath)}] Executing test "${test.name}" without coverage on clean binary`);
-        const executeTask: ExecuteTestTask = {
-          binary: cached.clean,
-          sourceMap: cached.sourceMap,
-          test,
-          testFile: testFilePath,
-          poolOptions,
-          port: testWorkerPort,
-          testTaskId: testTask.id,
-          testTaskName: testTask.name,
-        };
-
-        const result: ExecuteTestResult = await pool.run(executeTask, {
-          name: 'executeTest',
-          transferList: [testWorkerPort],
-        }) as ExecuteTestResult;
-
-        return { testTask, result: result.result };
-      }
+      return { testTask, result };
     } finally {
       testWorkerPort.close();
       testPoolPort.close();
@@ -393,113 +353,10 @@ async function executePhase3Tests(
   // Wait for all tests in this file to complete
   const testResults = await Promise.all(testExecutions);
 
-  debug(`[Pipeline ${basename(testFilePath)}] Phase 3 (execute) complete`);
+  debug(`[Pipeline] ${base} - Phase 3 (execute) complete`);
+  debug(`[TIMING] ${base} - test execution: ${(performance.now() - testFileSuiteStart).toFixed(2)}ms`);
 
   return testResults;
-}
-
-/**
- * Phase 4: Failsafe mode - Re-run failed tests on clean binary
- * Provides accurate error messages by re-running failures
- * Warns if tests pass on clean after failing on instrumented (instrumentation issue)
- * Returns updated test results with clean binary results for failed tests
- * Throws on re-run execution failure
- *
- * @param testFilePath - Path to test file (absolute path)
- * @param cached - Cached compilation
- * @param testResults - Results from Phase 3 (instrumented binary)
- * @param project - Test project
- * @param pool - Tinypool instance
- * @returns Updated test results with clean binary results for failed tests
- * @throws Error on re-run execution failure
- */
-async function executePhase4FailsafeRerun(
-  testFilePath: string,
-  cached: CachedCompilation,
-  testResults: PoolTestResult[],
-  project: TestProject,
-  pool: Tinypool
-): Promise<PoolTestResult[]> {
-  // set debug mode within this async context
-  const poolOptions = getPoolOptions(project.config);
-  setDebugMode(poolOptions.debug);
-
-  debug(`[Pipeline ${basename(testFilePath)}] Phase 4 (failsafe rerun): checking for failures`);
-
-  // Check for failures in Phase 3 results
-  const failedResults = testResults.filter(({ result }) => !result.passed);
-
-  if (failedResults.length > 0) {
-    // Failures detected - re-run failed tests on clean binary for accurate error messages
-    debug(`[Pipeline ${basename(testFilePath)}] Phase 4 (failsafe rerun): ${failedResults.length} failures detected, re-running on clean binary`);
-
-    // Re-run only failed tests on clean binary and collect their results
-    const rerunExecutions = failedResults.map(async ({ testTask, result: _originalResult }) => {
-      // Match test task to discovered test by unique id
-      const test = cached.discoveredTests[testTask.id];
-      if (!test) {
-        throw new Error(`Could not find discovered test for rerun: ${testTask.name}`);
-      }
-
-      const { workerPort: rerunPort, poolPort: rerunPoolPort } = createWorkerChannel(project, false);
-
-      const rerunTask: ExecuteTestTask = {
-        binary: cached.clean,
-        sourceMap: cached.sourceMap,
-        test,
-        testFile: testFilePath,
-        poolOptions,
-        port: rerunPort,
-        testTaskId: testTask.id,
-        testTaskName: testTask.name,
-        suppressPrepareReporting: true,  // test-prepare already reported in Phase 3
-      };
-
-      try {
-        const cleanResult = await pool.run(rerunTask, {
-          name: 'executeTest',
-          transferList: [rerunPort],
-        }) as ExecuteTestResult;
-
-        return { testTask, result: cleanResult.result };
-      } finally {
-        rerunPort.close();
-        rerunPoolPort.close();
-      }
-    });
-
-    // Wait for all re-runs to complete and collect results
-    const cleanBinaryResults = await Promise.all(rerunExecutions);
-
-    debug(`[Pipeline ${basename(testFilePath)}] Phase 4 (failsafe rerun): complete, re-ran ${cleanBinaryResults.length} previously failed tests to capture errors`);
-
-    // Check if any tests passed on clean after failing on instrumented
-    // This indicates potential instrumentation issues
-    for (const { testTask, result } of cleanBinaryResults) {
-      if (result.passed) {
-        // Test failed on instrumented but passed on clean - warn user
-        console.warn(
-          `⚠️ Warning: Test '${testTask.name}' failed on instrumented binary but passed on clean binary.\n` +
-          `  This may indicate an issue with coverage instrumentation affecting test behavior.\n` +
-          `  File: ${testFilePath}`
-        );
-      }
-    }
-
-    // Build map of clean binary results by testTask for efficient lookup
-    const cleanResultsByTask = new Map(
-      cleanBinaryResults.map(({ testTask, result }) => [testTask, result])
-    );
-
-    // Return updated results: use clean binary results for failed tests, keep Phase 3 results for passed tests
-    return testResults.map((originalResult) => {
-      const cleanResult = cleanResultsByTask.get(originalResult.testTask);
-      return cleanResult ? { testTask: originalResult.testTask, result: cleanResult } : originalResult;
-    });
-  } else {
-    debug(`[Pipeline ${basename(testFilePath)}] Phase 4 (failsafe rerun): no failures, skipping clean binary re-run`);
-    return testResults;
-  }
 }
 
 /**
@@ -517,7 +374,7 @@ async function executePhase4FailsafeRerun(
  * @param pool - Tinypool instance
  * @throws Error on summary reporting failure
  */
-async function executePhase5FinalizeFileResults(
+async function pipelineDispatchReportFileResults(
   testFilePath: string,
   fileTask: RunnerTestFile,
   testResults: PoolTestResult[],
@@ -527,6 +384,9 @@ async function executePhase5FinalizeFileResults(
   // set debug mode within this async context
   const poolOptions = getPoolOptions(project.config);
   setDebugMode(poolOptions.debug);
+  const base = basename(testFilePath);
+
+  const reportingStart = performance.now();
 
   // Update file task with final results based on actual returned test results
   const fileEndTime = Date.now();
@@ -548,32 +408,80 @@ async function executePhase5FinalizeFileResults(
   }
 
   // Report file summary (suite-finished + final flush)
-  debug(`[Pipeline ${basename(testFilePath)}] Calling reportFileSummary - file duration: ${fileTask.result?.duration}ms`);
+  debug(`[Pipeline] ${base} - Calling reportFileResults - file duration: ${fileTask.result?.duration}ms`);
   for (const tr of testResults) {
-    debug(`[Pipeline ${basename(testFilePath)}]     ${tr.testTask.name}: ${tr.result.duration}ms`);
+    debug(`[Pipeline] ${base} -   "${tr.testTask.name}": ${tr.result.duration}ms`);
   }
 
-  const { workerPort: summaryPort, poolPort: summaryPoolPort } = createWorkerChannel(project, false);
+  const { workerPort, poolPort } = createWorkerChannel(project, false);
 
   try {
-    const summaryTask: ReportFileSummaryTask = {
+    const summaryTask: ReportFileResultsTask = {
       testFile: testFilePath,
       poolOptions,
-      port: summaryPort,
+      port: workerPort,
       fileTask,
       coverageData: pipelineCoverageByTestFile.get(testFilePath),
     };
 
     await pool.run(summaryTask, {
-      name: 'reportFileSummary',
-      transferList: [summaryPort],
+      name: 'reportFileResults',
+      transferList: [workerPort],
     });
-    debug(`[Pipeline ${basename(testFilePath)}] reportFileSummary completed`);
+
+    debug(`[Pipeline] ${base} - reportFileResults completed`);
+    debug(`[TIMING] ${base} - reportFileResults: ${(performance.now() - reportingStart).toFixed(2)}ms`);
+
   } finally {
-    summaryPort.close();
-    summaryPoolPort.close();
+    workerPort.close();
+    poolPort.close();
   }
 }
+
+async function pipelineDispatchReportFileFailure(
+  testFilePath: string,
+  project: TestProject,
+  pool: Tinypool,
+  poolAbortController: AbortController,
+  err: AssemblyScriptTestError,
+  isCollectTestsMode: boolean,
+): Promise<void> {
+  const poolOptions = getPoolOptions(project.config);
+  setDebugMode(poolOptions.debug);
+  const base = basename(testFilePath);
+
+  const reportingStart = performance.now();
+
+  debug(`[Pipeline] ${base} - Calling reportFileFailure | isCollectTestsMode: ${isCollectTestsMode}`);
+
+  const { workerPort, poolPort } = createWorkerChannel(project, isCollectTestsMode);
+
+  try {
+    const taskData: ReportFileFailureTask = {
+      error: err,
+      testFile: testFilePath,
+      poolOptions,
+      port: workerPort,
+      projectName: project.config.name,
+      projectRoot: project.config.root,
+      // TODO pass through compileTimings
+    };
+
+    await pool.run(taskData, {
+      name: 'reportPipelineFileFailure',
+      transferList: [workerPort],
+      signal: poolAbortController.signal
+    });
+
+    debug(`[Pipeline] ${base} - reportFileFailure completed`);
+    debug(`[TIMING] ${base} - reportFileFailure: ${(performance.now() - reportingStart).toFixed(2)}ms`);
+
+  } finally {
+    workerPort.close();
+    poolPort.close();
+  }
+}
+
 
 // ============================================================================
 // Orchestration Functions
@@ -581,7 +489,7 @@ async function executePhase5FinalizeFileResults(
 
 /**
  * Collect tests via per-file pipeline: compile → discover
- * Called for `vitest list` command and in watch mode
+ * Called for `vitest list` command
  *
  * @param specs - Test specifications from Vitest
  * @param config - Vitest resolved config
@@ -591,186 +499,283 @@ async function executePhase5FinalizeFileResults(
 async function collectTests(
   specs: TestSpecification[],
   config: ResolvedConfig,
-  cache: CompilationCache,
-  pool: Tinypool
+  pool: Tinypool,
+  poolAbortController: AbortController,
 ): Promise<void> {
   // set debug mode within this async context
   const poolOptions = getPoolOptions(config);
   setDebugMode(poolOptions.debug);
+  const isCollectTestsMode = true;
+  const { signal } = poolAbortController;
+  
+  debug('[Pool] -------- collectTests called for', specs.length, 'specs --------');
 
-  debug('[Pool] collectTests called for', specs.length, 'specs');
+  debug('[Pool] Clearing compilation cache before collectTests run');
+  pipelineCompileCacheByTestFile.clear();
 
   // Create pipeline for each file
-  const filePipelines: Promise<{
-    spec: TestSpecification,
-    tests: DiscoveredTests
-  }>[] = specs.map(async (spec: TestSpecification) => {
+  const filePipelines: Promise<void>[] = specs.map(async (spec: TestSpecification) => {
+    const pipelineStart = performance.now();
     const testFilePath: string = spec.moduleId; // absolute path
+    const base = basename(testFilePath);
+    const poolOptions = getPoolOptions(spec.project.config);
+
+    // set debug mode within this async context
+    setDebugMode(poolOptions.debug);
+    debug(`[Pipeline] ${base} - Starting pipeline at ${pipelineStart} for "${testFilePath}"`);
 
     try {
-      // PHASE 1: Compile
-      const cached = await executePhase1Compilation(testFilePath, spec.project.config, cache, true);
-
-      // PHASE 2: Discover
-      await executePhase2Discovery(testFilePath, cached, spec, pool, true);
-
-      return { spec, tests: cached.discoveredTests };
-
-    } catch (error) {
-      // Check if cache validation failure (acceptable, return empty list)
-      if (error instanceof Error && error.message.startsWith(`${CACHE_INVALIDATED_ERROR_CODE}`)) {
-        debug(`[Pipeline ${basename(testFilePath)}] ${error.message}`);
-        return { spec, tests: {} };
+      const oldCompilation = pipelineCompileCacheByTestFile.get(testFilePath);
+      if (oldCompilation) {
+        debug(`[Pipeline] ${base} -   Deleting pipeline cache for existing spec (started at: ${oldCompilation.pipelineStart}) before re-run`);
+        pipelineCompileCacheByTestFile.delete(testFilePath);
+      } else {
+        debug(`[Pipeline] ${base} -   NO existing pipeline cache for spec`);
       }
 
-      // Compilation or discovery failures: log and return empty list
-      debug(`[Pool] Pipeline failed for ${testFilePath}:`, error);
-      return { spec, tests: {} };
+      const compileResult = await pipelineQueueCompilation(testFilePath, spec.project.config, signal, isCollectTestsMode);
+      const newCompilation: CachedCompilation = {
+        pipelineStart,
+        testFilePath,
+        ...compileResult,
+        discoveredTests: {}
+      };
+      pipelineCompileCacheByTestFile.set(testFilePath, newCompilation);
+
+      const discoverResults = await pipelineDispatchRunDiscovery(spec, newCompilation, pool, signal, isCollectTestsMode);
+      newCompilation.discoverTimings = discoverResults.discoverTimings;
+      newCompilation.discoveredTests = discoverResults.tests;
+    } catch (error) {
+      const poolError = createPoolError(`${base} - collectTests file pipeline failure`, error);
+      const testError = getTestError(poolError);
+
+      if (isAbortErrorString(poolError.name)) {
+        debug(`[Pipeline] ${base} - collectTests file pipeline aborted during run`);
+        // swallow abort error, this pipeline is done
+        return;
+      }
+      
+      try {
+        // report a failure for this suite
+        await pipelineDispatchReportFileFailure(testFilePath, spec.project, pool, poolAbortController, testError, isCollectTestsMode);
+      } catch (reportErr) {
+        const poolReportError = createPoolError(`${base} - collectTests file pipeline failure reporting failure`, reportErr);
+        if (isAbortErrorString(poolReportError.name)) {
+          debug(`[Pipeline] ${base} - collectTests file pipeline aborted during failure reporting`);
+          // swallow abort error, this pipeline is done
+          return;
+        }
+
+        throw reportErr;
+      }
+
+      // collectTests mode doesn't use normal console reporters, and only outputs errors when errors occur
+      // so rethrow to stop the whole run when an error has encountered. this is different than runTests.
+      throw poolError;
+    } finally {
+      debug(`[Pipeline] ${base} - Finished Pipeline Execution`);
     }
   });
 
-  // Wait for all file pipelines to complete
-  await Promise.all(filePipelines);
-
-  debug('[Pool] collectTests completed');
+  try {
+    await Promise.all(filePipelines);
+    debug('[Pipeline] collectTests - All file pipelines resolved');
+  } catch (err) {
+    debug('[Pipeline] collectTests - File pipeline REJECTED, Calling Pool Abort to bail this collectTests run');
+    poolAbortController.abort();
+  }
+  
+  debug('[Pool] -------- collectTests completed --------');
 }
 
 /**
- * Run tests using true pipeline parallelism
+ * Run tests using pipeline parallelism
+ * 
  * Each file flows through its pipeline independently: compile → discover → execute tests
- * Pool handles suite-level RPC events, workers handle test-level events
  *
  * @param specs - Test specifications from Vitest
  * @param config - Vitest resolved config
  * @param cache - Compilation cache instance
  * @param pool - Tinypool instance
- * @param invalidates - Optional list of invalidated file paths
+ * @param invalidatedFiles - Optional list of invalidated file paths
  */
 async function runTests(
   specs: TestSpecification[],
   config: ResolvedConfig,
-  cache: CompilationCache,
   pool: Tinypool,
-  invalidates?: string[]
+  poolAbortController: AbortController,
+  _invalidatedFiles?: string[]
 ): Promise<void> {
   // set debug mode within this async context
   const opts = getPoolOptions(config);
   setDebugMode(opts.debug);
+  const isCollectTestsMode = false;
 
-  debug('[Pool] runTests called for', specs.length, 'specs');
-  debug('[Pool] Invalidated files:', invalidates?.length ?? 0);
+  debug('[Pool] -------- runTests called for', specs.length, 'specs --------');
+
+  // TODO - invalidation
+  // const invalidCount = invalidatedFiles?.length ?? 0;
+  // debug('[Pool] Invalidated files:', invalidCount);
+
+  // if (invalidCount > 0) {
+  //   debug('[Pool] Clearing coverage for invaldated files:');
+  //   for (let i = 0; i < invalidCount; i++) {
+  //     const file = invalidatedFiles![i]!;
+  //     const clearedCoverage = pipelineCoverageByTestFile.delete(file);
+  //     if (clearedCoverage) {
+  //       debug(`[Pool]   [${i}] Cleared pipeline coverage cache for: "${file}"`);
+  //     } else {
+  //       debug(`[Pool]   [${i}] No pipeline coverage found in cache to clear for: "${file}"`);
+  //     }
+  //   }
+  // }
 
   // Clear cache for invalidated files and bump generations
-  if (invalidates) {
-    cache.invalidate(invalidates);
-  }
+  // if (invalidatedFiles) {
+  //   debug('[Pool] Clearing compilation cache for invaldated files');
+  //   cache.invalidate(invalidatedFiles);
+  // }
 
   // Create pipeline for each file
   const filePipelines: Promise<void>[] = specs.map(async (spec: TestSpecification) => {
+    const pipelineStart = performance.now();
     const testFilePath: string = spec.moduleId; // absolute path
+    const base = basename(testFilePath);
     const poolOptions = getPoolOptions(spec.project.config);
+    const { signal } = poolAbortController;
 
     // set debug mode within this async context
     setDebugMode(poolOptions.debug);
-    debug(`[Pipeline ${basename(testFilePath)}] Starting pipeline for ${testFilePath}`);
+    debug(`[Pipeline] ${base} - Starting pipeline at ${pipelineStart} for "${testFilePath}"`);
 
     try {
-      // PHASE 1: Compile (happens in in main thread, not worker, but doesn't block)
+      const oldCompilation = pipelineCompileCacheByTestFile.get(testFilePath);
+      if (oldCompilation) {
+        debug(`[Pipeline] ${base} -   Deleting pipeline cache for existing spec (started at: `
+          + `${oldCompilation.pipelineStart} tests: ${Object.keys(oldCompilation.discoveredTests).length}) before re-run`
+        );
+        
+        pipelineCompileCacheByTestFile.delete(testFilePath);
+      } else {
+        debug(`[Pipeline] ${base} -   NO existing pipeline cache for spec`);
+      }
+
       const p1Start = Date.now();
-      const cached = await executePhase1Compilation(testFilePath, config, cache, false);
+      const compileResult = await pipelineQueueCompilation(testFilePath, spec.project.config, signal, isCollectTestsMode);
       const p1Ms = Date.now() - p1Start;
-      debug(`[Pipeline ${basename(testFilePath)}] Phase 1 Pipeline Timing: ${p1Ms}ms`);
+      debug(`[TIMING] ${base} - Pipeline Phase 1: ${p1Ms}ms`);
+
+      const newCompilation: CachedCompilation = {
+        pipelineStart,
+        testFilePath,
+        ...compileResult,
+        discoveredTests: {}
+      };
+      pipelineCompileCacheByTestFile.set(testFilePath, newCompilation);
 
       // PHASE 2: Discover (with filtering applied in worker)
       const p2Start = Date.now();
-      const fileTask = await executePhase2Discovery(testFilePath, cached, spec, pool, false);
+      const discoverResults = await pipelineDispatchRunDiscovery(spec, newCompilation, pool, signal, isCollectTestsMode);
       const p2End = Date.now();
       const p2Ms = p2End - p2Start;
-      debug(`[Pipeline ${basename(testFilePath)}] Phase 2 Pipeline Timing: ${p2Ms}ms`);
+      debug(`[TIMING] ${base} - Pipeline Phase 2: ${p2Ms}ms`);
+      debug(`[Pipeline] ${base} - Phase 2 complete, discovered ${Object.keys(newCompilation.discoveredTests).length} tests`);
 
-      if (!fileTask) {
-        throw new Error(`Phase 2 discovery did not return file task for ${testFilePath}`);
-      }
-
-      debug(`[Pipeline ${basename(testFilePath)}] Phase 2 complete, found ${Object.keys(cached.discoveredTests).length} tests`);
-
-      // Get coverage mode
-      const { isFailsafeMode } = getCoverageModeFlags(config);
+      newCompilation.discoverTimings = discoverResults.discoverTimings;
+      newCompilation.discoveredTests = discoverResults.tests;
 
       // Extract test tasks from file task
-      const testTasks: RunnerTestCase[] = fileTask.tasks as RunnerTestCase[];
+      const testTasks = discoverResults.fileTask.tasks as RunnerTestCase[];
 
       // Filter to only execute non-skipped tests
-      const testsToExecute = testTasks.filter(t => t.mode !== 'skip');
-      const skippedCount = testTasks.length - testsToExecute.length;
+      const testTasksToExecute = testTasks.filter(t => t.mode !== 'skip');
+      const skippedCount = testTasks.length - testTasksToExecute.length;
 
       if (skippedCount > 0) {
-        debug(`[Pipeline ${basename(testFilePath)}] Skipping ${skippedCount}/${testTasks.length} tests due to testNamePattern filter`);
+        debug(`[Pipeline] ${base} - Skipping ${skippedCount}/${testTasks.length} tests`);
       }
 
       // PHASE 3: Execute non-skipped tests
       const p3Start = Date.now();
-      fileTask.result = { state: 'run', startTime: Date.now() };
-      const testResults = await executePhase3Tests(
-        testFilePath,
-        cached,
-        testsToExecute,
-        spec.project,
-        pool,
-        isFailsafeMode
-      );
+      discoverResults.fileTask.result = { state: 'run', startTime: Date.now() };
+      const testResults = await pipelineDispatchRunTests(newCompilation, testTasksToExecute, spec.project, pool, signal);
       const p3Ms = Date.now() - p3Start;
-      debug(`[Pipeline ${basename(testFilePath)}] Phase 3 Pipeline Timing: ${p3Ms}ms`);
+      debug(`[TIMING] ${base} - Pipeline Phase 3: ${p3Ms}ms`);
 
-      // Aggregate per-test coverage into per-file coverage for phase 5 reporting
-      if (isCoverageEnabled(config)) {
+      // Aggregate per-test result coverage into per-test-file coverage for file-level reporting
+      if (spec.project.config.coverage) {
         const covStart = Date.now();
 
-        aggregateTestCoverageForFile(testFilePath, testResults);
+        aggregateCoverageForTestFile(testFilePath, testResults);
 
         const covMs = Date.now() - covStart;
-        debug(`[Pipeline ${basename(testFilePath)}] Post Phase 3 - Coverage Aggregation PipeLine Timing: ${covMs}ms`);
+        debug(`[TIMING] ${base} - Pipeline Post-Phase 3 Coverage Aggregation: ${covMs}ms`);
       }
 
-      // PHASE 4: Failsafe reruns - returns updated results with clean binary results for failures
-      let finalTestResults = testResults;
-      if (isFailsafeMode) {
-        const p4Start = Date.now();
-        finalTestResults = await executePhase4FailsafeRerun(testFilePath, cached, testResults, spec.project, pool);
-        const p4Ms = Date.now() - p4Start;
-        debug(`[Pipeline ${basename(testFilePath)}] Phase 4 Pipeline Timing: ${p4Ms}ms`);
-      }
-
-      // PHASE 5: Finalize and report - use final test results (Phase 4 in failsafe, Phase 3 in integrated)
+      // PHASE 5: Finalize and report
       const p5Start = Date.now();
-      await executePhase5FinalizeFileResults(testFilePath, fileTask, finalTestResults, spec.project, pool);
+      await pipelineDispatchReportFileResults(testFilePath, discoverResults.fileTask, testResults, spec.project, pool);
       const p5End = Date.now();
       const p5Ms = p5End - p5Start;
-      debug(`[Pipeline ${basename(testFilePath)}] Phase 5 Pipeline Timing: ${p5Ms}ms`);
 
-      debug(`[Pipeline ${basename(testFilePath)}] Phase 1-2 Pipeline Timing: ${p2End - p1Start}ms`);
-      debug(`[Pipeline ${basename(testFilePath)}] Phase 3-5 Pipeline Timing: ${p5End - p3Start}ms`);
-      debug(`[Pipeline ${basename(testFilePath)}] Total Pipeline Timing: ${p5End - p1Start}ms`);
-      
-      debug(`[Pipeline ${basename(testFilePath)}] Finished Pipeline for ${testFilePath}`);
-
+      debug(() => (
+          `[TIMING] ${base} - Pipeline Phase 5: ${p5Ms}ms\n`
+        + `[TIMING] ${base} - Pipeline Phase 1-2 (prep): ${p2End - p1Start}ms\n`
+        + `[TIMING] ${base} - Pipeline Phase 3-5 (exec/report): ${p5End - p3Start}ms\n`
+        + `[TIMING] ${base} - Pipeline Total: ${p5End - p1Start}ms`
+      ));
     } catch (error) {
-      // Check if cache validation failure (acceptable, silent)
-      if (error instanceof Error && error.message.startsWith(`${CACHE_INVALIDATED_ERROR_CODE}`)) {
-        debug(`[Pipeline ${basename(testFilePath)}] ${error.message}`);
+      const poolError = createPoolError(`${base} - runTests file pipeline failure`, error);
+      const testError = getTestError(poolError);
+
+      if (isAbortErrorString(poolError.name)) {
+        debug(`[Pipeline] ${base} - runTests file pipeline aborted during run`);
+        // swallow abort error, this pipeline is done
         return;
       }
+      
+      try {
+        // report a failure for this suite
+        await pipelineDispatchReportFileFailure(testFilePath, spec.project, pool, poolAbortController, testError, isCollectTestsMode);
+      } catch (reportErr) {
+        const poolReportError = createPoolError(`${base} - runTests file pipeline failure reporting failure`, reportErr);
+        if (isAbortErrorString(poolReportError.name)) {
+          debug(`[Pipeline] ${base} - runTests file pipeline aborted during failure reporting`);
+          // swallow abort error, this pipeline is done
+          return;
+        }
 
-      // All other errors: log to console and exit pipeline
-      console.error(`[Pool] Error in pipeline for ${testFilePath}:`, error);
+        throw reportErr;
+      }
+
+      // all errors either ignored, sent as a file failure, or thrown up if file failure report failed
       return;
+    } finally {
+      debug(`[Pipeline] ${base} - Finished Pipeline Execution`);
     }
   });
 
-  // Wait for all file pipelines to complete
-  await Promise.all(filePipelines);
+  const results = await Promise.allSettled(filePipelines);
+  const unexpectedErrors: any[] = [];
+  results.forEach(r => {
+    if (r.status === 'rejected') {
+      unexpectedErrors.push(r.reason);
+    }
+  });
 
-  debug('[Pool] runTests completed');
+  if (unexpectedErrors.length === 0) {
+    debug('[Pipeline] runTests - All file pipelines resolved');
+  } else {
+    debug('[Pipeline] runTests - Some file pipelines REJECTED unexpectedly. Throwing error(s) to vitest:', unexpectedErrors);
+    throw new AssemblyScriptPoolError(
+      'Unexpected AssemblyScript Pool Error(s) Encountered',
+      POOL_ERROR_NAMES.PoolError,
+      undefined,
+      unexpectedErrors
+    );
+  }
+
+  debug('[Pool] -------- runTests completed --------');
 }
 
 export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
@@ -787,23 +792,27 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
 
   // Worker path resolution - worker must be pre-compiled JavaScript
   if (!existsSync(WORKER_PATH)) {
-    throw new Error(`Worker file not found at ${WORKER_PATH}`);
+    throw new AssemblyScriptPoolError(`Worker file not found at ${WORKER_PATH}`, POOL_ERROR_NAMES.PoolError);
   }
 
   // In multi-project mode, ctx.config is the global config, not the project-specific config
   // We need to find our project in ctx.projects to get project-specific poolOptions
   let projectConfig = ctx.config;
   let multiProjectName;
-
+  
   if (ctx.projects && ctx.projects.length > 0) {
     // Multi-project mode: find the first project using this pool
-    const project = ctx.projects.find(p => {
-      return typeof p.config.pool === 'string' && !!p.config.poolOptions?.assemblyScript;
-    });
+    const project = ctx.projects.find(p => p.config.pool.includes(ASSEMBLYSCRIPT_POOL_NAME));
 
     if (project) {
       projectConfig = project.config;
       multiProjectName = project.name;
+
+      // it appears the individual project's ResolvedConfig doesn't
+      // get the global coverage section, probably because we're not supposed to look at it
+      // except in the coverage provider
+      // TODO confirm this
+      projectConfig.coverage = ctx.config.coverage;
     }
   }
 
@@ -811,18 +820,15 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   const poolOptions = getPoolOptions(projectConfig);
   setDebugMode(poolOptions.debug);
 
-  debug('[Pool] Initializing AssemblyScript pool');
+  debug('[Pool] Initializing AssemblyScript Pool');
 
   if (multiProjectName) {
-    debug('[Pool] Multi-project mode: Using `poolOptions.assemblyScript` from project', multiProjectName);
+    debug(`[Pool] Multi-project mode: Using \`poolOptions.assemblyScript\` from project: "${multiProjectName}"`);
   } else {
     debug('[Pool] Single-project mode: No project defines `poolOptions.assemblyScript`, using global config with AssemblyScript pool defaults');
   }
 
-  const compilationCache = createCompilationCache();
-
-  const cpus = os.availableParallelism?.() ?? os.cpus().length;
-  const maxThreads = poolOptions.maxThreads ?? Math.max(cpus - 1, 1);
+  const maxThreads = poolOptions.maxThreads ?? availableParallelism() - 1;
 
   debug('[Pool] Worker path:', WORKER_PATH);
   debug(`[Pool] Worker configuration - maxThreads: ${maxThreads}`);
@@ -837,26 +843,37 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
     isolateWorkers: false,
   });
 
+  // For explicitly terminating worker threads if needed
+  const poolAbortController = new AbortController();
+
+  // Usually ctrl+c in terminal
+  ctx.onCancel(reason => {
+    console.log(`[Pool] vitest onCancel received, calling AbortController:`, reason);
+    poolAbortController.abort();
+  });
+
   return {
     name: ASSEMBLYSCRIPT_POOL_NAME,
 
     // runs when executing vitest list
     async collectTests(specs: TestSpecification[]) {
-      return collectTests(specs, projectConfig, compilationCache, pool);
+      return collectTests(specs, projectConfig, pool, poolAbortController);
     },
 
     async runTests(specs: TestSpecification[], invalidates?: string[]) {
-      return runTests(specs, projectConfig, compilationCache, pool, invalidates);
+      return runTests(specs, projectConfig, pool, poolAbortController, invalidates);
     },
 
     // Cleanup when shutting down
     async close() {
+      debug('[Pool] AbortController called');
+      poolAbortController.abort();
       
       debug('[Pool] Tinypool destroyed');
       await pool.destroy();
       
-      debug('[Pool] Clearing cache');
-      compilationCache.clear();
+      debug('[Pool] Clearing caches');
+      pipelineCompileCacheByTestFile.clear();
       pipelineCoverageByTestFile.clear();
 
       debug('[Pool] Exiting');

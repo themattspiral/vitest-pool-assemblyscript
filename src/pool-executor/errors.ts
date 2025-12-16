@@ -6,64 +6,68 @@
  * file:line:column information for better developer experience.
  */
 
-import type { RawSourceMap } from 'source-map';
-import { basename } from 'node:path';
+import { SourceMapConsumer, type RawSourceMap } from 'source-map';
 import type { ParsedStack } from '@vitest/utils';
+import { basename } from 'node:path';
 
 import { createWebAssemblyCallSite } from './source-maps.js';
-import type { TestResult, AssemblyScriptTestError } from '../types.js';
-import { ERROR_NAMES } from '../types.js';
-import { debug } from '../utils/debug.mjs';
+import type { ExecuteTestResult, AssemblyScriptTestError } from '../types.js';
+import { POOL_ERROR_NAMES, POOL_INTERNAL_PATHS } from '../types.js';
+import { debug } from '../utils/debug.js';
 
 /**
- * Enhance error with source map locations
+ * Enhance error with source mapped locations
  *
  * Maps V8 WAT positions to AssemblyScript source locations using source maps.
  * Updates error message and stack trace with accurate file:line:column information.
  *
- * @param currentTest - Test result with raw call stack
+ * @param result - Test result with raw call stack
  * @param sourceMapJson - Parsed source map
  */
 export async function enhanceErrorWithSourceMap(
-  currentTest: TestResult,
-  sourceMapJson: RawSourceMap
+  result: ExecuteTestResult,
+  sourceMap: string
 ): Promise<void> {
-  if (!currentTest.rawCallStack || currentTest.rawCallStack.length === 0) {
+  if (!result.rawCallStack || result.rawCallStack.length === 0) {
     return;
   }
 
-  debug('[Executor] Mapping', currentTest.rawCallStack.length, 'call sites to source locations');
+  debug('[Executor] Mapping', result.rawCallStack.length, 'call sites to source locations');
 
-  const mappedStack = await Promise.all(
-    currentTest.rawCallStack.map(callSite =>
-      createWebAssemblyCallSite(callSite, sourceMapJson)
-    )
-  );
+  // Remove sourceRoot if present to prevent source-map library from prepending it to paths
+  //   AS compiler sets sourceRoot: "./output" which would make paths like "output/tests/..."
+  //   instead of "tests/..." - these paths don't exist and won't be found by Vitest
+  const sourceMapObj: RawSourceMap = JSON.parse(sourceMap);
+  delete sourceMapObj.sourceRoot;
+  const sourceMapConsumer = await new SourceMapConsumer(sourceMapObj);
+  const mappedStack = result.rawCallStack.map(callSite => createWebAssemblyCallSite(callSite, sourceMapConsumer));
+  sourceMapConsumer.destroy();
 
   // Filter out null results (non-WASM call sites)
-  currentTest.sourceStack = mappedStack.filter((cs): cs is NonNullable<typeof cs> => cs !== null);
+  result.sourceStack = mappedStack.filter((cs): cs is NonNullable<typeof cs> => cs !== null);
 
-  debug('[Executor] Mapped to', currentTest.sourceStack.length, 'source locations');
+  debug('[Executor] Mapped to', result.sourceStack.length, 'source locations');
 
   // Format error with source location
-  if (currentTest.error && currentTest.sourceStack.length > 0) {
-    const originalMessage = currentTest.error.message;
+  if (result.error && result.sourceStack.length > 0) {
+    const originalMessage = result.error.message;
 
     // Determine error type based on whether assertions failed
-    // assertionsFailed > 0 means this was an assert() failure
-    // assertionsFailed === 0 means this was a runtime crash (bounds, null, etc.)
-    const isAssertionFailure = currentTest.assertionsFailed > 0;
+    //   assertionsFailed > 0 means this was an assert() failure
+    //   assertionsFailed === 0 means this was a runtime crash (bounds, null, etc.)
+    const isAssertionFailure = result.assertionsFailed > 0;
 
     // Extract short function name from AS's namespace format
-    // "assembly/index/assert" -> "assert"
-    // "tests/assembly/file.as.test/myFunction" -> "myFunction"
+    //   "assembly/index/assert" → "assert"
+    //   "tests/assembly/file.as.test/myFunction" → "myFunction"
+    //   "tests/assembly/file.as.test/myClass#myMethod" → "myClass#myMethod"
     // Also strip filename prefix from anonymous functions:
-    // "sourcemap-accuracy-test.as.test~anonymous|1" -> "anonymous|1"
+    //   "sourcemap-accuracy-test.as.test~anonymous|1" → "anonymous|1"
     const getShortFunctionName = (fullName: string, fileName: string): string => {
       const parts = fullName.split('/');
       let shortName = parts[parts.length - 1] || fullName;
 
-      // Strip filename prefix if present (e.g., "basename~anonymous|1" -> "anonymous|1")
+      // Strip filename prefix if present (e.g., "basename~anonymous|1" → "anonymous|1")
       // Remove any extension from the filename
       const fileBasename = basename(fileName).replace(/\.[^.]+$/, '');
       if (shortName.startsWith(`${fileBasename}~`)) {
@@ -81,11 +85,10 @@ export async function enhanceErrorWithSourceMap(
     // Build parsed stack array for Vitest (it checks error.stacks first before parsing error.stack)
     // Vitest's printError will format these with colors and ❯ symbols
     // Note: source-map library returns line (1-indexed, already correct) and column (0-indexed, needs +1 for display)
-    const parsedStacks: ParsedStack[] = currentTest.sourceStack
+    const parsedStacks: ParsedStack[] = result.sourceStack
       .filter(frame => {
-        // Filter out internal assertion framework frames (like Vitest filters /vitest/dist/)
-        // For assertion errors, skip our internal assert() implementation
-        if (isAssertionFailure && frame.location.filePath.includes('/vitest-pool-assemblyscript/assembly/')) {
+        // Filter out internal assertion framework frames
+        if (isAssertionFailure && POOL_INTERNAL_PATHS.has(frame.location.filePath)) {
           return false;
         }
         return true;
@@ -94,19 +97,19 @@ export async function enhanceErrorWithSourceMap(
         method: getShortFunctionName(frame.functionName, frame.location.filePath),
         file: frame.location.filePath,
         line: frame.location.line,
-        column: frame.location.column + 1, // Convert from 0-indexed to 1-indexed for display
+        column: frame.location.column + 1, // Convert from raw 0-indexed to 1-indexed for display
       }));
 
     // Create enhanced error as plain object implementing AssemblyScriptTestError interface
     // This ensures all properties are enumerable and survive RPC serialization
     const enhancedError: AssemblyScriptTestError = {
-      name: isAssertionFailure ? ERROR_NAMES.AssertionError : ERROR_NAMES.RuntimeError,
+      name: isAssertionFailure ? POOL_ERROR_NAMES.AssertionFailure : POOL_ERROR_NAMES.WASMRuntimeError,
       message: enhancedMessage,
       stacks: parsedStacks,
     };
+    
+    result.error = enhancedError;
 
-    currentTest.error = enhancedError;
-
-    debug(`[Executor] Enhanced error with source location (type: ${enhancedError.name})`);
+    debug(`[Executor] Enhanced ${result.error.name} error with source locations`);
   }
 }

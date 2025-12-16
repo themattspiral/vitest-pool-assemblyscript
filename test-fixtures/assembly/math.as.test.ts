@@ -5,6 +5,8 @@
 
 import { test, assert } from '../../assembly';
 import { add, subtract, multiply, divide, addOneLiner, subtractOneLiner } from '../assembly-src/math';
+// import { subtract, multiply, divide, addOneLiner, subtractOneLiner } from '../assembly-src/math';
+// import { addOneLiner, subtractOneLiner } from '../assembly-src/math';
 
 test("addition works", () => {
   const sum: i32 = add(1, 1);

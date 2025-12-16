@@ -47,5 +47,6 @@
     "assembly",
     "test-fixtures/assembly/**/*",
     "test-fixtures/assembly-src/**/*",
+    "test/helpers/validator-mock-data.ts"
   ]
 }

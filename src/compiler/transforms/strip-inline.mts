@@ -1,21 +1,15 @@
 /**
  * AssemblyScript Transform to strip @inline decorators
  *
- * This transform removes @inline decorators from the AST during test compilation,
- * allowing coverage instrumentation to properly track function calls.
- *
  * Production code uses @inline decorators for performance. When functions are inlined,
- * coverage instrumentation can't track their execution.
- *
- * How this transform works:
+ * coverage instrumentation can't track their execution. This transform removes @inline
+ * decorators from the AST during test compilation, allowing coverage instrumentation
+ * to properly track function calls.
+ * 
  * - Hooks into the AssemblyScript compiler's `afterParse` lifecycle
  * - Walks through all parsed source files before compilation begins
  * - Uses shared ASTVisitor to recurse into ALL node types
- * - Strips @inline decorators from any node that has them
- *
- * USAGE:
- * Add to AssemblyScript compiler flags:
- *   --transform ./src/transforms/strip-inline.mjs
+ * - Strips @inline decorators from any node that has them in user code
  *
  * @see https://www.assemblyscript.org/compiler.html#transforms
  * @see https://github.com/AssemblyScript/assemblyscript/blob/main/src/ast.ts
@@ -25,7 +19,7 @@ import { Node, Parser, Source, DecoratorNode } from 'assemblyscript';
 import { Transform } from 'assemblyscript/transform';
 
 import { ASTVisitor } from '../../utils/ast-visitor.js';
-import { ASDecoratorKind, ASSourceKind } from '../../types.js';
+import { ASSEMBLYSCRIPT_LIB_PREFIX, ASDecoratorKind, ASSourceKind } from '../../types.js';
 
 /**
  * Visitor that strips @inline decorators from nodes
@@ -57,10 +51,10 @@ class StripInlineTransform extends Transform {
   afterParse(_parser: Parser): void {
     const sources = (this as Transform).program.sources;
 
-    // Filter to user source files only (exclude ASC stdlib, etc)
+    // Filter to user source files only
     const userSources = sources.filter((source: Source) =>
       (source.sourceKind === ASSourceKind.User || source.sourceKind === ASSourceKind.UserEntry)
-      && !source.normalizedPath.startsWith('~lib/')
+      && !source.normalizedPath.startsWith(ASSEMBLYSCRIPT_LIB_PREFIX)
     );
 
     for (const source of userSources) {

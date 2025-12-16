@@ -7,9 +7,10 @@
 
 import type { MessagePort } from 'node:worker_threads';
 import type { RuntimeRPC } from 'vitest';
-import type { RunnerTestFile, RunnerTestCase } from 'vitest/node';
-import type { BirpcReturn } from 'birpc';
 import type { TestError } from '@vitest/utils';
+import type { RunnerTestFile, RunnerTestCase, ResolvedCoverageOptions } from 'vitest/node';
+import type { BirpcReturn } from 'birpc';
+import { TaskMeta } from '@vitest/runner/types';
 
 // ============================================================================
 // Constants
@@ -17,7 +18,11 @@ import type { TestError } from '@vitest/utils';
 
 export const ASSEMBLYSCRIPT_POOL_NAME = 'vitest-pool-assemblyscript';
 
-export const COVERAGE_MEMORY_PAGES_MAX = 4;
+export const POOL_INTERNAL_PATHS = new Set([
+  'assembly/index.ts'
+]);
+
+export const ASSEMBLYSCRIPT_LIB_PREFIX = '~lib/';
 
 
 // ============================================================================
@@ -131,53 +136,53 @@ export const ASSourceKind = {
 // ============================================================================
 
 /**
- * Error names for AssemblyScript test failures
+ * Error names for AssemblyScript pool failures
  */
-export const ERROR_NAMES = {
-  AssertionError: 'AssertionError',
-  RuntimeError: 'RuntimeError',
+export const POOL_ERROR_NAMES = {
+  // test errors
+  AssertionFailure: 'AssertionFailure',
+  WASMRuntimeError: 'WASMRuntimeError',
+  
+  // pool errors
+  CompilationError: 'CompilationError',
+  WASMInstrumentationError: 'WASMInstrumentationError',
+  WASMExecutionHarnessError: 'WASMExecutionHarnessError',
+  HybridCoverageProviderError: 'HybridCoverageProviderError',
+  PoolError: 'PoolError',
+  PoolRunAborted: 'PoolRunAborted',
 } as const;
 
 /**
- * Error name type derived from ERROR_NAMES values
+ * Error name type derived from POOL_ERROR_NAMES values
  */
-export type ErrorName = typeof ERROR_NAMES[keyof typeof ERROR_NAMES];
+export type PoolErrorName = typeof POOL_ERROR_NAMES[keyof typeof POOL_ERROR_NAMES];
 
 /**
- * Extended TestError with required, strictly-typed name field
+ * Extended Error with required, strictly-typed name field.
+ * Thrown internally for all pool errors.
  */
-export type AssemblyScriptTestError = TestError & { name: ErrorName };
+export interface AssemblyScriptPoolError extends Error {
+  name: PoolErrorName;
+}
+
+export class AssemblyScriptPoolError extends Error implements AssemblyScriptPoolError {
+  constructor(message: string, name: PoolErrorName, stack?: string, cause?: any) {
+    super(message);
+    this.name = name;
+    this.stack = stack;
+    this.cause = cause;
+  }
+}
+
+/**
+ * Extended TestError with required, strictly-typed name field.
+ * Serializable error format constructred to report Test/Suite failures to vitest.
+ */
+export type AssemblyScriptTestError = TestError & { name: PoolErrorName };
 
 // ============================================================================
 // Configuration & Options
 // ============================================================================
-
-/**
- * Coverage mode options
- */
-export const COVERAGE_MODES = {
-  Failsafe: 'failsafe',
-  Integrated: 'integrated',
-} as const;
-
-/**
- * Coverage mode type derived from COVERAGE_MODES values
- */
-export type CoverageMode = typeof COVERAGE_MODES[keyof typeof COVERAGE_MODES];
-
-/**
- * Coverage mode flags for easy consumption in conditional logic
- */
-export interface CoverageModeFlags {
-  /** True if coverage is enabled (from Vitest's coverage.enabled config) */
-  isCoverageEnabled: boolean;
-  /** The actual coverage mode */
-  mode: CoverageMode;
-  /** True if mode is 'integrated' */
-  isIntegratedMode: boolean;
-  /** True if mode is 'failsafe' */
-  isFailsafeMode: boolean;
-}
 
 /**
  * AssemblyScript pool configuration options
@@ -185,15 +190,6 @@ export interface CoverageModeFlags {
 export interface AssemblyScriptPoolOptions {
   /** Enable verbose debug logging */
   debug?: boolean;
-
-  /**
-   * Coverage collection mode (only applies when test.coverage.enabled is true):
-   * - 'failsafe': Smart re-run - Run instrumented first, re-run only failures on clean (default, optimal)
-   * - 'integrated': Single run - Instrumented only (fast, broken error locations on failure)
-   *
-   * @default 'failsafe'
-   */
-  coverageMode?: CoverageMode;
   /**
    * Strip `@inline` decorators during compilation to improve error message and coverage accuracy
    *
@@ -207,12 +203,41 @@ export interface AssemblyScriptPoolOptions {
   /**
    * Maximum number of worker threads
    *
-   * Defaults to Math.max(cpus - 1, 1)
+   * Defaults to os.availableParallelism() - 1
    */
   maxThreads?: number;
+
+  coverageMemoryPagesMin?: number;
+  coverageMemoryPagesMax?: number;
 }
 
-export const AS_POOL_FIELDS_WITH_DEFAULTS = ['debug', 'coverageMode', 'stripInline'] as const;
+/**
+ * HybridCoverageProvider configurations options, applied to config's coverage section
+ * with module augmentation. 
+ */
+export interface HybridProviderOptions {
+  provider: 'custom',
+  customProviderModule: string;
+
+  /**
+   * Glob patterns for AssemblyScript source files to include in coverage.
+   * Used by pool's hybrid coverage provider to build the complete AS coverage map.
+   *
+   * The standard `include` patterns are used by the v8 provider for JS/TS files.
+   *
+   * @example ['assembly/**\/*.as.ts']
+   */
+  assemblyScriptInclude?: string[];
+
+  /**
+   * Glob patterns for AssemblyScript files to exclude from coverage.
+   *
+   * @example ['**\/*.as.test.ts']
+   */
+  assemblyScriptExclude?: string[];
+}
+
+export const AS_POOL_FIELDS_WITH_DEFAULTS = ['debug', 'stripInline', 'coverageMemoryPagesMin', 'coverageMemoryPagesMax'] as const;
 export const AS_POOL_OPTIONAL_FIELDS = ['maxThreads'] as const;
 
 /** Fields that have default values. Internally these will always be defined. */
@@ -221,11 +246,34 @@ export type ASPoolOptionsFieldsWithDefaultValues = typeof AS_POOL_FIELDS_WITH_DE
 /** Fields with optional values and NO defaults */
 export type ASPoolOptionsOptionalFields = typeof AS_POOL_OPTIONAL_FIELDS[number];
 
-/** Pool options resolved so that all fields are filled with user values preferentially,
- *  with required fields being guaranteed to be populated with defaults otherwise. */
+/**
+ * Pool options resolved so that all fields are filled with user values preferentially, 
+ * with required fields being guaranteed to be populated with defaults otherwise.
+ */
 export type ResolvedAssemblyScriptPoolOptions =
   Required<Pick<AssemblyScriptPoolOptions, ASPoolOptionsFieldsWithDefaultValues>>
   & Partial<Pick<AssemblyScriptPoolOptions, ASPoolOptionsOptionalFields>>;
+
+export type ResolvedHybridProviderOptions = 
+  Required<HybridProviderOptions>
+  & Omit<ResolvedCoverageOptions<'v8'>, 'provider'>
+  & {
+    globbedAssemblyScriptInclude: GlobResult[],
+    globbedAssemblyScriptProjectRelativeExcludeOnly: string[],
+  };
+
+// ============================================================================
+// Utility Types
+// ============================================================================
+
+export interface GlobResult {
+  absolute: string;
+  projectRootRelative: string;
+}
+
+// ============================================================================
+// Compilation & Results
+// ============================================================================
 
 /**
  * Compilation options
@@ -236,12 +284,74 @@ export interface AssemblyScriptCompilerOptions {
    * - false: Clean binary only
    * - true: Instrumented binary along with clean binary
    */
-  instrument: boolean;
+  shouldInstrument: boolean;
+  /** Options for instrumentation. */
+  instrumentationOptions?: InstrumentationOptions;
   /**
    * Strip @inline decorators during compilation
    * Only applies when coverage is enabled
    */
   stripInline?: boolean;
+  /**
+   * Path to vitest user project root. Used to resolve relative file paths
+   * for native instrumentation exclusions.
+   *  */
+  projectRoot: string;
+}
+
+/**
+ * Result of successfully compiling AssemblyScript source
+ */
+export interface CompileResult {
+  /** WASM binary */
+  binary: Uint8Array;
+  /** Source map JSON */
+  sourceMap: string;
+  /** Debug info for coverage reporting (if coverage enabled) */
+  debugInfo?: BinaryDebugInfo;
+  /** True if binary has been instrumented */
+  isInstrumented: boolean;
+  /** Compilation internal phase timings */
+  compileTimings: PhaseTimings;
+}
+
+export interface InstrumentationOptions {
+  /** List of relative file paths to exclude from instrumentation */
+  relativeExcludedFiles: string[];
+  excludedLibraryFilePrefix: string;
+  coverageMemoryPagesMin: number;
+  coverageMemoryPagesMax: number;
+}
+
+/**
+ * Result of instrumenting a WASM binary for coverage
+ */
+export interface InstrumentationResult {
+  /** Instrumented WASM binary with coverage counter increments */
+  instrumentedWasm: Buffer;
+  /** Regenerated source map (offsets adjusted for instrumentation) */
+  sourceMap: string;
+  /** Debug info with coverageMemoryIndex assigned to each function */
+  debugInfo: BinaryDebugInfo;
+}
+
+/**
+ * Cached compilation data
+ *
+ * NOTE: The compiled WebAssembly.Module is NOT included because it cannot be serialized
+ * across worker thread boundaries. Workers must re-compile module from the ASC-compiled
+ * binary with WebAssembly.compile, but this is fast.
+ */
+export interface CachedCompilation {
+  pipelineStart: number;
+  testFilePath: string,
+  binary: Uint8Array;
+  sourceMap: string;
+  isInstrumented: boolean;
+  debugInfo?: BinaryDebugInfo;
+  discoveredTests: DiscoveredTests;
+  compileTimings: PhaseTimings;
+  discoverTimings?: PhaseTimings;
 }
 
 /**
@@ -255,106 +365,10 @@ export interface PhaseTimings {
 }
 
 // ============================================================================
-// Compilation & Results
-// ============================================================================
-
-/**
- * Result of compiling AssemblyScript source
- *
- * Throws on compilation error.
- */
-export interface CompileResult {
-  /** Clean WASM binary (always returned) */
-  clean: Uint8Array;
-  /** Instrumented WASM binary (only when coverage enabled) */
-  instrumented?: Uint8Array;
-  /** Source map JSON (if successful and --sourceMap enabled) */
-  sourceMap?: string;
-  /** Debug info for coverage reporting (if coverage enabled) */
-  debugInfo?: BinaryDebugInfo;
-}
-
-/**
- * Cached compilation data (shared between collectTests and runTests)
- *
- * NOTE: WebAssembly.Module is NOT included because it cannot be serialized across
- * worker boundaries (would throw DataCloneError). Workers must re-compile the binary
- * when using cached data, but this is fast (binary is already parsed/validated).
- *
- * Within a single worker task, the module CAN be passed from discovery to execution
- * to avoid re-compilation within that task.
- */
-export interface CachedCompilation {
-  clean: Uint8Array;
-  instrumented?: Uint8Array;
-  sourceMap?: string;
-  debugInfo?: BinaryDebugInfo;
-  discoveredTests: DiscoveredTests;
-  compileTimings: PhaseTimings;
-  discoverTimings?: PhaseTimings;
-  generation: number;
-}
-
-// ============================================================================
 // Test Execution & Results
 // ============================================================================
 
-/**
- * Discovered test metadata (from registration phase)
- */
-export interface DiscoveredTest {
-  /** Test name (user-defined) */
-  name: string;
-  /** Function table index for this test */
-  fnIndex: number;
-  /** Unique internal id assigned to identify this test. Matches RunnerTestCase.id value */
-  id: string;
-}
 
-/**
- * Discovered tests indexed by unique id
- */
-export type DiscoveredTests = Record<string, DiscoveredTest>;
-
-/**
- * Result of a single test execution
- */
-export interface TestResult {
-  /** Test name */
-  name: string;
-  /** Whether the test passed */
-  passed: boolean;
-  /** Error if the test failed */
-  error?: AssemblyScriptTestError;
-  /** Number of assertions that passed */
-  assertionsPassed: number;
-  /** Number of assertions that failed */
-  assertionsFailed: number;
-  /** Mapped source stack trace (for error reporting) */
-  sourceStack?: WebAssemblyCallSite[];
-  /** Raw V8 call stack (internal, for async source mapping) */
-  rawCallStack?: NodeJS.CallSite[];
-  /** Coverage data collected during this test */
-  coverage?: CoverageData;
-  /** Test start time in milliseconds */
-  startTime?: number;
-  /** Test duration in milliseconds */
-  duration?: number;
-}
-
-/**
- * Pool-internal test result pairing testTask with result
- *
- * Used within the pool to track test execution results along with their
- * associated Vitest task objects. Unlike ExecuteTestResult (worker communication),
- * this includes the full RunnerTestCase which cannot cross worker boundaries.
- */
-export interface PoolTestResult {
-  /** Vitest test task object */
-  testTask: RunnerTestCase;
-  /** Test execution result */
-  result: TestResult;
-}
 
 
 // ============================================================================
@@ -386,6 +400,10 @@ export interface WebAssemblyCallSite {
 // Coverage Data (Runtime Hit Counts)
 // ============================================================================
 
+export const COVERAGE_PAYLOAD_FORMAT = {
+  AssemblyScript: 'assemblyscript',
+} as const;
+
 /**
  * Coverage data collected during test execution
  *
@@ -393,7 +411,7 @@ export interface WebAssemblyCallSite {
  * Function metadata (names, ranges) comes from ParsedSourceInfo, not here.
  *
  * Outer Record: keyed by absolute file path
- * Inner Record: keyed by position ("line:column") -> hit count
+ * Inner Record: keyed by position ("line:column") → hit count
  */
 export interface CoverageData {
   hitCountsByFileAndPosition: Record<string, Record<string, number>>;
@@ -405,7 +423,7 @@ export interface CoverageData {
  * The __format marker distinguishes AS coverage from JS coverage in onAfterSuiteRun.
  */
 export interface AssemblyScriptCoveragePayload {
-  readonly __format: 'assemblyscript';
+  readonly __format: typeof COVERAGE_PAYLOAD_FORMAT.AssemblyScript
   coverageData: CoverageData;
 }
 
@@ -433,14 +451,6 @@ export interface SourceRange {
   startColumn: number;
   endLine: number;
   endColumn: number;
-}
-
-/**
- * WASM function signature (parameter and result types)
- */
-export interface FunctionSignature {
-  params: string[];
-  results: string[];
 }
 
 /**
@@ -506,50 +516,17 @@ export interface FunctionDebugInfo {
   wasmIndex: number;
   /** Function name from WASM (informational) */
   name: string;
-  /** Whether this function has debug info (source map entries) */
-  hasDebugInfo: boolean;
-  /** Function signature (params and results) */
-  signature: FunctionSignature;
-
   /**
-   * Representative source location (POINT, not range)
-   * Derived from first expression with a source location.
-   * Used for containment matching to find the source function.
+   * Representative source location (a point within the function).
+   * Used for containment matching to find the parsedsource function.
    */
-  representativeLocation?: SourceLocation;
-  /**
-   * Index into coverage memory counters
-   * v1 only: Function-level counter
-   */
-  coverageMemoryIndex?: number;
+  representativeLocation: SourceLocation;
+  /** Index into coverage memory counters */
+  coverageMemoryIndex: number;
   /** All expressions in this function */
   expressions: ExpressionDebugInfo[];
   /** Basic blocks from CFG analysis */
   basicBlocks: BasicBlockDebugInfo[];
-}
-
-/**
- * Raw output from native addon's extractDebugInfo() C++ function
- */
-export interface NativeDebugInfoOutput {
-  /** All source files represented in extracted debug info (directly or inlined) */
-  debugSourceFiles: string[];
-  /** Flat list of all functions with their debug info */
-  functions: NativeFunctionDebugInfo[];
-}
-
-export interface NativeFunctionDebugInfo extends Omit<FunctionDebugInfo, 'expressions' | 'representativeLocation'> {
-  representativeLocation?: NativeSourceLocation;
-  expressions: NativeExpressionDebugInfo[];
-}
-
-export interface NativeExpressionDebugInfo extends Omit<ExpressionDebugInfo, 'location'> {
-  location?: NativeSourceLocation;
-}
-
-export interface NativeSourceLocation extends Omit<SourceLocation, 'filePath'> {
-  /** Index into NativeDebugInfoOutput.debugSourceFiles */
-  fileIndex: number;
 }
 
 /**
@@ -566,11 +543,44 @@ export interface BinaryDebugInfo {
    * Position key enables stable identity across compilations
    */
   functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo>>;
-  /**
-   * lookup by function name for v1 instrumentation
-   * Built by TS wrapper from the primary structure
-   */
-  functionsByName: Record<string, FunctionDebugInfo>;
+
+  instrumentedFunctionCount: number;
+}
+
+/**
+ * Raw output from native addon's instrumentForCoverage() C++ function
+ */
+export interface NativeInstrumentationResult {
+  instrumentedWasm: Buffer;
+  sourceMap: string;
+  debugInfo: NativeDebugInfoOutput;
+  errors?: string[];
+}
+
+export interface NativeDebugInfoOutput {
+  /** All source files represented in extracted debug info (directly or inlined) */
+  debugSourceFiles: string[];
+  /** Flat list of all functions with their debug info */
+  functions: NativeFunctionDebugInfo[];
+}
+
+export interface NativeFunctionDebugInfo extends Omit<FunctionDebugInfo, 'expressions' | 'representativeLocation'> {
+  representativeLocation: NativeSourceLocation;
+  expressions: NativeExpressionDebugInfo[];
+}
+
+export interface NativeExpressionDebugInfo extends Omit<ExpressionDebugInfo, 'location'> {
+  location?: NativeSourceLocation;
+}
+
+export interface NativeSourceLocation extends Omit<SourceLocation, 'filePath'> {
+  /** Index into NativeDebugInfoOutput.debugSourceFiles */
+  fileIndex: number;
+}
+
+export interface NativeInstrumentationOptions extends Omit<InstrumentationOptions, 'relativeExcludedFiles'> {
+  excludedFiles: string[];
+  debug: boolean;
 }
 
 // ============================================================================
@@ -649,8 +659,25 @@ export interface ParsedSourceInfo {
 }
 
 // ============================================================================
-// Worker Communication & RPC - Per-Test Parallelism
+// Worker Communication & RPC
 // ============================================================================
+
+/**
+ * Discovered test metadata (from registration phase)
+ */
+export interface DiscoveredTest {
+  /** Test name (user-defined) */
+  name: string;
+  /** Function table index for this test */
+  fnIndex: number;
+  /** Unique internal id assigned to identify this test. Matches RunnerTestCase.id value */
+  id: string;
+}
+
+/**
+ * Discovered tests indexed by unique id
+ */
+export type DiscoveredTests = Record<string, DiscoveredTest>;
 
 /**
  * Task data for discoverTests worker function
@@ -685,47 +712,21 @@ export interface DiscoverTestsResult {
   /** Discovered tests with names, function indices, and unique ids */
   tests: DiscoveredTests;
   /** Discovery phase timings */
-  timings: PhaseTimings;
+  discoverTimings: PhaseTimings;
 }
 
 /**
  * Task data for executeTest worker function
- *
- * Executes test and reports results via RPC. Does not collect coverage.
  */
 export interface ExecuteTestTask {
+  /** True if coverage should be collected during this test run */
+  collectCoverage: boolean,
   /** Compiled WASM binary */
   binary: Uint8Array;
-  /** Source map JSON (for error location mapping) */
-  sourceMap?: string;
-  /** Test to execute */
-  test: DiscoveredTest;
-  /** Path to test file */
-  testFile: string;
-  /** Pool options */
-  poolOptions: ResolvedAssemblyScriptPoolOptions;
-  /** MessagePort for RPC communication */
-  port: MessagePort;
-  /** Test task ID (for RPC reporting) */
-  testTaskId: string;
-  /** Test task name (for RPC reporting) */
-  testTaskName: string;
-  /** Suppress reporting of test-prepare event */
-  suppressPrepareReporting?: boolean;
-}
-
-/**
- * Task data for executeTestWithCoverage worker function
- *
- * Executes test, collects coverage, and reports results via RPC.
- */
-export interface ExecuteTestWithCoverageTask {
-  /** Compiled instrumented WASM binary */
-  binary: Uint8Array;
-  /** Source map JSON (for error location mapping) */
-  sourceMap?: string;
+  /** Source map JSON string for error location mapping */
+  sourceMap: string;
   /** Debug info from coverage instrumentation */
-  debugInfo: BinaryDebugInfo;
+  debugInfo?: BinaryDebugInfo;
   /** Test to execute */
   test: DiscoveredTest;
   /** Path to test file */
@@ -738,25 +739,42 @@ export interface ExecuteTestWithCoverageTask {
   testTaskId: string;
   /** Test task name (for RPC reporting) */
   testTaskName: string;
-  /** Suppress reporting of test failures via RPC */
-  suppressFailureReporting: boolean;
+  /** Test task metadata set on the test */
+  testTaskMeta: TaskMeta;
 }
 
 /**
- * Result from executeTest worker function
+ * Result of a single test execution
  */
 export interface ExecuteTestResult {
-  /** Test execution result */
-  result: TestResult;
+  /** Test name */
+  name: string;
+  /** Whether the test passed */
+  passed: boolean;
+  /** Error if the test failed */
+  error?: AssemblyScriptTestError;
+  /** Number of assertions that passed */
+  assertionsPassed: number;
+  /** Number of assertions that failed */
+  assertionsFailed: number;
+  /** Mapped source stack trace (for error reporting) */
+  sourceStack?: WebAssemblyCallSite[];
+  /** Raw V8 call stack (internal, for async source mapping) */
+  rawCallStack?: NodeJS.CallSite[];
+  /** Coverage data collected during this test */
+  coverage?: CoverageData;
+  /** Test start time in milliseconds */
+  startTime?: number;
+  /** Test duration in milliseconds */
+  duration?: number;
 }
 
-
 /**
- * Task data for reportFileSummary worker function
+ * Task data for reportFileResults worker function
  *
- * Reports suite-finished and final flush after all tests complete
+ * Reports onAfterSuiteMeta and suite-finished and final flush after all tests complete
  */
-export interface ReportFileSummaryTask {
+export interface ReportFileResultsTask {
   /** Path to test file */
   testFile: string;
   /** Pool options */
@@ -769,9 +787,26 @@ export interface ReportFileSummaryTask {
   coverageData?: CoverageData;
 }
 
-// ============================================================================
-// Hook Execution Task Types (Not Yet Implemented)
-// ============================================================================
+/**
+ * Task data for reporting an error in the pipeline at the file/suite level,
+ * not per-test recoverable (compiler errors, instrumentation errors)
+ */
+export interface ReportFileFailureTask {
+  /** Error to report to vitest for this test file */
+  error: AssemblyScriptTestError;
+  /** Path to test file */
+  testFile: string;
+  /** Pool options */
+  poolOptions: ResolvedAssemblyScriptPoolOptions;
+  /** MessagePort for RPC communication */
+  port: MessagePort;
+  /** Project root directory */
+  projectRoot: string;
+  /** Project name */
+  projectName: string;
+  /** Compilation phase timings from compile worker */
+  compileTimings?: PhaseTimings;
+}
 
 /**
  * Task data for executeBeforeAllHooks worker function
@@ -833,4 +868,18 @@ export interface WorkerChannel {
   poolPort: MessagePort;
   /** RPC client for calling Vitest methods (only remote functions matter for our usage) */
   rpc: BirpcReturn<RuntimeRPC, object>;
+}
+
+/**
+ * Pool-internal test result pairing testTask with result
+ *
+ * Used within the pool to track test execution results along with their
+ * associated Vitest task objects. Unlike ExecuteTestResult (worker communication),
+ * this includes the full RunnerTestCase which cannot cross worker boundaries.
+ */
+export interface PoolTestResult {
+  /** Vitest test task object */
+  testTask: RunnerTestCase;
+  /** Test execution result */
+  result: ExecuteTestResult;
 }

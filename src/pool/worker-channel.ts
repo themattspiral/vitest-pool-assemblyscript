@@ -6,7 +6,15 @@ import type { RunnerTestFile } from 'vitest/node';
 import { createBirpc } from 'birpc';
 import { MessageChannel } from 'node:worker_threads';
 import type { WorkerChannel } from '../types.js';
-import { debug } from '../utils/debug.mjs';
+import { debug } from '../utils/debug.js';
+
+const DEBUG_RPC = false;
+
+function rpcDebug(...args: any[]): void {
+  if (DEBUG_RPC) {
+    debug(...args);
+  }
+};
 
 /**
  * Create a MessageChannel with RPC for worker communication
@@ -23,24 +31,24 @@ export function createWorkerChannel(project: TestProject, collect: boolean): Wor
   const workerPort = channel.port1;
   const poolPort = channel.port2;
 
-  debug('[Pool] Creating Worker RPC Message Channel - collectTests:', collect);
+  rpcDebug('[Pool] Creating Worker RPC Message Channel - collectTests:', collect);
 
   // Wrap the methods to add logging
   const methods = createMethodsRPC(project, { collect });
   const wrappedMethods = {
     ...methods,
     onCollected: async (files: RunnerTestFile[]) => {
-      debug('[Pool] RPC received onCollected with', files.length, 'files, collect:', collect);
-      debug('[Pool] First file - id:', files[0]?.id, 'filepath:', files[0]?.filepath, 'tasks:', files[0]?.tasks?.length);
+      rpcDebug('[Pool] RPC received onCollected with', files.length, 'files, collect:', collect);
+      rpcDebug('[Pool] First file - id:', files[0]?.id, 'filepath:', files[0]?.filepath, 'tasks:', files[0]?.tasks?.length);
       return methods.onCollected(files);
     },
     onTaskUpdate: async (packs: TaskResultPack[], events: TaskEventPack[]) => {
-      debug('[Pool] RPC received onTaskUpdate with', packs.length, 'packs');
+      rpcDebug('[Pool] RPC received onTaskUpdate with', packs.length, 'packs');
       return methods.onTaskUpdate(packs, events);
     },
   };
 
-  // Create RPC in pool (has access to full TestProject)
+  // Create RPC in pool
   const rpc = createBirpc<RuntimeRPC, typeof wrappedMethods>(
     wrappedMethods,
     {

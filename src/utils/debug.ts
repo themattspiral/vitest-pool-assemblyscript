@@ -10,14 +10,18 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+interface DebugState {
+  debug: boolean;
+}
+
 // Store debug flag per async context (isolates concurrent tasks in same worker)
-const debugStorage = new AsyncLocalStorage();
+const debugStorage = new AsyncLocalStorage<DebugState>();
 
 /**
  * Initialize debug mode for current async context (called by worker at task start)
  * @param {boolean} debugEnabled - Enable verbose debug logging
  */
-export function setDebugMode(debugEnabled) {
+export function setDebugMode(debugEnabled: boolean) {
   debugStorage.enterWith({ debug: debugEnabled });
 }
 
@@ -25,11 +29,11 @@ export function setDebugMode(debugEnabled) {
  * Log debug message (only when debug enabled in current context)
  * or when environment has a truthy DEBUG variable set.
  */
-export function debug(...args) {
+export function debug(...args: any) {
   const state = debugStorage.getStore();
   if (state?.debug || process.env.DEBUG) {
     // if first arg is a function, execute it and then print the result
-    if (args.length > 0 && typeof args[0] === 'function') {
+    if (args?.length > 0 && typeof args[0] === 'function') {
       const result = args[0]();
       const rest = args.length > 1 ? args.slice(1) : [];
       console.log(String(result), ...rest);
@@ -44,15 +48,11 @@ export function debug(...args) {
  */
 export function isDebugModeEnabled() {
   const state = debugStorage.getStore();
-  return !!state?.debug;
+  return !!state?.debug || !!process.env.DEBUG;
 }
 
-/**
- * Log error message (only when debug enabled in current context)
- */
-export function debugError(...args) {
-  const state = debugStorage.getStore();
-  if (state?.debug) {
-    console.error(...args);
-  }
+export async function delay(ms: number = 5000): Promise<void> {
+  return new Promise<void>((resolve, _reject) => {
+    setTimeout(resolve, ms);
+  });
 }

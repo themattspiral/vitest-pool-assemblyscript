@@ -7,4 +7,7 @@
  */
 
 export { default } from './pool/index.js';
-export type { CompileResult, TestResult, AssemblyScriptPoolOptions } from './types.js';
+
+// Internal Pool Testing
+export type { CompileResult, ExecuteTestResult as TestResult, AssemblyScriptPoolOptions } from './types.js';
+export { compileAssemblyScript } from './compiler/index.js';
