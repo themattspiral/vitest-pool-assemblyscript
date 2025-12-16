@@ -28,8 +28,8 @@ import {
   FunctionExpression,
 } from 'assemblyscript';
 
-import type { ParsedSourceFunctionInfo, SourceRange } from '../types.js';
-import { ASCommonFlags, ASNodeKind } from '../types.js';
+import type { ParsedSourceFunctionInfo, SourceRange } from '../types/types.js';
+import { ASCommonFlags, ASNodeKind } from '../types/types.js';
 import { ASTVisitor } from '../util/ast-visitor.js';
 
 /**

@@ -4,7 +4,7 @@
  * Functions for merging CoverageData objects
  */
 
-import type { CoverageData } from '../types.js';
+import type { CoverageData } from '../types/types.js';
 
 /**
  * Merge incoming CoverageData into accumulated CoverageData

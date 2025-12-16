@@ -11,9 +11,9 @@
 import { extractCallStack } from './source-maps.js';
 import { decodeString, decodeAbortInfo } from './wasm-memory.js';
 import { debug } from '../util/debug.js';
-import type { AssemblyScriptTestError, DiscoveredTests, PoolErrorName, ExecuteTestResult } from '../types.js';
-import { AssemblyScriptPoolError } from '../types.js';
-import { POOL_ERROR_NAMES } from '../types.js';
+import type { AssemblyScriptTestError, DiscoveredTests, PoolErrorName, ExecuteTestResult } from '../types/types.js';
+import { AssemblyScriptPoolError } from '../types/types.js';
+import { POOL_ERROR_NAMES } from '../types/types.js';
 
 // ============================================================================
 // Shared Utilities

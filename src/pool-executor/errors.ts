@@ -11,8 +11,8 @@ import type { ParsedStack } from '@vitest/utils';
 import { basename } from 'node:path';
 
 import { createWebAssemblyCallSite } from './source-maps.js';
-import type { ExecuteTestResult, AssemblyScriptTestError } from '../types.js';
-import { POOL_ERROR_NAMES, POOL_INTERNAL_PATHS } from '../types.js';
+import type { ExecuteTestResult, AssemblyScriptTestError } from '../types/types.js';
+import { POOL_ERROR_NAMES, POOL_INTERNAL_PATHS } from '../types/types.js';
 import { debug } from '../util/debug.js';
 
 /**

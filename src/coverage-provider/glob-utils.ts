@@ -8,7 +8,7 @@
 import { resolve } from 'path';
 import TestExclude from 'test-exclude';
 
-import { GlobResult } from '../types.js';
+import { GlobResult } from '../types/types.js';
 
 /**
  * Glob files matching coverage include/exclude patterns

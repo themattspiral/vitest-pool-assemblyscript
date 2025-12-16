@@ -36,7 +36,7 @@ import {
   type GlobResult,
   type ResolvedAssemblyScriptPoolOptions,
   type ResolvedHybridProviderOptions
-} from '../types.js';
+} from '../types/types.js';
 
 // pick up CustomProviderOptions module augmentation
 import '../config/index.js';

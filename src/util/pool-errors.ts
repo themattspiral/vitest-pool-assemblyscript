@@ -1,4 +1,4 @@
-import { AssemblyScriptPoolError, AssemblyScriptTestError, POOL_ERROR_NAMES } from '../types.js';
+import { AssemblyScriptPoolError, AssemblyScriptTestError, POOL_ERROR_NAMES } from '../types/types.js';
 
 export function throwPoolErrorIfAborted(signal?: AbortSignal) {
   if (!signal || !signal.aborted) {

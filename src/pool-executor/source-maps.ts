@@ -9,7 +9,7 @@
 
 import { SourceMapConsumer } from 'source-map';
 import { debug } from '../util/debug.js';
-import type { WebAssemblyCallSite } from '../types.js';
+import type { WebAssemblyCallSite } from '../types/types.js';
 
 /**
  * Extract structured call stack from V8 using Error.prepareStackTrace

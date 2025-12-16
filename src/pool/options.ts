@@ -6,7 +6,7 @@ import {
   ResolvedAssemblyScriptPoolOptions,
   AS_POOL_FIELDS_WITH_DEFAULTS,
   AS_POOL_OPTIONAL_FIELDS
-} from '../types.js';
+} from '../types/types.js';
 
 /** Vitest config fields that have default values. Internally these will always be defined. */
 // type ConfigFieldsWithDefaultValues = 'pool';

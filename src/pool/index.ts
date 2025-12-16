@@ -38,14 +38,14 @@ import type {
   CompileResult,
   CachedCompilation,
   AssemblyScriptTestError,
-} from '../types.js';
+} from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
   ASSEMBLYSCRIPT_POOL_NAME,
   AssemblyScriptPoolError,
   POOL_ERROR_NAMES,
   POOL_INTERNAL_PATHS
-} from '../types.js';
+} from '../types/types.js';
 import { setDebugMode, debug } from '../util/debug.js';
 import { compileAssemblyScript } from '../compiler/index.js';
 import { createPhaseTimings } from '../util/timing.js';

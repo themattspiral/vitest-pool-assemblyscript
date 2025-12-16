@@ -2,7 +2,7 @@
  * Timing utilities for performance tracking
  */
 
-import type { PhaseTimings } from '../types.js';
+import type { PhaseTimings } from '../types/types.js';
 
 /**
  * Create phase timings tracker

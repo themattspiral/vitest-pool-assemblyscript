@@ -12,8 +12,8 @@ import type { RunnerTestCase, RunnerTestFile } from 'vitest/node';
 import { TaskResult, TaskEventPack, TaskResultPack, TaskMeta } from '@vitest/runner/types';
 import { createFileTask } from '@vitest/runner/utils';
 
-import type { PhaseTimings, ExecuteTestResult, ProjectInfo, DiscoveredTests } from '../types.js';
-import { ASSEMBLYSCRIPT_POOL_NAME } from '../types.js';
+import type { PhaseTimings, ExecuteTestResult, ProjectInfo, DiscoveredTests } from '../types/types.js';
+import { ASSEMBLYSCRIPT_POOL_NAME } from '../types/types.js';
 import { debug } from '../util/debug.js';
 
 const DEBUG_RPC = false;

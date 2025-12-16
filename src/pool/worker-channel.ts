@@ -5,7 +5,7 @@ import type { TaskResultPack, TaskEventPack } from '@vitest/runner';
 import type { RunnerTestFile } from 'vitest/node';
 import { createBirpc } from 'birpc';
 import { MessageChannel } from 'node:worker_threads';
-import type { WorkerChannel } from '../types.js';
+import type { WorkerChannel } from '../types/types.js';
 import { debug } from '../util/debug.js';
 
 const DEBUG_RPC = false;

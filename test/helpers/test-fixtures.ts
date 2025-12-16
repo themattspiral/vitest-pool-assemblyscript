@@ -13,7 +13,7 @@ import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
   POOL_INTERNAL_PATHS,
   type CompileResult
-} from '../../src/types.js';
+} from '../../src/types/types.js';
 
 // test with compiled version because asc strip-inline transform needs transpilation
 // (for now! TODO remove after switching to asc API)

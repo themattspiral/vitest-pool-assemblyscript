@@ -23,7 +23,7 @@
  * - Handles nested functions with "tightest fit" (innermost function wins)
  */
 
-import type { ParsedSourceFunctionInfo, SourceRange } from '../types.js';
+import type { ParsedSourceFunctionInfo, SourceRange } from '../types/types.js';
 
 /**
  * Functions indexed by file path, then by start line.

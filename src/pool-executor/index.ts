@@ -9,8 +9,8 @@
  * - Error source location mapping (V8 stack traces + source maps)
  */
 
-import type { ExecuteTestResult, CoverageData, DiscoveredTest, DiscoveredTests, BinaryDebugInfo, AssemblyScriptTestError, ResolvedAssemblyScriptPoolOptions } from '../types.js';
-import { AssemblyScriptPoolError, POOL_ERROR_NAMES } from '../types.js';
+import type { ExecuteTestResult, CoverageData, DiscoveredTest, DiscoveredTests, BinaryDebugInfo, AssemblyScriptTestError, ResolvedAssemblyScriptPoolOptions } from '../types/types.js';
+import { AssemblyScriptPoolError, POOL_ERROR_NAMES } from '../types/types.js';
 import { debug } from '../util/debug.js';
 import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';

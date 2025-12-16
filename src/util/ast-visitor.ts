@@ -52,7 +52,7 @@ import {
   VoidStatement,
 } from 'assemblyscript';
 
-import { ASNodeKind } from '../types.js';
+import { ASNodeKind } from '../types/types.js';
 
 /**
  * Abstract base class for AST visitors.

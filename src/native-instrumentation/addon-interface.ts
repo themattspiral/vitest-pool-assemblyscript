@@ -27,8 +27,8 @@ import {
   InstrumentationResult,
   NativeInstrumentationOptions,
   InstrumentationOptions,
-} from '../types.js';
-import { AssemblyScriptPoolError, POOL_ERROR_NAMES } from '../types.js';
+} from '../types/types.js';
+import { AssemblyScriptPoolError, POOL_ERROR_NAMES } from '../types/types.js';
 
 // Load the native addon
 // The .node file is built by node-gyp into build/Release/ (see binding.gyp)

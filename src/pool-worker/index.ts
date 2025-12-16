@@ -28,7 +28,7 @@ import {
   type AssemblyScriptCoveragePayload,
   AssemblyScriptPoolError,
   POOL_ERROR_NAMES,
-} from '../types.js';
+} from '../types/types.js';
 import {
   discoverTests as discoverTestsFromExecutor,
   executeTest  as executeTestFromExecutor,

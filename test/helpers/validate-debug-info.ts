@@ -9,7 +9,7 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { BinaryDebugInfo, CompileResult } from '../../src/types.ts';
+import type { BinaryDebugInfo, CompileResult } from '../../src/types/types.js';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
 
