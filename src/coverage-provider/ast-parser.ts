@@ -29,7 +29,7 @@ import {
 } from 'assemblyscript';
 
 import type { ParsedSourceFunctionInfo, SourceRange } from '../types/types.js';
-import { ASCommonFlags, ASNodeKind } from '../types/types.js';
+import { ASCommonFlags, ASNodeKind } from '../types/constants.js';
 import { ASTVisitor } from '../util/ast-visitor.js';
 
 /**

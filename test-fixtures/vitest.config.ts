@@ -77,8 +77,7 @@ export default defineConfig({
             assemblyScript: {
               debug: false,
               stripInline: true,
-              coverageMemoryPagesMin: 1,
-              coverageMemoryPagesMax: 4
+              coverageMemoryPagesMax: 2
             },
           },
         }

@@ -28,7 +28,8 @@ import {
   NativeInstrumentationOptions,
   InstrumentationOptions,
 } from '../types/types.js';
-import { AssemblyScriptPoolError, POOL_ERROR_NAMES } from '../types/types.js';
+import { POOL_ERROR_NAMES } from '../types/constants.js';
+import { createPoolError } from '../util/pool-errors.js';
 
 // Load the native addon
 // The .node file is built by node-gyp into build/Release/ (see binding.gyp)
@@ -49,7 +50,7 @@ if (!existsSync(addonPath)) {
   addonPath = addonPathFromSrc
 
   if (!existsSync(addonPath)) {
-    throw new AssemblyScriptPoolError(
+    throw createPoolError(
       `Native addon instrumentation file not found at ${addonPathFromDist} or ${addonPathFromSrc}`,
       POOL_ERROR_NAMES.WASMInstrumentationError
     );
@@ -70,7 +71,7 @@ function convertLocation(
   const filePath = debugSourceFiles[rawLocation.fileIndex];
 
   if (!filePath) {
-    throw new AssemblyScriptPoolError(
+    throw createPoolError(
       `No debug source file with index: ${rawLocation.fileIndex}}`,
       POOL_ERROR_NAMES.WASMInstrumentationError
     );
@@ -178,7 +179,7 @@ function transformDebugInfo(
     if (functionsByFileAndPosition[filePath]?.[positionKey]) {
       const existing = functionsByFileAndPosition[filePath][positionKey];
       positionCollisionCount++;
-      throw new AssemblyScriptPoolError(
+      throw createPoolError(
         `ERROR - Function Debug Position Collision at ${filePath}:${positionKey}: "${existing.name}" will be replaced by "${func.name}"`,
         POOL_ERROR_NAMES.WASMInstrumentationError
       );
@@ -228,13 +229,13 @@ export function instrumentForCoverage(
   instrumentationOptions: InstrumentationOptions
 ): InstrumentationResult {
   if (!Buffer.isBuffer(wasmBuffer)) {
-    throw new AssemblyScriptPoolError(
+    throw createPoolError(
       'instrumentForCoverage - wasmBuffer must be a Buffer',
       POOL_ERROR_NAMES.WASMInstrumentationError
     );
   }
   if (!Buffer.isBuffer(sourceMapBuffer)) {
-    throw new AssemblyScriptPoolError(
+    throw createPoolError(
       'instrumentForCoverage - sourceMapBuffer must be a Buffer',
       POOL_ERROR_NAMES.WASMInstrumentationError
     );
@@ -255,7 +256,7 @@ export function instrumentForCoverage(
   debug(`[AddonInterface] Native addon completed in ${(addonTime - startTime).toFixed(2)}ms`);
 
   if (nativeResult.errors?.length) {
-    throw new AssemblyScriptPoolError(
+    throw createPoolError(
       `Errors encountered duriing native instrumentation: ${nativeResult.errors.join('\n')}`,
       POOL_ERROR_NAMES.WASMInstrumentationError,
     );

@@ -19,7 +19,11 @@ import { Node, Parser, Source, DecoratorNode } from 'assemblyscript';
 import { Transform } from 'assemblyscript/transform';
 
 import { ASTVisitor } from '../../util/ast-visitor.js';
-import { ASSEMBLYSCRIPT_LIB_PREFIX, ASDecoratorKind, ASSourceKind } from '../../types/types.js';
+import {
+  ASSEMBLYSCRIPT_LIB_PREFIX,
+  ASDecoratorKind,
+  ASSourceKind,
+} from '../../types/constants.js';
 
 /**
  * Visitor that strips @inline decorators from nodes

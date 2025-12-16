@@ -13,7 +13,6 @@ import type {
   TestSpecification,
   RunnerTestCase,
   RunnerTestFile,
-  ResolvedConfig
 } from 'vitest/node';
 import { resolve, basename, relative } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -38,21 +37,21 @@ import type {
   CompileResult,
   CachedCompilation,
   AssemblyScriptTestError,
+  AssemblyScriptResolvedConfig,
 } from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
   ASSEMBLYSCRIPT_POOL_NAME,
-  AssemblyScriptPoolError,
   POOL_ERROR_NAMES,
-  POOL_INTERNAL_PATHS
-} from '../types/types.js';
+  POOL_INTERNAL_PATHS,
+} from '../types/constants.js';
 import { setDebugMode, debug } from '../util/debug.js';
 import { compileAssemblyScript } from '../compiler/index.js';
 import { createPhaseTimings } from '../util/timing.js';
 import { createWorkerChannel } from './worker-channel.js';
-import { getPoolOptions } from './options.js';
+import { getAssemblyScriptResolvedConfig } from './options.js';
 import { mergeCoverageData } from '../coverage-provider/coverage-merge.js';
-import { getTestError, createPoolError, throwPoolErrorIfAborted, isAbortErrorString } from '../util/pool-errors.js';
+import { getTestErrorForPoolError, createPoolErrorFromError, throwPoolErrorIfAborted, isAbortErrorString, createPoolError } from '../util/pool-errors.js';
 
 const WORKER_PATH = resolve(import.meta.dirname, 'pool-worker/index.js');
 
@@ -158,7 +157,7 @@ function aggregateCoverageForTestFile(
  */
 async function pipelineQueueCompilation(
   testFilePath: string,
-  config: ResolvedConfig,
+  config: AssemblyScriptResolvedConfig,
   signal: AbortSignal,
   isCollectTestsMode: boolean,
 ): Promise<CompileResult> {
@@ -170,7 +169,7 @@ async function pipelineQueueCompilation(
     .then(async (): Promise<CompileResult> => {
       throwPoolErrorIfAborted(signal);
 
-      const poolOptions = getPoolOptions(config);
+      const poolOptions = config.poolOptions.assemblyScript;
 
       // set debug mode within this async context
       setDebugMode(poolOptions.debug);
@@ -181,6 +180,7 @@ async function pipelineQueueCompilation(
       // Only instrument when coverage is enabled and when not running a collectTests() operation
       const shouldInstrument = isCoverageEnabled && !isCollectTestsMode
 
+      // TODO - move to options helpers (and rename options to config??)
       const instrumentationOptions: InstrumentationOptions = {
         relativeExcludedFiles: [
           relative(config.root, testFilePath),
@@ -211,7 +211,7 @@ async function pipelineQueueCompilation(
       };
     })  
     .catch((err) => {
-      throw createPoolError(`${base} - queueCompilation`, err);
+      throw createPoolErrorFromError(`${base} - queueCompilation`, POOL_ERROR_NAMES.CompilationError, err);
     });
 
   compilationQueue = currentCompilation;
@@ -236,12 +236,13 @@ async function pipelineQueueCompilation(
 async function pipelineDispatchRunDiscovery(
   spec: TestSpecification,
   cachedContext: CachedCompilation,
+  config: AssemblyScriptResolvedConfig,
   pool: Tinypool,
   signal: AbortSignal,
   isCollectTestsMode: boolean
 ): Promise<DiscoverTestsResult> {
   // set debug mode within this async context
-  const poolOptions = getPoolOptions(spec.project.config);
+  const poolOptions = config.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
   const base = basename(cachedContext.testFilePath);
 
@@ -253,14 +254,15 @@ async function pipelineDispatchRunDiscovery(
   try {
     const discoverTask: DiscoverTestsTask = {
       binary: cachedContext.binary,
+      isBinaryInstrumented: cachedContext.isInstrumented,
       testFile: cachedContext.testFilePath,
       poolOptions,
       port: workerPort,
       projectInfo,
       compileTimings: cachedContext.compileTimings,
       debugInfo: cachedContext.debugInfo,
-      testNamePattern: spec.project.config.testNamePattern,
-      allowOnly: spec.project.config.allowOnly,
+      testNamePattern: config.testNamePattern,
+      allowOnly: config.allowOnly,
     };
 
     const results: DiscoverTestsResult = await pool.run(discoverTask, {
@@ -295,25 +297,27 @@ async function pipelineDispatchRunDiscovery(
 async function pipelineDispatchRunTests(
   cachedContext: CachedCompilation,
   testTasks: RunnerTestCase[],
+  config: AssemblyScriptResolvedConfig,
   project: TestProject,
   pool: Tinypool,
   signal: AbortSignal
 ): Promise<PoolTestResult[]> {
   // set debug mode within this async context
-  const poolOptions = getPoolOptions(project.config);
+  const poolOptions = config.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
   const base = basename(cachedContext.testFilePath);
 
-  debug(`[Pipeline] ${base} - Phase 3 Execute starting - Coverage: ${project.config.coverage.enabled}`);
+  debug(`[Pipeline] ${base} - Phase 3 Execute starting - Coverage: ${config.coverage.enabled}`);
   const testFileSuiteStart = performance.now();
 
   const testExecutions = testTasks.map(async (testTask) => {
     // Match test task to discovered test by unique id
     const test = cachedContext.discoveredTests[testTask.id];
     if (!test) {
-      throw new AssemblyScriptPoolError(
+      throw createPoolErrorFromError(
+        `${base} - pipelineDispatchRunTests`,
+        POOL_ERROR_NAMES.WASMExecutionHarnessError,
         `Could not find discovered test for task: ${testTask.name}`,
-        POOL_ERROR_NAMES.WASMExecutionHarnessError
       );
     }
 
@@ -324,7 +328,7 @@ async function pipelineDispatchRunTests(
       debug(`[Pipeline] ${base} - Executing test "${test.name}" with coverage enabled`);
 
       const executeTask: ExecuteTestTask = {
-        collectCoverage: project.config.coverage.enabled,
+        collectCoverage: config.coverage.enabled,
         binary: cachedContext.binary,
         sourceMap: cachedContext.sourceMap,
         debugInfo: cachedContext.debugInfo,
@@ -378,11 +382,12 @@ async function pipelineDispatchReportFileResults(
   testFilePath: string,
   fileTask: RunnerTestFile,
   testResults: PoolTestResult[],
+  config: AssemblyScriptResolvedConfig,
   project: TestProject,
   pool: Tinypool
 ): Promise<void> {
   // set debug mode within this async context
-  const poolOptions = getPoolOptions(project.config);
+  const poolOptions = config.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
   const base = basename(testFilePath);
 
@@ -408,9 +413,9 @@ async function pipelineDispatchReportFileResults(
   }
 
   // Report file summary (suite-finished + final flush)
-  debug(`[Pipeline] ${base} - Calling reportFileResults - file duration: ${fileTask.result?.duration}ms`);
+  debug(`[Pipeline] ${base} - Calling reportFileResults - file duration: ${fileTask.result?.duration?.toFixed(2)}ms`);
   for (const tr of testResults) {
-    debug(`[Pipeline] ${base} -   "${tr.testTask.name}": ${tr.result.duration}ms`);
+    debug(`[Pipeline] ${base} -   "${tr.testTask.name}": ${tr.result?.duration?.toFixed(2)}ms`);
   }
 
   const { workerPort, poolPort } = createWorkerChannel(project, false);
@@ -441,12 +446,13 @@ async function pipelineDispatchReportFileResults(
 async function pipelineDispatchReportFileFailure(
   testFilePath: string,
   project: TestProject,
+  config: AssemblyScriptResolvedConfig,
   pool: Tinypool,
   poolAbortController: AbortController,
   err: AssemblyScriptTestError,
   isCollectTestsMode: boolean,
 ): Promise<void> {
-  const poolOptions = getPoolOptions(project.config);
+  const poolOptions = config.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
   const base = basename(testFilePath);
 
@@ -462,8 +468,8 @@ async function pipelineDispatchReportFileFailure(
       testFile: testFilePath,
       poolOptions,
       port: workerPort,
-      projectName: project.config.name,
-      projectRoot: project.config.root,
+      projectName: config.name,
+      projectRoot: config.root,
       // TODO pass through compileTimings
     };
 
@@ -498,12 +504,11 @@ async function pipelineDispatchReportFileFailure(
  */
 async function collectTests(
   specs: TestSpecification[],
-  config: ResolvedConfig,
+  config: AssemblyScriptResolvedConfig,
   pool: Tinypool,
   poolAbortController: AbortController,
 ): Promise<void> {
-  // set debug mode within this async context
-  const poolOptions = getPoolOptions(config);
+  const poolOptions = config.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
   const isCollectTestsMode = true;
   const { signal } = poolAbortController;
@@ -518,7 +523,6 @@ async function collectTests(
     const pipelineStart = performance.now();
     const testFilePath: string = spec.moduleId; // absolute path
     const base = basename(testFilePath);
-    const poolOptions = getPoolOptions(spec.project.config);
 
     // set debug mode within this async context
     setDebugMode(poolOptions.debug);
@@ -533,7 +537,7 @@ async function collectTests(
         debug(`[Pipeline] ${base} -   NO existing pipeline cache for spec`);
       }
 
-      const compileResult = await pipelineQueueCompilation(testFilePath, spec.project.config, signal, isCollectTestsMode);
+      const compileResult = await pipelineQueueCompilation(testFilePath, config, signal, isCollectTestsMode);
       const newCompilation: CachedCompilation = {
         pipelineStart,
         testFilePath,
@@ -542,12 +546,12 @@ async function collectTests(
       };
       pipelineCompileCacheByTestFile.set(testFilePath, newCompilation);
 
-      const discoverResults = await pipelineDispatchRunDiscovery(spec, newCompilation, pool, signal, isCollectTestsMode);
+      const discoverResults = await pipelineDispatchRunDiscovery(spec, newCompilation, config, pool, signal, isCollectTestsMode);
       newCompilation.discoverTimings = discoverResults.discoverTimings;
       newCompilation.discoveredTests = discoverResults.tests;
     } catch (error) {
-      const poolError = createPoolError(`${base} - collectTests file pipeline failure`, error);
-      const testError = getTestError(poolError);
+      const poolError = createPoolErrorFromError(`${base} - collectTests file pipeline failure`, POOL_ERROR_NAMES.PoolError, error);
+      const testError = getTestErrorForPoolError(poolError);
 
       if (isAbortErrorString(poolError.name)) {
         debug(`[Pipeline] ${base} - collectTests file pipeline aborted during run`);
@@ -556,10 +560,16 @@ async function collectTests(
       }
       
       try {
+        debug(`[Pipeline] ${base} - collectTests file pipeline failure - Reporting test file failure:`, testError);
+
         // report a failure for this suite
-        await pipelineDispatchReportFileFailure(testFilePath, spec.project, pool, poolAbortController, testError, isCollectTestsMode);
+        await pipelineDispatchReportFileFailure(testFilePath, spec.project, config, pool, poolAbortController, testError, isCollectTestsMode);
       } catch (reportErr) {
-        const poolReportError = createPoolError(`${base} - collectTests file pipeline failure reporting failure`, reportErr);
+        const poolReportError = createPoolErrorFromError(
+          `${base} - collectTests file pipeline failure reporting failure`,
+          POOL_ERROR_NAMES.PoolReportingError,
+          reportErr
+        );
         if (isAbortErrorString(poolReportError.name)) {
           debug(`[Pipeline] ${base} - collectTests file pipeline aborted during failure reporting`);
           // swallow abort error, this pipeline is done
@@ -601,14 +611,13 @@ async function collectTests(
  */
 async function runTests(
   specs: TestSpecification[],
-  config: ResolvedConfig,
+  config: AssemblyScriptResolvedConfig,
   pool: Tinypool,
   poolAbortController: AbortController,
   _invalidatedFiles?: string[]
 ): Promise<void> {
-  // set debug mode within this async context
-  const opts = getPoolOptions(config);
-  setDebugMode(opts.debug);
+  const poolOptions = config.poolOptions.assemblyScript;
+  setDebugMode(poolOptions.debug);
   const isCollectTestsMode = false;
 
   debug('[Pool] -------- runTests called for', specs.length, 'specs --------');
@@ -641,7 +650,6 @@ async function runTests(
     const pipelineStart = performance.now();
     const testFilePath: string = spec.moduleId; // absolute path
     const base = basename(testFilePath);
-    const poolOptions = getPoolOptions(spec.project.config);
     const { signal } = poolAbortController;
 
     // set debug mode within this async context
@@ -661,7 +669,7 @@ async function runTests(
       }
 
       const p1Start = Date.now();
-      const compileResult = await pipelineQueueCompilation(testFilePath, spec.project.config, signal, isCollectTestsMode);
+      const compileResult = await pipelineQueueCompilation(testFilePath, config, signal, isCollectTestsMode);
       const p1Ms = Date.now() - p1Start;
       debug(`[TIMING] ${base} - Pipeline Phase 1: ${p1Ms}ms`);
 
@@ -675,7 +683,7 @@ async function runTests(
 
       // PHASE 2: Discover (with filtering applied in worker)
       const p2Start = Date.now();
-      const discoverResults = await pipelineDispatchRunDiscovery(spec, newCompilation, pool, signal, isCollectTestsMode);
+      const discoverResults = await pipelineDispatchRunDiscovery(spec, newCompilation, config, pool, signal, isCollectTestsMode);
       const p2End = Date.now();
       const p2Ms = p2End - p2Start;
       debug(`[TIMING] ${base} - Pipeline Phase 2: ${p2Ms}ms`);
@@ -698,7 +706,7 @@ async function runTests(
       // PHASE 3: Execute non-skipped tests
       const p3Start = Date.now();
       discoverResults.fileTask.result = { state: 'run', startTime: Date.now() };
-      const testResults = await pipelineDispatchRunTests(newCompilation, testTasksToExecute, spec.project, pool, signal);
+      const testResults = await pipelineDispatchRunTests(newCompilation, testTasksToExecute, config, spec.project, pool, signal);
       const p3Ms = Date.now() - p3Start;
       debug(`[TIMING] ${base} - Pipeline Phase 3: ${p3Ms}ms`);
 
@@ -714,7 +722,7 @@ async function runTests(
 
       // PHASE 5: Finalize and report
       const p5Start = Date.now();
-      await pipelineDispatchReportFileResults(testFilePath, discoverResults.fileTask, testResults, spec.project, pool);
+      await pipelineDispatchReportFileResults(testFilePath, discoverResults.fileTask, testResults, config, spec.project, pool);
       const p5End = Date.now();
       const p5Ms = p5End - p5Start;
 
@@ -725,8 +733,8 @@ async function runTests(
         + `[TIMING] ${base} - Pipeline Total: ${p5End - p1Start}ms`
       ));
     } catch (error) {
-      const poolError = createPoolError(`${base} - runTests file pipeline failure`, error);
-      const testError = getTestError(poolError);
+      const poolError = createPoolErrorFromError(`${base} - runTests file pipeline failure`, POOL_ERROR_NAMES.PoolError, error);
+      const testError = getTestErrorForPoolError(poolError);
 
       if (isAbortErrorString(poolError.name)) {
         debug(`[Pipeline] ${base} - runTests file pipeline aborted during run`);
@@ -735,10 +743,12 @@ async function runTests(
       }
       
       try {
+        debug(`[Pipeline] ${base} - runTests file pipeline failure - Reporting test file failure:`, testError);
+
         // report a failure for this suite
-        await pipelineDispatchReportFileFailure(testFilePath, spec.project, pool, poolAbortController, testError, isCollectTestsMode);
+        await pipelineDispatchReportFileFailure(testFilePath, spec.project, config, pool, poolAbortController, testError, isCollectTestsMode);
       } catch (reportErr) {
-        const poolReportError = createPoolError(`${base} - runTests file pipeline failure reporting failure`, reportErr);
+        const poolReportError = createPoolErrorFromError(`${base} - runTests file pipeline failure reporting failure`,  POOL_ERROR_NAMES.PoolReportingError, reportErr);
         if (isAbortErrorString(poolReportError.name)) {
           debug(`[Pipeline] ${base} - runTests file pipeline aborted during failure reporting`);
           // swallow abort error, this pipeline is done
@@ -767,12 +777,11 @@ async function runTests(
     debug('[Pipeline] runTests - All file pipelines resolved');
   } else {
     debug('[Pipeline] runTests - Some file pipelines REJECTED unexpectedly. Throwing error(s) to vitest:', unexpectedErrors);
-    throw new AssemblyScriptPoolError(
-      'Unexpected AssemblyScript Pool Error(s) Encountered',
-      POOL_ERROR_NAMES.PoolError,
-      undefined,
-      unexpectedErrors
-    );
+    throw {
+      name: POOL_ERROR_NAMES.PoolError,
+      message: 'Unexpected AssemblyScript Pool Error(s) Encountered during runTests',
+      cause: unexpectedErrors
+    };
   }
 
   debug('[Pool] -------- runTests completed --------');
@@ -792,7 +801,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
 
   // Worker path resolution - worker must be pre-compiled JavaScript
   if (!existsSync(WORKER_PATH)) {
-    throw new AssemblyScriptPoolError(`Worker file not found at ${WORKER_PATH}`, POOL_ERROR_NAMES.PoolError);
+    throw createPoolError(`Worker file not found at ${WORKER_PATH}`, POOL_ERROR_NAMES.PoolError,);
   }
 
   // In multi-project mode, ctx.config is the global config, not the project-specific config
@@ -816,8 +825,9 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
     }
   }
 
-  // Read pool options and initialize debug mode
-  const poolOptions = getPoolOptions(projectConfig);
+  // Resolve pool options and initialize debug mode
+  const resolvedConfig = getAssemblyScriptResolvedConfig(projectConfig)
+  const poolOptions = resolvedConfig.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
 
   debug('[Pool] Initializing AssemblyScript Pool');
@@ -857,11 +867,11 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
 
     // runs when executing vitest list
     async collectTests(specs: TestSpecification[]) {
-      return collectTests(specs, projectConfig, pool, poolAbortController);
+      return collectTests(specs, resolvedConfig, pool, poolAbortController);
     },
 
     async runTests(specs: TestSpecification[], invalidates?: string[]) {
-      return runTests(specs, projectConfig, pool, poolAbortController, invalidates);
+      return runTests(specs, resolvedConfig, pool, poolAbortController, invalidates);
     },
 
     // Cleanup when shutting down

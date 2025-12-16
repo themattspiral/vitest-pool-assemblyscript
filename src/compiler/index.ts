@@ -10,11 +10,11 @@ import { basename, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { writeFile, mkdir } from 'node:fs/promises';
 
-import { CompileResult, AssemblyScriptCompilerOptions, AssemblyScriptPoolError } from '../types/types.js';
-import { POOL_ERROR_NAMES } from '../types/types.js';
+import { CompileResult, AssemblyScriptCompilerOptions } from '../types/types.js';
+import { POOL_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
 import { instrumentForCoverage } from '../native-instrumentation/addon-interface.js';
-import { throwPoolErrorIfAborted } from '../util/pool-errors.js';
+import { createPoolError, throwPoolErrorIfAborted } from '../util/pool-errors.js';
 
 const DEBUG_WRITE_FILES = false;
 
@@ -23,7 +23,7 @@ const DEBUG_WRITE_FILES = false;
 const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, 'compiler/transforms/strip-inline.js');
 
 if (!existsSync(STRIP_INLINE_TRANSFORM)) {
-  throw new AssemblyScriptPoolError(
+  throw createPoolError(
     `ASC Compiler strip inline transform file not found at ${STRIP_INLINE_TRANSFORM}`,
     POOL_ERROR_NAMES.CompilationError
   );
@@ -55,7 +55,7 @@ export async function compileAssemblyScript(
   const compileStart = performance.now();
 
   if (options.shouldInstrument && !options.instrumentationOptions) {
-    throw new AssemblyScriptPoolError(
+    throw createPoolError(
       'Instrumentation options are required for coverage instrumentation',
       POOL_ERROR_NAMES.CompilationError
     );
@@ -141,7 +141,7 @@ export async function compileAssemblyScript(
       ? `${result.error.message}\n\n${stderrLines.join('')}`
       : result.error.message;
 
-    throw new AssemblyScriptPoolError(errorMessage, POOL_ERROR_NAMES.CompilationError, result.error.stack);
+    throw createPoolError(errorMessage, POOL_ERROR_NAMES.CompilationError, result.error.stack);
   }
 
   if (!binary) {
@@ -149,11 +149,11 @@ export async function compileAssemblyScript(
       ? `No WASM binary was generated\n\nASC Compiler output:\n${stderrLines.join('')}`
       : 'No WASM binary was generated';
 
-    throw new AssemblyScriptPoolError(errorMessage, POOL_ERROR_NAMES.CompilationError);
+    throw createPoolError(errorMessage, POOL_ERROR_NAMES.CompilationError);
   }
 
   if (!sourceMap) {
-    throw new AssemblyScriptPoolError('Source map not captured from AssemblyScript Compiler', POOL_ERROR_NAMES.CompilationError);
+    throw createPoolError('Source map not captured from AssemblyScript Compiler', POOL_ERROR_NAMES.CompilationError);
   }
 
   const cleanBinary: Uint8Array = binary;

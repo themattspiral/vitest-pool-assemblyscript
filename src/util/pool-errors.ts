@@ -1,48 +1,59 @@
-import { AssemblyScriptPoolError, AssemblyScriptTestError, POOL_ERROR_NAMES } from '../types/types.js';
+import { AssemblyScriptPoolError, AssemblyScriptTestError, PoolErrorName } from '../types/types.js';
+import { ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID, POOL_ERROR_NAMES } from '../types/constants.js';
+
+export function createPoolError(
+  message: string,
+  name: PoolErrorName,
+  stack?: string,
+  cause?: any,
+): AssemblyScriptPoolError {
+  return { name, message, stack, cause, __type: ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID };
+}
 
 export function throwPoolErrorIfAborted(signal?: AbortSignal) {
   if (!signal || !signal.aborted) {
     return;
   }
 
-  throw new AssemblyScriptPoolError(signal.reason, POOL_ERROR_NAMES.PoolRunAborted);
+  throw createPoolError(signal.reason, POOL_ERROR_NAMES.PoolRunAborted);
 }
 
 export function isAbortErrorString(item: any): boolean {
   return item === POOL_ERROR_NAMES.PoolRunAborted || item === 'AbortError';
 }
 
-export function createPoolError(context: string, error: unknown): AssemblyScriptPoolError {
+export function createPoolErrorFromError(context: string, contextErrorName: PoolErrorName, error: unknown): AssemblyScriptPoolError {
   const isErrorAbortString = isAbortErrorString(error);
 
   if (isErrorAbortString) {
-    const msg = `${context} - Aborted: Unknown Cause`;
-    return new AssemblyScriptPoolError(msg, POOL_ERROR_NAMES.PoolRunAborted);
+    const msg = `${contextErrorName}: ${context} - Aborted, Unknown Cause`;
+    return createPoolError(msg, POOL_ERROR_NAMES.PoolRunAborted);
   }
 
-  if (error instanceof AssemblyScriptPoolError) {
-    return error;
+  if ((error as any)?.__type === ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID) {
+    return error as AssemblyScriptPoolError;
   }
 
   if (error instanceof Error) {
     const isAbortError = isAbortErrorString(error.name);
-    return new AssemblyScriptPoolError(
+    const asErr = createPoolError(
       `${context} - ${error.name}: ${error.message}`,
-      isAbortError ? POOL_ERROR_NAMES.PoolRunAborted : POOL_ERROR_NAMES.PoolError,
-      error.stack,
-      error.cause
+      isAbortError ? POOL_ERROR_NAMES.PoolRunAborted : contextErrorName,
+      error.stack
     );
+    return asErr;
   }
 
   const errorMsg = String(error);
-  return new AssemblyScriptPoolError(`${context} - ${errorMsg}`, POOL_ERROR_NAMES.PoolError);
+  return createPoolError(`${context} - ${errorMsg}`, contextErrorName);
 }
 
-export function getTestError(error: AssemblyScriptPoolError): AssemblyScriptTestError {
+export function getTestErrorForPoolError(error: AssemblyScriptPoolError): AssemblyScriptTestError {
+  const anyCause: any = error?.cause;
   return {
-    name: error.name ?? POOL_ERROR_NAMES.PoolError,
-    message:  error.message,
+    name: error.name ?? anyCause.name,
+    message: error.message ?? anyCause.message,
     stack: error.stack,
-    cause: error.cause instanceof Error ? getTestError(error.cause as AssemblyScriptPoolError) : undefined
+    cause: anyCause ? getTestErrorForPoolError(anyCause as AssemblyScriptPoolError) : undefined
   };
 }

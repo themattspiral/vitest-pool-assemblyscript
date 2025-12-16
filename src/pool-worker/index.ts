@@ -16,19 +16,21 @@ import { interpretTaskModes } from '@vitest/runner/utils';
 import { ModuleCacheMap } from 'vite-node/client';
 import { installSourcemapsSupport } from 'vite-node/source-map';
 
-import {
-  type DiscoverTestsTask,
-  type DiscoverTestsResult,
-  type ExecuteTestTask,
-  type ExecuteTestResult,
-  type ReportFileResultsTask,
-  type ReportFileFailureTask,
-  type ExecuteBeforeAllHooksTask,
-  type ExecuteAfterAllHooksTask,
-  type AssemblyScriptCoveragePayload,
-  AssemblyScriptPoolError,
-  POOL_ERROR_NAMES,
+import type {
+  DiscoverTestsTask,
+  DiscoverTestsResult,
+  ExecuteTestTask,
+  ExecuteTestResult,
+  ReportFileResultsTask,
+  ReportFileFailureTask,
+  ExecuteBeforeAllHooksTask,
+  ExecuteAfterAllHooksTask,
+  AssemblyScriptCoveragePayload,
 } from '../types/types.js';
+import {
+  COVERAGE_PAYLOAD_FORMATS,
+  POOL_ERROR_NAMES,
+} from '../types/constants.js';
 import {
   discoverTests as discoverTestsFromExecutor,
   executeTest  as executeTestFromExecutor,
@@ -45,7 +47,7 @@ import {
   reportTestPrepare,
   reportTestFinished,
 } from './rpc-reporter.js';
-import { createPoolError } from '../util/pool-errors.js';
+import { createPoolErrorFromError } from '../util/pool-errors.js';
 
 // Singleton module cache for source map support in worker threads
 // Shared across all tasks in this worker to enable accurate 
@@ -88,7 +90,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     await reportFileQueued(rpc, queuedFileTask);
 
     // Discover tests
-    const { tests } = await discoverTestsFromExecutor(taskData.binary, base);
+    const { tests } = await discoverTestsFromExecutor(taskData.binary, base, taskData.poolOptions, taskData.isBinaryInstrumented);
     discoverTimings.phaseEnd = performance.now();
 
     debug(`[TIMING] ${basename(taskData.testFile)} - discover: ${(discoverTimings.phaseEnd - discoverTimings.phaseStart).toFixed(2)}ms`);
@@ -128,7 +130,11 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
 
     return { fileTask: collectedFileTask, tests, discoverTimings };
   } catch (error) {
-    throw createPoolError(`${base} - discoverTests failure in worker`, error);
+    throw createPoolErrorFromError(
+      `${base} - discoverTests failure in worker`,
+      POOL_ERROR_NAMES.WASMExecutionHarnessError,
+      error
+    );
   }
 }
 
@@ -165,7 +171,11 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
 
     return testResult;
   } catch (error) {
-    throw createPoolError(`${base} - executeTest failure in worker for test "${taskData.testTaskName}"`, error);
+    throw createPoolErrorFromError(
+      `${base} - executeTest failure in worker for test "${taskData.testTaskName}"`,
+      POOL_ERROR_NAMES.WASMExecutionHarnessError,
+      error
+    );
   }
 }
 
@@ -194,7 +204,7 @@ export async function reportFileResults(taskData: ReportFileResultsTask): Promis
     if (taskData.coverageData) {
       debug(`[Worker] Reporting coverage via onAfterSuiteRun for: "${taskData.testFile}"`);
       const coverage: AssemblyScriptCoveragePayload = {
-        __format: 'assemblyscript',
+        __format: COVERAGE_PAYLOAD_FORMATS.AssemblyScript,
         coverageData: taskData.coverageData,
       };
       await rpc.onAfterSuiteRun({
@@ -221,7 +231,11 @@ export async function reportFileResults(taskData: ReportFileResultsTask): Promis
 
     debug('[Worker] reportFileSummary complete');
   } catch (error) {
-    throw createPoolError(`${base} - reportFileSummary failure in worker`, error);
+    throw createPoolErrorFromError(
+      `${base} - reportFileSummary failure in worker`,
+      POOL_ERROR_NAMES.PoolReportingError,
+      error
+    );
   }
 }
 
@@ -234,9 +248,9 @@ export async function reportPipelineFileFailure(taskData: ReportFileFailureTask)
 
     const rpc = createRpcClient(taskData.port);
 
-    debug(`[Worker] RPC Reporting onCollected with TestError for: "${taskData.testFile}"`);
+    debug(`[Worker] RPC Reporting onQueued with TestError (${taskData.error.name}) for: "${taskData.testFile}"`);
     
-    const failedFileTask = createInitialFileTask(taskData.testFile, taskData.projectName, taskData.projectRoot);
+    const failedFileTask = createInitialFileTask(taskData.testFile, taskData.projectRoot, taskData.projectName);
     failedFileTask.result = {
       state: 'fail',
       errors: [taskData.error]
@@ -254,7 +268,11 @@ export async function reportPipelineFileFailure(taskData: ReportFileFailureTask)
 
     debug('[Worker] reportPipelineFileFailure complete');
   } catch (error) {
-    throw createPoolError(`${base} - reportPipelineFileFailure failure in worker`, error);
+    throw createPoolErrorFromError(
+      `${base} - reportPipelineFileFailure failure in worker`,
+      POOL_ERROR_NAMES.PoolReportingError,
+      error
+    );
   }
 }
 
@@ -271,7 +289,7 @@ export async function reportPipelineFileFailure(taskData: ReportFileFailureTask)
 export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask): Promise<void> {
   setDebugMode(taskData.poolOptions.debug);
   debug('[Worker] executeBeforeAllHooks not yet implemented');
-  throw new AssemblyScriptPoolError('executeBeforeAllHooks not yet implemented', POOL_ERROR_NAMES.PoolError);
+  throw createPoolErrorFromError('executeBeforeAllHooks worker function', POOL_ERROR_NAMES.PoolError, 'executeBeforeAllHooks not yet implemented');
 }
 
 /**
@@ -286,5 +304,5 @@ export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask)
 export async function executeAfterAllHooks(taskData: ExecuteAfterAllHooksTask): Promise<void> {
   setDebugMode(taskData.poolOptions.debug);
   debug('[Worker] executeAfterAllHooks not yet implemented');
-  throw new AssemblyScriptPoolError('executeAfterAllHooks not yet implemented', POOL_ERROR_NAMES.PoolError);
+  throw createPoolErrorFromError('executeAfterAllHooks worker function', POOL_ERROR_NAMES.PoolError, 'executeBeforeAllHooks not yet implemented');
 }

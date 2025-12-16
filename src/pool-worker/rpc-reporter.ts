@@ -13,7 +13,9 @@ import { TaskResult, TaskEventPack, TaskResultPack, TaskMeta } from '@vitest/run
 import { createFileTask } from '@vitest/runner/utils';
 
 import type { PhaseTimings, ExecuteTestResult, ProjectInfo, DiscoveredTests } from '../types/types.js';
-import { ASSEMBLYSCRIPT_POOL_NAME } from '../types/types.js';
+import {
+  ASSEMBLYSCRIPT_POOL_NAME
+} from '../types/constants.js';
 import { debug } from '../util/debug.js';
 
 const DEBUG_RPC = false;
@@ -138,6 +140,7 @@ export async function reportFileQueued(
   rpcDebug(`[RPC] Reporting onQueued for: "${fileTask.filepath}"`);
   await rpc.onQueued(fileTask);
   rpcDebug(`[RPC] onQueued completed for: "${fileTask.filepath}"`);
+  
 }
 
 /**

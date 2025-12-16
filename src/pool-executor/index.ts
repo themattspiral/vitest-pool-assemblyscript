@@ -9,17 +9,28 @@
  * - Error source location mapping (V8 stack traces + source maps)
  */
 
-import type { ExecuteTestResult, CoverageData, DiscoveredTest, DiscoveredTests, BinaryDebugInfo, AssemblyScriptTestError, ResolvedAssemblyScriptPoolOptions } from '../types/types.js';
-import { AssemblyScriptPoolError, POOL_ERROR_NAMES } from '../types/types.js';
+import type {
+  AssemblyScriptTestError,
+  BinaryDebugInfo,
+  CoverageData,
+  DiscoveredTest,
+  DiscoveredTests,
+  ExecuteTestResult,
+  ResolvedAssemblyScriptPoolOptions
+} from '../types/types.js';
+import { AssemblyScriptPoolError } from '../types/types.js';
+import { ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID, POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
 import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
 import { enhanceErrorWithSourceMap } from './errors.js';
+import { createPoolErrorFromError } from '../util/pool-errors.js';
 
-function createExecutorError(testFileBasename: string, context: string, reason: string): AssemblyScriptPoolError {
-  return new AssemblyScriptPoolError(
-    `${testFileBasename} - ${context} failure in executor: ${reason}`,
+function createExecutorPoolError(testFileBasename: string, context: string, reason: string): AssemblyScriptPoolError {
+  return createPoolErrorFromError(
+    `${testFileBasename} - ${context} failure in executor`,
     POOL_ERROR_NAMES.WASMExecutionHarnessError,
+    reason
   );
 }
 
@@ -42,13 +53,22 @@ function createExecutorError(testFileBasename: string, context: string, reason: 
 export async function discoverTests(
   binary: Uint8Array,
   testFileBasename: string,
+  poolOptions: ResolvedAssemblyScriptPoolOptions,
+  isBinaryInstrumented: boolean,
 ): Promise<{ tests: DiscoveredTests }> {
   const tests: DiscoveredTests = {};
   const module = await WebAssembly.compile(binary as BufferSource);
   const memory = createMemory();
 
-  // stub coverage memory for discovery
-  const coverageMemory = new WebAssembly.Memory({ initial: 1, maximum: 1 });
+  // Create coverage memory matching instrumentation expections (from user config).
+  // While this memory will not be used, discovery uses the same instrumented binary,
+  // and WebAssembly.Instance will throw if the expected memory sizes don't match
+  const coverageMemory = isBinaryInstrumented ?
+    new WebAssembly.Memory({
+      initial: poolOptions.coverageMemoryPagesMin,
+      maximum: poolOptions.coverageMemoryPagesMax
+    })
+    : undefined;
 
   const importObject = createDiscoveryImports(memory, tests, coverageMemory);
 
@@ -60,7 +80,7 @@ export async function discoverTests(
   if (typeof exports._start === 'function') {
     exports._start();
   } else {
-    throw createExecutorError(testFileBasename, 'discoverTests', 'no _start() export');
+    throw createExecutorPoolError(testFileBasename, 'discoverTests', 'no _start() export');
   }
 
   debug('[Executor] Discovered', Object.keys(tests).length, 'tests');
@@ -120,12 +140,12 @@ export async function executeTest(
   if (typeof exports._start === 'function') {
     exports._start();
   } else {
-    throw createExecutorError(testFileBasename, 'executeTest', 'no _start() export');
+    throw createExecutorPoolError(testFileBasename, 'executeTest', 'no _start() export');
   }
 
   // Execute this specific test
   try {
-    const startTime = Date.now();
+    const startTime = performance.now();
     testResultRef.value = {
       name: test.name,
       passed: true,
@@ -139,7 +159,7 @@ export async function executeTest(
     if (table && typeof table.get === 'function') {
       const testFn = table.get(test.fnIndex) as (() => void) | null;
       if (!testFn) {
-        throw createExecutorError(
+        throw createExecutorPoolError(
           testFileBasename,
           'executeTest',
           `Test function at index ${test.fnIndex} not found in function table`
@@ -148,7 +168,7 @@ export async function executeTest(
 
       testFn();
     } else {
-      throw createExecutorError(
+      throw createExecutorPoolError(
         testFileBasename,
         'executeTest',
         'Function table not found in WASM exports (missing --exportTable flag?)'
@@ -156,120 +176,120 @@ export async function executeTest(
     }
 
     // Calculate duration
-    const endTime = Date.now();
+    const endTime = performance.now();
     testResultRef.value.duration = endTime - startTime;
     
-    debug(`[Executor] Test "${test.name}": executed in ${testResultRef.value.duration}ms`);
+    debug(`[Executor] Test "${test.name}": executed in ${testResultRef.value.duration.toFixed(2)}ms`);
 
     // If we reach here, test passed (no abort occurred)
 
   } catch (error) {
-    debug('[Executor] Error during test execution:', error);
-    // Error should be captured in currentTestRef.value via abort handler
-    if (testResultRef.value !== null) {
-      // Calculate duration even on error
-      if (testResultRef.value.startTime && !testResultRef.value.duration) {
-        testResultRef.value.duration = Date.now() - testResultRef.value.startTime;
-      }
+    const anyErr = error as any;
 
-      // If abort() is called (either intentionally by a failed assertion or automatically 
-      // for a runtime exception) it will set test.passed=false and test.error=Some_TestError.
-      // In case of unexpected execution error where no abort handler is called (func table issuie), mark test failed here.
-      if (testResultRef.value.passed) {
-        testResultRef.value.passed = false;
-        const err: AssemblyScriptTestError = {
-          name: POOL_ERROR_NAMES.WASMRuntimeError,
-          message: error instanceof Error ? error.message : String(error)
+    // abort handler wasm import threw this error so it means it was a known test error path (assertion/wasm runtime)
+    if (anyErr?.__type === ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID && anyErr?.name === POOL_ERROR_NAMES.WASMExecutionAbort) {
+      // testResultRef.value.error will be set by test execution abort() import
+      let testError: AssemblyScriptTestError | undefined = testResultRef.value?.error;
+
+      // the error's cause will be set to the error message for test discovery abort() import
+      if (!testError) {
+        testError = {
+          message: typeof anyErr?.cause === 'string' ? anyErr.cause : anyErr?.stack || 'Unknown execution abort',
+          name: TEST_ERROR_NAMES.WASMRuntimeError
         };
-        testResultRef.value.error = err;
       }
+    }
+    
+    // unexpected error while executing, so throw it rather than reporting
+    else {
+      const err = createExecutorPoolError(
+        testFileBasename,
+        'executeTest',
+        `Unexpected exection error: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`
+      );
+      err.cause = (error as any)?.cause;
+
+      throw err;
     }
   }
 
-  // Handle test result: source mapping and coverage
-  let finalResult: ExecuteTestResult;
-  if (testResultRef.value) {
-    const testResult = testResultRef.value;
+  // set all test result values
+  if (testResultRef.value === null) {
+    throw createExecutorPoolError(
+      testFileBasename,
+      'executeTest',
+      `Unexpected exection error: testResultRef.value is undefined after test execution`
+    );
+  }
 
-    // If error is present (rawCallStack), apply source mapping to make it useful
-    if (testResult.rawCallStack) {
-      await enhanceErrorWithSourceMap(testResult, sourceMap);
+  // Calculate duration even on error
+  if (testResultRef.value.startTime) {
+    testResultRef.value.duration = performance.now() - testResultRef.value.startTime;
+  }
+
+  // If error is present (rawCallStack), apply source mapping to make it useful
+  if (testResultRef.value.rawCallStack) {
+    await enhanceErrorWithSourceMap(testResultRef.value, sourceMap);
+  }
+
+  // Extract coverage from memory if collecting coverage
+  if (collectCoverage) {
+    if (!coverageMemory) {
+      throw createExecutorPoolError(
+        testFileBasename,
+        'executeTest',
+        'Coverage memory not created despite collectCoverage=true'
+      );
     }
 
-    // Extract coverage from memory if collecting coverage
-    if (collectCoverage) {
-      if (!coverageMemory) {
-        throw createExecutorError(
-          testFileBasename,
-          'executeTest',
-          'Coverage memory not created despite collectCoverage=true'
-        );
-      }
-
-      if (!debugInfo) {
-        throw createExecutorError(
-          testFileBasename,
-          'executeTest',
-          'debugInfo is required when collectCoverage=true'
-        );
-      }
-
-      const coverage: CoverageData = {
-        hitCountsByFileAndPosition: {},
-      };
-
-      // Read counters from coverage memory
-      const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, debugInfo.instrumentedFunctionCount);
-      debug(`[Executor] Read coverage memory for ${debugInfo.instrumentedFunctionCount} instrumented functions`);
-
-      // Iterate all instrumented functions and build coverage data with hit counts extracted from coverage memory
-      let functionsHit = 0;
-      for (const [filePath, debugFunctions] of Object.entries(debugInfo.functionsByFileAndPosition)) {
-        if (!coverage.hitCountsByFileAndPosition[filePath]) {
-          coverage.hitCountsByFileAndPosition[filePath] = {};
-          debug(`[Executor] Extracting hits for source file: "${filePath}"`);
-        }
-
-        for (const [positionKey, funcInfo] of Object.entries(debugFunctions)) {
-          if (funcInfo.coverageMemoryIndex === undefined) {
-            debug(`[Executor]   Skipping hit extraction for function "${funcInfo.name}" (${positionKey}) - No coverageMemoryIndex (not instrumented)`);
-            continue;
-          }
-
-          const hitCount = extractedHitCounters[funcInfo.coverageMemoryIndex] ?? 0;
-          debug(`[Executor]   ${hitCount} hits [coverageMemoryIndex: ${funcInfo.coverageMemoryIndex}] for "${funcInfo.name}" at ${positionKey} `);
-
-          if (coverage.hitCountsByFileAndPosition[filePath][positionKey] !== undefined) {
-            debug(`[Executor]   WARNING: DUPLICATE POSITION "${funcInfo.name}" (${positionKey}) already extracted to coverage for ${filePath}`);
-          }
-          // Position key is already the position (line:column) from functionsByFileAndPosition
-          coverage.hitCountsByFileAndPosition[filePath][positionKey] = hitCount;
-
-          if (hitCount > 0) {
-            functionsHit++;
-          }
-        }
-      }
-
-      testResult.coverage = coverage;
-      debug(`[Executor] Extracted coverage data: ${functionsHit} functions hit`);
+    if (!debugInfo) {
+      throw createExecutorPoolError(
+        testFileBasename,
+        'executeTest',
+        'debugInfo is required when collectCoverage=true'
+      );
     }
 
-    finalResult = testResult;
-  } else {
-    // Initialization crash (before test could start)
-    finalResult = {
-      name: test.name,
-      passed: false,
-      error: {
-        name: POOL_ERROR_NAMES.WASMRuntimeError,
-        message: 'Test crashed during initialization'
-      },
-      assertionsPassed: 0,
-      assertionsFailed: 0,
-      coverage: undefined,
+    const coverage: CoverageData = {
+      hitCountsByFileAndPosition: {},
     };
+
+    // Read counters from coverage memory
+    const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, debugInfo.instrumentedFunctionCount);
+    debug(`[Executor] Read coverage memory for ${debugInfo.instrumentedFunctionCount} instrumented functions`);
+
+    // Iterate all instrumented functions and build coverage data with hit counts extracted from coverage memory
+    let functionsHit = 0;
+    for (const [filePath, debugFunctions] of Object.entries(debugInfo.functionsByFileAndPosition)) {
+      if (!coverage.hitCountsByFileAndPosition[filePath]) {
+        coverage.hitCountsByFileAndPosition[filePath] = {};
+        debug(`[Executor] Extracting hits for source file: "${filePath}"`);
+      }
+
+      for (const [positionKey, funcInfo] of Object.entries(debugFunctions)) {
+        if (funcInfo.coverageMemoryIndex === undefined) {
+          debug(`[Executor]   Skipping hit extraction for function "${funcInfo.name}" (${positionKey}) - No coverageMemoryIndex (not instrumented)`);
+          continue;
+        }
+
+        const hitCount = extractedHitCounters[funcInfo.coverageMemoryIndex] ?? 0;
+        debug(`[Executor]   ${hitCount} hits [coverageMemoryIndex: ${funcInfo.coverageMemoryIndex}] for "${funcInfo.name}" at ${positionKey} `);
+
+        if (coverage.hitCountsByFileAndPosition[filePath][positionKey] !== undefined) {
+          debug(`[Executor]   WARNING: DUPLICATE POSITION "${funcInfo.name}" (${positionKey}) already extracted to coverage for ${filePath}`);
+        }
+        // Position key is already the position (line:column) from functionsByFileAndPosition
+        coverage.hitCountsByFileAndPosition[filePath][positionKey] = hitCount;
+
+        if (hitCount > 0) {
+          functionsHit++;
+        }
+      }
+    }
+
+    testResultRef.value.coverage = coverage;
+    debug(`[Executor] Extracted coverage data: ${functionsHit} functions hit`);
   }
 
-  return finalResult;
+  return testResultRef.value;
 }

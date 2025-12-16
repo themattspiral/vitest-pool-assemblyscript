@@ -7,178 +7,45 @@
 
 import type { MessagePort } from 'node:worker_threads';
 import type { RuntimeRPC } from 'vitest';
-import type { TestError } from '@vitest/utils';
-import type { RunnerTestFile, RunnerTestCase, ResolvedCoverageOptions } from 'vitest/node';
 import type { BirpcReturn } from 'birpc';
+import type { TestError } from '@vitest/utils';
+import type { RunnerTestFile, RunnerTestCase, ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
 import { TaskMeta } from '@vitest/runner/types';
 
-// ============================================================================
-// Constants
-// ============================================================================
-
-export const ASSEMBLYSCRIPT_POOL_NAME = 'vitest-pool-assemblyscript';
-
-export const POOL_INTERNAL_PATHS = new Set([
-  'assembly/index.ts'
-]);
-
-export const ASSEMBLYSCRIPT_LIB_PREFIX = '~lib/';
-
-
-// ============================================================================
-// AssemblyScript Compiler Enums
-//   - defined locally to avoid isolatedModules const enum access issues
-//   - reference assemblyscript.generated.d.ts
-// ============================================================================
-
-export const ASCommonFlags = {
-  Static: 32,
-  Get: 2048,
-  Set: 4096,
-} as const;
-
-export const ASNodeKind = {
-  Source: 0,
-  NamedType: 1,
-  FunctionType: 2,
-  TypeName: 3,
-  TypeParameter: 4,
-  Parameter: 5,
-  Identifier: 6,
-  Assertion: 7,
-  Binary: 8,
-  Call: 9,
-  Class: 10,
-  Comma: 11,
-  ElementAccess: 12,
-  False: 13,
-  Function: 14,
-  InstanceOf: 15,
-  Literal: 16,
-  New: 17,
-  Null: 18,
-  Omitted: 19,
-  Parenthesized: 20,
-  PropertyAccess: 21,
-  Ternary: 22,
-  Super: 23,
-  This: 24,
-  True: 25,
-  Constructor: 26,
-  UnaryPostfix: 27,
-  UnaryPrefix: 28,
-  Compiled: 29,
-  Block: 30,
-  Break: 31,
-  Continue: 32,
-  Do: 33,
-  Empty: 34,
-  Export: 35,
-  ExportDefault: 36,
-  ExportImport: 37,
-  Expression: 38,
-  For: 39,
-  ForOf: 40,
-  If: 41,
-  Import: 42,
-  Return: 43,
-  Switch: 44,
-  Throw: 45,
-  Try: 46,
-  Variable: 47,
-  Void: 48,
-  While: 49,
-  Module: 50,
-  ClassDeclaration: 51,
-  EnumDeclaration: 52,
-  EnumValueDeclaration: 53,
-  FieldDeclaration: 54,
-  FunctionDeclaration: 55,
-  ImportDeclaration: 56,
-  InterfaceDeclaration: 57,
-  MethodDeclaration: 58,
-  NamespaceDeclaration: 59,
-  TypeDeclaration: 60,
-  VariableDeclaration: 61,
-  Decorator: 62,
-  ExportMember: 63,
-  SwitchCase: 64,
-  IndexSignature: 65,
-  Comment: 66,
-} as const;
-
-export const ASDecoratorKind = {
-  Custom: 0,
-  Global: 1,
-  Operator: 2,
-  OperatorBinary: 3,
-  OperatorPrefix: 4,
-  OperatorPostfix: 5,
-  Unmanaged: 6,
-  Final: 7,
-  Inline: 8,
-  External: 9,
-  ExternalJs: 10,
-  Builtin: 11,
-  Lazy: 12,
-  Unsafe: 13
-} as const;
-
-export const ASSourceKind = {
-  User: 0,
-  UserEntry: 1,
-  Library: 2,
-  LibraryEntry: 3
-} as const;
+import {
+  ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID,
+  COVERAGE_PAYLOAD_FORMATS,
+  POOL_ERROR_NAMES,
+  TEST_ERROR_NAMES,
+} from './constants.js';
 
 // ============================================================================
 // Error Types
 // ============================================================================
 
-/**
- * Error names for AssemblyScript pool failures
- */
-export const POOL_ERROR_NAMES = {
-  // test errors
-  AssertionFailure: 'AssertionFailure',
-  WASMRuntimeError: 'WASMRuntimeError',
-  
-  // pool errors
-  CompilationError: 'CompilationError',
-  WASMInstrumentationError: 'WASMInstrumentationError',
-  WASMExecutionHarnessError: 'WASMExecutionHarnessError',
-  HybridCoverageProviderError: 'HybridCoverageProviderError',
-  PoolError: 'PoolError',
-  PoolRunAborted: 'PoolRunAborted',
-} as const;
+/** Error name type derived from TEST_ERROR_NAMES values */
+export type TestErrorName = typeof TEST_ERROR_NAMES[keyof typeof TEST_ERROR_NAMES];
 
-/**
- * Error name type derived from POOL_ERROR_NAMES values
- */
+/** Error name type derived from POOL_ERROR_NAMES values */
 export type PoolErrorName = typeof POOL_ERROR_NAMES[keyof typeof POOL_ERROR_NAMES];
 
 /**
- * Extended Error with required, strictly-typed name field.
+ * Conforms to Error interface but with required, strictly-typed name field.
  * Thrown internally for all pool errors.
+ * 
+ * Must be thrown as a POJO to be properly serialized across worker-pool boundery.
  */
 export interface AssemblyScriptPoolError extends Error {
+  readonly __type: typeof ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID;
   name: PoolErrorName;
 }
 
-export class AssemblyScriptPoolError extends Error implements AssemblyScriptPoolError {
-  constructor(message: string, name: PoolErrorName, stack?: string, cause?: any) {
-    super(message);
-    this.name = name;
-    this.stack = stack;
-    this.cause = cause;
-  }
-}
-
 /**
- * Extended TestError with required, strictly-typed name field.
- * Serializable error format constructred to report Test/Suite failures to vitest.
+ * Extended vitest TestError with required, strictly-typed name field.
+ * This is an explicitly serializable error format constructred to report
+ * Test/Suite failures to vitest.
  */
-export type AssemblyScriptTestError = TestError & { name: PoolErrorName };
+export type AssemblyScriptTestError = TestError & { name: TestErrorName | PoolErrorName };
 
 // ============================================================================
 // Configuration & Options
@@ -237,6 +104,7 @@ export interface HybridProviderOptions {
   assemblyScriptExclude?: string[];
 }
 
+// define these constants here so they make sense in context
 export const AS_POOL_FIELDS_WITH_DEFAULTS = ['debug', 'stripInline', 'coverageMemoryPagesMin', 'coverageMemoryPagesMax'] as const;
 export const AS_POOL_OPTIONAL_FIELDS = ['maxThreads'] as const;
 
@@ -246,13 +114,16 @@ export type ASPoolOptionsFieldsWithDefaultValues = typeof AS_POOL_FIELDS_WITH_DE
 /** Fields with optional values and NO defaults */
 export type ASPoolOptionsOptionalFields = typeof AS_POOL_OPTIONAL_FIELDS[number];
 
+export type AssemblyScriptResolvedConfig = ResolvedConfig & { poolOptions: { assemblyScript: ResolvedAssemblyScriptPoolOptions } };
+
 /**
  * Pool options resolved so that all fields are filled with user values preferentially, 
  * with required fields being guaranteed to be populated with defaults otherwise.
  */
 export type ResolvedAssemblyScriptPoolOptions =
   Required<Pick<AssemblyScriptPoolOptions, ASPoolOptionsFieldsWithDefaultValues>>
-  & Partial<Pick<AssemblyScriptPoolOptions, ASPoolOptionsOptionalFields>>;
+  & Partial<Pick<AssemblyScriptPoolOptions, ASPoolOptionsOptionalFields>>
+  & { readonly isResolved: true };
 
 export type ResolvedHybridProviderOptions = 
   Required<HybridProviderOptions>
@@ -365,13 +236,6 @@ export interface PhaseTimings {
 }
 
 // ============================================================================
-// Test Execution & Results
-// ============================================================================
-
-
-
-
-// ============================================================================
 // Error Source Mapping
 // ============================================================================
 
@@ -400,10 +264,6 @@ export interface WebAssemblyCallSite {
 // Coverage Data (Runtime Hit Counts)
 // ============================================================================
 
-export const COVERAGE_PAYLOAD_FORMAT = {
-  AssemblyScript: 'assemblyscript',
-} as const;
-
 /**
  * Coverage data collected during test execution
  *
@@ -423,7 +283,7 @@ export interface CoverageData {
  * The __format marker distinguishes AS coverage from JS coverage in onAfterSuiteRun.
  */
 export interface AssemblyScriptCoveragePayload {
-  readonly __format: typeof COVERAGE_PAYLOAD_FORMAT.AssemblyScript
+  readonly __format: typeof COVERAGE_PAYLOAD_FORMATS.AssemblyScript;
   coverageData: CoverageData;
 }
 
@@ -685,6 +545,8 @@ export type DiscoveredTests = Record<string, DiscoveredTest>;
 export interface DiscoverTestsTask {
   /** Compiled binary to discover tests from */
   binary: Uint8Array;
+  /** True if the included binary is instrumented */
+  isBinaryInstrumented: boolean,
   /** Path to test file (for logging) */
   testFile: string;
   /** Pool options */
@@ -757,7 +619,7 @@ export interface ExecuteTestResult {
   assertionsPassed: number;
   /** Number of assertions that failed */
   assertionsFailed: number;
-  /** Mapped source stack trace (for error reporting) */
+  /** Mapped & filtered source stack trace (for error reporting) */
   sourceStack?: WebAssemblyCallSite[];
   /** Raw V8 call stack (internal, for async source mapping) */
   rawCallStack?: NodeJS.CallSite[];

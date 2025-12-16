@@ -12,7 +12,6 @@ import type {
   Vitest,
   ReportContext,
   ResolvedCoverageOptions,
-  ResolvedConfig,
   CustomProviderOptions
 } from 'vitest/node';
 import { basename, relative } from 'node:path';
@@ -25,36 +24,37 @@ import { parseFunctionsFromFile } from './ast-parser.js';
 import { globFiles } from './glob-utils.js';
 import { mergeCoverageData } from './coverage-merge.js';
 import { debug, setDebugMode } from '../util/debug.js';
-import { getPoolOptions } from '../pool/options.js';
+import { getAssemblyScriptResolvedConfig } from '../pool/options.js';
+import type {
+  AssemblyScriptCoveragePayload,
+  AssemblyScriptResolvedConfig,
+  CoverageData,
+  GlobResult,
+  ResolvedHybridProviderOptions,
+} from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_POOL_NAME,
-  AssemblyScriptPoolError,
-  COVERAGE_PAYLOAD_FORMAT,
   POOL_ERROR_NAMES,
-  type AssemblyScriptCoveragePayload,
-  type CoverageData,
-  type GlobResult,
-  type ResolvedAssemblyScriptPoolOptions,
-  type ResolvedHybridProviderOptions
-} from '../types/types.js';
+  COVERAGE_PAYLOAD_FORMATS
+} from '../types/constants.js';
 
 // pick up CustomProviderOptions module augmentation
 import '../config/index.js';
+import { createPoolError } from '../util/pool-errors.js';
 
 export class HybridCoverageProvider implements CoverageProvider {
   name = 'hybrid-assemblyscript-v8' as const;
 
   private v8Provider: CoverageProvider | undefined;
   private accumulatedCoverageData: CoverageData = { hitCountsByFileAndPosition: {} };
-  private projectConfig: ResolvedConfig = {} as ResolvedConfig;
-  private poolOptions: ResolvedAssemblyScriptPoolOptions = getPoolOptions();
+  private projectConfig: AssemblyScriptResolvedConfig = {} as AssemblyScriptResolvedConfig;
   private coverageOptions: ResolvedHybridProviderOptions = {} as ResolvedHybridProviderOptions;
 
   /**
    * Initialize the provider and get reference to v8 provider
    */
   async initialize(ctx: Vitest): Promise<void> {
-    this.projectConfig = ctx.config;
+    this.projectConfig = getAssemblyScriptResolvedConfig(ctx.config);
 
     // TODO - extract the multi-project config logic to helper, it's repeated here and pool
     // although to be honest perhaps we shouldn't do this here at all - coverage config should 
@@ -64,12 +64,11 @@ export class HybridCoverageProvider implements CoverageProvider {
       const project = ctx.projects.find(p => p.config.pool === ASSEMBLYSCRIPT_POOL_NAME);
 
       if (project) {
-        this.projectConfig = project.config;
+        this.projectConfig = getAssemblyScriptResolvedConfig(project.config);
       }
     }
 
-    this.poolOptions = getPoolOptions(this.projectConfig);
-    setDebugMode(this.poolOptions.debug);
+    setDebugMode(this.projectConfig.poolOptions.assemblyScript.debug);
 
     debug('[HybridCoverageProvider] Initializing Provider');
 
@@ -77,7 +76,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     this.v8Provider = await v8CoverageModule.getProvider();
 
     if (!this.v8Provider) {
-      throw new AssemblyScriptPoolError(
+      throw createPoolError(
         'HybridCoverageProvider - initialize failed to get delegated v8 provider',
         POOL_ERROR_NAMES.HybridCoverageProviderError
       );
@@ -102,7 +101,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     });
 
     // Check for AssemblyScript format marker
-    if (format === COVERAGE_PAYLOAD_FORMAT.AssemblyScript) {
+    if (format === COVERAGE_PAYLOAD_FORMATS.AssemblyScript) {
       const payload = meta.coverage as AssemblyScriptCoveragePayload;
       const { coverageData } = payload;
 
@@ -119,7 +118,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     } else {
       // Delegate to v8 provider for all other formats (JS, etc.)
       if (!this.v8Provider) {
-        throw new AssemblyScriptPoolError(
+        throw createPoolError(
           'HybridCoverageProvider - onAfterSuiteRun failed to delegate to internal v8 provider',
           POOL_ERROR_NAMES.HybridCoverageProviderError
         );
@@ -152,7 +151,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     debug('[HybridCoverageProvider] Generating coverage for test run');
 
     if (!this.v8Provider) {
-      throw new AssemblyScriptPoolError(
+      throw createPoolError(
         'HybridCoverageProvider - generateCoverage failed to delegate to internal v8 provider',
         POOL_ERROR_NAMES.HybridCoverageProviderError
       );
@@ -221,7 +220,7 @@ export class HybridCoverageProvider implements CoverageProvider {
    */
   async reportCoverage(coverageMap: unknown, context: ReportContext): Promise<void> {
     if (!this.v8Provider) {
-      throw new AssemblyScriptPoolError(
+      throw createPoolError(
         'HybridCoverageProvider - reportCoverage failed to delegate to internal v8 provider',
         POOL_ERROR_NAMES.HybridCoverageProviderError
       );
@@ -236,7 +235,7 @@ export class HybridCoverageProvider implements CoverageProvider {
    */
   resolveOptions(): ResolvedHybridProviderOptions {
     if (!this.v8Provider) {
-      throw new AssemblyScriptPoolError(
+      throw createPoolError(
         'HybridCoverageProvider - resolveOptions failed to delegate to internal v8 provider',
         POOL_ERROR_NAMES.HybridCoverageProviderError
       );

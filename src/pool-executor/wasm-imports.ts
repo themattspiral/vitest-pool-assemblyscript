@@ -11,9 +11,9 @@
 import { extractCallStack } from './source-maps.js';
 import { decodeString, decodeAbortInfo } from './wasm-memory.js';
 import { debug } from '../util/debug.js';
-import type { AssemblyScriptTestError, DiscoveredTests, PoolErrorName, ExecuteTestResult } from '../types/types.js';
-import { AssemblyScriptPoolError } from '../types/types.js';
-import { POOL_ERROR_NAMES } from '../types/types.js';
+import type { AssemblyScriptTestError, DiscoveredTests, ExecuteTestResult, TestErrorName } from '../types/types.js';
+import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
+import { createPoolError } from '../util/pool-errors.js';
 
 // ============================================================================
 // Shared Utilities
@@ -84,8 +84,14 @@ export function createDiscoveryImports(
       __assertion_fail() {},
 
       abort(msgPtr: number, filePtr: number, line: number, column: number) {
-        const { message, location } = logAbort(memory, msgPtr, filePtr, line, column, 'during discovery');
-        throw new AssemblyScriptPoolError(`${message}${location ? `\n  at ${location}` : ''}`, POOL_ERROR_NAMES.WASMRuntimeError);
+        const { message, location } = logAbort(memory, msgPtr, filePtr, line, column, 'during test discovery');
+
+        throw createPoolError(
+          `${message}${location ? `\n  at ${location}` : ''}`,
+          POOL_ERROR_NAMES.WASMExecutionAbort,
+          undefined,
+          message
+        );
       },
 
       trace(_msg: any, n: any, a0: any, a1: any, a2: any, a3: any) {
@@ -138,36 +144,44 @@ export function createTestExecutionImports(
 
       abort(msgPtr: number, filePtr: number, line: number, column: number) {
         const { message } = logAbort(memory, msgPtr, filePtr, line, column, 'during test execution');
-        let errorName: PoolErrorName = POOL_ERROR_NAMES.WASMRuntimeError;
+        let errorName: TestErrorName = TEST_ERROR_NAMES.WASMRuntimeError;
+        let extractedCallStack: NodeJS.CallSite[] | undefined;
 
         if (testResultRef.value) {
+          // set test result to failed
           testResultRef.value.passed = false;
+          
+          // determine if this was an assertion failure
           if (testResultRef.value.assertionsFailed > 0) {
-            errorName = POOL_ERROR_NAMES.AssertionFailure;
+            errorName = TEST_ERROR_NAMES.AssertionFailure;
           }
 
           // Create error to capture V8 stack trace
-          const error = new Error(message);
+          const capturedError = new Error(message);
 
-          // Extract V8 call stack BEFORE throwing
+          // Extract V8 call stack before throwing
           // This gives us WAT line:column positions that can be mapped to AS source
-          testResultRef.value.rawCallStack = extractCallStack(error);
+          extractedCallStack = extractCallStack(capturedError);
+          testResultRef.value.rawCallStack = extractedCallStack;
           
-          // gets replaced when executor enhances (source-maps) the error in enhanceErrorWithSourceMap()
-          const err: AssemblyScriptTestError = {
+          // Set error to report to vitest on the test resilt - Gets replaced
+          // when executor enhances/source-maps the error
+          const testError: AssemblyScriptTestError = {
             name: errorName,
             message: message
           };
-          testResultRef.value.error = err;
+          testResultRef.value.error = testError;
 
           debug('[Executor] Captured raw V8 call stack with', testResultRef.value.rawCallStack.length, 'frames');
         }
 
-        // Must throw here to halt WASM execution
-        // Without throwing after abort is called from an assert() failure, execution would continue
-        // Per-test WASM instance isolation ensures the next test still runs.
-        // This will be caught by the executor and reported as an appropriate test error.
-        throw new AssemblyScriptPoolError('AssemblyScript abort() import called during execution', errorName);
+        // Must throw here to halt WASM execution on an assert() failure for this test.
+        // This will be caught by the executor and reported as an appropriate test error
+        // using the testResultRef.value.error value set above.
+        throw createPoolError(
+          `AssemblyScript abort() import called during test execution for ${testResultRef.value?.name}`,
+          POOL_ERROR_NAMES.WASMExecutionAbort,
+        );
       },
 
       trace(_msg: any, n: any, a0: any, a1: any, a2: any, a3: any) {

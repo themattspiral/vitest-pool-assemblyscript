@@ -5,8 +5,10 @@ import {
   ASPoolOptionsFieldsWithDefaultValues,
   ResolvedAssemblyScriptPoolOptions,
   AS_POOL_FIELDS_WITH_DEFAULTS,
-  AS_POOL_OPTIONAL_FIELDS
+  AssemblyScriptResolvedConfig
 } from '../types/types.js';
+import { createPoolError } from '../util/pool-errors.js';
+import { POOL_ERROR_NAMES } from '../types/constants.js';
 
 /** Vitest config fields that have default values. Internally these will always be defined. */
 // type ConfigFieldsWithDefaultValues = 'pool';
@@ -25,7 +27,7 @@ const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOption
   stripInline: true,
   coverageMemoryPagesMin: 1,
   coverageMemoryPagesMax: 4
-};
+} as const;
 
 /**
  * Get AssemblyScript pool options from resolved config
@@ -36,19 +38,37 @@ const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOption
  * @param config - Vitest resolved config
  * @returns AssemblyScript pool options
  */
-
-
-export function getPoolOptions(config?: ResolvedConfig): ResolvedAssemblyScriptPoolOptions {
+export function getResolvedPoolOptions(config?: ResolvedConfig): ResolvedAssemblyScriptPoolOptions {
   const poolOptions: AssemblyScriptPoolOptions = config?.poolOptions?.assemblyScript ?? DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS;
-  const allOptionsFields = [...AS_POOL_FIELDS_WITH_DEFAULTS, ...AS_POOL_OPTIONAL_FIELDS];
 
-  for (const configKey of allOptionsFields) {
-    // Use undefined check to preserve false boolean values, 0, etc
+  // resolve fields with defaults if user hasn't provided them
+  for (const configKey of AS_POOL_FIELDS_WITH_DEFAULTS) {
     if (poolOptions[configKey] === undefined) {
-      // @ts-ignore
-      poolOptions[configKey] = DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS[configKey]!;
+      poolOptions[configKey] = DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS[configKey] as any;
     }
   }
 
-  return poolOptions as ResolvedAssemblyScriptPoolOptions;
+  const resolved = {
+    ...poolOptions,
+    isResolved: true
+  } as ResolvedAssemblyScriptPoolOptions;
+
+  if (resolved.coverageMemoryPagesMin < 1 || resolved.coverageMemoryPagesMax < 1) {
+    throw createPoolError(
+      `Coverage memory page size options must be positive - coverageMemoryPagesMin: ${resolved.coverageMemoryPagesMin}`
+      + ` | coverageMemoryPagesMax: ${resolved.coverageMemoryPagesMax}`,
+      POOL_ERROR_NAMES.PoolConfigError
+    );
+  }
+
+  return resolved;
+}
+
+export function getAssemblyScriptResolvedConfig(config: ResolvedConfig): AssemblyScriptResolvedConfig {
+  return {
+    ...config,
+    poolOptions: {
+      assemblyScript: getResolvedPoolOptions(config)
+    }
+  };
 }
