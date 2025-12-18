@@ -15,7 +15,7 @@ import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
 import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
-import { enhanceTestErrorOnResult, sourceMapAndParseWASMStack } from './errors.js';
+import { enhanceTestErrorOnResult, sourceMapAndParseWASMStack } from './wasm-errors.js';
 import { createPoolError, createPoolErrorFromAnyError, getTestErrorFromAnyError } from '../util/pool-errors.js';
 import { parseSourceMap } from './source-maps.js';
 
