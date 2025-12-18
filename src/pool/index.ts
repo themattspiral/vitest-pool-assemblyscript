@@ -51,7 +51,13 @@ import { createPhaseTimings } from '../util/timing.js';
 import { createWorkerChannel } from './worker-channel.js';
 import { getAssemblyScriptResolvedConfig } from './options.js';
 import { mergeCoverageData } from '../coverage-provider/coverage-merge.js';
-import { getTestErrorForPoolError, createPoolErrorFromError, throwPoolErrorIfAborted, isAbortErrorString, createPoolError } from '../util/pool-errors.js';
+import {
+  createPoolError,
+  createPoolErrorFromAnyError,
+  getTestErrorFromPoolError,
+  isAbortErrorString,
+  throwPoolErrorIfAborted,
+} from '../util/pool-errors.js';
 
 const WORKER_PATH = resolve(import.meta.dirname, 'pool-worker/index.js');
 
@@ -211,7 +217,7 @@ async function pipelineQueueCompilation(
       };
     })  
     .catch((err) => {
-      throw createPoolErrorFromError(`${base} - queueCompilation`, POOL_ERROR_NAMES.CompilationError, err);
+      throw createPoolErrorFromAnyError(`${base} - queueCompilation`, POOL_ERROR_NAMES.CompilationError, err);
     });
 
   compilationQueue = currentCompilation;
@@ -254,6 +260,7 @@ async function pipelineDispatchRunDiscovery(
   try {
     const discoverTask: DiscoverTestsTask = {
       binary: cachedContext.binary,
+      sourceMap: cachedContext.sourceMap,
       isBinaryInstrumented: cachedContext.isInstrumented,
       testFile: cachedContext.testFilePath,
       poolOptions,
@@ -314,7 +321,7 @@ async function pipelineDispatchRunTests(
     // Match test task to discovered test by unique id
     const test = cachedContext.discoveredTests[testTask.id];
     if (!test) {
-      throw createPoolErrorFromError(
+      throw createPoolErrorFromAnyError(
         `${base} - pipelineDispatchRunTests`,
         POOL_ERROR_NAMES.WASMExecutionHarnessError,
         `Could not find discovered test for task: ${testTask.name}`,
@@ -327,6 +334,8 @@ async function pipelineDispatchRunTests(
     try {
       debug(`[Pipeline] ${base} - Executing test "${test.name}" with coverage enabled`);
 
+      const diffOptions = typeof project.serializedConfig.diff === 'object'
+        ? project.serializedConfig.diff : undefined; 
       const executeTask: ExecuteTestTask = {
         collectCoverage: config.coverage.enabled,
         binary: cachedContext.binary,
@@ -338,7 +347,8 @@ async function pipelineDispatchRunTests(
         port: testWorkerPort,
         testTaskId: testTask.id,
         testTaskName: testTask.name,
-        testTaskMeta: testTask.meta
+        testTaskMeta: testTask.meta,
+        diffOptions
       };
 
       const result: ExecuteTestResult = await pool.run(executeTask, {
@@ -550,8 +560,8 @@ async function collectTests(
       newCompilation.discoverTimings = discoverResults.discoverTimings;
       newCompilation.discoveredTests = discoverResults.tests;
     } catch (error) {
-      const poolError = createPoolErrorFromError(`${base} - collectTests file pipeline failure`, POOL_ERROR_NAMES.PoolError, error);
-      const testError = getTestErrorForPoolError(poolError);
+      const poolError = createPoolErrorFromAnyError(`${base} - collectTests file pipeline failure`, POOL_ERROR_NAMES.PoolError, error);
+      const testError = getTestErrorFromPoolError(poolError);
 
       if (isAbortErrorString(poolError.name)) {
         debug(`[Pipeline] ${base} - collectTests file pipeline aborted during run`);
@@ -565,7 +575,7 @@ async function collectTests(
         // report a failure for this suite
         await pipelineDispatchReportFileFailure(testFilePath, spec.project, config, pool, poolAbortController, testError, isCollectTestsMode);
       } catch (reportErr) {
-        const poolReportError = createPoolErrorFromError(
+        const poolReportError = createPoolErrorFromAnyError(
           `${base} - collectTests file pipeline failure reporting failure`,
           POOL_ERROR_NAMES.PoolReportingError,
           reportErr
@@ -733,8 +743,8 @@ async function runTests(
         + `[TIMING] ${base} - Pipeline Total: ${p5End - p1Start}ms`
       ));
     } catch (error) {
-      const poolError = createPoolErrorFromError(`${base} - runTests file pipeline failure`, POOL_ERROR_NAMES.PoolError, error);
-      const testError = getTestErrorForPoolError(poolError);
+      const poolError = createPoolErrorFromAnyError(`${base} - runTests file pipeline failure`, POOL_ERROR_NAMES.PoolError, error);
+      const testError = getTestErrorFromPoolError(poolError);
 
       if (isAbortErrorString(poolError.name)) {
         debug(`[Pipeline] ${base} - runTests file pipeline aborted during run`);
@@ -748,7 +758,7 @@ async function runTests(
         // report a failure for this suite
         await pipelineDispatchReportFileFailure(testFilePath, spec.project, config, pool, poolAbortController, testError, isCollectTestsMode);
       } catch (reportErr) {
-        const poolReportError = createPoolErrorFromError(`${base} - runTests file pipeline failure reporting failure`,  POOL_ERROR_NAMES.PoolReportingError, reportErr);
+        const poolReportError = createPoolErrorFromAnyError(`${base} - runTests file pipeline failure reporting failure`,  POOL_ERROR_NAMES.PoolReportingError, reportErr);
         if (isAbortErrorString(poolReportError.name)) {
           debug(`[Pipeline] ${base} - runTests file pipeline aborted during failure reporting`);
           // swallow abort error, this pipeline is done
@@ -826,7 +836,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   }
 
   // Resolve pool options and initialize debug mode
-  const resolvedConfig = getAssemblyScriptResolvedConfig(projectConfig)
+  const resolvedConfig = getAssemblyScriptResolvedConfig(projectConfig);
   const poolOptions = resolvedConfig.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
 

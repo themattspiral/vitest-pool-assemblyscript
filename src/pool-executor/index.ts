@@ -1,36 +1,35 @@
-/**
- * WASM Test Executor - Per-Test Execution
- *
- * Provides clean interfaces for per-test parallelism:
- * - Test discovery (query test registry)
- * - Single test execution (with crash isolation)
- * - Coverage collection (for dual-mode coverage)
- * - WASM import object creation
- * - Error source location mapping (V8 stack traces + source maps)
- */
+import { type SerializedDiffOptions } from '@vitest/utils/diff';
 
 import type {
+  AssemblyScriptPoolError,
   AssemblyScriptTestError,
   BinaryDebugInfo,
   CoverageData,
   DiscoveredTest,
   DiscoveredTests,
   ExecuteTestResult,
+  ExecuteTestResultRef,
   ResolvedAssemblyScriptPoolOptions
 } from '../types/types.js';
-import { AssemblyScriptPoolError } from '../types/types.js';
-import { ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID, POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
+import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
 import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
-import { enhanceErrorWithSourceMap } from './errors.js';
-import { createPoolErrorFromError } from '../util/pool-errors.js';
+import { enhanceTestErrorOnResult, sourceMapAndParseWASMStack } from './errors.js';
+import { createPoolError, createPoolErrorFromAnyError, getTestErrorFromAnyError } from '../util/pool-errors.js';
+import { parseSourceMap } from './source-maps.js';
 
-function createExecutorPoolError(testFileBasename: string, context: string, reason: string): AssemblyScriptPoolError {
-  return createPoolErrorFromError(
-    `${testFileBasename} - ${context} failure in executor`,
+function createExecutorPoolError(
+  testFileBasename: string,
+  context: string,
+  reason: string,
+  cause?: any,
+): AssemblyScriptPoolError {
+  return createPoolError(
+    `${testFileBasename} - ${context} failure in executor: ${reason}`,
     POOL_ERROR_NAMES.WASMExecutionHarnessError,
-    reason
+    undefined,
+    cause
   );
 }
 
@@ -52,6 +51,7 @@ function createExecutorPoolError(testFileBasename: string, context: string, reas
  */
 export async function discoverTests(
   binary: Uint8Array,
+  sourceMap: string,
   testFileBasename: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   isBinaryInstrumented: boolean,
@@ -61,7 +61,7 @@ export async function discoverTests(
   const memory = createMemory();
 
   // Create coverage memory matching instrumentation expections (from user config).
-  // While this memory will not be used, discovery uses the same instrumented binary,
+  // While this memory will not be used, discovery instantiates the same binary,
   // and WebAssembly.Instance will throw if the expected memory sizes don't match
   const coverageMemory = isBinaryInstrumented ?
     new WebAssembly.Memory({
@@ -78,7 +78,43 @@ export async function discoverTests(
 
   // Call _start to run top-level code (registers tests via callbacks)
   if (typeof exports._start === 'function') {
-    exports._start();
+    try {
+      exports._start();
+    } catch (error) {
+      const thrownErrAny: any = error as any;
+
+      // error came from the abort() handler
+      if (thrownErrAny?.name === POOL_ERROR_NAMES.WASMExecutionAbortError) {
+
+        // for test *discovery* abort, test error comes from PoolError's `cause`
+        if (Object.values(TEST_ERROR_NAMES).includes(thrownErrAny?.cause?.name)) {
+          const reportableTestError = thrownErrAny.cause as AssemblyScriptTestError;
+          
+          // special handing for discovery's abort() handler
+          // it includes the rawErrorStack directly on the test error
+          if (reportableTestError.rawCallStack) {
+            const smObj = parseSourceMap(sourceMap);
+            reportableTestError.stacks = await sourceMapAndParseWASMStack(reportableTestError.rawCallStack as NodeJS.CallSite[], smObj, false);
+
+            // delete the raw stack so vitest doesn't complain about unexpected error values
+            delete reportableTestError.rawCallStack;
+          }
+
+          throw createExecutorPoolError(
+            testFileBasename,
+            'discoverTests',
+            `Unexpected discovery error - ${reportableTestError.name}: ${reportableTestError.message}`,
+            reportableTestError
+          );
+        }
+      } else {
+        throw createPoolErrorFromAnyError(
+          'Unexpected discovery error',
+          POOL_ERROR_NAMES.WASMExecutionHarnessError,
+          error
+        );
+      }
+    }
   } else {
     throw createExecutorPoolError(testFileBasename, 'discoverTests', 'no _start() export');
   }
@@ -86,10 +122,6 @@ export async function discoverTests(
   debug('[Executor] Discovered', Object.keys(tests).length, 'tests');
   return { tests };
 }
-
-// ============================================================================
-// Public Exports - Single Test Execution
-// ============================================================================
 
 /**
  * Execute a single test with crash isolation
@@ -109,6 +141,7 @@ export async function executeTest(
   binary: Uint8Array,
   sourceMap: string,
   debugInfo?: BinaryDebugInfo,
+  diffOptions?: SerializedDiffOptions,
 ): Promise<ExecuteTestResult> {
 
   // Compile the binary to usable WASM module
@@ -125,10 +158,10 @@ export async function executeTest(
     })
     : undefined;
 
-  // Mutable reference for import callbacks to update
-  const testResultRef: { value: ExecuteTestResult | null } = { value: null };
+  // Mutable reference for imported functions to update
+  const testResultRef: ExecuteTestResultRef = { value: null };
 
-  // Create import object with appropriate callbacks
+  // Create import object with pool-side functions for capturing test execution results
   const importObject = createTestExecutionImports(memory, testResultRef, coverageMemory);
 
   // Instantiate fresh WASM instance for this test
@@ -138,101 +171,109 @@ export async function executeTest(
   // Call _start to run top-level code. Test registration is stubbed/noop duing execution,
   // but this call is still needed to initialize any user-defined globals / other top level code.
   if (typeof exports._start === 'function') {
+    // Not explicitly handling with try-catch here because failures in _start should be
+    // caught during discovery and source-mapped. If this somehow fails, the worker still catches it.
     exports._start();
   } else {
     throw createExecutorPoolError(testFileBasename, 'executeTest', 'no _start() export');
   }
 
-  // Execute this specific test
-  try {
-    const startTime = performance.now();
-    testResultRef.value = {
-      name: test.name,
-      passed: true,
-      assertionsPassed: 0,
-      assertionsFailed: 0,
-      startTime,
-    };
+  let testFn: (() => void) | null | undefined;
 
-    // Execute test function via function table (AS compiler --exportTable flag)
-    const table = exports.table as WebAssembly.Table | undefined;
-    if (table && typeof table.get === 'function') {
-      const testFn = table.get(test.fnIndex) as (() => void) | null;
-      if (!testFn) {
-        throw createExecutorPoolError(
-          testFileBasename,
-          'executeTest',
-          `Test function at index ${test.fnIndex} not found in function table`
-        );
-      }
+  // Get the test function to execute via function table
+  // (accessable because we're using the AS compiler --exportTable flag)
+  const table = exports.table as WebAssembly.Table | undefined;
+  
+  if (table && typeof table.get === 'function') {
+    testFn = table.get(test.fnIndex) as (() => void) | null;
 
-      testFn();
-    } else {
+    if (!testFn) {
       throw createExecutorPoolError(
         testFileBasename,
         'executeTest',
-        'Function table not found in WASM exports (missing --exportTable flag?)'
+        `Test function at index ${test.fnIndex} not found in function table`
       );
     }
-
-    // Calculate duration
-    const endTime = performance.now();
-    testResultRef.value.duration = endTime - startTime;
-    
-    debug(`[Executor] Test "${test.name}": executed in ${testResultRef.value.duration.toFixed(2)}ms`);
-
-    // If we reach here, test passed (no abort occurred)
-
-  } catch (error) {
-    const anyErr = error as any;
-
-    // abort handler wasm import threw this error so it means it was a known test error path (assertion/wasm runtime)
-    if (anyErr?.__type === ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID && anyErr?.name === POOL_ERROR_NAMES.WASMExecutionAbort) {
-      // testResultRef.value.error will be set by test execution abort() import
-      let testError: AssemblyScriptTestError | undefined = testResultRef.value?.error;
-
-      // the error's cause will be set to the error message for test discovery abort() import
-      if (!testError) {
-        testError = {
-          message: typeof anyErr?.cause === 'string' ? anyErr.cause : anyErr?.stack || 'Unknown execution abort',
-          name: TEST_ERROR_NAMES.WASMRuntimeError
-        };
-      }
-    }
-    
-    // unexpected error while executing, so throw it rather than reporting
-    else {
-      const err = createExecutorPoolError(
-        testFileBasename,
-        'executeTest',
-        `Unexpected exection error: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`
-      );
-      err.cause = (error as any)?.cause;
-
-      throw err;
-    }
-  }
-
-  // set all test result values
-  if (testResultRef.value === null) {
+  } else {
     throw createExecutorPoolError(
       testFileBasename,
       'executeTest',
-      `Unexpected exection error: testResultRef.value is undefined after test execution`
+      'Function table not found in WASM exports (missing --exportTable flag?)'
     );
   }
 
-  // Calculate duration even on error
-  if (testResultRef.value.startTime) {
+  // Create an ExecuteTestResult to hold the result. This ref is updated from within WASM
+  // via the imported __assertion_pass(), __assertion_fail(), and abort() functions
+  testResultRef.value = {
+    name: test.name,
+    passed: true,
+    assertionsPassed: 0,
+    assertionsFailed: 0,
+  };
+
+  // try-catch to ensure we capture known test errors to report
+  // as AssemblyScriptTestErrors to vitest
+  try {
+    testResultRef.value.startTime = performance.now();
+
+    // Execute this test
+    testFn();
+
+    // If we reach here, test passed, i.e. No abort occurred.
+    // Proceed below to prepare the test result
+  } catch (error) {
+    const thrownErrAny = error as any;
+    let reportableTestError: AssemblyScriptTestError | undefined;
+
+    // If this is NOT a WASMExecutionAbort error, it means it did NOT originate from the
+    // wasm abort() import and is unexpected, so we throw as a PoolError.
+    //
+    // If this IS a WASMExecutionAbort error, it means the wasm abort() import threw it as a
+    // known test error (assertion or wasm runtime), so we continue to prepare the test result 
+    const isUnexpectedError = thrownErrAny?.name !== POOL_ERROR_NAMES.WASMExecutionAbortError;
+
+    if (isUnexpectedError) {
+      throw createExecutorPoolError(
+        testFileBasename,
+        'executeTest',
+        `Unexpected execution error: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+        (error as any)?.cause
+      );
+    } else {
+      // for test *execution* abort, test error comes from the test result as testResultRef.value.error
+      reportableTestError = testResultRef.value?.error;
+
+      // this should not happen, but let's be defensive
+      if (!reportableTestError) {
+        reportableTestError = {
+          message: `Unknown execution abort ${typeof thrownErrAny?.cause === 'string' ? thrownErrAny.cause : thrownErrAny?.stack}`,
+          name: TEST_ERROR_NAMES.WASMRuntimeError,
+          cause: getTestErrorFromAnyError(error, 'Unknown execution abort', POOL_ERROR_NAMES.WASMExecutionHarnessError)
+        };
+      }
+
+      // make sure the test error is set on the test result if it wasn't already,
+      // and then proceed to finish other executor duties after the catch
+      if (testResultRef.value) {
+        testResultRef.value.error = reportableTestError;
+      }
+    }
+  }
+
+  // If we didn't throw, continue preparing test result
+
+  // Calculate duration
+  if (testResultRef.value.startTime !== undefined) {
     testResultRef.value.duration = performance.now() - testResultRef.value.startTime;
   }
 
-  // If error is present (rawCallStack), apply source mapping to make it useful
-  if (testResultRef.value.rawCallStack) {
-    await enhanceErrorWithSourceMap(testResultRef.value, sourceMap);
+  // If error is present, apply source mapping to make stack locations
+  // useful, and add nicely-formatted diffs for reporting through vitest
+  if (testResultRef.value.error) {
+    await enhanceTestErrorOnResult(testResultRef.value, sourceMap, diffOptions);
   }
 
-  // Extract coverage from memory if collecting coverage
+  // Extract coverage hits from coverage memory
   if (collectCoverage) {
     if (!coverageMemory) {
       throw createExecutorPoolError(

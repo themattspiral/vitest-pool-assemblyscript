@@ -47,7 +47,7 @@ import {
   reportTestPrepare,
   reportTestFinished,
 } from './rpc-reporter.js';
-import { createPoolErrorFromError } from '../util/pool-errors.js';
+import { createPoolErrorFromAnyError } from '../util/pool-errors.js';
 
 // Singleton module cache for source map support in worker threads
 // Shared across all tasks in this worker to enable accurate 
@@ -90,7 +90,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     await reportFileQueued(rpc, queuedFileTask);
 
     // Discover tests
-    const { tests } = await discoverTestsFromExecutor(taskData.binary, base, taskData.poolOptions, taskData.isBinaryInstrumented);
+    const { tests } = await discoverTestsFromExecutor(taskData.binary, taskData.sourceMap, base, taskData.poolOptions, taskData.isBinaryInstrumented);
     discoverTimings.phaseEnd = performance.now();
 
     debug(`[TIMING] ${basename(taskData.testFile)} - discover: ${(discoverTimings.phaseEnd - discoverTimings.phaseStart).toFixed(2)}ms`);
@@ -130,7 +130,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
 
     return { fileTask: collectedFileTask, tests, discoverTimings };
   } catch (error) {
-    throw createPoolErrorFromError(
+    throw createPoolErrorFromAnyError(
       `${base} - discoverTests failure in worker`,
       POOL_ERROR_NAMES.WASMExecutionHarnessError,
       error
@@ -162,7 +162,8 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
       taskData.collectCoverage,
       taskData.binary,
       taskData.sourceMap,
-      taskData.debugInfo
+      taskData.debugInfo,
+      taskData.diffOptions
     );
 
     await reportTestFinished(rpc, testTaskId, testTaskName, testTaskMeta, testResult);
@@ -171,7 +172,7 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
 
     return testResult;
   } catch (error) {
-    throw createPoolErrorFromError(
+    throw createPoolErrorFromAnyError(
       `${base} - executeTest failure in worker for test "${taskData.testTaskName}"`,
       POOL_ERROR_NAMES.WASMExecutionHarnessError,
       error
@@ -202,7 +203,8 @@ export async function reportFileResults(taskData: ReportFileResultsTask): Promis
 
     // Report coverage if available
     if (taskData.coverageData) {
-      debug(`[Worker] Reporting coverage via onAfterSuiteRun for: "${taskData.testFile}"`);
+      debug(`[Worker] RPC Reporting coverage via onAfterSuiteRun for: "${taskData.testFile}"`);
+
       const coverage: AssemblyScriptCoveragePayload = {
         __format: COVERAGE_PAYLOAD_FORMATS.AssemblyScript,
         coverageData: taskData.coverageData,
@@ -231,7 +233,7 @@ export async function reportFileResults(taskData: ReportFileResultsTask): Promis
 
     debug('[Worker] reportFileSummary complete');
   } catch (error) {
-    throw createPoolErrorFromError(
+    throw createPoolErrorFromAnyError(
       `${base} - reportFileSummary failure in worker`,
       POOL_ERROR_NAMES.PoolReportingError,
       error
@@ -268,7 +270,7 @@ export async function reportPipelineFileFailure(taskData: ReportFileFailureTask)
 
     debug('[Worker] reportPipelineFileFailure complete');
   } catch (error) {
-    throw createPoolErrorFromError(
+    throw createPoolErrorFromAnyError(
       `${base} - reportPipelineFileFailure failure in worker`,
       POOL_ERROR_NAMES.PoolReportingError,
       error
@@ -289,7 +291,7 @@ export async function reportPipelineFileFailure(taskData: ReportFileFailureTask)
 export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask): Promise<void> {
   setDebugMode(taskData.poolOptions.debug);
   debug('[Worker] executeBeforeAllHooks not yet implemented');
-  throw createPoolErrorFromError('executeBeforeAllHooks worker function', POOL_ERROR_NAMES.PoolError, 'executeBeforeAllHooks not yet implemented');
+  throw createPoolErrorFromAnyError('executeBeforeAllHooks worker function', POOL_ERROR_NAMES.PoolError, 'executeBeforeAllHooks not yet implemented');
 }
 
 /**
@@ -304,5 +306,5 @@ export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask)
 export async function executeAfterAllHooks(taskData: ExecuteAfterAllHooksTask): Promise<void> {
   setDebugMode(taskData.poolOptions.debug);
   debug('[Worker] executeAfterAllHooks not yet implemented');
-  throw createPoolErrorFromError('executeAfterAllHooks worker function', POOL_ERROR_NAMES.PoolError, 'executeBeforeAllHooks not yet implemented');
+  throw createPoolErrorFromAnyError('executeAfterAllHooks worker function', POOL_ERROR_NAMES.PoolError, 'executeBeforeAllHooks not yet implemented');
 }

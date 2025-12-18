@@ -20,10 +20,10 @@ declare function __assertion_pass(): void;
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @external("env", "__assertion_fail")
-declare function __assertion_fail(msgPtr: usize, msgLen: i32): void;
+declare function __assertion_fail<T>(msgPtr: usize, msgLen: i32, expected?: T, actual?: T): void;
 
 /**
- * Register a test (called during top-level code execution)
+ * Register a test (called during top-level code execution in _start())
  *
  * Notifies the Pool via __register_test callback with the test name and function index.
  */
@@ -50,11 +50,26 @@ export function assert(condition: bool, message: string = "Assertion failed"): v
   if (condition) {
     __assertion_pass();
   } else {
-    __assertion_fail(changetype<usize>(message), message.length);
+    __assertion_fail<i32>(changetype<usize>(message), message.length);
 
     // Abort on failure - terminates WASM execution - must be called from WASM
     // Pool's abort handler will catch this and mark the test as failed
     // Pass the message to abort so it appears in the error output
+    abort(message);
+  }
+}
+
+export function assertEqual<T>(actual: T, expected: T, message: string = "Equality assertion failed"): void {
+  // TODO - update this to be robust!!
+  const condition = expected === actual;
+
+  if (condition) {
+    __assertion_pass();
+  } else {
+    __assertion_fail<T>(changetype<usize>(message), message.length, expected, actual);
+
+    // Abort on failure - terminates WASM execution - must be called from WASM.
+    // Imported abort handler will catch this and mark the test as failed.
     abort(message);
   }
 }

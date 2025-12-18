@@ -3,14 +3,14 @@
  * Tests basic arithmetic operations
  */
 
-import { test, assert } from '../../assembly';
+import { test, assert, assertEqual } from '../../assembly';
 import { add, subtract, multiply, divide, addOneLiner, subtractOneLiner } from '../assembly-src/math';
 // import { subtract, multiply, divide, addOneLiner, subtractOneLiner } from '../assembly-src/math';
 // import { addOneLiner, subtractOneLiner } from '../assembly-src/math';
 
-test("addition works", () => {
+test("addition works [should fail] [for now]", () => {
   const sum: i32 = add(1, 1);
-  assert(sum == 2, "1 + 1 should equal 2");
+  assertEqual(sum, 3, "1 + 1 should equal 2");
 });
 
 test("subtraction works", () => {

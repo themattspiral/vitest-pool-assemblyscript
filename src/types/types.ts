@@ -9,8 +9,9 @@ import type { MessagePort } from 'node:worker_threads';
 import type { RuntimeRPC } from 'vitest';
 import type { BirpcReturn } from 'birpc';
 import type { TestError } from '@vitest/utils';
+import type { SerializedDiffOptions } from '@vitest/utils/diff';
 import type { RunnerTestFile, RunnerTestCase, ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
-import { TaskMeta } from '@vitest/runner/types';
+import type { TaskMeta } from '@vitest/runner/types';
 
 import {
   ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID,
@@ -20,7 +21,7 @@ import {
 } from './constants.js';
 
 // ============================================================================
-// Error Types
+// Errors
 // ============================================================================
 
 /** Error name type derived from TEST_ERROR_NAMES values */
@@ -33,7 +34,8 @@ export type PoolErrorName = typeof POOL_ERROR_NAMES[keyof typeof POOL_ERROR_NAME
  * Conforms to Error interface but with required, strictly-typed name field.
  * Thrown internally for all pool errors.
  * 
- * Must be thrown as a POJO to be properly serialized across worker-pool boundery.
+ * Must be thrown as a POJO (not using the Error() constructor!) to be properly
+ * serialized across worker-pool boundery.
  */
 export interface AssemblyScriptPoolError extends Error {
   readonly __type: typeof ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID;
@@ -48,7 +50,7 @@ export interface AssemblyScriptPoolError extends Error {
 export type AssemblyScriptTestError = TestError & { name: TestErrorName | PoolErrorName };
 
 // ============================================================================
-// Configuration & Options
+// User Configuration
 // ============================================================================
 
 /**
@@ -545,6 +547,8 @@ export type DiscoveredTests = Record<string, DiscoveredTest>;
 export interface DiscoverTestsTask {
   /** Compiled binary to discover tests from */
   binary: Uint8Array;
+  /** Source map JSON string for error location mapping */
+  sourceMap: string;
   /** True if the included binary is instrumented */
   isBinaryInstrumented: boolean,
   /** Path to test file (for logging) */
@@ -595,6 +599,8 @@ export interface ExecuteTestTask {
   testFile: string;
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
+  /** User-defined diff options, if any */
+  diffOptions?: SerializedDiffOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Test task ID (for RPC reporting) */
@@ -613,23 +619,29 @@ export interface ExecuteTestResult {
   name: string;
   /** Whether the test passed */
   passed: boolean;
-  /** Error if the test failed */
-  error?: AssemblyScriptTestError;
   /** Number of assertions that passed */
   assertionsPassed: number;
   /** Number of assertions that failed */
   assertionsFailed: number;
-  /** Mapped & filtered source stack trace (for error reporting) */
-  sourceStack?: WebAssemblyCallSite[];
+  /** Error if the test failed */
+  error?: AssemblyScriptTestError;
   /** Raw V8 call stack (internal, for async source mapping) */
   rawCallStack?: NodeJS.CallSite[];
+  /** Mapped & filtered source stack trace (for error reporting) */
+  sourceStack?: WebAssemblyCallSite[];
   /** Coverage data collected during this test */
   coverage?: CoverageData;
   /** Test start time in milliseconds */
   startTime?: number;
   /** Test duration in milliseconds */
   duration?: number;
+  /** The user-provided expected value used to assert */
+  expected?: unknown;
+  /** The user-provided actual value calculated in the test */
+  actual?: unknown;
 }
+
+export type ExecuteTestResultRef = { value: ExecuteTestResult | null };
 
 /**
  * Task data for reportFileResults worker function

@@ -18,7 +18,7 @@ export const ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID = 'assemblyscript' as const;
 /** Error names for AssemblyScript test failures reported to vitest */
 export const TEST_ERROR_NAMES = {
   /** Assertion evaluated to false within a test function */
-  AssertionFailure: 'AssertionFailure',
+  AssertionError: 'AssertionError',
   /** WASM runtime called abort after a non-planned user code error */
   WASMRuntimeError: 'WASMRuntimeError',
 } as const;
@@ -39,13 +39,14 @@ export const POOL_ERROR_NAMES = {
   PoolConfigError: 'PoolConfigError',
   /** Generic AssemblyScript pool error */
   PoolError: 'PoolError',
-  /** Indicates intentional abort (flow-control) */
-  PoolRunAborted: 'PoolRunAborted',
+
+  /** Flow Control: Indicates intentional abort */
+  PoolRunAbortedError: 'PoolRunAbortedError',
   /**
-   * Indicates intentional WASM executor exection halt (flow-control) and should
-   * be handled by reporting an AssemblyScriptTestError to vitest
+   * Flow Control: Indicates intentional WASM executor execution halt and
+   * should be handled by reporting an AssemblyScriptTestError to vitest
    */
-  WASMExecutionAbort: 'WASMExecutionAbort',
+  WASMExecutionAbortError: 'WASMExecutionAbortError',
 } as const;
 
 export const COVERAGE_PAYLOAD_FORMATS = {
