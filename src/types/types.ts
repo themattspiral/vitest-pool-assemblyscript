@@ -11,7 +11,7 @@ import type { BirpcReturn } from 'birpc';
 import type { TestError } from '@vitest/utils';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
 import type { RunnerTestFile, RunnerTestCase, ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
-import type { TaskMeta } from '@vitest/runner/types';
+import type { TaskMeta, TestOptions } from '@vitest/runner/types';
 
 import {
   ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID,
@@ -134,6 +134,13 @@ export type ResolvedHybridProviderOptions =
     globbedAssemblyScriptInclude: GlobResult[],
     globbedAssemblyScriptProjectRelativeExcludeOnly: string[],
   };
+
+export const AS_POOL_TEST_OPTIONS = ['timeout', 'retry', 'skip', 'only', 'fails'] as const;
+
+/** TestOptions fields that are supported by AssemblyScript tests in this pool */
+export type ASPoolSupportedTestOptionsFields = typeof AS_POOL_TEST_OPTIONS[number];
+
+export type AssemblyScriptTestOptions = Required<Pick<TestOptions, ASPoolSupportedTestOptionsFields>>;
 
 // ============================================================================
 // Utility Types
@@ -534,6 +541,8 @@ export interface DiscoveredTest {
   fnIndex: number;
   /** Unique internal id assigned to identify this test. Matches RunnerTestCase.id value */
   id: string;
+  /** Options for this specific test if user-provided, otherwise defaults */
+  options: AssemblyScriptTestOptions;
 }
 
 /**
@@ -555,6 +564,8 @@ export interface DiscoverTestsTask {
   testFile: string;
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
+  /** Options that should be applied to test configuration when not user-provided */
+  defaultTestOptions: AssemblyScriptTestOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Project information for file task creation */
@@ -619,6 +630,8 @@ export interface ExecuteTestResult {
   name: string;
   /** Whether the test passed */
   passed: boolean;
+  /** Whether the test timed out */
+  timedOut: boolean;
   /** Number of assertions that passed */
   assertionsPassed: number;
   /** Number of assertions that failed */
@@ -633,6 +646,12 @@ export interface ExecuteTestResult {
   coverage?: CoverageData;
   /** Test start time in milliseconds */
   startTime?: number;
+  /**
+   * Test relative start time using `performance.now()`. Note: only
+   * useful in the same thread on which it was set, as it will be
+   * relative to the worker's `timeOrigin`.
+   */
+  perfStart?: number;
   /** Test duration in milliseconds */
   duration?: number;
   /** The user-provided expected value used to assert */
@@ -680,6 +699,28 @@ export interface ReportFileFailureTask {
   projectName: string;
   /** Compilation phase timings from compile worker */
   compileTimings?: PhaseTimings;
+}
+
+/**
+ * Task data for reportTestFailure worker function
+ */
+export interface ReportTestFailureTask {
+  /** Test to report results for */
+  test: DiscoveredTest;
+    /** Path to test file */
+  testFile: string;
+  /** Pool options */
+  poolOptions: ResolvedAssemblyScriptPoolOptions;
+  /** Result for this test containing a failure */
+  result: ExecuteTestResult;
+  /** MessagePort for RPC communication */
+  port: MessagePort;
+  /** Test task ID (for RPC reporting) */
+  testTaskId: string;
+  /** Test task name (for RPC reporting) */
+  testTaskName: string;
+  /** Test task metadata set on the test */
+  testTaskMeta: TaskMeta;
 }
 
 /**
@@ -752,8 +793,16 @@ export interface WorkerChannel {
  * this includes the full RunnerTestCase which cannot cross worker boundaries.
  */
 export interface PoolTestResult {
+  /** Test to execute */
+  test: DiscoveredTest;
+  /** Path to test file */
+  testFile: string;
   /** Vitest test task object */
   testTask: RunnerTestCase;
   /** Test execution result */
   result: ExecuteTestResult;
+}
+
+export interface TestExecutionTiming {
+  workerAbsoluteTestStart: number;
 }

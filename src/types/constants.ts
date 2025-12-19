@@ -43,10 +43,12 @@ export const POOL_ERROR_NAMES = {
   /** Flow Control: Indicates intentional abort */
   PoolRunAbortedError: 'PoolRunAbortedError',
   /**
-   * Flow Control: Indicates intentional WASM executor execution halt and
-   * should be handled by reporting an AssemblyScriptTestError to vitest
+   * Flow Control: Indicates WASM execution halt through provided abort() handler,
+   * any should be handled by reporting an AssemblyScriptTestError to vitest
    */
   WASMExecutionAbortError: 'WASMExecutionAbortError',
+  /** Flow Control: Indicates WASM execution halt because test timeout elapsed */
+  WASMExecutionTimeoutError: 'WASMExecutionTimeoutError',
 } as const;
 
 export const COVERAGE_PAYLOAD_FORMATS = {

@@ -1,15 +1,18 @@
 import { type SerializedDiffOptions } from '@vitest/utils/diff';
+import { MessagePort } from 'node:worker_threads';
 
 import type {
   AssemblyScriptPoolError,
   AssemblyScriptTestError,
+  AssemblyScriptTestOptions,
   BinaryDebugInfo,
   CoverageData,
   DiscoveredTest,
   DiscoveredTests,
   ExecuteTestResult,
   ExecuteTestResultRef,
-  ResolvedAssemblyScriptPoolOptions
+  ResolvedAssemblyScriptPoolOptions,
+  TestExecutionTiming
 } from '../types/types.js';
 import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
@@ -54,6 +57,7 @@ export async function discoverTests(
   sourceMap: string,
   testFileBasename: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
+  defaultTestOptions: AssemblyScriptTestOptions,
   isBinaryInstrumented: boolean,
 ): Promise<{ tests: DiscoveredTests }> {
   const tests: DiscoveredTests = {};
@@ -70,7 +74,7 @@ export async function discoverTests(
     })
     : undefined;
 
-  const importObject = createDiscoveryImports(memory, tests, coverageMemory);
+  const importObject = createDiscoveryImports(memory, tests, defaultTestOptions, coverageMemory);
 
   // Instantiate WASM module
   const instance = new WebAssembly.Instance(module, importObject);
@@ -140,6 +144,7 @@ export async function executeTest(
   collectCoverage: boolean,
   binary: Uint8Array,
   sourceMap: string,
+  port: MessagePort,
   debugInfo?: BinaryDebugInfo,
   diffOptions?: SerializedDiffOptions,
 ): Promise<ExecuteTestResult> {
@@ -207,6 +212,7 @@ export async function executeTest(
   testResultRef.value = {
     name: test.name,
     passed: true,
+    timedOut: false,
     assertionsPassed: 0,
     assertionsFailed: 0,
   };
@@ -214,7 +220,11 @@ export async function executeTest(
   // try-catch to ensure we capture known test errors to report
   // as AssemblyScriptTestErrors to vitest
   try {
-    testResultRef.value.startTime = performance.now();
+    testResultRef.value.startTime = Date.now();
+    testResultRef.value.perfStart = performance.now();
+
+    const testTiming: TestExecutionTiming = { workerAbsoluteTestStart: testResultRef.value.startTime };
+    port.postMessage(testTiming);
 
     // Execute this test
     testFn();
@@ -263,8 +273,8 @@ export async function executeTest(
   // If we didn't throw, continue preparing test result
 
   // Calculate duration
-  if (testResultRef.value.startTime !== undefined) {
-    testResultRef.value.duration = performance.now() - testResultRef.value.startTime;
+  if (testResultRef.value.perfStart !== undefined) {
+    testResultRef.value.duration = performance.now() - testResultRef.value.perfStart;
   }
 
   // If error is present, apply source mapping to make stack locations

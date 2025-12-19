@@ -38,6 +38,9 @@ import type {
   CachedCompilation,
   AssemblyScriptTestError,
   AssemblyScriptResolvedConfig,
+  AssemblyScriptTestOptions,
+  ReportTestFailureTask,
+  TestExecutionTiming,
 } from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
@@ -54,7 +57,9 @@ import { mergeCoverageData } from '../coverage-provider/coverage-merge.js';
 import {
   createPoolError,
   createPoolErrorFromAnyError,
+  createTestTimeoutError,
   getTestErrorFromPoolError,
+  isAbortError,
   isAbortErrorString,
   throwPoolErrorIfAborted,
 } from '../util/pool-errors.js';
@@ -255,6 +260,14 @@ async function pipelineDispatchRunDiscovery(
   debug(`[Pipeline] ${base} - Phase 2 (discover) starting`);
 
   const projectInfo = extractProjectInfo(spec);
+  const defaultTestOptions: AssemblyScriptTestOptions = {
+    timeout: config.testTimeout,
+    retry: config.retry,
+    fails: false,
+    skip: false,
+    only: false
+  };
+
   const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
   
   try {
@@ -264,6 +277,7 @@ async function pipelineDispatchRunDiscovery(
       isBinaryInstrumented: cachedContext.isInstrumented,
       testFile: cachedContext.testFilePath,
       poolOptions,
+      defaultTestOptions,
       port: workerPort,
       projectInfo,
       compileTimings: cachedContext.compileTimings,
@@ -317,7 +331,7 @@ async function pipelineDispatchRunTests(
   debug(`[Pipeline] ${base} - Phase 3 Execute starting - Coverage: ${config.coverage.enabled}`);
   const testFileSuiteStart = performance.now();
 
-  const testExecutions = testTasks.map(async (testTask) => {
+  const testExecutions = testTasks.map(async (testTask): Promise<PoolTestResult> => {
     // Match test task to discovered test by unique id
     const test = cachedContext.discoveredTests[testTask.id];
     if (!test) {
@@ -327,6 +341,11 @@ async function pipelineDispatchRunTests(
         `Could not find discovered test for task: ${testTask.name}`,
       );
     }
+
+    // used to abort this specific test's worker thread on timeout
+    const testAbortController = new AbortController();
+    const combinedSignal = AbortSignal.any([signal, testAbortController.signal]);
+    let timedOutResult: ExecuteTestResult | undefined;
 
     // Create RPC channel for this test
     const { workerPort: testWorkerPort, poolPort: testPoolPort } = createWorkerChannel(project, false);
@@ -348,16 +367,66 @@ async function pipelineDispatchRunTests(
         testTaskId: testTask.id,
         testTaskName: testTask.name,
         testTaskMeta: testTask.meta,
-        diffOptions
+        diffOptions,
       };
 
-      const result: ExecuteTestResult = await pool.run(executeTask, {
-        name: 'executeTest',
-        transferList: [testWorkerPort],
-        signal
+      const workerStart = Date.now();
+
+      let testTimeoutId: NodeJS.Timeout | undefined;
+      let workerAbsoluteExecutionStart: number | undefined;
+      let resultPromise: Promise<ExecuteTestResult> | undefined;
+
+      testPoolPort.on('message', event => {
+        if (event.workerAbsoluteTestStart) {
+          // track locally because we can't use performance values from the worker
+          const localPerfExecutionStart = performance.now();
+          const poolNow = Date.now();
+          workerAbsoluteExecutionStart = (event as TestExecutionTiming).workerAbsoluteTestStart;
+
+          debug(`[Pipeline] ${base} - Received worker execution start for test "${test.name}" - Beginning test timeout timer`);
+
+          const workerOverheadTime = poolNow - workerStart;
+          debug(`[Pipeline] ${base} -   "${test.name}": Worker took ~${workerOverheadTime} ms to queue / spin up and get to test execution`);
+
+          testTimeoutId = setTimeout(() => {
+            const elapsed = (performance.now() - (localPerfExecutionStart || 0));
+            const elapsedStr = elapsed.toFixed(2);
+            const msg = `Test "${test.name}" timed out after ${elapsedStr} ms (threshold ${test.options.timeout} ms)`;
+
+            timedOutResult = {
+              name: testTask.name,
+              passed: false,
+              timedOut: true,
+              assertionsPassed: 0,
+              assertionsFailed: 0,
+              duration: elapsed,
+              startTime: workerAbsoluteExecutionStart,
+              error: createTestTimeoutError(msg, elapsed, test.options.timeout, diffOptions),
+            };
+
+            debug(`${msg} - Set timedOutResult - Calling abort on test worker's abort controller`);
+            testAbortController.abort(POOL_ERROR_NAMES.WASMExecutionTimeoutError);
+          }, test.options.timeout);
+        }
       });
 
-      return { testTask, result };
+      const result = await pool.run(executeTask, {
+        name: 'executeTest',
+        transferList: [testWorkerPort],
+        signal: combinedSignal
+      });
+
+      clearTimeout(testTimeoutId);
+      debug(`Test completed, cleared execution timeout timer for: "${test.name}"`);
+
+      return { test, testTask, testFile: cachedContext.testFilePath, result };
+    } catch (error) {
+      if (isAbortError(error) && timedOutResult) {
+        debug(`pipelineDispatchRunTests - caught abort error from test timeout - swallowing and returning the timeout result`);
+        return { test, testTask, testFile: cachedContext.testFilePath, result: timedOutResult };
+      } else {
+        throw error;
+      }
     } finally {
       testWorkerPort.close();
       testPoolPort.close();
@@ -382,7 +451,7 @@ async function pipelineDispatchRunTests(
  *
  * @param testFilePath - Path to test file (absolute path)
  * @param fileTask - File task from Vitest
- * @param testResults - Actual test results from Phase 3 or Phase 4 (not RPC side-effects)
+ * @param testResults - Actual test results from Phase 3
  * @param project - Test project
  * @param config - Vitest resolved config
  * @param pool - Tinypool instance
@@ -394,7 +463,8 @@ async function pipelineDispatchReportFileResults(
   testResults: PoolTestResult[],
   config: AssemblyScriptResolvedConfig,
   project: TestProject,
-  pool: Tinypool
+  pool: Tinypool,
+  poolAbortSignal: AbortSignal,
 ): Promise<void> {
   // set debug mode within this async context
   const poolOptions = config.poolOptions.assemblyScript;
@@ -422,14 +492,13 @@ async function pipelineDispatchReportFileResults(
     }
   }
 
-  // Report file summary (suite-finished + final flush)
-  debug(`[Pipeline] ${base} - Calling reportFileResults - file duration: ${fileTask.result?.duration?.toFixed(2)}ms`);
+  debug(`[Pipeline] ${base} - Calling reportFileResults - file duration: ${fileTask.result?.duration?.toFixed(2)}ms | file state: ${fileTask.result?.state}`);
   for (const tr of testResults) {
-    debug(`[Pipeline] ${base} -   "${tr.testTask.name}": ${tr.result?.duration?.toFixed(2)}ms`);
+    debug(`[Pipeline] ${base} -   "${tr.testTask.name}": ${tr.result.duration?.toFixed(2)}ms | timedOut: ${tr.result.timedOut} | passed: ${tr.result.passed}`);
   }
-
+  
   const { workerPort, poolPort } = createWorkerChannel(project, false);
-
+  
   try {
     const summaryTask: ReportFileResultsTask = {
       testFile: testFilePath,
@@ -442,6 +511,7 @@ async function pipelineDispatchReportFileResults(
     await pool.run(summaryTask, {
       name: 'reportFileResults',
       transferList: [workerPort],
+      signal: poolAbortSignal,
     });
 
     debug(`[Pipeline] ${base} - reportFileResults completed`);
@@ -458,7 +528,7 @@ async function pipelineDispatchReportFileFailure(
   project: TestProject,
   config: AssemblyScriptResolvedConfig,
   pool: Tinypool,
-  poolAbortController: AbortController,
+  poolAbortSignal: AbortSignal,
   err: AssemblyScriptTestError,
   isCollectTestsMode: boolean,
 ): Promise<void> {
@@ -486,7 +556,7 @@ async function pipelineDispatchReportFileFailure(
     await pool.run(taskData, {
       name: 'reportPipelineFileFailure',
       transferList: [workerPort],
-      signal: poolAbortController.signal
+      signal: poolAbortSignal
     });
 
     debug(`[Pipeline] ${base} - reportFileFailure completed`);
@@ -496,6 +566,65 @@ async function pipelineDispatchReportFileFailure(
     workerPort.close();
     poolPort.close();
   }
+}
+
+async function pipelineDispatchReportTestTimeouts(
+  testFilePath: string,
+  allResults: PoolTestResult[],
+  project: TestProject,
+  config: AssemblyScriptResolvedConfig,
+  pool: Tinypool,
+  poolAbortSignal: AbortSignal,
+): Promise<void> {
+  const poolOptions = config.poolOptions.assemblyScript;
+  setDebugMode(poolOptions.debug);
+  const base = basename(testFilePath);
+
+  const reportingStart = performance.now();
+
+  const timedOutResults = allResults.filter(r => r.result.timedOut);
+  const completedTimedOutResults = allResults.filter(r => (
+    !r.result.timedOut && r.result.passed &&
+    ((r.result.duration || 0) > r.test.options.timeout)
+  )); 
+
+  if (timedOutResults.length > 0 || completedTimedOutResults.length > 0) {
+    debug(`[Pipeline] ${base} - Calling pipelineDispatchReportTestTimeouts for ${timedOutResults.length} timed out tests and ${completedTimedOutResults.length} completed but timed out tests`);
+  } else {
+    debug(`[Pipeline] ${base} - pipelineDispatchReportTestTimeouts NO timed out tests!`);
+    return;
+  }
+  
+  const reportPromises = [...timedOutResults, ...completedTimedOutResults].map(async (r) => {
+    const { workerPort, poolPort } = createWorkerChannel(project, false);
+    
+    try {
+      const taskData: ReportTestFailureTask = {
+        test: r.test,
+        testFile: testFilePath,
+        poolOptions,
+        result: r.result,
+        port: workerPort,
+        testTaskId: r.testTask.id,
+        testTaskName: r.testTask.name,
+        testTaskMeta: r.testTask.meta
+      };
+
+      await pool.run(taskData, {
+        name: 'reportTestFailure',
+        transferList: [workerPort],
+        signal: poolAbortSignal
+      });
+    } finally {
+      workerPort.close();
+      poolPort.close();
+    }
+  });
+
+  await Promise.all(reportPromises);
+
+  debug(`[Pipeline] ${base} - pipelineDispatchReportTestTimeouts completed`);
+  debug(`[TIMING] ${base} - pipelineDispatchReportTestTimeouts: ${(performance.now() - reportingStart).toFixed(2)}ms`);
 }
 
 
@@ -560,20 +689,20 @@ async function collectTests(
       newCompilation.discoverTimings = discoverResults.discoverTimings;
       newCompilation.discoveredTests = discoverResults.tests;
     } catch (error) {
-      const poolError = createPoolErrorFromAnyError(`${base} - collectTests file pipeline failure`, POOL_ERROR_NAMES.PoolError, error);
-      const testError = getTestErrorFromPoolError(poolError);
-
-      if (isAbortErrorString(poolError.name)) {
+      if (isAbortError(error)) {
         debug(`[Pipeline] ${base} - collectTests file pipeline aborted during run`);
         // swallow abort error, this pipeline is done
         return;
       }
+
+      const poolError = createPoolErrorFromAnyError(`${base} - collectTests file pipeline failure`, POOL_ERROR_NAMES.PoolError, error);
+      const testError = getTestErrorFromPoolError(poolError);
       
       try {
         debug(`[Pipeline] ${base} - collectTests file pipeline failure - Reporting test file failure:`, testError);
 
         // report a failure for this suite
-        await pipelineDispatchReportFileFailure(testFilePath, spec.project, config, pool, poolAbortController, testError, isCollectTestsMode);
+        await pipelineDispatchReportFileFailure(testFilePath, spec.project, config, pool, signal, testError, isCollectTestsMode);
       } catch (reportErr) {
         const poolReportError = createPoolErrorFromAnyError(
           `${base} - collectTests file pipeline failure reporting failure`,
@@ -721,7 +850,7 @@ async function runTests(
       debug(`[TIMING] ${base} - Pipeline Phase 3: ${p3Ms}ms`);
 
       // Aggregate per-test result coverage into per-test-file coverage for file-level reporting
-      if (spec.project.config.coverage) {
+      if (config.coverage) {
         const covStart = Date.now();
 
         aggregateCoverageForTestFile(testFilePath, testResults);
@@ -730,9 +859,12 @@ async function runTests(
         debug(`[TIMING] ${base} - Pipeline Post-Phase 3 Coverage Aggregation: ${covMs}ms`);
       }
 
+      // report any test timeouts, as they wouldn't have been reported already since worker threads get aborted on timeout
+      await pipelineDispatchReportTestTimeouts(testFilePath, testResults, spec.project, config, pool, signal);
+
       // PHASE 5: Finalize and report
       const p5Start = Date.now();
-      await pipelineDispatchReportFileResults(testFilePath, discoverResults.fileTask, testResults, config, spec.project, pool);
+      await pipelineDispatchReportFileResults(testFilePath, discoverResults.fileTask, testResults, config, spec.project, pool, signal);
       const p5End = Date.now();
       const p5Ms = p5End - p5Start;
 
@@ -743,20 +875,20 @@ async function runTests(
         + `[TIMING] ${base} - Pipeline Total: ${p5End - p1Start}ms`
       ));
     } catch (error) {
-      const poolError = createPoolErrorFromAnyError(`${base} - runTests file pipeline failure`, POOL_ERROR_NAMES.PoolError, error);
-      const testError = getTestErrorFromPoolError(poolError);
-
-      if (isAbortErrorString(poolError.name)) {
+      if (isAbortError(error)) {
         debug(`[Pipeline] ${base} - runTests file pipeline aborted during run`);
         // swallow abort error, this pipeline is done
         return;
       }
+
+      const poolError = createPoolErrorFromAnyError(`${base} - runTests file pipeline failure`, POOL_ERROR_NAMES.PoolError, error);
+      const testError = getTestErrorFromPoolError(poolError);
       
       try {
         debug(`[Pipeline] ${base} - runTests file pipeline failure - Reporting test file failure:`, testError);
 
         // report a failure for this suite
-        await pipelineDispatchReportFileFailure(testFilePath, spec.project, config, pool, poolAbortController, testError, isCollectTestsMode);
+        await pipelineDispatchReportFileFailure(testFilePath, spec.project, config, pool, signal, testError, isCollectTestsMode);
       } catch (reportErr) {
         const poolReportError = createPoolErrorFromAnyError(`${base} - runTests file pipeline failure reporting failure`,  POOL_ERROR_NAMES.PoolReportingError, reportErr);
         if (isAbortErrorString(poolReportError.name)) {

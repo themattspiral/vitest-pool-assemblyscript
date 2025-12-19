@@ -1,3 +1,4 @@
+import { diff, type SerializedDiffOptions } from '@vitest/utils/diff';
 import type {
   AssemblyScriptPoolError,
   AssemblyScriptTestError,
@@ -15,6 +16,20 @@ export function createPoolError(
   return { name, message, stack, cause, __type: ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID };
 }
 
+export function createTestTimeoutError(
+  message: string,
+  duration: number,
+  timeout: number,
+  diffOptions?: SerializedDiffOptions,
+): AssemblyScriptTestError {
+  const err: AssemblyScriptTestError = {
+    name: POOL_ERROR_NAMES.WASMExecutionTimeoutError,
+    message
+  };
+  err.diff = diff(`Duration < ${timeout} ms`, `Duration = ${duration.toFixed(2)} ms`, diffOptions);
+  return err;
+}
+
 export function throwPoolErrorIfAborted(signal?: AbortSignal) {
   if (!signal || !signal.aborted) {
     return;
@@ -27,9 +42,14 @@ export function isAbortErrorString(item: any): boolean {
   return item === POOL_ERROR_NAMES.PoolRunAbortedError || item === 'AbortError';
 }
 
+export function isAbortError(error: any): boolean {
+  return isAbortErrorString(error) 
+    || isAbortErrorString(error?.name)
+    || error?.message === 'Terminating worker thread';
+}
+
 export function createPoolErrorFromAnyError(context: string, contextErrorName: PoolErrorName, error: any): AssemblyScriptPoolError {
   const isErrorAbortString = isAbortErrorString(error);
-
   if (isErrorAbortString) {
     const msg = `${contextErrorName}: ${context} - Aborted, Unknown Cause`;
     return createPoolError(msg, POOL_ERROR_NAMES.PoolRunAbortedError);

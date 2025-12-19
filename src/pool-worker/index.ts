@@ -26,6 +26,7 @@ import type {
   ExecuteBeforeAllHooksTask,
   ExecuteAfterAllHooksTask,
   AssemblyScriptCoveragePayload,
+  ReportTestFailureTask,
 } from '../types/types.js';
 import {
   COVERAGE_PAYLOAD_FORMATS,
@@ -90,7 +91,14 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     await reportFileQueued(rpc, queuedFileTask);
 
     // Discover tests
-    const { tests } = await discoverTestsFromExecutor(taskData.binary, taskData.sourceMap, base, taskData.poolOptions, taskData.isBinaryInstrumented);
+    const { tests } = await discoverTestsFromExecutor(
+      taskData.binary,
+      taskData.sourceMap,
+      base,
+      taskData.poolOptions,
+      taskData.defaultTestOptions,
+      taskData.isBinaryInstrumented
+    );
     discoverTimings.phaseEnd = performance.now();
 
     debug(`[TIMING] ${basename(taskData.testFile)} - discover: ${(discoverTimings.phaseEnd - discoverTimings.phaseStart).toFixed(2)}ms`);
@@ -162,6 +170,7 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
       taskData.collectCoverage,
       taskData.binary,
       taskData.sourceMap,
+      taskData.port,
       taskData.debugInfo,
       taskData.diffOptions
     );
@@ -272,6 +281,30 @@ export async function reportPipelineFileFailure(taskData: ReportFileFailureTask)
   } catch (error) {
     throw createPoolErrorFromAnyError(
       `${base} - reportPipelineFileFailure failure in worker`,
+      POOL_ERROR_NAMES.PoolReportingError,
+      error
+    );
+  }
+}
+
+export async function reportTestFailure(taskData: ReportTestFailureTask): Promise<void> {
+  const base = basename(taskData.testFile);
+
+  try {
+    setDebugMode(taskData.poolOptions.debug);
+    debug(`[Worker] reportTestFailure started for: "${taskData.test.name}"`);
+
+    const rpc = createRpcClient(taskData.port);
+
+    await reportTestFinished(rpc, taskData.testTaskId, taskData.testTaskName, taskData.testTaskMeta, taskData.result);
+
+    // Final flush
+    await rpc.onTaskUpdate([], []);
+
+    debug('[Worker] reportTestFailure complete');
+  } catch (error) {
+    throw createPoolErrorFromAnyError(
+      `${base} - reportTestFailure failure in worker`,
       POOL_ERROR_NAMES.PoolReportingError,
       error
     );

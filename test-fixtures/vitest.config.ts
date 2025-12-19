@@ -72,6 +72,8 @@ export default defineConfig({
           include: ['test-fixtures/assembly/**/*.as.test.ts'],
           exclude: ['coverage-fixtures/**/*'],
 
+          testTimeout: 500,
+
           pool: 'vitest-pool-assemblyscript',
           poolOptions: {
             assemblyScript: {

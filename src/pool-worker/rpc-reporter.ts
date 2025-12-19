@@ -12,7 +12,12 @@ import type { RunnerTestCase, RunnerTestFile } from 'vitest/node';
 import { TaskResult, TaskEventPack, TaskResultPack, TaskMeta } from '@vitest/runner/types';
 import { createFileTask } from '@vitest/runner/utils';
 
-import type { PhaseTimings, ExecuteTestResult, ProjectInfo, DiscoveredTests } from '../types/types.js';
+import type {
+  PhaseTimings,
+  ExecuteTestResult,
+  ProjectInfo,
+  DiscoveredTests
+} from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_POOL_NAME
 } from '../types/constants.js';
@@ -114,9 +119,14 @@ export function createRunFileTaskWithTestCases(
       mode: 'run',
       meta: {},
       file: fileTask,
-      timeout: projectInfo.testTimeout,
       annotations: [],
+      
+      // set test-specific config on the test task
+      timeout: test.options.timeout,
+      retry: test.options.retry,
+      fails: test.options.fails,
     };
+
     fileTask.tasks.push(testTask);
   }
 

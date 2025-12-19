@@ -112,7 +112,7 @@ export async function enhanceTestErrorOnResult(
 
   if (isAssertionFailure) {
     // will remain undefined if there were no expected/actual values provided with the assertion failure
-    expectedVsActualDiffString = diff(mutableTestResult.error.actual, mutableTestResult.error.expected, diffOptions);
+    expectedVsActualDiffString = diff(mutableTestResult.error.expected, mutableTestResult.error.actual, diffOptions);
   }
 
   // if there's no stack to map, set the expected vs actual diff (if any) and return

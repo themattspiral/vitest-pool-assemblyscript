@@ -13,6 +13,7 @@ import { decodeString, decodeAbortInfo } from './wasm-memory.js';
 import { debug } from '../util/debug.js';
 import type {
   AssemblyScriptTestError,
+  AssemblyScriptTestOptions,
   DiscoveredTests,
   ExecuteTestResultRef,
   TestErrorName
@@ -35,6 +36,7 @@ import { createPoolError } from '../util/pool-errors.js';
 export function createDiscoveryImports(
   memory: WebAssembly.Memory,
   mutableTestsCollection: DiscoveredTests,
+  defaultTestOptions: AssemblyScriptTestOptions,
   coverageMemory?: WebAssembly.Memory
 ): WebAssembly.Imports {
   return {
@@ -49,7 +51,13 @@ export function createDiscoveryImports(
         // unique id for the test within the binary, allowing for duplicated test names
         const id = `${testName}_${fnIndex}`;
 
-        mutableTestsCollection[id] = { name: testName, fnIndex, id };
+        // create DiscoveredTest
+        mutableTestsCollection[id] = {
+          fnIndex,
+          id,
+          name: testName,
+          options: defaultTestOptions  // TODO use user-provided per-test options
+        };
         
         debug(`[Executor] Registered test: "${testName}" with fnIndex ${fnIndex}`);
       },
@@ -131,7 +139,7 @@ export function createTestExecutionImports(
           mutableTestResultRef.value.expected = expected;
           mutableTestResultRef.value.actual = actual;
           const errorMsg = decodeString(memory, msgPtr, msgLen);
-          debug(`[Executor] Assertion failed: "${errorMsg}" | Expected: \`${expected}\` | Actual: \`${actual}\``);
+          debug(`[Executor] Assertion failed: "${errorMsg}" | Expected: \`${expected !== undefined ? expected : ''}\` | Actual: \`${actual !== undefined ? actual : ''}\``);
         }
       },
 
