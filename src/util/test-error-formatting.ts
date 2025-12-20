@@ -5,6 +5,10 @@ import c from 'tinyrainbow';
 
 const FRAME_POINTER = '❯' as const;
 
+export function getTimeoutString(timeout: number) {
+  return c.yellow(` Test Timeout Exceeded (${timeout}ms)`);
+}
+
 export function getVitestLikeStackFrameString(frame: ParsedStack): string {
   return c.cyan(
     ` ${c.dim(FRAME_POINTER)} ${frame.method} ${frame.file}:${c.dim(`${frame.line}:${frame.column}`)}`

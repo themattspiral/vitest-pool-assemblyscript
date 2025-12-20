@@ -15,7 +15,7 @@ import { debug } from '../util/debug.js';
 import { POOL_INTERNAL_PATHS, TEST_ERROR_NAMES } from '../types/constants.js';
 import type { ExecuteTestResult, WebAssemblyCallSite } from '../types/types.js';
 import { createWebAssemblyCallSite, parseSourceMap } from './source-maps.js';
-import { getSourceCodeFrameString, getVitestLikeStackFrameString } from './error-formatting.js';
+import { getSourceCodeFrameString, getVitestLikeStackFrameString } from '../util/test-error-formatting.js';
 
 // Extract short function name from AS's namespace format
 //   "assembly/index/assert" → "assert"

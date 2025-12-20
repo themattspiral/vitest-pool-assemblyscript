@@ -1,11 +1,12 @@
-import { diff, type SerializedDiffOptions } from '@vitest/utils/diff';
 import type {
   AssemblyScriptPoolError,
   AssemblyScriptTestError,
+  DiscoveredTest,
   PoolErrorName,
   TestErrorName
 } from '../types/types.js';
 import { ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID, POOL_ERROR_NAMES } from '../types/constants.js';
+import { getTimeoutString } from './test-error-formatting.js';
 
 export function createPoolError(
   message: string,
@@ -17,16 +18,13 @@ export function createPoolError(
 }
 
 export function createTestTimeoutError(
-  message: string,
-  duration: number,
-  timeout: number,
-  diffOptions?: SerializedDiffOptions,
+  test: DiscoveredTest
 ): AssemblyScriptTestError {
   const err: AssemblyScriptTestError = {
     name: POOL_ERROR_NAMES.WASMExecutionTimeoutError,
-    message
+    message: `Test "${test.name}" timed out (threshold ${test.options.timeout}ms)`,
+    diff: getTimeoutString(test.options.timeout)
   };
-  err.diff = diff(`Duration < ${timeout} ms`, `Duration = ${duration.toFixed(2)} ms`, diffOptions);
   return err;
 }
 

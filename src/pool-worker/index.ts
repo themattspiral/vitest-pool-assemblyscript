@@ -150,6 +150,8 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
  * Execute a single test
  */
 export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTestResult> {
+  const workerStart = Date.now();
+  const workerStartPerf = performance.now();
   const base = basename(taskData.testFile);
 
   try {
@@ -164,6 +166,8 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
     await reportTestPrepare(rpc, testTaskId, testTaskName, testTaskMeta);
 
     const testResult = await executeTestFromExecutor(
+      workerStart,
+      workerStartPerf,
       taskData.test,
       base,
       taskData.poolOptions,

@@ -12,7 +12,8 @@ import type {
   ExecuteTestResult,
   ExecuteTestResultRef,
   ResolvedAssemblyScriptPoolOptions,
-  TestExecutionTiming
+  TestExecutionEnd,
+  TestExecutionStart,
 } from '../types/types.js';
 import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
@@ -138,6 +139,8 @@ export async function discoverTests(
  * @returns Test result with outcome, timing, and optional coverage
  */
 export async function executeTest(
+  workerStart: number,
+  workerStartPerf: number,
   test: DiscoveredTest,
   testFileBasename: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
@@ -221,10 +224,15 @@ export async function executeTest(
   // as AssemblyScriptTestErrors to vitest
   try {
     testResultRef.value.startTime = Date.now();
-    testResultRef.value.perfStart = performance.now();
-
-    const testTiming: TestExecutionTiming = { workerAbsoluteTestStart: testResultRef.value.startTime };
+    
+    const testTiming: TestExecutionStart = {
+      executionStart: testResultRef.value.startTime,
+      workerStart,
+      workerOverhead: performance.now() - workerStartPerf
+    };
     port.postMessage(testTiming);
+
+    testResultRef.value.perfStart = performance.now();
 
     // Execute this test
     testFn();
@@ -261,21 +269,14 @@ export async function executeTest(
           cause: getTestErrorFromAnyError(error, 'Unknown execution abort', POOL_ERROR_NAMES.WASMExecutionHarnessError)
         };
       }
-
-      // make sure the test error is set on the test result if it wasn't already,
-      // and then proceed to finish other executor duties after the catch
-      if (testResultRef.value) {
-        testResultRef.value.error = reportableTestError;
-      }
     }
   }
 
-  // If we didn't throw, continue preparing test result
-
-  // Calculate duration
-  if (testResultRef.value.perfStart !== undefined) {
-    testResultRef.value.duration = performance.now() - testResultRef.value.perfStart;
-  }
+  testResultRef.value.duration = performance.now() - testResultRef.value.perfStart!;
+  
+  // notify the pool so it doesn't abort because of a test timeout
+  const testTiming: TestExecutionEnd = { executionEnd: Date.now() };
+  port.postMessage(testTiming);
 
   // If error is present, apply source mapping to make stack locations
   // useful, and add nicely-formatted diffs for reporting through vitest

@@ -40,7 +40,8 @@ import type {
   AssemblyScriptResolvedConfig,
   AssemblyScriptTestOptions,
   ReportTestFailureTask,
-  TestExecutionTiming,
+  TestExecutionStart,
+  TestExecutionEnd,
 } from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
@@ -370,28 +371,35 @@ async function pipelineDispatchRunTests(
         diffOptions,
       };
 
-      const workerStart = Date.now();
-
+      let dispatchTime: number | undefined;
       let testTimeoutId: NodeJS.Timeout | undefined;
-      let workerAbsoluteExecutionStart: number | undefined;
-      let resultPromise: Promise<ExecuteTestResult> | undefined;
+      let workerExecutionStart: number | undefined;
 
       testPoolPort.on('message', event => {
-        if (event.workerAbsoluteTestStart) {
-          // track locally because we can't use performance values from the worker
-          const localPerfExecutionStart = performance.now();
-          const poolNow = Date.now();
-          workerAbsoluteExecutionStart = (event as TestExecutionTiming).workerAbsoluteTestStart;
+        if (event.executionStart) {
+          const poolReceivedExecutionStart = Date.now();
+          const workerTimings = event as TestExecutionStart;
+          workerExecutionStart = workerTimings.executionStart;
 
-          debug(`[Pipeline] ${base} - Received worker execution start for test "${test.name}" - Beginning test timeout timer`);
+          debug(`[Pipeline] ${base} - Received worker execution start for test "${test.name}" - Beginning test timeout timer ${test.options.timeout}ms`);
 
-          const workerOverheadTime = poolNow - workerStart;
-          debug(`[Pipeline] ${base} -   "${test.name}": Worker took ~${workerOverheadTime} ms to queue / spin up and get to test execution`);
+          const workerQueuedDuration = workerTimings.workerStart - dispatchTime!;
+          debug(`[TIMING] ${base} -   Worker Queued ${workerQueuedDuration.toFixed(2)}ms Init ${workerTimings.workerOverhead.toFixed(2)}ms    (${test.name})`);
+          
+          const transitDuration = poolReceivedExecutionStart - workerExecutionStart;
+          const adjustedTimeout = Math.max(test.options.timeout - transitDuration, 0);
+          debug(`[TIMING] ${base} -   Execution start transit: ${transitDuration.toFixed(2)}ms (adjusted timeout: ${adjustedTimeout}ms)    (${test.name})`);
 
+          // Ensure test timeout
           testTimeoutId = setTimeout(() => {
-            const elapsed = (performance.now() - (localPerfExecutionStart || 0));
-            const elapsedStr = elapsed.toFixed(2);
-            const msg = `Test "${test.name}" timed out after ${elapsedStr} ms (threshold ${test.options.timeout} ms)`;
+            testAbortController.abort(POOL_ERROR_NAMES.WASMExecutionTimeoutError);
+            
+            const timeoutNow = Date.now();
+            const elapsedFromWorkerExecutionStart = timeoutNow - workerExecutionStart!;
+
+            const msg = `Test "${test.name}" timed out (threshold ${test.options.timeout}ms)`;
+
+            debug(`[Pipeline] ${base} - Aborted test worker job - ${msg} - Actual duration from worker exection start: ${elapsedFromWorkerExecutionStart}`);
 
             timedOutResult = {
               name: testTask.name,
@@ -399,25 +407,37 @@ async function pipelineDispatchRunTests(
               timedOut: true,
               assertionsPassed: 0,
               assertionsFailed: 0,
-              duration: elapsed,
-              startTime: workerAbsoluteExecutionStart,
-              error: createTestTimeoutError(msg, elapsed, test.options.timeout, diffOptions),
+              duration: elapsedFromWorkerExecutionStart,
+              startTime: workerExecutionStart,
+              error: createTestTimeoutError(test),
             };
+          }, adjustedTimeout);
+        } else if (event.executionEnd) {
+          const poolReceivedExecutionEnd = Date.now();
+          clearTimeout(testTimeoutId);
+          testTimeoutId = undefined;
 
-            debug(`${msg} - Set timedOutResult - Calling abort on test worker's abort controller`);
-            testAbortController.abort(POOL_ERROR_NAMES.WASMExecutionTimeoutError);
-          }, test.options.timeout);
+          const workerTimings = event as TestExecutionEnd;
+          
+          const elapsedFromWorkerExecutionStart = workerTimings.executionEnd - workerExecutionStart!;
+          debug(`[Pipeline] ${base} - Received worker execution end for test "${test.name}" - Clear test timeout timer - Actual duration from worker exection start: ${elapsedFromWorkerExecutionStart}`);
+          
+          const transitDuration = poolReceivedExecutionEnd - workerTimings.executionEnd;
+          debug(`[TIMING] ${base} -   Execution end transit: ${transitDuration.toFixed(2)}ms    (${test.name})`);
         }
       });
 
+      dispatchTime = Date.now();
       const result = await pool.run(executeTask, {
         name: 'executeTest',
         transferList: [testWorkerPort],
         signal: combinedSignal
       });
 
-      clearTimeout(testTimeoutId);
-      debug(`Test completed, cleared execution timeout timer for: "${test.name}"`);
+      if (testTimeoutId) {
+        clearTimeout(testTimeoutId);
+        debug(`[Pipeline] ${base} - Received test result without worker execution end for test "${test.name}" - Clear test timeout timer`);
+      }
 
       return { test, testTask, testFile: cachedContext.testFilePath, result };
     } catch (error) {
@@ -493,9 +513,6 @@ async function pipelineDispatchReportFileResults(
   }
 
   debug(`[Pipeline] ${base} - Calling reportFileResults - file duration: ${fileTask.result?.duration?.toFixed(2)}ms | file state: ${fileTask.result?.state}`);
-  for (const tr of testResults) {
-    debug(`[Pipeline] ${base} -   "${tr.testTask.name}": ${tr.result.duration?.toFixed(2)}ms | timedOut: ${tr.result.timedOut} | passed: ${tr.result.passed}`);
-  }
   
   const { workerPort, poolPort } = createWorkerChannel(project, false);
   
@@ -570,7 +587,7 @@ async function pipelineDispatchReportFileFailure(
 
 async function pipelineDispatchReportTestTimeouts(
   testFilePath: string,
-  allResults: PoolTestResult[],
+  timedOutResults: PoolTestResult[],
   project: TestProject,
   config: AssemblyScriptResolvedConfig,
   pool: Tinypool,
@@ -580,22 +597,10 @@ async function pipelineDispatchReportTestTimeouts(
   setDebugMode(poolOptions.debug);
   const base = basename(testFilePath);
 
+  debug(`[Pipeline] ${base} - pipelineDispatchReportTestTimeouts reporting ${timedOutResults} timeouts`);
+
   const reportingStart = performance.now();
-
-  const timedOutResults = allResults.filter(r => r.result.timedOut);
-  const completedTimedOutResults = allResults.filter(r => (
-    !r.result.timedOut && r.result.passed &&
-    ((r.result.duration || 0) > r.test.options.timeout)
-  )); 
-
-  if (timedOutResults.length > 0 || completedTimedOutResults.length > 0) {
-    debug(`[Pipeline] ${base} - Calling pipelineDispatchReportTestTimeouts for ${timedOutResults.length} timed out tests and ${completedTimedOutResults.length} completed but timed out tests`);
-  } else {
-    debug(`[Pipeline] ${base} - pipelineDispatchReportTestTimeouts NO timed out tests!`);
-    return;
-  }
-  
-  const reportPromises = [...timedOutResults, ...completedTimedOutResults].map(async (r) => {
+  const reportPromises = timedOutResults.map(async (r) => {
     const { workerPort, poolPort } = createWorkerChannel(project, false);
     
     try {
@@ -859,8 +864,25 @@ async function runTests(
         debug(`[TIMING] ${base} - Pipeline Post-Phase 3 Coverage Aggregation: ${covMs}ms`);
       }
 
-      // report any test timeouts, as they wouldn't have been reported already since worker threads get aborted on timeout
-      await pipelineDispatchReportTestTimeouts(testFilePath, testResults, spec.project, config, pool, signal);
+      const timedOut: PoolTestResult[] = [];
+      testResults.forEach(tr => {
+        if (tr.result.timedOut) {
+          timedOut.push(tr);
+          debug(`${base} - Hard Timeout (abort): "${tr.test.name}": ${tr.result.duration?.toFixed(2)}ms`);
+        } else if (!tr.result.timedOut && ((tr.result.duration || 0) > tr.test.options.timeout)) {
+          debug(`${base} - Completed but Timed Out (setting failed): "${tr.test.name}": ${tr.result.duration?.toFixed(2)}ms`);
+          // these won't have been set as a failure by the executor in this edge case, so we do it here for proper reporting
+          tr.result.passed = false;
+          tr.result.timedOut = true;
+          tr.result.error = createTestTimeoutError(tr.test)
+          timedOut.push(tr);
+        }
+      });
+
+      // report any test timeouts, as they won't have been reported already in either case:
+      // 1) worker thread was aborted on timeout (hard)
+      // 2) completed but should be marked timed out based on duration
+      await pipelineDispatchReportTestTimeouts(testFilePath, timedOut, spec.project, config, pool, signal);
 
       // PHASE 5: Finalize and report
       const p5Start = Date.now();

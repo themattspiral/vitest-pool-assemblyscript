@@ -803,6 +803,12 @@ export interface PoolTestResult {
   result: ExecuteTestResult;
 }
 
-export interface TestExecutionTiming {
-  workerAbsoluteTestStart: number;
+export interface TestExecutionStart {
+  executionStart: number;
+  workerStart: number;
+  workerOverhead: number;
+}
+
+export interface TestExecutionEnd {
+  executionEnd: number;
 }
