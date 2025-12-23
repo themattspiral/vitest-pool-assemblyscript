@@ -73,6 +73,7 @@ export default defineConfig({
           exclude: ['coverage-fixtures/**/*'],
 
           testTimeout: 500,
+          retry: 2,
 
           pool: 'vitest-pool-assemblyscript',
           poolOptions: {

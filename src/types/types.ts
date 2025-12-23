@@ -620,13 +620,19 @@ export interface ExecuteTestTask {
   testTaskName: string;
   /** Test task metadata set on the test */
   testTaskMeta: TaskMeta;
+  /** Errors accumulated across all of this test's executions (initial + retries/reruns) */
+  allResultErrors: AssemblyScriptTestError[];
+  /** Retry count represented by this test execution task */
+  retryCount?: number;
+  /** Start time used for all execution phase updates */
+  contextExecutionStart: number;
 }
 
 /**
  * Result of a single test execution
  */
 export interface ExecuteTestResult {
-  /** Test name */
+  /** Test name for reference/logging */
   name: string;
   /** Whether the test passed */
   passed: boolean;
@@ -646,12 +652,6 @@ export interface ExecuteTestResult {
   coverage?: CoverageData;
   /** Test start time in milliseconds */
   startTime?: number;
-  /**
-   * Test relative start time using `performance.now()`. Note: only
-   * useful in the same thread on which it was set, as it will be
-   * relative to the worker's `timeOrigin`.
-   */
-  perfStart?: number;
   /** Test duration in milliseconds */
   duration?: number;
   /** The user-provided expected value used to assert */
@@ -713,6 +713,8 @@ export interface ReportTestFailureTask {
   poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** Result for this test containing a failure */
   result: ExecuteTestResult;
+  /** Errors accumulated across all of this test's executions (initial + retries/reruns) */
+  allResultErrors: AssemblyScriptTestError[];
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Test task ID (for RPC reporting) */
@@ -721,6 +723,10 @@ export interface ReportTestFailureTask {
   testTaskName: string;
   /** Test task metadata set on the test */
   testTaskMeta: TaskMeta;
+  /** Retry count attempted for this failed test */
+  retryCount?: number;
+  /** Start time used for all execution phase updates */
+  contextExecutionStart: number;
 }
 
 /**
@@ -786,21 +792,37 @@ export interface WorkerChannel {
 }
 
 /**
- * Pool-internal test result pairing testTask with result
+ * Pool-internal test execution context, combining the discovered test definition with
+ * the vitest task representing this test for reporting and the ultimate result of the
+ * execution.
  *
  * Used within the pool to track test execution results along with their
  * associated Vitest task objects. Unlike ExecuteTestResult (worker communication),
  * this includes the full RunnerTestCase which cannot cross worker boundaries.
  */
-export interface PoolTestResult {
+export interface PoolTestExecutionContext {
   /** Test to execute */
   test: DiscoveredTest;
   /** Path to test file */
-  testFile: string;
+  testFilePath: string;
   /** Vitest test task object */
   testTask: RunnerTestCase;
-  /** Test execution result */
+  /** Result of the most recent test execution */
   result: ExecuteTestResult;
+  /** Errors accumulated across all of this test's executions (initial + retries/reruns) */
+  allResultErrors: AssemblyScriptTestError[];
+
+  executionStart: number;
+  /**
+   * Number of times this test was executed (in addition to the first run)
+   * with re-runs either because it failed and was retried, or succeeded and was repeated
+   */
+  executeCount: number;
+  /**
+   * Number of times this test was executed after the first run because it failed and
+   * was retried. Undefined if no retried are configured on this test.
+   */
+  retryCount?: number;
 }
 
 export interface TestExecutionStart {

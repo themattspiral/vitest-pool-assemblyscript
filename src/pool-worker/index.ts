@@ -114,6 +114,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
 
     // Apply test name pattern filtering (from -t flag) before reporting to Vitest
     // This sets test.mode to 'skip' for tests that don't match the pattern
+    // TODO - move back to pipeline
     interpretTaskModes(
       collectedFileTask,
       taskData.testNamePattern,
@@ -161,9 +162,12 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
     // Create RPC client from port
     const rpc = createRpcClient(taskData.port);
 
-    // Report test-prepare
-    const { testTaskId, testTaskName, testTaskMeta } = taskData;
-    await reportTestPrepare(rpc, testTaskId, testTaskName, testTaskMeta);
+    const { testTaskId, testTaskName, testTaskMeta, allResultErrors } = taskData;
+    
+    // Report test-prepare if this is not a retry execution
+    if (!taskData.retryCount || taskData.retryCount === 0) {
+      await reportTestPrepare(rpc, testTaskId, testTaskName, testTaskMeta, taskData.contextExecutionStart);
+    }
 
     const testResult = await executeTestFromExecutor(
       workerStart,
@@ -179,7 +183,10 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
       taskData.diffOptions
     );
 
-    await reportTestFinished(rpc, testTaskId, testTaskName, testTaskMeta, testResult);
+    if (testResult.error) {
+      allResultErrors.push(testResult.error);
+    }
+    await reportTestFinished(rpc, taskData.test, testTaskId, testTaskName, testTaskMeta, testResult, allResultErrors, taskData.contextExecutionStart, taskData.retryCount);
 
     debug(`[Worker] executeTest complete for: "${taskData.testTaskName}"`);
 
@@ -300,7 +307,7 @@ export async function reportTestFailure(taskData: ReportTestFailureTask): Promis
 
     const rpc = createRpcClient(taskData.port);
 
-    await reportTestFinished(rpc, taskData.testTaskId, taskData.testTaskName, taskData.testTaskMeta, taskData.result);
+    await reportTestFinished(rpc, taskData.test, taskData.testTaskId, taskData.testTaskName, taskData.testTaskMeta, taskData.result, taskData.allResultErrors, taskData.contextExecutionStart, taskData.retryCount);
 
     // Final flush
     await rpc.onTaskUpdate([], []);

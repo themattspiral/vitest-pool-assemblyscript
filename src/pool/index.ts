@@ -29,7 +29,7 @@ import type {
   ReportFileResultsTask,
   CoverageData,
   ProjectInfo,
-  PoolTestResult,
+  PoolTestExecutionContext,
   InstrumentationOptions,
   ResolvedHybridProviderOptions,
   ReportFileFailureTask,
@@ -120,7 +120,7 @@ function extractProjectInfo(spec: TestSpecification): ProjectInfo {
  */
 function aggregateCoverageForTestFile(
   testFilePath: string,
-  testResults: PoolTestResult[]
+  testResults: PoolTestExecutionContext[]
 ): void {
   const base = basename(testFilePath);
   debug(`[Pipeline] ${base} - Aggregating per-test coverage into per-file coverage`);
@@ -192,7 +192,7 @@ async function pipelineQueueCompilation(
       // Only instrument when coverage is enabled and when not running a collectTests() operation
       const shouldInstrument = isCoverageEnabled && !isCollectTestsMode
 
-      // TODO - move to options helpers (and rename options to config??)
+      // TODO - move to options helpers
       const instrumentationOptions: InstrumentationOptions = {
         relativeExcludedFiles: [
           relative(config.root, testFilePath),
@@ -238,7 +238,7 @@ async function pipelineQueueCompilation(
  * Throws on discovery failure
  *
  * @param testFilePath - Path to test file (absolute path)
- * @param cachedContext - Cached compilation
+ * @param cached - Cached compilation
  * @param spec - Test specification
  * @param pool - Tinypool instance
  * @param isCollectTestsMode - true when running a `collectTests()` operation only, false for full `runTests()`
@@ -247,7 +247,7 @@ async function pipelineQueueCompilation(
  */
 async function pipelineDispatchRunDiscovery(
   spec: TestSpecification,
-  cachedContext: CachedCompilation,
+  cached: CachedCompilation,
   config: AssemblyScriptResolvedConfig,
   pool: Tinypool,
   signal: AbortSignal,
@@ -256,7 +256,7 @@ async function pipelineDispatchRunDiscovery(
   // set debug mode within this async context
   const poolOptions = config.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
-  const base = basename(cachedContext.testFilePath);
+  const base = basename(cached.testFilePath);
 
   debug(`[Pipeline] ${base} - Phase 2 (discover) starting`);
 
@@ -273,16 +273,16 @@ async function pipelineDispatchRunDiscovery(
   
   try {
     const discoverTask: DiscoverTestsTask = {
-      binary: cachedContext.binary,
-      sourceMap: cachedContext.sourceMap,
-      isBinaryInstrumented: cachedContext.isInstrumented,
-      testFile: cachedContext.testFilePath,
+      binary: cached.binary,
+      sourceMap: cached.sourceMap,
+      isBinaryInstrumented: cached.isInstrumented,
+      testFile: cached.testFilePath,
       poolOptions,
       defaultTestOptions,
       port: workerPort,
       projectInfo,
-      compileTimings: cachedContext.compileTimings,
-      debugInfo: cachedContext.debugInfo,
+      compileTimings: cached.compileTimings,
+      debugInfo: cached.debugInfo,
       testNamePattern: config.testNamePattern,
       allowOnly: config.allowOnly,
     };
@@ -308,7 +308,7 @@ async function pipelineDispatchRunDiscovery(
  * Throws on test execution failure
  *
  * @param testFilePath - Path to test file (absolute path)
- * @param cachedContext - Cached compilation
+ * @param cached - Cached compilation
  * @param testTasks - Array of test tasks to execute
  * @param project - Test project
  * @param config - Vitest resolved config
@@ -317,32 +317,22 @@ async function pipelineDispatchRunDiscovery(
  * @throws Error on test execution failure
  */
 async function pipelineDispatchRunTests(
-  cachedContext: CachedCompilation,
-  testTasks: RunnerTestCase[],
+  cached: CachedCompilation,
+  testContexts: PoolTestExecutionContext[],
   config: AssemblyScriptResolvedConfig,
   project: TestProject,
   pool: Tinypool,
   signal: AbortSignal
-): Promise<PoolTestResult[]> {
+): Promise<PoolTestExecutionContext[]> {
   // set debug mode within this async context
   const poolOptions = config.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
-  const base = basename(cachedContext.testFilePath);
+  const base = basename(cached.testFilePath);
 
   debug(`[Pipeline] ${base} - Phase 3 Execute starting - Coverage: ${config.coverage.enabled}`);
   const testFileSuiteStart = performance.now();
 
-  const testExecutions = testTasks.map(async (testTask): Promise<PoolTestResult> => {
-    // Match test task to discovered test by unique id
-    const test = cachedContext.discoveredTests[testTask.id];
-    if (!test) {
-      throw createPoolErrorFromAnyError(
-        `${base} - pipelineDispatchRunTests`,
-        POOL_ERROR_NAMES.WASMExecutionHarnessError,
-        `Could not find discovered test for task: ${testTask.name}`,
-      );
-    }
-
+  const testExecutions = testContexts.map(async (context): Promise<PoolTestExecutionContext> => {
     // used to abort this specific test's worker thread on timeout
     const testAbortController = new AbortController();
     const combinedSignal = AbortSignal.any([signal, testAbortController.signal]);
@@ -351,24 +341,37 @@ async function pipelineDispatchRunTests(
     // Create RPC channel for this test
     const { workerPort: testWorkerPort, poolPort: testPoolPort } = createWorkerChannel(project, false);
 
+    // executeCount is current before we start
+    // retryCount is what retry we will be on as/after we execute this run
+    // retryCount is current_executeCount + 1 (to count this run) - 1 (don't count first run)
+    // so retryCount = executeCount if we will be retrying at all
+    context.retryCount = context.test.options.retry > 0 ? context.executeCount : undefined;
+
     try {
-      debug(`[Pipeline] ${base} - Executing test "${test.name}" with coverage enabled`);
+      debug(`[Pipeline] ${base} - "${context.test.name}": Dispatching executeTest (${context.executeCount} executions)`
+        + ` | Execution: ${context.executeCount + 1}`
+        + ` | Retry: ${context.test.options.retry > 0 ? `${context.retryCount ?? 0} / ${context.test.options.retry}` : 'n/a'}`
+        + ` | Errors: ${context.allResultErrors.length}`
+      );
 
       const diffOptions = typeof project.serializedConfig.diff === 'object'
         ? project.serializedConfig.diff : undefined; 
       const executeTask: ExecuteTestTask = {
         collectCoverage: config.coverage.enabled,
-        binary: cachedContext.binary,
-        sourceMap: cachedContext.sourceMap,
-        debugInfo: cachedContext.debugInfo,
-        test,
-        testFile: cachedContext.testFilePath,
+        binary: cached.binary,
+        sourceMap: cached.sourceMap,
+        debugInfo: cached.debugInfo,
+        test: context.test,
+        testFile: cached.testFilePath,
         poolOptions,
         port: testWorkerPort,
-        testTaskId: testTask.id,
-        testTaskName: testTask.name,
-        testTaskMeta: testTask.meta,
+        testTaskId: context.testTask.id,
+        testTaskName: context.testTask.name,
+        testTaskMeta: context.testTask.meta,
         diffOptions,
+        allResultErrors: context.allResultErrors,
+        retryCount: context.retryCount,
+        contextExecutionStart: context.executionStart
       };
 
       let dispatchTime: number | undefined;
@@ -381,36 +384,39 @@ async function pipelineDispatchRunTests(
           const workerTimings = event as TestExecutionStart;
           workerExecutionStart = workerTimings.executionStart;
 
-          debug(`[Pipeline] ${base} - Received worker execution start for test "${test.name}" - Beginning test timeout timer ${test.options.timeout}ms`);
+          debug(`[Pipeline] ${base} - "${context.test.name}": Received worker execution start - Beginning test timeout timer ${context.test.options.timeout}ms`);
 
           const workerQueuedDuration = workerTimings.workerStart - dispatchTime!;
-          debug(`[TIMING] ${base} -   Worker Queued ${workerQueuedDuration.toFixed(2)}ms Init ${workerTimings.workerOverhead.toFixed(2)}ms    (${test.name})`);
+          debug(`[TIMING] ${base} - "${context.test.name}": Worker Queued ${workerQueuedDuration.toFixed(2)}ms | Worker Init ${workerTimings.workerOverhead.toFixed(2)}ms`);
           
           const transitDuration = poolReceivedExecutionStart - workerExecutionStart;
-          const adjustedTimeout = Math.max(test.options.timeout - transitDuration, 0);
-          debug(`[TIMING] ${base} -   Execution start transit: ${transitDuration.toFixed(2)}ms (adjusted timeout: ${adjustedTimeout}ms)    (${test.name})`);
+          const adjustedTimeout = Math.max(context.test.options.timeout - transitDuration, 0);
+          debug(`[TIMING] ${base} - "${context.test.name}": Execution start transit: ${transitDuration.toFixed(2)}ms | Adjusted timeout: ${adjustedTimeout}ms`);
 
-          // Ensure test timeout
+          // Enforce test timeout
           testTimeoutId = setTimeout(() => {
             testAbortController.abort(POOL_ERROR_NAMES.WASMExecutionTimeoutError);
             
             const timeoutNow = Date.now();
             const elapsedFromWorkerExecutionStart = timeoutNow - workerExecutionStart!;
 
-            const msg = `Test "${test.name}" timed out (threshold ${test.options.timeout}ms)`;
-
-            debug(`[Pipeline] ${base} - Aborted test worker job - ${msg} - Actual duration from worker exection start: ${elapsedFromWorkerExecutionStart}`);
+            debug(`[Pipeline] ${base} - "${context.test.name}": Timed out (threshold ${context.test.options.timeout}ms)`
+              + ` - Aborted test worker job - Actual duration from worker exection start: ${elapsedFromWorkerExecutionStart}`
+            );
 
             timedOutResult = {
-              name: testTask.name,
+              name: context.test.name,
               passed: false,
               timedOut: true,
               assertionsPassed: 0,
               assertionsFailed: 0,
               duration: elapsedFromWorkerExecutionStart,
-              startTime: workerExecutionStart,
-              error: createTestTimeoutError(test),
+              startTime: context.executionStart,
+              error: createTestTimeoutError(context.test),
             };
+            context.allResultErrors.push(timedOutResult.error!);
+
+            testTimeoutId = undefined;
           }, adjustedTimeout);
         } else if (event.executionEnd) {
           const poolReceivedExecutionEnd = Date.now();
@@ -420,31 +426,52 @@ async function pipelineDispatchRunTests(
           const workerTimings = event as TestExecutionEnd;
           
           const elapsedFromWorkerExecutionStart = workerTimings.executionEnd - workerExecutionStart!;
-          debug(`[Pipeline] ${base} - Received worker execution end for test "${test.name}" - Clear test timeout timer - Actual duration from worker exection start: ${elapsedFromWorkerExecutionStart}`);
+          debug(`[Pipeline] ${base} - "${context.test.name}": Received worker execution end - Clear test timeout timer`
+            + ` - Actual duration from worker exection start: ${elapsedFromWorkerExecutionStart}`
+          );
           
           const transitDuration = poolReceivedExecutionEnd - workerTimings.executionEnd;
-          debug(`[TIMING] ${base} -   Execution end transit: ${transitDuration.toFixed(2)}ms    (${test.name})`);
+          debug(`[TIMING] ${base} - "${context.test.name}": Execution end transit: ${transitDuration.toFixed(2)}ms    (${context.test.name})`);
         }
       });
 
+      context.executeCount++;
       dispatchTime = Date.now();
-      const result = await pool.run(executeTask, {
+      context.result = await pool.run(executeTask, {
         name: 'executeTest',
         transferList: [testWorkerPort],
         signal: combinedSignal
       });
 
-      if (testTimeoutId) {
-        clearTimeout(testTimeoutId);
-        debug(`[Pipeline] ${base} - Received test result without worker execution end for test "${test.name}" - Clear test timeout timer`);
+      // copy any result error to running error context
+      if (context.result.error) {
+        context.allResultErrors.push(context.result.error);
       }
 
-      return { test, testTask, testFile: cachedContext.testFilePath, result };
+      if (testTimeoutId) {
+        clearTimeout(testTimeoutId);
+        debug(`[Pipeline] ${base} - "${context.test.name}": executeTest run completed - Cleared test timeout timer that wasn't already cleared`
+          + ` | Execution: ${context.executeCount}`
+          + ` | Retry: ${context.test.options.retry > 0 ? `${context.retryCount ?? 0} / ${context.test.options.retry}` : 'n/a'}`
+          + ` | Errors: ${context.allResultErrors.length}`
+        );
+      } else {
+        debug(`[Pipeline] ${base} - "${context.test.name}": executeTest run completed - test timeout timer already cleared`
+          + ` | Execution: ${context.executeCount}`
+          + ` | Retry: ${context.test.options.retry > 0 ? `${context.retryCount ?? 0} / ${context.test.options.retry}` : 'n/a'}`
+          + ` | Errors: ${context.allResultErrors.length}`
+        );
+      }
+
+      return context;
     } catch (error) {
       if (isAbortError(error) && timedOutResult) {
-        debug(`pipelineDispatchRunTests - caught abort error from test timeout - swallowing and returning the timeout result`);
-        return { test, testTask, testFile: cachedContext.testFilePath, result: timedOutResult };
+        debug(`[Pipeline] ${base} - "${context.test.name}": pipelineDispatchRunTests - caught abort error from test timeout - swallowing and returning the timeout result`);
+        context.result = timedOutResult;
+        return context;
       } else {
+        // executor captures test errors and adds them to the test result
+        // so if we're here, it's because of something unexpected
         throw error;
       }
     } finally {
@@ -457,7 +484,7 @@ async function pipelineDispatchRunTests(
   const testResults = await Promise.all(testExecutions);
 
   debug(`[Pipeline] ${base} - Phase 3 (execute) complete`);
-  debug(`[TIMING] ${base} - test execution: ${(performance.now() - testFileSuiteStart).toFixed(2)}ms`);
+  debug(`[TIMING] ${base} - test execution phase: ${(performance.now() - testFileSuiteStart).toFixed(2)}ms`);
 
   return testResults;
 }
@@ -480,7 +507,7 @@ async function pipelineDispatchRunTests(
 async function pipelineDispatchReportFileResults(
   testFilePath: string,
   fileTask: RunnerTestFile,
-  testResults: PoolTestResult[],
+  testResults: PoolTestExecutionContext[],
   config: AssemblyScriptResolvedConfig,
   project: TestProject,
   pool: Tinypool,
@@ -587,7 +614,7 @@ async function pipelineDispatchReportFileFailure(
 
 async function pipelineDispatchReportTestTimeouts(
   testFilePath: string,
-  timedOutResults: PoolTestResult[],
+  timedOutResults: PoolTestExecutionContext[],
   project: TestProject,
   config: AssemblyScriptResolvedConfig,
   pool: Tinypool,
@@ -609,10 +636,13 @@ async function pipelineDispatchReportTestTimeouts(
         testFile: testFilePath,
         poolOptions,
         result: r.result,
+        allResultErrors: r.allResultErrors,
         port: workerPort,
         testTaskId: r.testTask.id,
         testTaskName: r.testTask.name,
-        testTaskMeta: r.testTask.meta
+        testTaskMeta: r.testTask.meta,
+        retryCount: r.retryCount,
+        contextExecutionStart: r.executionStart
       };
 
       await pool.run(taskData, {
@@ -812,81 +842,128 @@ async function runTests(
         debug(`[Pipeline] ${base} -   NO existing pipeline cache for spec`);
       }
 
+      // COMPILATION PHASE
       const p1Start = Date.now();
       const compileResult = await pipelineQueueCompilation(testFilePath, config, signal, isCollectTestsMode);
       const p1Ms = Date.now() - p1Start;
       debug(`[TIMING] ${base} - Pipeline Phase 1: ${p1Ms}ms`);
 
-      const newCompilation: CachedCompilation = {
+      const cached: CachedCompilation = {
         pipelineStart,
         testFilePath,
         ...compileResult,
         discoveredTests: {}
       };
-      pipelineCompileCacheByTestFile.set(testFilePath, newCompilation);
+      pipelineCompileCacheByTestFile.set(testFilePath, cached);
 
-      // PHASE 2: Discover (with filtering applied in worker)
+      // DISCOVERY PHASE
       const p2Start = Date.now();
-      const discoverResults = await pipelineDispatchRunDiscovery(spec, newCompilation, config, pool, signal, isCollectTestsMode);
+      const discoverResults = await pipelineDispatchRunDiscovery(spec, cached, config, pool, signal, isCollectTestsMode);
       const p2End = Date.now();
       const p2Ms = p2End - p2Start;
       debug(`[TIMING] ${base} - Pipeline Phase 2: ${p2Ms}ms`);
-      debug(`[Pipeline] ${base} - Phase 2 complete, discovered ${Object.keys(newCompilation.discoveredTests).length} tests`);
+      debug(`[Pipeline] ${base} - Phase 2 complete, discovered ${Object.keys(cached.discoveredTests).length} tests`);
 
-      newCompilation.discoverTimings = discoverResults.discoverTimings;
-      newCompilation.discoveredTests = discoverResults.tests;
+      cached.discoverTimings = discoverResults.discoverTimings;
+      cached.discoveredTests = discoverResults.tests;
 
       // Extract test tasks from file task
       const testTasks = discoverResults.fileTask.tasks as RunnerTestCase[];
 
-      // Filter to only execute non-skipped tests
-      const testTasksToExecute = testTasks.filter(t => t.mode !== 'skip');
-      const skippedCount = testTasks.length - testTasksToExecute.length;
+      const executionStart = Date.now();
 
-      if (skippedCount > 0) {
-        debug(`[Pipeline] ${base} - Skipping ${skippedCount}/${testTasks.length} tests`);
-      }
+      // Build text execution contexts from tasks
+      const testContexts: PoolTestExecutionContext[] = testTasks.map(testTask => {
+        const test = discoverResults.tests[testTask.id];
+        if (!test) {
+          throw createPoolError(
+            `${base} - pipelineDispatchRunTests could not find discovered test by ID for task: ${testTask.id} (name: ${testTask.name})`,
+            POOL_ERROR_NAMES.PoolError,
+          );
+        }
 
-      // PHASE 3: Execute non-skipped tests
+        const dummyResult: ExecuteTestResult = {
+          name: testTask.name, passed: false, timedOut: false, assertionsPassed: 0, assertionsFailed: 0
+        };
+
+        const retryCount = test.options.retry > 0 ? 0 : undefined
+        return { test, testFilePath, testTask, executeCount: 0, result: dummyResult, allResultErrors: [], retryCount, executionStart };
+      });
+
+      discoverResults.fileTask.result = { state: 'run', startTime: executionStart };
+      
+      let testContextsToExecute: PoolTestExecutionContext[] = testContexts;
+      const finishedTestContexts: PoolTestExecutionContext[] = [];
+
       const p3Start = Date.now();
-      discoverResults.fileTask.result = { state: 'run', startTime: Date.now() };
-      const testResults = await pipelineDispatchRunTests(newCompilation, testTasksToExecute, config, spec.project, pool, signal);
-      const p3Ms = Date.now() - p3Start;
-      debug(`[TIMING] ${base} - Pipeline Phase 3: ${p3Ms}ms`);
+      let executeLoopCount: number = 0;
+      
+      // EXECUTION PHASE - LOOP UNTIL WE'RE DONE
+      while (testContextsToExecute.length > 0) {
+        const loopStart = performance.now();
+        executeLoopCount++;
+        debug(`[Pipeline] ${base} - Execution loop ${executeLoopCount} starting`);
+
+        const testResults = await pipelineDispatchRunTests(cached, testContextsToExecute, config, spec.project, pool, signal);
+
+        // find timed out tests as they won't have been reported already in either case:
+        //   1) worker thread was aborted on timeout (hard)
+        //   2) completed but should be marked timed out based on duration
+        const timeouts = testResults.filter(context => {
+          if (context.result.timedOut) {
+            debug(`[Pipeline] ${base} - "${context.test.name}": Hard Timeout (abort): ${context.result.duration?.toFixed(2)}ms`);
+            return true;
+          } else if (!context.result.timedOut && ((context.result.duration || 0) > context.test.options.timeout)) {
+            debug(`[Pipeline] ${base} - "${context.test.name}": Completed but Timed Out (setting failed): ${context.result.duration?.toFixed(2)}ms`);
+            // these won't have been set as a failure by the executor in this edge case, so we do it here for proper reporting
+            context.result.passed = false;
+            context.result.timedOut = true;
+            context.result.error = createTestTimeoutError(context.test)
+            context.allResultErrors.push(context.result.error);
+            return true;
+          } else {
+            return false;
+          }
+        });
+
+        // report any test timeouts to vitest
+        await pipelineDispatchReportTestTimeouts(testFilePath, timeouts, spec.project, config, pool, signal);
+
+        // bucket finished tests vs failed tests which are configured to retry
+        testContextsToExecute = [];
+        testResults.forEach(context => {
+          const totalExpectedExecutions = 1 + context.test.options.retry;
+          const needsRetry = !context.result.passed && context.executeCount < totalExpectedExecutions;
+
+          // sort out the contexts needing retries
+          (needsRetry ? testContextsToExecute : finishedTestContexts).push(context);
+
+          debug(`[Pipeline] ${base} - "${context.test.name}": ${needsRetry ? 'Submitting for retry' : 'Complete' } - ` 
+            + ` passed ${context.result.passed} | ${context.executeCount} executions | ${context.executeCount - 1} retries`
+            + ` | ${context.allResultErrors.length} errors`
+          );
+        });
+
+        debug(`[Pipeline] ${base} - Execution loop ${executeLoopCount} end: ${(performance.now() - loopStart).toFixed(2)}ms`);
+
+        if (testContextsToExecute.length > 0) {
+          debug(`[Pipeline] ${base} - Re-executing ${testContextsToExecute.length} failed tests configured with retry settings`);
+        } else {
+          debug(`[Pipeline] ${base} - Execution Phase Complete - No Retries`);
+        }
+      }
 
       // Aggregate per-test result coverage into per-test-file coverage for file-level reporting
       if (config.coverage) {
-        const covStart = Date.now();
-
-        aggregateCoverageForTestFile(testFilePath, testResults);
-
-        const covMs = Date.now() - covStart;
-        debug(`[TIMING] ${base} - Pipeline Post-Phase 3 Coverage Aggregation: ${covMs}ms`);
+        aggregateCoverageForTestFile(testFilePath, finishedTestContexts);
       }
 
-      const timedOut: PoolTestResult[] = [];
-      testResults.forEach(tr => {
-        if (tr.result.timedOut) {
-          timedOut.push(tr);
-          debug(`${base} - Hard Timeout (abort): "${tr.test.name}": ${tr.result.duration?.toFixed(2)}ms`);
-        } else if (!tr.result.timedOut && ((tr.result.duration || 0) > tr.test.options.timeout)) {
-          debug(`${base} - Completed but Timed Out (setting failed): "${tr.test.name}": ${tr.result.duration?.toFixed(2)}ms`);
-          // these won't have been set as a failure by the executor in this edge case, so we do it here for proper reporting
-          tr.result.passed = false;
-          tr.result.timedOut = true;
-          tr.result.error = createTestTimeoutError(tr.test)
-          timedOut.push(tr);
-        }
-      });
-
-      // report any test timeouts, as they won't have been reported already in either case:
-      // 1) worker thread was aborted on timeout (hard)
-      // 2) completed but should be marked timed out based on duration
-      await pipelineDispatchReportTestTimeouts(testFilePath, timedOut, spec.project, config, pool, signal);
+      const p3Ms = Date.now() - p3Start;
+      debug(`[TIMING] ${base} - Pipeline Execution Loops: ${p3Ms}ms`);
 
       // PHASE 5: Finalize and report
       const p5Start = Date.now();
-      await pipelineDispatchReportFileResults(testFilePath, discoverResults.fileTask, testResults, config, spec.project, pool, signal);
+      await pipelineDispatchReportFileResults(testFilePath, discoverResults.fileTask, finishedTestContexts, config, spec.project, pool, signal);
       const p5End = Date.now();
       const p5Ms = p5End - p5Start;
 

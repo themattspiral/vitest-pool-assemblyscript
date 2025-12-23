@@ -159,6 +159,9 @@ export async function enhanceTestErrorOnResult(
       `${highlightedSourceCodeFrameString}`,
     ].join('');
   }
+
+  // stack is used by vitest for error deduplication, so make sure it is set
+  mutableTestResult.error.stack = mutableTestResult.error.diff;
   
   debug(`[Executor] Enhanced ${mutableTestResult.error?.name} error with diffs`);
 }

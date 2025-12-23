@@ -9,14 +9,16 @@ import { createBirpc, type BirpcReturn } from 'birpc';
 import type { MessagePort } from 'node:worker_threads';
 import type { RuntimeRPC } from 'vitest';
 import type { RunnerTestCase, RunnerTestFile } from 'vitest/node';
-import { TaskResult, TaskEventPack, TaskResultPack, TaskMeta } from '@vitest/runner/types';
+import { TaskResult, TaskEventPack, TaskResultPack, TaskMeta, TaskUpdateEvent } from '@vitest/runner/types';
 import { createFileTask } from '@vitest/runner/utils';
 
 import type {
   PhaseTimings,
   ExecuteTestResult,
   ProjectInfo,
-  DiscoveredTests
+  DiscoveredTests,
+  AssemblyScriptTestError,
+  DiscoveredTest
 } from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_POOL_NAME
@@ -219,10 +221,11 @@ export async function reportTestPrepare(
   testTaskId: string,
   testTaskName: string,
   testTaskMeta: TaskMeta,
+  executionStart: number
 ): Promise<void> {
   const result: TaskResult = {
     state: 'run',
-    startTime: Date.now(),
+    startTime: executionStart,
   };
 
   const taskPack: TaskResultPack = [testTaskId, result, testTaskMeta];
@@ -241,22 +244,30 @@ export async function reportTestPrepare(
  */
 export async function reportTestFinished(
   rpc: BirpcReturn<RuntimeRPC>,
+  test: DiscoveredTest,
   testTaskId: string,
   testTaskName: string,
   testTaskMeta: TaskMeta,
-  testResult: ExecuteTestResult
+  testResult: ExecuteTestResult,
+  allResultErrors: AssemblyScriptTestError[],
+  contextExecutionStart: number,
+  retryCount?: number,
 ): Promise<void> {
   const result: TaskResult = {
     state: testResult.passed ? 'pass' : 'fail',
-    errors: testResult.error ? [testResult.error] : undefined,
+    errors: allResultErrors.length > 0 ? allResultErrors : undefined,
     duration: testResult.duration,
-    startTime: testResult.startTime,
+    startTime: contextExecutionStart,
+    retryCount
   };
 
   const taskPack: TaskResultPack = [testTaskId, result, testTaskMeta];
-  const eventPack: TaskEventPack = [testTaskId, 'test-finished', undefined];
+  
+  const taskEvent: TaskUpdateEvent = !testResult.passed && retryCount !== undefined && retryCount < test.options.retry ? 'test-retried' : 'test-finished';
 
-  rpcDebug(`[RPC] Calling rpc.onTaskUpdate for test-finished on test: "${testTaskName}" | duration: ${testResult.duration}ms`);
+  const eventPack: TaskEventPack = [testTaskId, taskEvent, undefined];
+
+  rpcDebug(`[RPC] Calling rpc.onTaskUpdate for ${taskEvent} on test: "${testTaskName}" | duration: ${testResult.duration}ms`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
 }
 

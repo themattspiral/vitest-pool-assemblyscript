@@ -20,9 +20,11 @@ export function createPoolError(
 export function createTestTimeoutError(
   test: DiscoveredTest
 ): AssemblyScriptTestError {
+  const message = `Test "${test.name}" timed out (threshold ${test.options.timeout}ms)`;
   const err: AssemblyScriptTestError = {
     name: POOL_ERROR_NAMES.WASMExecutionTimeoutError,
-    message: `Test "${test.name}" timed out (threshold ${test.options.timeout}ms)`,
+    message,
+    stack: message,
     diff: getTimeoutString(test.options.timeout)
   };
   return err;
@@ -74,10 +76,11 @@ export function createPoolErrorFromAnyError(context: string, contextErrorName: P
 
 export function getTestErrorFromPoolError(error: AssemblyScriptPoolError): AssemblyScriptTestError {
   const anyCause: any = error?.cause;
+  const message = error.message ?? anyCause.message ?? 'Unknown error';
   return {
     name: error.name ?? anyCause.name ?? POOL_ERROR_NAMES.PoolError,
-    message: error.message ?? anyCause.message ?? 'Unknown error',
-    stack: anyCause?.stack ?? error.stack,
+    message,
+    stack: anyCause?.stack ?? error.stack ?? message,
     stacks: anyCause?.stacks,
     cause: getTestErrorFromAnyError(anyCause?.cause)
   };
@@ -92,10 +95,11 @@ export function getTestErrorFromAnyError(
     return undefined;
   }
 
+  const message = `${context ?? ''}${error?.message ?? ''}`;
   return {
     name: error?.name ?? fallbackName,
-    message: `${context ?? ''}${error?.message ?? ''}`,
-    stack: error?.stack,
+    message,
+    stack: error?.stack ?? message,
     stacks: error?.stacks,
     cause: getTestErrorFromAnyError(error?.cause)
   };

@@ -220,6 +220,8 @@ export async function executeTest(
     assertionsFailed: 0,
   };
 
+  let executionStartPerf: number | undefined;
+
   // try-catch to ensure we capture known test errors to report
   // as AssemblyScriptTestErrors to vitest
   try {
@@ -232,7 +234,7 @@ export async function executeTest(
     };
     port.postMessage(testTiming);
 
-    testResultRef.value.perfStart = performance.now();
+    executionStartPerf = performance.now();
 
     // Execute this test
     testFn();
@@ -272,7 +274,7 @@ export async function executeTest(
     }
   }
 
-  testResultRef.value.duration = performance.now() - testResultRef.value.perfStart!;
+  testResultRef.value.duration = performance.now() - executionStartPerf!;
   
   // notify the pool so it doesn't abort because of a test timeout
   const testTiming: TestExecutionEnd = { executionEnd: Date.now() };
