@@ -11,7 +11,8 @@ export const ASSEMBLYSCRIPT_LIB_PREFIX = '~lib/' as const;
 /** Paths instrumentation exclusions and assetion error stack frame filtering */
 export const POOL_INTERNAL_PATHS: string[] = [
   'assembly/index.ts',
-  'assembly/test-api.ts'
+  'assembly/test-api.ts',
+  'assembly/test-with-api.ts',
 ] as const;
 
 export const ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID = 'assemblyscript' as const;

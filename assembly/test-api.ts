@@ -1,6 +1,8 @@
-import { TestCallback, TestOptions } from './types';
+export const TEST_OPTION_UNDEFINED: i32 = -1;
+export const TEST_OPTION_FALSE: i32 = 0;
+export const TEST_OPTION_TRUE: i32 = 0;
 
-// WASM imports that Pool provides
+export type TestCallback = () => void;
 
 // ============================================================================
 // Functions imported to the WASM execution environment from pool code
@@ -25,52 +27,35 @@ declare function __assertion_pass(): void;
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @external("env", "__assertion_fail")
-declare function __assertion_fail<T>(msgPtr: usize, msgLen: i32, typeNamePtr: usize, typeNameLen: i32, valuesProvided: bool, expected?: T, actual?: T): void;
-
+declare function __assertion_fail<T>(
+  msgPtr: usize,
+  msgLen: i32,
+  typeNamePtr: usize,
+  typeNameLen: i32,
+  valuesProvided: bool,
+  expected?: T,
+  actual?: T
+): void;
 
 /**
  * Register a test (called during top-level code execution in _start())
  *
  * Notifies the Pool via __register_test callback with the test name and function index.
  */
-export const test = (name: string, fn: TestCallback, options: TestOptions | null = null): void => {
-  let opts: TestOptions = new TestOptions();
-  if (options && options !== null) {
-    opts = options;
-  }
-  
+export const test = (name: string, fn: TestCallback): void => {
   __register_test(
     changetype<usize>(name),
     name.length,
     fn.index,
-    opts._valueOfTimeout,
-    opts._valueOfRetry,
-    opts._valueOfSkip,
-    opts._valueOfOnly,
-    opts._valueOfFails
+    TEST_OPTION_UNDEFINED,
+    TEST_OPTION_UNDEFINED,
+    TEST_OPTION_UNDEFINED,
+    TEST_OPTION_UNDEFINED,
+    TEST_OPTION_UNDEFINED
   );
 };
 
 export const it = test;
-
-export const skip = (name: string, fn: TestCallback, options: TestOptions | null = null): void => {
-  const opts = options && options !== null ? options : new TestOptions();
-  return test(name, fn, opts.skip());
-};
-
-export const only = (name: string, fn: TestCallback, options: TestOptions | null = null): void => {
-  const opts = options && options !== null ? options : new TestOptions();
-  return test(name, fn, opts.only());
-};
-
-export const fails = (name: string, fn: TestCallback, options: TestOptions | null = null): void => {
-  const opts = options && options !== null ? options : new TestOptions();
-  return test(name, fn, opts.fails());
-};
-
-export function testWith(name: string, options: TestOptions, fn: TestCallback): void {
-  test(name, fn, options);
-}
 
 /**
  * Minimal assertion helper

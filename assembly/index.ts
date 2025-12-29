@@ -8,9 +8,4 @@
  * 4. Execution: Pool calls table.get(fnIndex)() directly via exported function table
  */
 
-
-
-// re-export types for users
-export { TestCallback, TestOptions } from './types';
-
-export * from './test-api';
+export { test, assert, assertEqual } from './test-api';

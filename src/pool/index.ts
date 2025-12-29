@@ -628,7 +628,7 @@ async function pipelineDispatchReportTestTimeouts(
   setDebugMode(poolOptions.debug);
   const base = basename(testFilePath);
 
-  debug(`[Pipeline] ${base} - pipelineDispatchReportTestTimeouts reporting ${timedOutResults} timeouts`);
+  debug(`[Pipeline] ${base} - pipelineDispatchReportTestTimeouts reporting ${timedOutResults.length} timeouts`);
 
   const reportingStart = performance.now();
   const reportPromises = timedOutResults.map(async (r) => {
