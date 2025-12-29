@@ -95,7 +95,7 @@ export async function compileAndExtract(
     stripInline: true,
     projectRoot: PROJECT_ROOT,
     instrumentationOptions: {
-      relativeExcludedFiles: [fixture.relPath].concat(...POOL_INTERNAL_PATHS),
+      relativeExcludedFiles: [fixture.relPath].concat(POOL_INTERNAL_PATHS),
       excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
       coverageMemoryPagesMin: 1,
       coverageMemoryPagesMax: 4

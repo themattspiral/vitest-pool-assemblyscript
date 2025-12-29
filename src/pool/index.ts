@@ -347,6 +347,10 @@ async function pipelineDispatchRunTests(
     // so retryCount = executeCount if we will be retrying at all
     context.retryCount = context.test.options.retry > 0 ? context.executeCount : undefined;
 
+    let testTimeoutId: NodeJS.Timeout | undefined;
+    let dispatchTime: number | undefined;
+    let workerExecutionStart: number | undefined;
+
     try {
       debug(`[Pipeline] ${base} - "${context.test.name}": Dispatching executeTest (${context.executeCount} executions)`
         + ` | Execution: ${context.executeCount + 1}`
@@ -373,10 +377,6 @@ async function pipelineDispatchRunTests(
         retryCount: context.retryCount,
         contextExecutionStart: context.executionStart
       };
-
-      let dispatchTime: number | undefined;
-      let testTimeoutId: NodeJS.Timeout | undefined;
-      let workerExecutionStart: number | undefined;
 
       testPoolPort.on('message', event => {
         if (event.executionStart) {
@@ -465,6 +465,10 @@ async function pipelineDispatchRunTests(
 
       return context;
     } catch (error) {
+      if (testTimeoutId) {
+        clearTimeout(testTimeoutId);
+      }
+      
       if (isAbortError(error) && timedOutResult) {
         debug(`[Pipeline] ${base} - "${context.test.name}": pipelineDispatchRunTests - caught abort error from test timeout - swallowing and returning the timeout result`);
         context.result = timedOutResult;

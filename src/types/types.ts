@@ -654,6 +654,8 @@ export interface ExecuteTestResult {
   startTime?: number;
   /** Test duration in milliseconds */
   duration?: number;
+  /** True if expected and actual values were provided with failure assertion */
+  valuesProvided?: boolean;
   /** The user-provided expected value used to assert */
   expected?: unknown;
   /** The user-provided actual value calculated in the test */

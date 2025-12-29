@@ -3,15 +3,16 @@
 // General / Shared Constants
 // ============================================================================
 
-export const ASSEMBLYSCRIPT_POOL_NAME = 'vitest-pool-assemblyscript';
+export const ASSEMBLYSCRIPT_POOL_NAME = 'vitest-pool-assemblyscript' as const;
 
 /** Prefix for AssemblyScript compiler strip-inline exclusions and instrumentation exclusions */
-export const ASSEMBLYSCRIPT_LIB_PREFIX = '~lib/';
+export const ASSEMBLYSCRIPT_LIB_PREFIX = '~lib/' as const;
 
 /** Paths instrumentation exclusions and assetion error stack frame filtering */
-export const POOL_INTERNAL_PATHS = new Set([
-  'assembly/index.ts'
-]);
+export const POOL_INTERNAL_PATHS: string[] = [
+  'assembly/index.ts',
+  'assembly/test-api.ts'
+] as const;
 
 export const ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID = 'assemblyscript' as const;
 

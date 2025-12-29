@@ -17,6 +17,8 @@ import type { ExecuteTestResult, WebAssemblyCallSite } from '../types/types.js';
 import { createWebAssemblyCallSite, parseSourceMap } from './source-maps.js';
 import { getSourceCodeFrameString, getVitestLikeStackFrameString } from '../util/test-error-formatting.js';
 
+const POOL_INTERNAL_PATHS_SET = new Set(POOL_INTERNAL_PATHS);
+
 // Extract short function name from AS's namespace format
 //   "assembly/index/assert" → "assert"
 //   "tests/assembly/file.as.test/myFunction" → "myFunction"
@@ -66,8 +68,8 @@ async function sourceMapRawCallStack(
 function parseMappedStack(mappedStack: WebAssemblyCallSite[], isAssertionFailure: boolean): ParsedStack[] {
   return mappedStack
     // if this is an assertion failure, filter out frames for internal assertion framework calls
-    // (e.g. assert(), assertEquals(), etc) by known location, for more concise/meaningful error stack report
-    .filter(frame => !(isAssertionFailure && POOL_INTERNAL_PATHS.has(frame.location.filePath)))
+    // (e.g. assert(), assertEqual(), etc) by known location, for more concise/meaningful error stack report
+    .filter(frame => !(isAssertionFailure && POOL_INTERNAL_PATHS_SET.has(frame.location.filePath)))
     
     // map to format that vitest reporter can display
     .map(frame => ({
@@ -108,11 +110,11 @@ export async function enhanceTestErrorOnResult(
   }
 
   const isAssertionFailure = mutableTestResult.error.name === TEST_ERROR_NAMES.AssertionError;
-  let expectedVsActualDiffString: string | undefined;
+  let expectedVsActualDiffString: string = '';
 
-  if (isAssertionFailure) {
-    // will remain undefined if there were no expected/actual values provided with the assertion failure
-    expectedVsActualDiffString = diff(mutableTestResult.error.expected, mutableTestResult.error.actual, diffOptions);
+  if (isAssertionFailure && mutableTestResult.valuesProvided) {
+    // remain undefined if there were no expected/actual values provided with the assertion failure
+    expectedVsActualDiffString = diff(mutableTestResult.error.expected, mutableTestResult.error.actual, diffOptions) ?? '';
   }
 
   // if there's no stack to map, set the expected vs actual diff (if any) and return

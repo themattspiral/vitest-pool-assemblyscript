@@ -3,7 +3,7 @@
  * Used to measure execution time vs compilation time
  */
 
-import { test, assert, assertEqual } from '../../assembly';
+import { test, assert, assertEqual, TestOptions } from '../../assembly';
 import { fibonacciRecursive, countPrimes } from '../assembly-src/heavy-computation-utils';
 
 test('fibonacci 28', () => {
@@ -36,7 +36,7 @@ test('fibonacci 33', () => {
   assert(result == 3524578);
 });
 
-test('fibonacci 34', () => {
+test('fibonacci 38', () => {
   const result = fibonacciRecursive(38);
   assertEqual(result, 39088169, 'bad fib');
 });

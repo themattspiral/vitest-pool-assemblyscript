@@ -45,21 +45,49 @@ export function createDiscoveryImports(
       ...(coverageMemory ? { __coverage_memory: coverageMemory } : {}),
 
       // called by test() to register test names and function indices
-      __register_test(namePtr: number, nameLen: number, fnIndex: number) {
+      __register_test(
+        namePtr: number,
+        nameLen: number,
+        fnIndex: number,
+        timeout: number,
+        retry: number,
+        skip: number,
+        only: number,
+        fails: number,
+        ) {
         const testName = decodeString(memory, namePtr, nameLen);
 
         // unique id for the test within the binary, allowing for duplicated test names
         const id = `${testName}_${fnIndex}`;
+
+        const options = { ...defaultTestOptions };
+        if (timeout >= 0) {
+          options.timeout = timeout;
+        }
+        if (retry >= 0) {
+          options.retry = retry;
+        }
+        if (skip >= 0) {
+          options.skip = skip === 0 ? false : true;
+        }
+        if (only >= 0) {
+          options.only = only === 0 ? false : true;
+        }
+        if (fails >= 0) {
+          options.fails = fails === 0 ? false : true;
+        }
 
         // create DiscoveredTest
         mutableTestsCollection[id] = {
           fnIndex,
           id,
           name: testName,
-          options: defaultTestOptions  // TODO use user-provided per-test options
+          options
         };
         
-        debug(`[Executor] Registered test: "${testName}" with fnIndex ${fnIndex}`);
+        debug(`[Executor] Registered test: "${testName}" with fnIndex ${fnIndex} | timeout: ${options.timeout}ms`
+          + ` | retry: ${options.retry} | skip: ${options.skip} | only: ${options.only} | fails: ${options.fails}`
+        );
       },
 
       // stubs during discovery
@@ -133,13 +161,31 @@ export function createTestExecutionImports(
           mutableTestResultRef.value.assertionsPassed++;
         }
       },
-      __assertion_fail<T>(msgPtr: number, msgLen: number, expected?: T, actual?: T) {
+      __assertion_fail(msgPtr: number, msgLen: number, typeNamePtr: number, typeNameLen: number, valuesProvided: boolean, expected?: any, actual?: any) {
         if (mutableTestResultRef.value) {
           mutableTestResultRef.value.assertionsFailed++;
-          mutableTestResultRef.value.expected = expected;
-          mutableTestResultRef.value.actual = actual;
+          
+          const assertionValueType = decodeString(memory, typeNamePtr, typeNameLen);
+
+          if (valuesProvided) {
+            mutableTestResultRef.value.valuesProvided = true;
+
+            // coerce to appropriate JS type based on AS type, for nicer diff formatting
+            if (assertionValueType === 'bool') {
+              mutableTestResultRef.value.expected = Boolean(expected);
+              mutableTestResultRef.value.actual = Boolean(actual);
+            } else {
+              mutableTestResultRef.value.expected = expected;
+              mutableTestResultRef.value.actual = actual;
+            }
+          }
+
           const errorMsg = decodeString(memory, msgPtr, msgLen);
-          debug(`[Executor] Assertion failed: "${errorMsg}" | Expected: \`${expected !== undefined ? expected : ''}\` | Actual: \`${actual !== undefined ? actual : ''}\``);
+          
+          const valuesMsg = valuesProvided ? ` | Value Type: ${assertionValueType}`
+            + ` | Expected: \`${expected !== undefined ? expected : ''}\` | Actual: \`${actual !== undefined ? actual : ''}\``
+            : '';
+          debug(`[Executor] Assertion failed: ${errorMsg}${valuesMsg}`);
         }
       },
 
