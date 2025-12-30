@@ -15,7 +15,11 @@ import { debug } from '../util/debug.js';
 import { POOL_INTERNAL_PATHS, TEST_ERROR_NAMES } from '../types/constants.js';
 import type { ExecuteTestResult, WebAssemblyCallSite } from '../types/types.js';
 import { createWebAssemblyCallSite, parseSourceMap } from './source-maps.js';
-import { getSourceCodeFrameString, getVitestLikeStackFrameString } from '../util/test-error-formatting.js';
+import {
+  getSourceCodeFrameString,
+  toPlaintextStackFrameString,
+  toVitestLikeStackFrameString,
+} from '../util/test-error-formatting.js';
 
 const POOL_INTERNAL_PATHS_SET = new Set(POOL_INTERNAL_PATHS);
 
@@ -121,6 +125,10 @@ export async function enhanceTestErrorOnResult(
   if (!mutableTestResult.rawCallStack || mutableTestResult.rawCallStack.length === 0) {
     debug('[Executor] No rawCallStack captured on test result');
     mutableTestResult.error.diff = expectedVsActualDiffString;
+
+    // stack is used by vitest for error deduplication, so make sure it is set
+    mutableTestResult.error.stack = `${mutableTestResult.name} - ${mutableTestResult.error.message}`;
+
     return;
   }
 
@@ -136,7 +144,7 @@ export async function enhanceTestErrorOnResult(
   if (parsedStacks.length > 0) {
     const primaryStackFrame = parsedStacks[0]!;
     
-    primaryStackFrameString = getVitestLikeStackFrameString(primaryStackFrame);
+    primaryStackFrameString = toVitestLikeStackFrameString(primaryStackFrame);
     
     // Test error is set to rest of the stack without the first frame.
     // Vitest will report the ParsedError[] on TestError.stacks below the diff we set.
@@ -163,7 +171,7 @@ export async function enhanceTestErrorOnResult(
   }
 
   // stack is used by vitest for error deduplication, so make sure it is set
-  mutableTestResult.error.stack = mutableTestResult.error.diff;
+  mutableTestResult.error.stack = parsedStacks.map(toPlaintextStackFrameString).join('\n');
   
   debug(`[Executor] Enhanced ${mutableTestResult.error?.name} error with diffs`);
 }

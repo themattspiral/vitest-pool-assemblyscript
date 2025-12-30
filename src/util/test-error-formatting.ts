@@ -11,7 +11,11 @@ export function getYellowString(str: string) {
   return c.yellow(str);
 }
 
-export function getVitestLikeStackFrameString(frame: ParsedStack): string {
+export function toPlaintextStackFrameString(frame: ParsedStack): string {
+  return `    at ${frame.method} ${frame.file}:${frame.line}:${frame.column}`;
+}
+
+export function toVitestLikeStackFrameString(frame: ParsedStack): string {
   return c.cyan(
     ` ${c.dim(FRAME_POINTER)} ${frame.method} ${frame.file}:${c.dim(`${frame.line}:${frame.column}`)}`
   );
