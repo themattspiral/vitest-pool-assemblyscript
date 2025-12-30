@@ -191,8 +191,8 @@ export interface CompileResult {
   debugInfo?: BinaryDebugInfo;
   /** True if binary has been instrumented */
   isInstrumented: boolean;
-  /** Compilation internal phase timings */
-  compileTimings: PhaseTimings;
+  /** Compilation internal phase timing */
+  compileTiming: number;
 }
 
 export interface InstrumentationOptions {
@@ -223,25 +223,15 @@ export interface InstrumentationResult {
  * binary with WebAssembly.compile, but this is fast.
  */
 export interface CachedCompilation {
-  pipelineStart: number;
+  filePipelineStart: number;
   testFilePath: string,
   binary: Uint8Array;
   sourceMap: string;
   isInstrumented: boolean;
   debugInfo?: BinaryDebugInfo;
   discoveredTests: DiscoveredTests;
-  compileTimings: PhaseTimings;
-  discoverTimings?: PhaseTimings;
-}
-
-/**
- * Phase timings for a single worker phase
- */
-export interface PhaseTimings {
-  /** Phase start time */
-  phaseStart: number;
-  /** Phase end time */
-  phaseEnd: number;
+  compileTiming: number;
+  discoverTiming?: number;
 }
 
 // ============================================================================
@@ -543,6 +533,8 @@ export interface DiscoveredTest {
   id: string;
   /** Options for this specific test if user-provided, otherwise defaults */
   options: AssemblyScriptTestOptions;
+  /** True if this test's associated RunnerTestCase `mode` is 'run' */
+  isResolvedToRun: boolean;
 }
 
 /**
@@ -570,8 +562,8 @@ export interface DiscoverTestsTask {
   port: MessagePort;
   /** Project information for file task creation */
   projectInfo: ProjectInfo;
-  /** Compilation phase timings from compile worker */
-  compileTimings: PhaseTimings;
+  /** Compilation phase timing */
+  compileTiming: number;
   /** Debug info from coverage instrumentation (if binary is instrumented) */
   debugInfo?: BinaryDebugInfo;
   /** Test name pattern for filtering (from -t flag) */
@@ -588,8 +580,8 @@ export interface DiscoverTestsResult {
   fileTask: RunnerTestFile;
   /** Discovered tests with names, function indices, and unique ids */
   tests: DiscoveredTests;
-  /** Discovery phase timings */
-  discoverTimings: PhaseTimings;
+  /** Discovery phase timing */
+  discoverTiming: number;
 }
 
 /**
@@ -699,8 +691,10 @@ export interface ReportFileFailureTask {
   projectRoot: string;
   /** Project name */
   projectName: string;
-  /** Compilation phase timings from compile worker */
-  compileTimings?: PhaseTimings;
+  /** Compilation phase timings if applicable */
+  compileTiming?: number;
+  /** Discovery phase timings if applicable */
+  discoverTiming?: number;
 }
 
 /**

@@ -7,8 +7,8 @@ const FRAME_POINTER = '❯' as const;
 const MAX_SOURCE_HIGHLIGHT_LENGTH = 100_000 as const;
 const CODE_FRAME_INDENT_SPACES = 4 as const;
 
-export function getTimeoutString(timeout: number) {
-  return c.yellow(` Test Timeout Exceeded (${timeout}ms)`);
+export function getYellowString(str: string) {
+  return c.yellow(str);
 }
 
 export function getVitestLikeStackFrameString(frame: ParsedStack): string {

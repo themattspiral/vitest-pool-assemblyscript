@@ -12,7 +12,7 @@
 
 import { basename } from 'node:path';
 import type { TaskResultPack, TaskEventPack } from '@vitest/runner';
-import { interpretTaskModes } from '@vitest/runner/utils';
+import { interpretTaskModes, someTasksAreOnly } from '@vitest/runner/utils';
 import { ModuleCacheMap } from 'vite-node/client';
 import { installSourcemapsSupport } from 'vite-node/source-map';
 
@@ -37,7 +37,6 @@ import {
   executeTest  as executeTestFromExecutor,
 } from '../pool-executor/index.js';
 import { setDebugMode, debug } from '../util/debug.js';
-import { createPhaseTimings } from '../util/timing.js';
 import {
   createRpcClient,
   createInitialFileTask,
@@ -48,7 +47,7 @@ import {
   reportTestPrepare,
   reportTestFinished,
 } from './rpc-reporter.js';
-import { createPoolErrorFromAnyError } from '../util/pool-errors.js';
+import { createPoolErrorFromAnyError, createTestExpectedToFailError } from '../util/pool-errors.js';
 
 // Singleton module cache for source map support in worker threads
 // Shared across all tasks in this worker to enable accurate 
@@ -83,8 +82,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     // Create RPC client
     const rpc = createRpcClient(taskData.port);
 
-    // Create phase timings tracker for discovery
-    const discoverTimings = createPhaseTimings();
+    const discoverStart = performance.now();
 
     // Report onQueued
     const queuedFileTask = createInitialFileTask(taskData.testFile, taskData.projectInfo.projectRoot, taskData.projectInfo.projectName);
@@ -99,27 +97,29 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
       taskData.defaultTestOptions,
       taskData.isBinaryInstrumented
     );
-    discoverTimings.phaseEnd = performance.now();
+    
+    const discoverTiming = performance.now() - discoverStart;
 
-    debug(`[TIMING] ${basename(taskData.testFile)} - discover: ${(discoverTimings.phaseEnd - discoverTimings.phaseStart).toFixed(2)}ms`);
+    debug(`[TIMING] ${basename(taskData.testFile)} - discover: ${discoverTiming.toFixed(2)}ms`);
 
     // Create complete file task for onCollected with duration metadata
     const collectedFileTask = createRunFileTaskWithTestCases(
       taskData.testFile,
       taskData.projectInfo,
       tests,
-      taskData.compileTimings,
-      discoverTimings
+      taskData.compileTiming,
+      discoverTiming
     );
 
     // Apply test name pattern filtering (from -t flag) before reporting to Vitest
-    // This sets test.mode to 'skip' for tests that don't match the pattern
-    // TODO - move back to pipeline
+    // This sets test.mode to 'skip' for tests that don't match the patternf
+    // TODO - move back to pipeline, report skip from executor??
+    const hasOnly = someTasksAreOnly(collectedFileTask);
     interpretTaskModes(
       collectedFileTask,
       taskData.testNamePattern,
       undefined,  // testLocations
-      false,      // onlyMode (will be detected from tasks)
+      hasOnly,    // onlyMode
       false,      // parentIsOnly
       taskData.allowOnly
     );
@@ -137,7 +137,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
 
     debug(`[Worker] discoverTests complete for "${taskData.testFile}"`);
 
-    return { fileTask: collectedFileTask, tests, discoverTimings };
+    return { fileTask: collectedFileTask, tests, discoverTiming };
   } catch (error) {
     throw createPoolErrorFromAnyError(
       `${base} - discoverTests failure in worker`,
@@ -182,6 +182,16 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
       taskData.debugInfo,
       taskData.diffOptions
     );
+
+    if (taskData.test.options.fails) {
+      if (testResult.passed) {
+        testResult.passed = false;
+        testResult.error = createTestExpectedToFailError(taskData.test);
+      } else {
+        testResult.passed = true;
+        testResult.error = undefined;
+      }
+    }
 
     if (testResult.error) {
       allResultErrors.push(testResult.error);
@@ -241,10 +251,10 @@ export async function reportFileResults(taskData: ReportFileResultsTask): Promis
 
     // Report suite-finished
     const fileTask = taskData.fileTask;
-    const taskPack: TaskResultPack = [fileTask.id, fileTask.result!, fileTask.meta];
+    const taskPack: TaskResultPack = [fileTask.id, fileTask.result, fileTask.meta];
     const eventPack: TaskEventPack = [fileTask.id, 'suite-finished', undefined];
 
-    debug(`[Worker] Reporting suite-finished for: "${taskData.testFile}"`);
+    debug(`[Worker] Reporting suite-finished for: "${taskData.testFile}" - result:`, fileTask.result);
     await rpc.onTaskUpdate([taskPack], [eventPack]);
 
     // Final flush
@@ -277,11 +287,10 @@ export async function reportPipelineFileFailure(taskData: ReportFileFailureTask)
       state: 'fail',
       errors: [taskData.error]
     };
-    const now = performance.now();
-    failedFileTask.prepareDuration = (taskData.compileTimings?.phaseEnd ?? now) - (taskData.compileTimings?.phaseStart ?? now - 1);
+    failedFileTask.prepareDuration = taskData.compileTiming ?? 0;
     failedFileTask.environmentLoad = 0;
     failedFileTask.setupDuration = 0;
-    failedFileTask.collectDuration = 0;
+    failedFileTask.collectDuration = taskData.discoverTiming ?? 0;
 
     await reportFileQueued(rpc, failedFileTask);
 

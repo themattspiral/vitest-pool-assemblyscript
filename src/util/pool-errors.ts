@@ -5,8 +5,8 @@ import type {
   PoolErrorName,
   TestErrorName
 } from '../types/types.js';
-import { ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID, POOL_ERROR_NAMES } from '../types/constants.js';
-import { getTimeoutString } from './test-error-formatting.js';
+import { ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID, POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
+import { getYellowString } from './test-error-formatting.js';
 
 export function createPoolError(
   message: string,
@@ -25,7 +25,20 @@ export function createTestTimeoutError(
     name: POOL_ERROR_NAMES.WASMExecutionTimeoutError,
     message,
     stack: message,
-    diff: getTimeoutString(test.options.timeout)
+    diff: getYellowString(` Test Timeout Exceeded (${test.options.timeout}ms)`)
+  };
+  return err;
+}
+
+export function createTestExpectedToFailError(
+  test: DiscoveredTest
+): AssemblyScriptTestError {
+  const message = `Test "${test.name}" is expected to fail, but all assertions passed`;
+  const err: AssemblyScriptTestError = {
+    name: TEST_ERROR_NAMES.AssertionError,
+    message,
+    stack: message,
+    diff: getYellowString(` Expected to fail, but all assertions passed`)
   };
   return err;
 }

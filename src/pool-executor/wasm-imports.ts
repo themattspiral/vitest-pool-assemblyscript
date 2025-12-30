@@ -82,7 +82,8 @@ export function createDiscoveryImports(
           fnIndex,
           id,
           name: testName,
-          options
+          options,
+          isResolvedToRun: !options.skip
         };
         
         debug(`[Executor] Registered test: "${testName}" with fnIndex ${fnIndex} | timeout: ${options.timeout}ms`

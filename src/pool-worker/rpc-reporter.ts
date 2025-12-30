@@ -7,13 +7,12 @@
 
 import { createBirpc, type BirpcReturn } from 'birpc';
 import type { MessagePort } from 'node:worker_threads';
-import type { RuntimeRPC } from 'vitest';
+import type { RunMode, RuntimeRPC } from 'vitest';
 import type { RunnerTestCase, RunnerTestFile } from 'vitest/node';
 import { TaskResult, TaskEventPack, TaskResultPack, TaskMeta, TaskUpdateEvent } from '@vitest/runner/types';
 import { createFileTask } from '@vitest/runner/utils';
 
 import type {
-  PhaseTimings,
   ExecuteTestResult,
   ProjectInfo,
   DiscoveredTests,
@@ -79,6 +78,16 @@ export function createInitialFileTask(
   return fileTask;
 }
 
+function getTaskModeFromTestOptions(test: DiscoveredTest): RunMode {
+  if (test.options.skip) {
+    return 'skip';
+  } else if (test.options.only) {
+    return 'only';
+  } else {
+    return 'run';
+  }
+}
+
 /**
  * Create file task to represent the test suite, its timing metadata,
  * and to hold tests cases for discovered tests.
@@ -92,8 +101,8 @@ export function createRunFileTaskWithTestCases(
   testFile: string,
   projectInfo: ProjectInfo,
   tests: DiscoveredTests,
-  compileTimings: PhaseTimings,
-  discoverTimings: PhaseTimings
+  compileTiming: number,
+  discoverTiming: number
 ): RunnerTestFile {
   const fileTask = createFileTask(
     testFile,
@@ -104,10 +113,10 @@ export function createRunFileTaskWithTestCases(
   fileTask.mode = 'run';
 
   // Add timing metadata
-  fileTask.prepareDuration = compileTimings.phaseEnd - compileTimings.phaseStart;
+  fileTask.prepareDuration = compileTiming;
   fileTask.environmentLoad = 0;  // AS pool has no environment setup
   fileTask.setupDuration = 0;     // AS pool has no setup files
-  fileTask.collectDuration = discoverTimings.phaseEnd - discoverTimings.phaseStart;
+  fileTask.collectDuration = discoverTiming;
   fileTask.tasks = [];
 
   // Add test tasks
@@ -118,7 +127,7 @@ export function createRunFileTaskWithTestCases(
       id: test.id,
       context: {} as any,
       suite: fileTask,
-      mode: 'run',
+      mode: getTaskModeFromTestOptions(test),
       meta: {},
       file: fileTask,
       annotations: [],

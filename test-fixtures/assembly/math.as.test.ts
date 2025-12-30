@@ -4,11 +4,12 @@
  */
 
 import { test, assert, assertEqual } from '../../assembly';
+import { TestOptions, testWith } from '../../assembly/test-with-api';
 import { add, subtract, multiply, divide, addOneLiner, subtractOneLiner } from '../assembly-src/math';
 // import { subtract, multiply, divide, addOneLiner, subtractOneLiner } from '../assembly-src/math';
 // import { addOneLiner, subtractOneLiner } from '../assembly-src/math';
 
-test("addition works [should fail] [for now]", () => {
+testWith("addition works [should fail] [for now]", TestOptions.fails(), () => {
   const sum: i32 = add(1, 1);
   assertEqual(sum, 3, "1 + 1 should equal 2");
 });

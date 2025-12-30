@@ -1,6 +1,6 @@
 export const TEST_OPTION_UNDEFINED: i32 = -1;
 export const TEST_OPTION_FALSE: i32 = 0;
-export const TEST_OPTION_TRUE: i32 = 0;
+export const TEST_OPTION_TRUE: i32 = 1;
 
 export type TestCallback = () => void;
 
