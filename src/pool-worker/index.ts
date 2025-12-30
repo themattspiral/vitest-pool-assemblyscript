@@ -193,6 +193,16 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
       }
     }
 
+    if (taskData.bail && !testResult.passed) {
+      const previousFailures = await rpc.getCountOfFailedTests();
+      const currentFailures = 1 + previousFailures;
+
+      if (currentFailures >= taskData.bail) {
+        debug(`[Worker] executeTest "${taskData.testTaskName}" BAIL: ${currentFailures} >= ${taskData.bail} failures`);
+        rpc.onCancel('test-failure');
+      }
+    }
+
     if (testResult.error) {
       allResultErrors.push(testResult.error);
     }

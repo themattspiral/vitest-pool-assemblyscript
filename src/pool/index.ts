@@ -366,7 +366,8 @@ async function pipelineDispatchRunTests(
         diffOptions,
         allResultErrors: context.allResultErrors,
         retryCount: context.retryCount,
-        contextExecutionStart: context.executionStart
+        contextExecutionStart: context.executionStart,
+        bail: config.bail,
       };
 
       testPoolPort.on('message', event => {
@@ -422,7 +423,7 @@ async function pipelineDispatchRunTests(
           );
           
           const transitDuration = poolReceivedExecutionEnd - workerTimings.executionEnd;
-          debug(`[TIMING] ${base} - "${context.test.name}": Execution end transit: ${transitDuration.toFixed(2)}ms    (${context.test.name})`);
+          debug(`[TIMING] ${base} - "${context.test.name}": Execution end transit: ${transitDuration.toFixed(2)}ms`);
         }
       });
 
@@ -1053,32 +1054,27 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   let multiProjectName;
   
   if (ctx.projects && ctx.projects.length > 0) {
-    // Multi-project mode: find the first project using this pool
+    // Multi-project mode: find the first project using this pool.
+    // Use string.includes because project.config.pool resolves to the *path* of the dist file
     const project = ctx.projects.find(p => p.config.pool.includes(ASSEMBLYSCRIPT_POOL_NAME));
 
     if (project) {
       projectConfig = project.config;
       multiProjectName = project.name;
-
-      // it appears the individual project's ResolvedConfig doesn't
-      // get the global coverage section, probably because we're not supposed to look at it
-      // except in the coverage provider
-      // TODO confirm this
-      projectConfig.coverage = ctx.config.coverage;
     }
   }
 
   // Resolve pool options and initialize debug mode
-  const resolvedConfig = getAssemblyScriptResolvedConfig(projectConfig);
+  const resolvedConfig = getAssemblyScriptResolvedConfig(ctx.config, projectConfig);
   const poolOptions = resolvedConfig.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
 
   debug('[Pool] Initializing AssemblyScript Pool');
 
   if (multiProjectName) {
-    debug(`[Pool] Multi-project mode: Using \`poolOptions.assemblyScript\` from project: "${multiProjectName}"`);
+    debug(`[Pool] Multi-project mode: Using config from project: "${multiProjectName}"`);
   } else {
-    debug('[Pool] Single-project mode: No project defines `poolOptions.assemblyScript`, using global config with AssemblyScript pool defaults');
+    debug('[Pool] Single-project mode: No project config found using vitest-pool-assemblyscript pool - Using global config with AssemblyScript pool defaults');
   }
 
   const maxThreads = poolOptions.maxThreads ?? availableParallelism() - 1;
@@ -1099,9 +1095,10 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   // For explicitly terminating worker threads if needed
   const poolAbortController = new AbortController();
 
-  // Usually ctrl+c in terminal
+  // ctrl+c in terminal, or bail after test failure exceed bail count
   ctx.onCancel(reason => {
-    console.log(`${ASSEMBLYSCRIPT_POOL_NAME} - Aborting all tests: `, reason);
+    const reasonMsg = reason === 'test-failure' ? 'Bail after test failure' : reason;
+    console.log(`${ASSEMBLYSCRIPT_POOL_NAME} - Aborting all tests: ${reasonMsg}`);
     poolAbortController.abort();
   });
 

@@ -618,6 +618,8 @@ export interface ExecuteTestTask {
   retryCount?: number;
   /** Start time used for all execution phase updates */
   contextExecutionStart: number;
+  /** Bail config (halt run after this many failures) */
+  bail?: number;
 }
 
 /**

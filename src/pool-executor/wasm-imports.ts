@@ -54,7 +54,7 @@ export function createDiscoveryImports(
         skip: number,
         only: number,
         fails: number,
-        ) {
+      ) {
         const testName = decodeString(memory, namePtr, nameLen);
 
         // unique id for the test within the binary, allowing for duplicated test names
