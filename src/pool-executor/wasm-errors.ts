@@ -15,7 +15,13 @@ import { debug } from '../util/debug.js';
 import { POOL_INTERNAL_PATHS, TEST_ERROR_NAMES } from '../types/constants.js';
 import type { ExecuteTestResult, WebAssemblyCallSite } from '../types/types.js';
 import { createWebAssemblyCallSite, parseSourceMap } from './source-maps.js';
-import { getSourceCodeFrameString, getVitestLikeStackFrameString } from './error-formatting.js';
+import {
+  getSourceCodeFrameString,
+  toPlaintextStackFrameString,
+  toVitestLikeStackFrameString,
+} from '../util/test-error-formatting.js';
+
+const POOL_INTERNAL_PATHS_SET = new Set(POOL_INTERNAL_PATHS);
 
 // Extract short function name from AS's namespace format
 //   "assembly/index/assert" → "assert"
@@ -66,8 +72,8 @@ async function sourceMapRawCallStack(
 function parseMappedStack(mappedStack: WebAssemblyCallSite[], isAssertionFailure: boolean): ParsedStack[] {
   return mappedStack
     // if this is an assertion failure, filter out frames for internal assertion framework calls
-    // (e.g. assert(), assertEquals(), etc) by known location, for more concise/meaningful error stack report
-    .filter(frame => !(isAssertionFailure && POOL_INTERNAL_PATHS.has(frame.location.filePath)))
+    // (e.g. assert(), assertEqual(), etc) by known location, for more concise/meaningful error stack report
+    .filter(frame => !(isAssertionFailure && POOL_INTERNAL_PATHS_SET.has(frame.location.filePath)))
     
     // map to format that vitest reporter can display
     .map(frame => ({
@@ -108,17 +114,21 @@ export async function enhanceTestErrorOnResult(
   }
 
   const isAssertionFailure = mutableTestResult.error.name === TEST_ERROR_NAMES.AssertionError;
-  let expectedVsActualDiffString: string | undefined;
+  let expectedVsActualDiffString: string = '';
 
-  if (isAssertionFailure) {
-    // will remain undefined if there were no expected/actual values provided with the assertion failure
-    expectedVsActualDiffString = diff(mutableTestResult.error.actual, mutableTestResult.error.expected, diffOptions);
+  if (isAssertionFailure && mutableTestResult.valuesProvided) {
+    // remain undefined if there were no expected/actual values provided with the assertion failure
+    expectedVsActualDiffString = diff(mutableTestResult.error.expected, mutableTestResult.error.actual, diffOptions) ?? '';
   }
 
   // if there's no stack to map, set the expected vs actual diff (if any) and return
   if (!mutableTestResult.rawCallStack || mutableTestResult.rawCallStack.length === 0) {
     debug('[Executor] No rawCallStack captured on test result');
     mutableTestResult.error.diff = expectedVsActualDiffString;
+
+    // stack is used by vitest for error deduplication, so make sure it is set
+    mutableTestResult.error.stack = `${mutableTestResult.name} - ${mutableTestResult.error.message}`;
+
     return;
   }
 
@@ -134,7 +144,7 @@ export async function enhanceTestErrorOnResult(
   if (parsedStacks.length > 0) {
     const primaryStackFrame = parsedStacks[0]!;
     
-    primaryStackFrameString = getVitestLikeStackFrameString(primaryStackFrame);
+    primaryStackFrameString = toVitestLikeStackFrameString(primaryStackFrame);
     
     // Test error is set to rest of the stack without the first frame.
     // Vitest will report the ParsedError[] on TestError.stacks below the diff we set.
@@ -159,6 +169,9 @@ export async function enhanceTestErrorOnResult(
       `${highlightedSourceCodeFrameString}`,
     ].join('');
   }
+
+  // stack is used by vitest for error deduplication, so make sure it is set
+  mutableTestResult.error.stack = parsedStacks.map(toPlaintextStackFrameString).join('\n');
   
   debug(`[Executor] Enhanced ${mutableTestResult.error?.name} error with diffs`);
 }

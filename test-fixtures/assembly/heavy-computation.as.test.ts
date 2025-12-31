@@ -3,10 +3,9 @@
  * Used to measure execution time vs compilation time
  */
 
-import { test, assert } from '../../assembly';
+import { test, assert, assertEqual, TestOptions } from '../../assembly';
 import { fibonacciRecursive, countPrimes } from '../assembly-src/heavy-computation-utils';
 
-// Split heavy fib(35) into multiple moderate tests
 test('fibonacci 28', () => {
   const result = fibonacciRecursive(28);
   assert(result == 317811);
@@ -32,7 +31,16 @@ test('fibonacci 32', () => {
   assert(result == 2178309);
 });
 
-// Split heavy prime counting into smaller chunks
+test('fibonacci 33', () => {
+  const result = fibonacciRecursive(33);
+  assert(result == 3524578);
+});
+
+test('fibonacci 38 [should fail]', TestOptions.timeout(200).retry(0), () => {
+  const result = fibonacciRecursive(38);
+  assertEqual(result, 39088169);
+});
+
 test('count primes to 10000', () => {
   const count = countPrimes(10000);
   assert(count == 1229);

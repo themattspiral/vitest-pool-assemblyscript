@@ -207,10 +207,7 @@ export async function compileAssemblyScript(
       sourceMap: instrumentResult.sourceMap,
       debugInfo: instrumentResult.debugInfo,
       isInstrumented: true,
-      compileTimings: {
-        phaseStart: compileStart,
-        phaseEnd: instrumentEnd
-      }
+      compileTiming: instrumentEnd - compileStart,
     };
   }
 
@@ -219,9 +216,6 @@ export async function compileAssemblyScript(
     binary: cleanBinary,
     sourceMap: wasmSourceMap,
     isInstrumented: false,
-    compileTimings: {
-      phaseStart: compileStart,
-      phaseEnd: performance.now()
-    }
+    compileTiming: performance.now() - compileStart,
   };
 }

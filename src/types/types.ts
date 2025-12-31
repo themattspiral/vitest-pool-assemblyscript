@@ -11,7 +11,7 @@ import type { BirpcReturn } from 'birpc';
 import type { TestError } from '@vitest/utils';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
 import type { RunnerTestFile, RunnerTestCase, ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
-import type { TaskMeta } from '@vitest/runner/types';
+import type { TaskMeta, TestOptions } from '@vitest/runner/types';
 
 import {
   ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID,
@@ -135,6 +135,13 @@ export type ResolvedHybridProviderOptions =
     globbedAssemblyScriptProjectRelativeExcludeOnly: string[],
   };
 
+export const AS_POOL_TEST_OPTIONS = ['timeout', 'retry', 'skip', 'only', 'fails'] as const;
+
+/** TestOptions fields that are supported by AssemblyScript tests in this pool */
+export type ASPoolSupportedTestOptionsFields = typeof AS_POOL_TEST_OPTIONS[number];
+
+export type AssemblyScriptTestOptions = Required<Pick<TestOptions, ASPoolSupportedTestOptionsFields>>;
+
 // ============================================================================
 // Utility Types
 // ============================================================================
@@ -184,8 +191,8 @@ export interface CompileResult {
   debugInfo?: BinaryDebugInfo;
   /** True if binary has been instrumented */
   isInstrumented: boolean;
-  /** Compilation internal phase timings */
-  compileTimings: PhaseTimings;
+  /** Compilation internal phase timing */
+  compileTiming: number;
 }
 
 export interface InstrumentationOptions {
@@ -216,25 +223,15 @@ export interface InstrumentationResult {
  * binary with WebAssembly.compile, but this is fast.
  */
 export interface CachedCompilation {
-  pipelineStart: number;
+  filePipelineStart: number;
   testFilePath: string,
   binary: Uint8Array;
   sourceMap: string;
   isInstrumented: boolean;
   debugInfo?: BinaryDebugInfo;
   discoveredTests: DiscoveredTests;
-  compileTimings: PhaseTimings;
-  discoverTimings?: PhaseTimings;
-}
-
-/**
- * Phase timings for a single worker phase
- */
-export interface PhaseTimings {
-  /** Phase start time */
-  phaseStart: number;
-  /** Phase end time */
-  phaseEnd: number;
+  compileTiming: number;
+  discoverTiming?: number;
 }
 
 // ============================================================================
@@ -534,6 +531,10 @@ export interface DiscoveredTest {
   fnIndex: number;
   /** Unique internal id assigned to identify this test. Matches RunnerTestCase.id value */
   id: string;
+  /** Options for this specific test if user-provided, otherwise defaults */
+  options: AssemblyScriptTestOptions;
+  /** True if this test's associated RunnerTestCase `mode` is 'run' */
+  isResolvedToRun: boolean;
 }
 
 /**
@@ -555,12 +556,14 @@ export interface DiscoverTestsTask {
   testFile: string;
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
+  /** Options that should be applied to test configuration when not user-provided */
+  defaultTestOptions: AssemblyScriptTestOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Project information for file task creation */
   projectInfo: ProjectInfo;
-  /** Compilation phase timings from compile worker */
-  compileTimings: PhaseTimings;
+  /** Compilation phase timing */
+  compileTiming: number;
   /** Debug info from coverage instrumentation (if binary is instrumented) */
   debugInfo?: BinaryDebugInfo;
   /** Test name pattern for filtering (from -t flag) */
@@ -577,8 +580,8 @@ export interface DiscoverTestsResult {
   fileTask: RunnerTestFile;
   /** Discovered tests with names, function indices, and unique ids */
   tests: DiscoveredTests;
-  /** Discovery phase timings */
-  discoverTimings: PhaseTimings;
+  /** Discovery phase timing */
+  discoverTiming: number;
 }
 
 /**
@@ -609,16 +612,26 @@ export interface ExecuteTestTask {
   testTaskName: string;
   /** Test task metadata set on the test */
   testTaskMeta: TaskMeta;
+  /** Errors accumulated across all of this test's executions (initial + retries/reruns) */
+  allResultErrors: AssemblyScriptTestError[];
+  /** Retry count represented by this test execution task */
+  retryCount?: number;
+  /** Start time used for all execution phase updates */
+  contextExecutionStart: number;
+  /** Bail config (halt run after this many failures) */
+  bail?: number;
 }
 
 /**
  * Result of a single test execution
  */
 export interface ExecuteTestResult {
-  /** Test name */
+  /** Test name for reference/logging */
   name: string;
   /** Whether the test passed */
   passed: boolean;
+  /** Whether the test timed out */
+  timedOut: boolean;
   /** Number of assertions that passed */
   assertionsPassed: number;
   /** Number of assertions that failed */
@@ -635,6 +648,8 @@ export interface ExecuteTestResult {
   startTime?: number;
   /** Test duration in milliseconds */
   duration?: number;
+  /** True if expected and actual values were provided with failure assertion */
+  valuesProvided?: boolean;
   /** The user-provided expected value used to assert */
   expected?: unknown;
   /** The user-provided actual value calculated in the test */
@@ -678,8 +693,38 @@ export interface ReportFileFailureTask {
   projectRoot: string;
   /** Project name */
   projectName: string;
-  /** Compilation phase timings from compile worker */
-  compileTimings?: PhaseTimings;
+  /** Compilation phase timings if applicable */
+  compileTiming?: number;
+  /** Discovery phase timings if applicable */
+  discoverTiming?: number;
+}
+
+/**
+ * Task data for reportTestFailure worker function
+ */
+export interface ReportTestFailureTask {
+  /** Test to report results for */
+  test: DiscoveredTest;
+    /** Path to test file */
+  testFile: string;
+  /** Pool options */
+  poolOptions: ResolvedAssemblyScriptPoolOptions;
+  /** Result for this test containing a failure */
+  result: ExecuteTestResult;
+  /** Errors accumulated across all of this test's executions (initial + retries/reruns) */
+  allResultErrors: AssemblyScriptTestError[];
+  /** MessagePort for RPC communication */
+  port: MessagePort;
+  /** Test task ID (for RPC reporting) */
+  testTaskId: string;
+  /** Test task name (for RPC reporting) */
+  testTaskName: string;
+  /** Test task metadata set on the test */
+  testTaskMeta: TaskMeta;
+  /** Retry count attempted for this failed test */
+  retryCount?: number;
+  /** Start time used for all execution phase updates */
+  contextExecutionStart: number;
 }
 
 /**
@@ -745,15 +790,45 @@ export interface WorkerChannel {
 }
 
 /**
- * Pool-internal test result pairing testTask with result
+ * Pool-internal test execution context, combining the discovered test definition with
+ * the vitest task representing this test for reporting and the ultimate result of the
+ * execution.
  *
  * Used within the pool to track test execution results along with their
  * associated Vitest task objects. Unlike ExecuteTestResult (worker communication),
  * this includes the full RunnerTestCase which cannot cross worker boundaries.
  */
-export interface PoolTestResult {
+export interface PoolTestExecutionContext {
+  /** Test to execute */
+  test: DiscoveredTest;
+  /** Path to test file */
+  testFilePath: string;
   /** Vitest test task object */
   testTask: RunnerTestCase;
-  /** Test execution result */
+  /** Result of the most recent test execution */
   result: ExecuteTestResult;
+  /** Errors accumulated across all of this test's executions (initial + retries/reruns) */
+  allResultErrors: AssemblyScriptTestError[];
+
+  executionStart: number;
+  /**
+   * Number of times this test was executed (in addition to the first run)
+   * with re-runs either because it failed and was retried, or succeeded and was repeated
+   */
+  executeCount: number;
+  /**
+   * Number of times this test was executed after the first run because it failed and
+   * was retried. Undefined if no retried are configured on this test.
+   */
+  retryCount?: number;
+}
+
+export interface TestExecutionStart {
+  executionStart: number;
+  workerStart: number;
+  workerOverhead: number;
+}
+
+export interface TestExecutionEnd {
+  executionEnd: number;
 }

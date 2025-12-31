@@ -10,6 +10,9 @@ export default defineConfig({
 
     reporters: ['verbose'],
 
+    retry: 2,
+    // bail: 5,
+
     // Coverage configuration (must be global in vitest)
     coverage: {
       enabled: true,
@@ -49,15 +52,8 @@ export default defineConfig({
 
           include: [ 'test-fixtures/js/**/*.test.ts' ],
 
-          // retry: 1,
-          // bail: 1,
-
-          // pool: 'threads',  // or 'forks', 'vmThreads'
-          // poolOptions: {
-          //   threads: {
-          //     // execArgv: ['--enable-source-maps'],
-          //   },
-          // }
+          testTimeout: 200,
+          retry: 3,
         }
       }),
 
@@ -71,6 +67,9 @@ export default defineConfig({
 
           include: ['test-fixtures/assembly/**/*.as.test.ts'],
           exclude: ['coverage-fixtures/**/*'],
+
+          testTimeout: 500,
+          retry: 1,
 
           pool: 'vitest-pool-assemblyscript',
           poolOptions: {

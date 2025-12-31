@@ -47,28 +47,31 @@ export class HybridCoverageProvider implements CoverageProvider {
 
   private v8Provider: CoverageProvider | undefined;
   private accumulatedCoverageData: CoverageData = { hitCountsByFileAndPosition: {} };
-  private projectConfig: AssemblyScriptResolvedConfig = {} as AssemblyScriptResolvedConfig;
+  private resolvedProjectConfig: AssemblyScriptResolvedConfig = {} as AssemblyScriptResolvedConfig;
   private coverageOptions: ResolvedHybridProviderOptions = {} as ResolvedHybridProviderOptions;
 
   /**
    * Initialize the provider and get reference to v8 provider
    */
   async initialize(ctx: Vitest): Promise<void> {
-    this.projectConfig = getAssemblyScriptResolvedConfig(ctx.config);
+    let projectConfig = ctx.config;
 
     // TODO - extract the multi-project config logic to helper, it's repeated here and pool
     // although to be honest perhaps we shouldn't do this here at all - coverage config should 
     // only be global. Add separate debug config for custom coverage options.
     if (ctx.projects && ctx.projects.length > 0) {
       // Multi-project mode: find the first project using this pool
-      const project = ctx.projects.find(p => p.config.pool === ASSEMBLYSCRIPT_POOL_NAME);
+      // Use string.includes because project.config.pool resolves to the *path* of the dist file
+      const project = ctx.projects.find(p => p.config.pool.includes(ASSEMBLYSCRIPT_POOL_NAME));
 
       if (project) {
-        this.projectConfig = getAssemblyScriptResolvedConfig(project.config);
+        projectConfig = project.config;
       }
     }
 
-    setDebugMode(this.projectConfig.poolOptions.assemblyScript.debug);
+    this.resolvedProjectConfig = getAssemblyScriptResolvedConfig(ctx.config, projectConfig);
+
+    setDebugMode(this.resolvedProjectConfig.poolOptions.assemblyScript.debug);
 
     debug('[HybridCoverageProvider] Initializing Provider');
 
@@ -96,7 +99,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     const format: string | undefined = (meta?.coverage as any)?.__format;
 
     debug(() => {
-      const files = meta.testFiles.map(tf => relative(this.projectConfig.root, tf)).join(', ');
+      const files = meta.testFiles.map(tf => relative(this.resolvedProjectConfig.root, tf)).join(', ');
       return `[HybridCoverageProvider] onAfterSuiteRun - format: ${format ?? '<unknown>'} | testFiles: ${files}`;
     });
 
@@ -128,8 +131,8 @@ export class HybridCoverageProvider implements CoverageProvider {
     }
 
     debug(() => {
-      const files = meta.testFiles.map(tf => relative(this.projectConfig.root, tf)).join(', ');
-      const baseFiles = meta.testFiles.map(tf => basename(this.projectConfig.root, tf)).join(', ');
+      const files = meta.testFiles.map(tf => relative(this.resolvedProjectConfig.root, tf)).join(', ');
+      const baseFiles = meta.testFiles.map(tf => basename(this.resolvedProjectConfig.root, tf)).join(', ');
       return `[HybridCoverageProvider] onAfterSuiteRun complete - testFiles: ${files}\n`
            + `[TIMING] ${baseFiles} - onAfterSuiteRun: ${(performance.now() - start).toFixed(2)}ms`;
     });
@@ -243,7 +246,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     
     debug(`[HybridCoverageProvider] Resolving Coverage Options`);
   
-    const definedCoverageOptions = this.projectConfig.coverage as CustomProviderOptions;
+    const definedCoverageOptions = this.resolvedProjectConfig.coverage as CustomProviderOptions;
     const resolvedV8Options = this.v8Provider.resolveOptions() as ResolvedCoverageOptions<'v8'>;
 
     // For some reason the v8 provider builds its `excludes` values to include a null byte.
@@ -263,14 +266,14 @@ export class HybridCoverageProvider implements CoverageProvider {
     const globbedAssemblyScriptInclude = globFiles(
       definedCoverageOptions.assemblyScriptInclude || [],
       definedCoverageOptions.assemblyScriptExclude || [],
-      this.projectConfig.root
+      this.resolvedProjectConfig.root
     );
     debug(`[HybridCoverageProvider]   Including ${globbedAssemblyScriptInclude.length} AS files in coverage map`);
     
     const globbedAssemblyScriptExcludeOnly = globFiles(
       definedCoverageOptions.assemblyScriptExclude || [],
       [],
-      this.projectConfig.root
+      this.resolvedProjectConfig.root
     );
     debug(`[HybridCoverageProvider]   Excluding ${globbedAssemblyScriptExcludeOnly.length} AS files from coverage map & instrumentation`);
     

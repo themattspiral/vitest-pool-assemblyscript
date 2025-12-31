@@ -64,11 +64,23 @@ export function getResolvedPoolOptions(config?: ResolvedConfig): ResolvedAssembl
   return resolved;
 }
 
-export function getAssemblyScriptResolvedConfig(config: ResolvedConfig): AssemblyScriptResolvedConfig {
-  return {
-    ...config,
+export function getAssemblyScriptResolvedConfig(globalConfig: ResolvedConfig, projectConfig: ResolvedConfig): AssemblyScriptResolvedConfig {
+  const mergedConfig: AssemblyScriptResolvedConfig = {
+    ...globalConfig,
     poolOptions: {
-      assemblyScript: getResolvedPoolOptions(config)
+      assemblyScript: getResolvedPoolOptions(projectConfig)
     }
   };
+
+  // merge defined project config options into global for a unified config
+  for (const [prop, projectVal] of Object.entries(projectConfig)) {
+    if (projectVal !== undefined && prop !== 'poolOptions') {
+      const key = prop as keyof AssemblyScriptResolvedConfig;
+      
+      // @ts-ignore
+      mergedConfig[key] = projectVal;
+    }
+  }
+
+  return mergedConfig;
 }

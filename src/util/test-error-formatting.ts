@@ -4,8 +4,18 @@ import { RawSourceMap } from 'source-map';
 import c from 'tinyrainbow';
 
 const FRAME_POINTER = '❯' as const;
+const MAX_SOURCE_HIGHLIGHT_LENGTH = 100_000 as const;
+const CODE_FRAME_INDENT_SPACES = 4 as const;
 
-export function getVitestLikeStackFrameString(frame: ParsedStack): string {
+export function getYellowString(str: string) {
+  return c.yellow(str);
+}
+
+export function toPlaintextStackFrameString(frame: ParsedStack): string {
+  return `    at ${frame.method} ${frame.file}:${frame.line}:${frame.column}`;
+}
+
+export function toVitestLikeStackFrameString(frame: ParsedStack): string {
   return c.cyan(
     ` ${c.dim(FRAME_POINTER)} ${frame.method} ${frame.file}:${c.dim(`${frame.line}:${frame.column}`)}`
   );
@@ -26,13 +36,15 @@ export function getSourceCodeFrameString(sourceMap: RawSourceMap, frame: ParsedS
     return undefined;
   }
 
-  const highlightedSource = highlight(source, { colors: c });
-  return generateCodeFrame(highlightedSource, 4, frame);
+  // same performance guard used in printError
+  const highlightedSource = source.length < MAX_SOURCE_HIGHLIGHT_LENGTH ? highlight(source, { colors: c }) : source;
+
+  return generateCodeFrame(highlightedSource, CODE_FRAME_INDENT_SPACES, frame);
 }
 
 
 // ============================================================================
-// Formatter functions borrowed from Vitest
+// Source code formatting functions borrowed from Vitest
 // ============================================================================
 
 /*
