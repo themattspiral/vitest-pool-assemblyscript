@@ -36,9 +36,9 @@ test('fibonacci 33', () => {
   assert(result == 3524578);
 });
 
-test('fibonacci 38', TestOptions.timeout(200).retry(3), () => {
+test('fibonacci 38 [should fail]', TestOptions.timeout(200).retry(0), () => {
   const result = fibonacciRecursive(38);
-  assertEqual(result, 39088169, 'bad fib');
+  assertEqual(result, 39088169);
 });
 
 test('count primes to 10000', () => {

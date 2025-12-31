@@ -1095,7 +1095,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   // For explicitly terminating worker threads if needed
   const poolAbortController = new AbortController();
 
-  // ctrl+c in terminal, or bail after test failure exceed bail count
+  // ctrl+c in terminal, or bail after test failures exceed bail count
   ctx.onCancel(reason => {
     const reasonMsg = reason === 'test-failure' ? 'Bail after test failure' : reason;
     console.log(`${ASSEMBLYSCRIPT_POOL_NAME} - Aborting all tests: ${reasonMsg}`);
