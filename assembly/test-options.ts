@@ -1,51 +1,6 @@
-import {
-  TestCallback,
-  TEST_OPTION_UNDEFINED,
-  TEST_OPTION_FALSE,
-  TEST_OPTION_TRUE
-} from './test-api';
-
-// ============================================================================
-// Functions imported to the WASM execution environment from pool code
-// ============================================================================
-
-// @ts-ignore: top level decorators are supported in AssemblyScript
-@external("env", "__register_test")
-declare function __register_test(
-  namePtr: usize,
-  nameLen: i32,
-  fnIndex: u32,
-  timeout: i32,
-  retry: i32,
-  skip: i32,
-  only: i32,
-  fails: i32
-): void;
-
-export function testWith(name: string, options: TestOptions, fn: TestCallback): void {
-  __register_test(
-    changetype<usize>(name),
-    name.length,
-    fn.index,
-    options._valueOfTimeout,
-    options._valueOfRetry,
-    options._valueOfSkip,
-    options._valueOfOnly,
-    options._valueOfFails
-  );
-}
-
-export const skip = (name: string, fn: TestCallback): void => {
-  return testWith(name, TestOptions.skip(), fn);
-};
-
-export const only = (name: string, fn: TestCallback): void => {
-  return testWith(name, TestOptions.only(), fn);
-};
-
-export const fails = (name: string, fn: TestCallback): void => {
-  return testWith(name, TestOptions.fails(), fn);
-};
+export const TEST_OPTION_UNDEFINED: i32 = -1;
+export const TEST_OPTION_FALSE: i32 = 0;
+export const TEST_OPTION_TRUE: i32 = 1;
 
 @unmanaged @final
 export class TestOptions {
@@ -176,7 +131,6 @@ export class TestOptions {
     return this;
   }
 
-  // -1 === null
   private static mergeNullableInt(a: i32, b: i32, smallestWins: bool = false): i32 {
     if (a < 0 && b < 0) {
       return TEST_OPTION_UNDEFINED;
@@ -193,8 +147,7 @@ export class TestOptions {
     }
   }
 
-  @operator.binary("&")
-  static __bitwiseAnd(left: TestOptions | null, right: TestOptions | null): TestOptions {
+  static merge(left: TestOptions | null, right: TestOptions | null): TestOptions {
     const leftDefined: bool = left !== null;
     const rightDefined: bool = right !== null;
 
@@ -213,5 +166,14 @@ export class TestOptions {
         TestOptions.mergeNullableInt(left!._valueOfFails, right!._valueOfFails),             // true if either is true
       );
     }
+  }
+
+  @operator.binary("&")
+  static __bitwiseAnd(left: TestOptions | null, right: TestOptions | null): TestOptions {
+    return TestOptions.merge(left, right);
+  }
+
+  merge(other: TestOptions): TestOptions {
+    return TestOptions.merge(this, other);
   }
 }

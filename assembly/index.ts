@@ -8,4 +8,6 @@
  * 4. Execution: Pool calls table.get(fnIndex)() directly via exported function table
  */
 
-export { test, assert, assertEqual } from './test-api';
+export * from './test';
+export * from './assert';
+export * from './test-options';
