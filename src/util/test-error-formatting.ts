@@ -7,7 +7,7 @@ const FRAME_POINTER = '❯' as const;
 const MAX_SOURCE_HIGHLIGHT_LENGTH = 100_000 as const;
 const CODE_FRAME_INDENT_SPACES = 4 as const;
 
-export function getYellowString(str: string) {
+export function getYellowString(str: string): string {
   return c.yellow(str);
 }
 

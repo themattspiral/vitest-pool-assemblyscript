@@ -43,7 +43,7 @@ export function createTestExpectedToFailError(
   return err;
 }
 
-export function throwPoolErrorIfAborted(signal?: AbortSignal) {
+export function throwPoolErrorIfAborted(signal?: AbortSignal): void {
   if (!signal || !signal.aborted) {
     return;
   }

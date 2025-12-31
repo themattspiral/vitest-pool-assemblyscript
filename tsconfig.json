@@ -28,6 +28,7 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "isolatedDeclarations": true,
 
     // Performance & compatibility
     "skipLibCheck": true,
@@ -36,7 +37,6 @@
 
   "include": [
     "src/**/*.ts",
-    "*.ts",
     "test/**/*.ts"
   ],
 

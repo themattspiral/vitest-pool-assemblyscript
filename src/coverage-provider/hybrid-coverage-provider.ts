@@ -12,7 +12,8 @@ import type {
   Vitest,
   ReportContext,
   ResolvedCoverageOptions,
-  CustomProviderOptions
+  CustomProviderOptions,
+  CoverageProviderModule
 } from 'vitest/node';
 import { basename, relative } from 'node:path';
 import type { AfterSuiteRunMeta } from 'vitest';
@@ -41,6 +42,7 @@ import {
 // pick up CustomProviderOptions module augmentation
 import '../config/index.js';
 import { createPoolError } from '../util/pool-errors.js';
+import { ModuleExecutionInfo } from 'vite-node';
 
 export class HybridCoverageProvider implements CoverageProvider {
   name = 'hybrid-assemblyscript-v8' as const;
@@ -309,18 +311,53 @@ export class HybridCoverageProvider implements CoverageProvider {
 /**
  * Export provider module for Vitest
  */
-export default {
-  getProvider: () => new HybridCoverageProvider(),
-  takeCoverage: async (...args: any[]) => {
-    debug('[HybridCoverageProvider] takeCoverage called - delegating to v8');
-    return await (v8CoverageModule.takeCoverage as any)(...args);
-  },
-  startCoverage: async (...args: any[]) => {
+const module: CoverageProviderModule = {
+  getProvider: (): HybridCoverageProvider => new HybridCoverageProvider(),
+
+  startCoverage: async (runtimeOptions: {
+    isolate: boolean
+  }): Promise<unknown> => {
     debug('[HybridCoverageProvider] startCoverage called - delegating to v8');
-    return await (v8CoverageModule.startCoverage as any)(...args);
+
+    if (v8CoverageModule.startCoverage) {
+      return await v8CoverageModule.startCoverage(runtimeOptions);
+    } else {
+      throw createPoolError(
+        'HybridCoverageProvider - v8 coverage module does not provide `startCoverage`',
+        POOL_ERROR_NAMES.HybridCoverageProviderError
+      );
+    }
   },
-  stopCoverage: async (...args: any[]) => {
+  
+  takeCoverage: async (runtimeOptions?: {
+    moduleExecutionInfo?: ModuleExecutionInfo
+  }): Promise<unknown> => {
+    debug('[HybridCoverageProvider] takeCoverage called - delegating to v8');
+
+    if (v8CoverageModule.takeCoverage) {
+      return await v8CoverageModule.takeCoverage(runtimeOptions);
+    } else {
+      throw createPoolError(
+        'HybridCoverageProvider - v8 coverage module does not provide `takeCoverage`',
+        POOL_ERROR_NAMES.HybridCoverageProviderError
+      );
+    }
+  },
+  
+  stopCoverage: async (runtimeOptions: {
+    isolate: boolean
+  }): Promise<unknown> => {
     debug('[HybridCoverageProvider] stopCoverage called - delegating to v8');
-    return await (v8CoverageModule.stopCoverage as any)(...args);
+
+    if (v8CoverageModule.stopCoverage) {
+      return await v8CoverageModule.stopCoverage(runtimeOptions);
+    } else {
+      throw createPoolError(
+        'HybridCoverageProvider - v8 coverage module does not provide `stopCoverage`',
+        POOL_ERROR_NAMES.HybridCoverageProviderError
+      );
+    }
   },
 };
+
+export default module;

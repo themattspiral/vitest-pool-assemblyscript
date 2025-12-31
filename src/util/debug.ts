@@ -21,7 +21,7 @@ const debugStorage = new AsyncLocalStorage<DebugState>();
  * Initialize debug mode for current async context (called by worker at task start)
  * @param {boolean} debugEnabled - Enable verbose debug logging
  */
-export function setDebugMode(debugEnabled: boolean) {
+export function setDebugMode(debugEnabled: boolean): void {
   debugStorage.enterWith({ debug: debugEnabled });
 }
 
@@ -29,7 +29,7 @@ export function setDebugMode(debugEnabled: boolean) {
  * Log debug message (only when debug enabled in current context)
  * or when environment has a truthy DEBUG variable set.
  */
-export function debug(...args: any) {
+export function debug(...args: any): void {
   const state = debugStorage.getStore();
   if (state?.debug || process.env.DEBUG) {
     // if first arg is a function, execute it and then print the result
@@ -46,7 +46,7 @@ export function debug(...args: any) {
 /**
  * Determine if debug mode is enabled for the current async context
  */
-export function isDebugModeEnabled() {
+export function isDebugModeEnabled(): boolean {
   const state = debugStorage.getStore();
   return !!state?.debug || !!process.env.DEBUG;
 }
