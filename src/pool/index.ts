@@ -64,7 +64,7 @@ import {
   throwPoolErrorIfAborted,
 } from '../util/pool-errors.js';
 
-const WORKER_PATH = resolve(import.meta.dirname, 'pool-worker/index.js');
+const WORKER_PATH = resolve(import.meta.dirname, 'pool-worker/index.mjs');
 
 // ============================================================================
 // Module-Level Pool Storage

@@ -20,7 +20,7 @@ const DEBUG_WRITE_FILES = false;
 
 // Absolute paths to transform modules
 // TODO - convert to passing via API options instead of raw file!!
-const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, 'compiler/transforms/strip-inline.js');
+const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, 'compiler/transforms/strip-inline.mjs');
 
 if (!existsSync(STRIP_INLINE_TRANSFORM)) {
   throw createPoolError(

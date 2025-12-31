@@ -1,4 +1,4 @@
-import { defineConfig } from 'tsup';
+import { defineConfig } from 'tsdown'
 
 export default defineConfig({
   entry: [
@@ -8,25 +8,26 @@ export default defineConfig({
     'src/coverage-provider/index.ts',
     'src/compiler/transforms/strip-inline.mts',
   ],
-  format: ['esm'],
-  outDir: 'dist', // Explicitly set output directory
-  dts: true, // Generate .d.ts automatically
+  format: 'es',
+  outDir: 'dist',
+  dts: true,
   clean: true,
   sourcemap: true,
-  splitting: false,
-  // Don't bundle dependencies - they should be installed by users
   external: [
-    '@vitest/coverage-v8',
-    '@vitest/runner',
-    'assemblyscript',
-    'binaryen',
+    // prod/runtime deps
     'birpc',
-    'istanbul-lib-coverage',
     'node-addon-api',
     'source-map',
     'test-exclude',
     'tinypool',
+    'tinyrainbow',
+
+    // peer deps
+    '@vitest/coverage-v8',
+    '@vitest/runner',
+    'assemblyscript',
+    'istanbul-lib-coverage',
     'vite-node',
     'vitest',
-  ],
+  ]
 });

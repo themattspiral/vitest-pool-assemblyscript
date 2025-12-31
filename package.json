@@ -3,24 +3,24 @@
   "version": "0.0.1",
   "description": "AssemblyScript testing with Vitest - Simple, fast, familiar, AS-native, with full coverage output",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
     },
     "./config": {
-      "types": "./dist/config/index.d.ts",
-      "default": "./dist/config/index.js"
+      "types": "./dist/config/index.d.mts",
+      "default": "./dist/config/index.mjs"
     },
     "./coverage": {
-      "types": "./dist/coverage-provider/index.d.ts",
-      "default": "./dist/coverage-provider/index.js"
+      "types": "./dist/coverage-provider/index.d.mts",
+      "default": "./dist/coverage-provider/index.mjs"
     },
     "./assembly": {
-      "types": "./assembly/index.ts",
-      "default": "./assembly/index.ts"
+      "types": "./assembly/index.mts",
+      "default": "./assembly/index.mts"
     }
   },
   "files": [
@@ -40,13 +40,13 @@
   },
   "homepage": "https://github.com/themattspiral/vitest-pool-assemblyscript#readme",
   "scripts": {
-    "build": "tsup",
+    "build": "tsdown",
     "tc": "tsc --noEmit",
-    "dev": "tsup --watch",
     "//------------ Testing ------------": "",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:fixtures": "vitest run -c test-fixtures/vitest.config.ts",
+    "test:fixtures": "npm run testf",
+    "testf": "vitest run -c test-fixtures/vitest.config.ts",
     "//------------ Native Addon ------------": "",
     "setup-binaryen": "node scripts/setup-binaryen.js",
     "build:native": "node-gyp rebuild"
@@ -63,7 +63,6 @@
     "@vitest/coverage-v8": "^3.2.4",
     "@vitest/runner": "^3.2.4",
     "assemblyscript": "^0.28.9",
-    "binaryen": "^124.0.0",
     "istanbul-lib-coverage": "^3.2.2",
     "vite-node": "^3.2.4",
     "vitest": "^3.2.4"
@@ -76,10 +75,9 @@
     "@vitest/coverage-v8": "^3.2.4",
     "@vitest/runner": "^3.2.4",
     "assemblyscript": "^0.28.9",
-    "binaryen": "^124.0.0",
     "istanbul-lib-coverage": "^3.2.2",
     "node-gyp": "^12.1.0",
-    "tsup": "^8.5.0",
+    "tsdown": "^0.18.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite-node": "^3.2.4",
