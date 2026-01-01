@@ -570,6 +570,11 @@ export interface DiscoverTestsTask {
   sourceMap: string;
   /** True if the included binary is instrumented */
   isBinaryInstrumented: boolean,
+  /** 
+   * True: onQueued should be reported before discovery (e.g. main thread compilation).
+   * False: onQueued should be omitted (e.g. already reported from worker thread compilation).
+  */
+  reportOnQueued: boolean;
   /** Path to test file (for logging) */
   testFile: string;
   /** Pool options */
@@ -634,8 +639,6 @@ export interface ExecuteTestTask {
   allResultErrors: AssemblyScriptTestError[];
   /** Retry count represented by this test execution task */
   retryCount?: number;
-  /** Start time used for all execution phase updates */
-  contextExecutionStart: number;
   /** Bail config (halt run after this many failures) */
   bail?: number;
 }
@@ -741,8 +744,6 @@ export interface ReportTestFailureTask {
   testTaskMeta: TaskMeta;
   /** Retry count attempted for this failed test */
   retryCount?: number;
-  /** Start time used for all execution phase updates */
-  contextExecutionStart: number;
 }
 
 /**
@@ -786,6 +787,10 @@ export interface AssemblyScriptConsoleLog {
 }
 
 export type AssemblyScriptConsoleLogHandler = (msg: string, isError?: boolean) => void;
+
+export interface AssemblyScriptTaskMeta extends TaskMeta {
+  fullDuration: number
+};
 
 // ============================================================================
 // Pool-Level Data Structures
@@ -836,7 +841,6 @@ export interface PoolTestExecutionContext {
   /** Errors accumulated across all of this test's executions (initial + retries/reruns) */
   allResultErrors: AssemblyScriptTestError[];
 
-  executionStart: number;
   /**
    * Number of times this test was executed (in addition to the first run)
    * with re-runs either because it failed and was retried, or succeeded and was repeated
@@ -851,8 +855,6 @@ export interface PoolTestExecutionContext {
 
 export interface TestExecutionStart {
   executionStart: number;
-  workerStart: number;
-  workerOverhead: number;
 }
 
 export interface TestExecutionEnd {

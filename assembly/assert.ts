@@ -7,8 +7,8 @@ declare function __assertion_pass(): void;
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @external("env", "__assertion_fail")
 declare function __assertion_fail<T>(
-  msgPtr: usize,
-  typeNamePtr: usize,
+  msg: string,
+  typeName: string,
   valuesProvided: bool,
   expected?: T,
   actual?: T
@@ -34,8 +34,7 @@ export function assert<T>(condition: T, message: string = "Assertion failed"): v
   if (!!condition) {
     __assertion_pass();
   } else {
-    const typeName: string = nameof<i32>();
-    __assertion_fail<i32>(changetype<usize>(message), changetype<usize>(typeName), false);
+    __assertion_fail<i32>(message, nameof<i32>(), false);
 
     // Abort on failure - terminates WASM execution - must be called from WASM
     // Imported abort handler will handle this and mark the test as failed
@@ -64,8 +63,7 @@ export function assertEqual<T>(actual: T, expected: T, message: string = "Equali
   if (condition) {
     __assertion_pass();
   } else {
-    const typeName: string = nameof<T>();
-    __assertion_fail<T>(changetype<usize>(message), changetype<usize>(typeName), true, expected, actual);
+    __assertion_fail<T>(message, nameof<T>(), true, expected, actual);
 
     // Abort on failure - terminates WASM execution - must be called from WASM.
     // Imported abort handler will handle this and mark the test as failed.

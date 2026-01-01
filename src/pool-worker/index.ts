@@ -34,6 +34,8 @@ import type {
   CompileFileResult,
   InstrumentationOptions,
   AssemblyScriptCompilerOptions,
+  TestExecutionStart,
+  TestExecutionEnd,
 } from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
@@ -49,7 +51,7 @@ import { setDebugMode, debug } from '../util/debug.js';
 import {
   createRpcClient,
   createInitialFileTask,
-  createRunFileTaskWithTestCases,
+  createCollectedFileTaskWithTestCases,
   reportFileQueued,
   reportSuitePrepare,
   reportFileCollected,
@@ -149,9 +151,11 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
 
     const discoverStart = performance.now();
 
-    // Report onQueued
-    const queuedFileTask = createInitialFileTask(taskData.testFile, taskData.projectInfo.projectRoot, taskData.projectInfo.projectName);
-    await reportFileQueued(rpc, queuedFileTask);
+    // Report onQueued if indicated (may have already been reported by compile worker)
+    if (taskData.reportOnQueued) {
+      const queuedFileTask = createInitialFileTask(taskData.testFile, taskData.projectInfo.projectRoot, taskData.projectInfo.projectName);
+      await reportFileQueued(rpc, queuedFileTask);
+    }
 
     const logMessages: AssemblyScriptConsoleLog[] = [];
     const handleLog: AssemblyScriptConsoleLogHandler = (msg: string, isError: boolean = false): void => {
@@ -174,7 +178,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     debug(`[TIMING ${workerId}] ${basename(taskData.testFile)} - discover: ${discoverTiming.toFixed(2)}ms`);
 
     // Create complete file task for onCollected with duration metadata
-    const collectedFileTask = createRunFileTaskWithTestCases(
+    const collectedFileTask = createCollectedFileTaskWithTestCases(
       taskData.testFile,
       taskData.projectInfo,
       tests,
@@ -184,7 +188,6 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
 
     // Apply test name pattern filtering (from -t flag) before reporting to Vitest
     // This sets test.mode to 'skip' for tests that don't match the patternf
-    // TODO - move back to pipeline, report skip from executor??
     const hasOnly = someTasksAreOnly(collectedFileTask);
     interpretTaskModes(
       collectedFileTask,
@@ -203,14 +206,19 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     // Report results
     await Promise.all([
       // Report user console logs
-      reportUserConsoleLogs(rpc, logMessages, queuedFileTask.id),
+      reportUserConsoleLogs(rpc, logMessages, collectedFileTask.id, taskData.testFile),
 
       // Report onCollected with filtered tasks
       reportFileCollected(rpc, collectedFileTask),
-
-      // Report suite-prepare
-      reportSuitePrepare(rpc, collectedFileTask),
     ]);
+
+    collectedFileTask.result = {
+      state: collectedFileTask.mode === 'skip' ? collectedFileTask.mode : 'run',
+      startTime: Date.now(),
+    };
+
+    // Report suite-prepare (indicate the file suite is ready to run)
+    await reportSuitePrepare(rpc, collectedFileTask);
 
     debug(`[Worker ${workerId}] discoverTests complete for "${taskData.testFile}"`);
 
@@ -228,43 +236,45 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
  * Execute a single test
  */
 export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTestResult> {
-  const workerStart = Date.now();
-  const workerStartPerf = performance.now();
-  const base = basename(taskData.testFile);
+  const { testFile, testTaskId, testTaskName, testTaskMeta, allResultErrors, port } = taskData;
+  const base = basename(testFile);
 
   try {
     setDebugMode(taskData.poolOptions.debug);
     debug(`[Worker ${workerId}] executeTest started for: "${taskData.test.name}"`);
 
     // Create RPC client from port
-    const rpc = createRpcClient(taskData.port);
+    const rpc = createRpcClient(port);
 
     const logMessages: AssemblyScriptConsoleLog[] = [];
     const handleLog: AssemblyScriptConsoleLogHandler = (msg: string, isError: boolean = false): void => {
       logMessages.push({ msg, time: Date.now(), isError });
     };
 
-    const { testTaskId, testTaskName, testTaskMeta, allResultErrors } = taskData;
+    const executionStart = Date.now();
+    const startMsg: TestExecutionStart = { executionStart };
+    port.postMessage(startMsg);
     
     // Report test-prepare if this is not a retry execution
     if (!taskData.retryCount || taskData.retryCount === 0) {
-      await reportTestPrepare(rpc, testTaskId, testTaskName, testTaskMeta, taskData.contextExecutionStart);
+      await reportTestPrepare(rpc, testTaskId, testTaskName, testTaskMeta, executionStart);
     }
 
     const testResult = await executeTestFromExecutor(
-      workerStart,
-      workerStartPerf,
+      executionStart,
       taskData.test,
       base,
       taskData.poolOptions,
       taskData.collectCoverage,
       taskData.binary,
       taskData.sourceMap,
-      taskData.port,
       handleLog,
       taskData.debugInfo,
       taskData.diffOptions
     );
+
+    const endMsg: TestExecutionEnd = { executionEnd: Date.now() };
+    port.postMessage(endMsg);
 
     if (taskData.test.options.fails) {
       if (testResult.passed) {
@@ -293,7 +303,7 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
     // Report results
     await Promise.all([
       // Report user console logs
-      reportUserConsoleLogs(rpc, logMessages, taskData.testTaskId),
+      reportUserConsoleLogs(rpc, logMessages, taskData.testTaskId, testTaskName),
 
       // Report test results
       reportTestFinished(
@@ -304,12 +314,15 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
         testTaskMeta,
         testResult,
         allResultErrors,
-        taskData.contextExecutionStart,
         taskData.retryCount
       )
     ]);
 
     debug(`[Worker ${workerId}] executeTest complete for: "${taskData.testTaskName}"`);
+
+    // await new Promise((resolve) => {
+    //   setTimeout(resolve, Math.random() * 1000);
+    // });
 
     return testResult;
   } catch (error) {
@@ -427,7 +440,16 @@ export async function reportTestFailure(taskData: ReportTestFailureTask): Promis
 
     const rpc = createRpcClient(taskData.port);
 
-    await reportTestFinished(rpc, taskData.test, taskData.testTaskId, taskData.testTaskName, taskData.testTaskMeta, taskData.result, taskData.allResultErrors, taskData.contextExecutionStart, taskData.retryCount);
+    await reportTestFinished(
+      rpc,
+      taskData.test,
+      taskData.testTaskId,
+      taskData.testTaskName,
+      taskData.testTaskMeta,
+      taskData.result,
+      taskData.allResultErrors,
+      taskData.retryCount
+    );
 
     // Final flush
     await rpc.onTaskUpdate([], []);

@@ -43,6 +43,7 @@ import type {
   TestExecutionStart,
   TestExecutionEnd,
   CompileFileTask,
+  AssemblyScriptTaskMeta,
 } from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
@@ -64,6 +65,7 @@ import {
   isAbortErrorString,
   throwPoolErrorIfAborted,
 } from '../util/pool-errors.js';
+import { positiveSum } from '../util/timing.js';
 
 const WORKER_PATH = resolve(import.meta.dirname, 'pool-worker/index.mjs');
 
@@ -290,7 +292,8 @@ async function pipelineDispatchRunDiscovery(
   config: AssemblyScriptResolvedConfig,
   pool: Tinypool,
   signal: AbortSignal,
-  isCollectTestsMode: boolean
+  isCollectTestsMode: boolean,
+  reportOnQueued: boolean
 ): Promise<DiscoverTestsResult> {
   // set debug mode within this async context
   const poolOptions = config.poolOptions.assemblyScript;
@@ -315,6 +318,7 @@ async function pipelineDispatchRunDiscovery(
       binary: cached.binary,
       sourceMap: cached.sourceMap,
       isBinaryInstrumented: cached.isInstrumented,
+      reportOnQueued,
       testFile: cached.testFilePath,
       poolOptions,
       defaultTestOptions,
@@ -414,7 +418,6 @@ async function pipelineDispatchRunTests(
         diffOptions,
         allResultErrors: context.allResultErrors,
         retryCount: context.retryCount,
-        contextExecutionStart: context.executionStart,
         bail: config.bail,
       };
 
@@ -426,8 +429,8 @@ async function pipelineDispatchRunTests(
 
           debug(`[Pipeline] ${base} - "${context.test.name}": Received worker execution start - Beginning test timeout timer ${context.test.options.timeout}ms`);
 
-          const workerQueuedDuration = workerTimings.workerStart - dispatchTime!;
-          debug(`[TIMING] ${base} - "${context.test.name}": Worker Queued ${workerQueuedDuration.toFixed(2)}ms | Worker Init ${workerTimings.workerOverhead.toFixed(2)}ms`);
+          const workerQueuedDuration = workerExecutionStart - dispatchTime!;
+          debug(`[TIMING] ${base} - "${context.test.name}": Worker Queued ${workerQueuedDuration.toFixed(2)}ms`);
           
           const transitDuration = poolReceivedExecutionStart - workerExecutionStart;
           const adjustedTimeout = Math.max(context.test.options.timeout - transitDuration, 0);
@@ -451,7 +454,7 @@ async function pipelineDispatchRunTests(
               assertionsPassed: 0,
               assertionsFailed: 0,
               duration: elapsedFromWorkerExecutionStart,
-              startTime: context.executionStart,
+              startTime: workerExecutionStart,
               error: createTestTimeoutError(context.test),
             };
             context.allResultErrors.push(timedOutResult.error!);
@@ -569,15 +572,13 @@ async function pipelineDispatchReportFileResults(
   const fileEndTime = Date.now();
   const hasFailures = testResults.some(({ result }) => !result.passed);
 
-  // Check if all tests in the file were skipped
-  const allTestsSkipped = fileTask.tasks.length > 0 &&
-    fileTask.tasks.every(t => t.mode === 'skip');
-
   if (fileTask.result) {
-    fileTask.result.duration = fileEndTime - filePipelineStart;
+    fileTask.result.duration = positiveSum(testResults, r => r.result.duration);
 
-    // Set file state: skip if all tests skipped, fail if any failures, otherwise pass
-    if (allTestsSkipped) {
+    const meta: AssemblyScriptTaskMeta = { fullDuration: fileEndTime - filePipelineStart };
+    fileTask.meta = meta;
+
+    if (fileTask.mode === 'skip') {
       fileTask.result.state = 'skip';
     } else {
       fileTask.result.state = hasFailures ? 'fail' : 'pass';
@@ -687,7 +688,6 @@ async function pipelineDispatchReportTestTimeouts(
         testTaskName: r.testTask.name,
         testTaskMeta: r.testTask.meta,
         retryCount: r.retryCount,
-        contextExecutionStart: r.executionStart
       };
 
       await pool.run(taskData, {
@@ -769,7 +769,8 @@ async function collectTests(
       };
       pipelineCompileCacheByTestFile.set(testFilePath, newCompilation);
 
-      const discoverResults = await pipelineDispatchRunDiscovery(spec, newCompilation, config, pool, signal, isCollectTestsMode);
+      const reportOnQueued = !useWorkerCompilation;
+      const discoverResults = await pipelineDispatchRunDiscovery(spec, newCompilation, config, pool, signal, isCollectTestsMode, reportOnQueued);
       newCompilation.discoverTiming = discoverResults.discoverTiming;
       newCompilation.discoveredTests = discoverResults.tests;
     } catch (error) {
@@ -912,7 +913,8 @@ async function runTests(
 
       // DISCOVERY PHASE
       const p2Start = Date.now();
-      const discoverResults = await pipelineDispatchRunDiscovery(spec, cached, config, pool, signal, isCollectTestsMode);
+      const reportOnQueued = !useWorkerCompilation;
+      const discoverResults = await pipelineDispatchRunDiscovery(spec, cached, config, pool, signal, isCollectTestsMode, reportOnQueued);
       const p2End = Date.now();
       const p2Ms = p2End - p2Start;
       debug(`[TIMING] ${base} - Pipeline Phase 2: ${p2Ms}ms`);
@@ -923,8 +925,6 @@ async function runTests(
 
       // Extract test tasks from file task
       const testTasks = discoverResults.fileTask.tasks as RunnerTestCase[];
-
-      const executionStart = Date.now();
 
       // Build text execution contexts for tasks configured to run
       const testContexts: PoolTestExecutionContext[] = [];
@@ -937,7 +937,7 @@ async function runTests(
           );
         }
 
-        test.isResolvedToRun = testTask.mode === 'run';
+        test.isResolvedToRun = testTask.mode === 'queued' || testTask.mode === 'run';
 
         if (test.isResolvedToRun) {
           const dummyResult: ExecuteTestResult = {
@@ -946,7 +946,7 @@ async function runTests(
   
           const retryCount = test.options.retry > 0 ? 0 : undefined
           
-          testContexts.push({ test, testFilePath, testTask, executeCount: 0, result: dummyResult, allResultErrors: [], retryCount, executionStart });
+          testContexts.push({ test, testFilePath, testTask, executeCount: 0, result: dummyResult, allResultErrors: [], retryCount });
         }
       });
 

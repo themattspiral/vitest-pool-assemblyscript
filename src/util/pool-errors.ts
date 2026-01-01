@@ -20,7 +20,7 @@ export function createPoolError(
 export function createTestTimeoutError(
   test: DiscoveredTest
 ): AssemblyScriptTestError {
-  const message = `Test "${test.name}" timed out (threshold ${test.options.timeout}ms)`;
+  const message = `Test timed out (threshold ${test.options.timeout}ms)`;
   const err: AssemblyScriptTestError = {
     name: POOL_ERROR_NAMES.WASMExecutionTimeoutError,
     message,
@@ -31,9 +31,9 @@ export function createTestTimeoutError(
 }
 
 export function createTestExpectedToFailError(
-  test: DiscoveredTest
+  _test: DiscoveredTest
 ): AssemblyScriptTestError {
-  const message = `Test "${test.name}" is expected to fail, but all assertions passed`;
+  const message = `Test is expected to fail, but all assertions passed`;
   const err: AssemblyScriptTestError = {
     name: TEST_ERROR_NAMES.AssertionError,
     message,

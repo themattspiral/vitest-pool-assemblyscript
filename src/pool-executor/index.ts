@@ -1,5 +1,4 @@
 import { type SerializedDiffOptions } from '@vitest/utils/diff';
-import { MessagePort } from 'node:worker_threads';
 
 import type {
   AssemblyScriptConsoleLogHandler,
@@ -13,8 +12,6 @@ import type {
   ExecuteTestResult,
   ExecuteTestResultRef,
   ResolvedAssemblyScriptPoolOptions,
-  TestExecutionEnd,
-  TestExecutionStart,
 } from '../types/types.js';
 import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
@@ -141,15 +138,13 @@ export async function discoverTests(
  * @returns Test result with outcome, timing, and optional coverage
  */
 export async function executeTest(
-  workerStart: number,
-  workerStartPerf: number,
+  executionStart: number,
   test: DiscoveredTest,
   testFileBasename: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   collectCoverage: boolean,
   binary: Uint8Array,
   sourceMap: string,
-  port: MessagePort,
   handleLog: AssemblyScriptConsoleLogHandler,
   debugInfo?: BinaryDebugInfo,
   diffOptions?: SerializedDiffOptions,
@@ -221,24 +216,12 @@ export async function executeTest(
     timedOut: false,
     assertionsPassed: 0,
     assertionsFailed: 0,
+    startTime: executionStart
   };
-
-  let executionStartPerf: number | undefined;
 
   // try-catch to ensure we capture known test errors to report
   // as AssemblyScriptTestErrors to vitest
   try {
-    testResultRef.value.startTime = Date.now();
-    
-    const testTiming: TestExecutionStart = {
-      executionStart: testResultRef.value.startTime,
-      workerStart,
-      workerOverhead: performance.now() - workerStartPerf
-    };
-    port.postMessage(testTiming);
-
-    executionStartPerf = performance.now();
-
     // Execute this test
     testFn();
 
@@ -263,7 +246,7 @@ export async function executeTest(
         (error as any)?.cause
       );
     } else {
-      // for test *execution* abort, test error comes from the test result as testResultRef.value.error
+      // for test execution abort, test error comes from the test result as testResultRef.value.error
       reportableTestError = testResultRef.value?.error;
 
       // this should not happen, but let's be defensive
@@ -276,13 +259,7 @@ export async function executeTest(
       }
     }
   }
-
-  testResultRef.value.duration = performance.now() - executionStartPerf!;
   
-  // notify the pool so it doesn't abort because of a test timeout
-  const testTiming: TestExecutionEnd = { executionEnd: Date.now() };
-  port.postMessage(testTiming);
-
   // If error is present, apply source mapping to make stack locations
   // useful, and add nicely-formatted diffs for reporting through vitest
   if (testResultRef.value.error) {
@@ -347,6 +324,8 @@ export async function executeTest(
     testResultRef.value.coverage = coverage;
     debug(`[Executor] Extracted coverage data: ${functionsHit} functions hit`);
   }
+
+  testResultRef.value.duration = Date.now() - executionStart;
 
   return testResultRef.value;
 }

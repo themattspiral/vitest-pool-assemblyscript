@@ -85,7 +85,7 @@ function getTaskModeFromTestOptions(test: DiscoveredTest): RunMode {
   } else if (test.options.only) {
     return 'only';
   } else {
-    return 'run';
+    return 'queued';
   }
 }
 
@@ -98,7 +98,7 @@ function getTaskModeFromTestOptions(test: DiscoveredTest): RunMode {
  * @param timings - Phase timings for duration metadata
  * @returns File task with test tasks and timing metadata
  */
-export function createRunFileTaskWithTestCases(
+export function createCollectedFileTaskWithTestCases(
   testFile: string,
   projectInfo: ProjectInfo,
   tests: DiscoveredTests,
@@ -111,7 +111,7 @@ export function createRunFileTaskWithTestCases(
     projectInfo.projectName,
     ASSEMBLYSCRIPT_POOL_NAME
   );
-  fileTask.mode = 'run';
+  fileTask.mode = 'queued';
 
   // Add timing metadata
   fileTask.prepareDuration = compileTiming;
@@ -119,6 +119,8 @@ export function createRunFileTaskWithTestCases(
   fileTask.setupDuration = 0;     // AS pool has no setup files
   fileTask.collectDuration = discoverTiming;
   fileTask.tasks = [];
+
+  let allSkipped: boolean = true;
 
   // Add test tasks
   for (const test of Object.values(tests)) {
@@ -140,6 +142,14 @@ export function createRunFileTaskWithTestCases(
     };
 
     fileTask.tasks.push(testTask);
+
+    if (testTask.mode !== 'skip') {
+      allSkipped = false;
+    }
+  }
+
+  if (allSkipped) {
+    fileTask.mode = 'skip';
   }
 
   return fileTask;
@@ -161,7 +171,7 @@ export async function reportFileQueued(
 ): Promise<void> {
   rpcDebug(`[RPC] Reporting onQueued for: "${fileTask.filepath}"`);
   await rpc.onQueued(fileTask);
-  rpcDebug(`[RPC] onQueued completed for: "${fileTask.filepath}"`);
+  rpcDebug(`[RPC] Completed onQueued for: "${fileTask.filepath}"`);
   
 }
 
@@ -175,9 +185,9 @@ export async function reportFileCollected(
   rpc: BirpcReturn<RuntimeRPC, object>,
   fileTask: RunnerTestFile
 ): Promise<void> {
-  rpcDebug(`[RPC] Reporting onCollected for: "${fileTask.filepath}" with ${fileTask.tasks.length} tests`);
+  rpcDebug(`[RPC] Reporting onCollected (queued with tasks) for: "${fileTask.filepath}" with ${fileTask.tasks.length} tests`);
   await rpc.onCollected([fileTask]);
-  rpcDebug(`[RPC] onCollected completed for: "${fileTask.filepath}"`);
+  rpcDebug(`[RPC] Completed onCollected (queued with tasks) for: "${fileTask.filepath}"`);
 }
 
 /**
@@ -190,12 +200,12 @@ export async function reportSuitePrepare(
   rpc: BirpcReturn<RuntimeRPC, object>,
   fileTask: RunnerTestFile
 ): Promise<void> {
-  const taskPack: TaskResultPack = [fileTask.id, fileTask.result!, fileTask.meta];
+  const taskPack: TaskResultPack = [fileTask.id, fileTask.result, fileTask.meta];
   const eventPack: TaskEventPack = [fileTask.id, 'suite-prepare', undefined];
 
-  rpcDebug(`[RPC] Reporting suite-prepare for: "${fileTask.filepath}"`);
+  rpcDebug(`[RPC] Reporting "suite-prepare" (run) for: "${fileTask.filepath}"`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] suite-prepare completed for: "${fileTask.filepath}"`);
+  rpcDebug(`[RPC] Completed "suite-prepare" (run) for: "${fileTask.filepath}"`);
 }
 
 /**
@@ -208,12 +218,12 @@ export async function reportSuiteFinished(
   rpc: BirpcReturn<RuntimeRPC, object>,
   fileTask: RunnerTestFile
 ): Promise<void> {
-  const taskPack: TaskResultPack = [fileTask.id, fileTask.result!, fileTask.meta];
+  const taskPack: TaskResultPack = [fileTask.id, fileTask.result, fileTask.meta];
   const eventPack: TaskEventPack = [fileTask.id, 'suite-finished', undefined];
 
-  rpcDebug(`[RPC] Reporting suite-finished for: "${fileTask.filepath}" (fileTask.id ${fileTask.id})`);
+  rpcDebug(`[RPC] Reporting "suite-finished" for: "${fileTask.filepath}" (fileTask.id ${fileTask.id})`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] suite-finished completed for: "${fileTask.filepath}"`);
+  rpcDebug(`[RPC] Completed "suite-finished" for: "${fileTask.filepath}"`);
 }
 
 // ============================================================================
@@ -236,13 +246,15 @@ export async function reportTestPrepare(
   const result: TaskResult = {
     state: 'run',
     startTime: executionStart,
+    retryCount: 0
   };
 
   const taskPack: TaskResultPack = [testTaskId, result, testTaskMeta];
   const eventPack: TaskEventPack = [testTaskId, 'test-prepare', undefined];
 
-  rpcDebug(`[RPC] Calling rpc.onTaskUpdate for test-prepare on test: "${testTaskName}"`);
+  rpcDebug(`[RPC] Calling rpc.onTaskUpdate with "test-prepare" (run) on test: "${testTaskName}"`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
+  rpcDebug(`[RPC] Completed rpc.onTaskUpdate with "test-prepare" (run) on test: "${testTaskName}"`);
 }
 
 /**
@@ -260,14 +272,13 @@ export async function reportTestFinished(
   testTaskMeta: TaskMeta,
   testResult: ExecuteTestResult,
   allResultErrors: AssemblyScriptTestError[],
-  contextExecutionStart: number,
   retryCount?: number,
 ): Promise<void> {
   const result: TaskResult = {
     state: testResult.passed ? 'pass' : 'fail',
     errors: allResultErrors.length > 0 ? allResultErrors : undefined,
     duration: testResult.duration,
-    startTime: contextExecutionStart,
+    startTime: testResult.startTime,
     retryCount
   };
 
@@ -277,8 +288,9 @@ export async function reportTestFinished(
 
   const eventPack: TaskEventPack = [testTaskId, taskEvent, undefined];
 
-  rpcDebug(`[RPC] Calling rpc.onTaskUpdate for ${taskEvent} on test: "${testTaskName}" | duration: ${testResult.duration}ms`);
+  rpcDebug(`[RPC] Calling rpc.onTaskUpdate with "${taskEvent}" event on test: "${testTaskName}" | duration: ${testResult.duration}ms`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
+  rpcDebug(`[RPC] Completed rpc.onTaskUpdate with "${taskEvent}" event on test: "${testTaskName}" | duration: ${testResult.duration}ms`);
 }
 
 // ============================================================================
@@ -312,12 +324,13 @@ export async function reportUserConsoleLogs(
   rpc: BirpcReturn<RuntimeRPC>,
   logs: AssemblyScriptConsoleLog[],
   taskId: string,
+  label: string,
 ): Promise<void> {
   if (logs.length === 0) {
     return;
   }
 
-  rpcDebug('[RPC] Reporting user console logs via rpc.onUserConsoleLog()');
+  rpcDebug(`[RPC] Reporting rpc.onUserConsoleLog for "${label}"`);
   
   const stdLogs = logs.filter(l => !l.isError);
   const errorLogs = logs.filter(l => l.isError);
@@ -354,6 +367,8 @@ export async function reportUserConsoleLogs(
   }
 
   await Promise.all(reportPromises);
+
+  rpcDebug(`[RPC] Completed reporting rpc.onUserConsoleLog for "${label}"`);
 }
 
 /**
@@ -367,11 +382,13 @@ export async function reportFileError(
   rpc: BirpcReturn<RuntimeRPC>,
   fileTask: RunnerTestFile,
 ): Promise<void> {
-  rpcDebug('[RPC] Reporting file-level error via rpc.onCollected()');
+  rpcDebug('[RPC] Reporting file-level error via rpc.onCollected');
   await rpc.onCollected([fileTask]);
 
   const taskPack: TaskResultPack = [fileTask.id, fileTask.result, fileTask.meta];
   await rpc.onTaskUpdate([taskPack], []);
+  rpcDebug('[RPC] Completed reporting file-level error via rpc.onCollected');
+
 }
 
 // ============================================================================

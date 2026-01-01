@@ -127,7 +127,7 @@ export function createDiscoveryImports(
         throw poolError;
       },
 
-      trace(msgPtr: number, n: any, a0: any, a1: any, a2: any, a3: any) {
+      trace(msgPtr: number, n: number, a0: any, a1: any, a2: any, a3: any) {
         const msg = liftString(memory, msgPtr);
 
         console.trace(`WASM Trace${n !== undefined ? ` (${String(n)})` : ''}:${msg ? ` ${msg}` : ''}`, a0, a1, a2, a3);
@@ -249,8 +249,10 @@ export function createTestExecutionImports(
         );
       },
 
-      trace(_msg: any, n: any, a0: any, a1: any, a2: any, a3: any) {
-        console.log(`WASM trace${n !== undefined  ? ` (${String(n)})` : ''}:`, a0, a1, a2, a3);
+      trace(msgPtr: number, n: number, a0: any, a1: any, a2: any, a3: any) {
+        const msg = liftString(memory, msgPtr);
+
+        console.trace(`WASM Trace${n !== undefined ? ` (${String(n)})` : ''}:${msg ? ` ${msg}` : ''}`, a0, a1, a2, a3);
       },
 
       ...createWasmConsole(memory, handleLog),
