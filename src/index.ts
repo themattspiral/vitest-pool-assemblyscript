@@ -9,5 +9,5 @@
 export { default } from './pool/index.js';
 
 // Internal Pool Testing
-export type { CompileResult, ExecuteTestResult, AssemblyScriptPoolOptions } from './types/types.js';
+export type { CompileFileResult, ExecuteTestResult, AssemblyScriptPoolOptions } from './types/types.js';
 export { compileAssemblyScript } from './compiler/index.js';

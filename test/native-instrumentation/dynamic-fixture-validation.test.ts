@@ -25,8 +25,8 @@ import {
 } from '../helpers/validate-debug-info.js';
 
 describe('Native Instrumentation Debug Info', () => {
-  // Validation tests run on all fixtures
-  const fixtures = getAllFixtures();
+  // Validation tests run on all fixtures (except those expected to fail)
+  const fixtures = getAllFixtures().filter(f => !f.name.includes('should-fail'));
 
   describe.each(fixtures)('$name fixture', (fixture) => {
     let compiledFixtureInfo: CompiledFixture;
@@ -41,12 +41,6 @@ describe('Native Instrumentation Debug Info', () => {
 
     it('should have valid object structure', () => {
       const result = validateDebugInfoStructure(compiledFixtureInfo.compileResult.debugInfo!);
-
-      // TEMP: Log coverage info
-      // const coverage = result.stats.totalExpressions > 0
-      //   ? ((result.stats.expressionsWithLocations / result.stats.totalExpressions) * 100).toFixed(1)
-      //   : 0;
-      // console.log(`\n[${fixture.name}] Coverage: ${result.stats.expressionsWithLocations}/${result.stats.totalExpressions} (${coverage}%)`);
 
       expect(result.errors).toEqual([]);
       expect(result.warnings).toEqual([]);

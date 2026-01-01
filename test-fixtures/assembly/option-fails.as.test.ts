@@ -1,7 +1,8 @@
-import { test, assert, fails, TestOptions } from '../../assembly';
+import { test, assert, fails, TestOptions, assertEqual } from '../../assembly';
+import { add } from '../assembly-src/math';
 
 test("should pass normally", () => {
-  assert(true);
+  assertEqual(add(1, 2), 3);
 });
 
 test("should pass with failing assertion when fails option is set", TestOptions.fails(), () => {

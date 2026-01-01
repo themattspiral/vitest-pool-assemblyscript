@@ -1,7 +1,8 @@
-import { test, assert, only, skip, TestOptions } from '../../assembly';
+import { test, assert, only, skip, TestOptions, assertEqual } from '../../assembly';
+import { add } from '../assembly-src/math';
 
 test("should be skipped", () => {
-  assert(true);
+  assertEqual(add(1, 2), 3);
 });
 
 test("should also be skipped", TestOptions.skip(), () => {

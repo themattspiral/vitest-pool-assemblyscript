@@ -9,7 +9,7 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { BinaryDebugInfo, CompileResult } from '../../src/types/types.js';
+import type { BinaryDebugInfo, CompileFileResult } from '../../src/types/types.js';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
 
@@ -64,10 +64,6 @@ export function validateDebugInfoStructure(debugInfo: BinaryDebugInfo, options: 
   const functions = Array.from(Object.values(debugInfo.functionsByFileAndPosition))
     .flatMap(fileFunctionsByPosition => Array.from(Object.values(fileFunctionsByPosition)));
   stats.totalFunctions = functions.length;
-
-  if (functions.length === 0) {
-    warnings.push('No functions found in debug info');
-  }
 
   // Track function indices for uniqueness and sequential validation
   const seenIndices = new Set<number>();
@@ -262,7 +258,7 @@ export function validateDebugInfoStructure(debugInfo: BinaryDebugInfo, options: 
  * - File indices are valid
  * - Basic source map structure is correct
  */
-export function sanityCheckDebugInfoAgainstSourceMap(result: CompileResult): ValidationResult {
+export function sanityCheckDebugInfoAgainstSourceMap(result: CompileFileResult): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const stats = {

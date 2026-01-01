@@ -182,7 +182,7 @@ export interface AssemblyScriptCompilerOptions {
 /**
  * Result of successfully compiling AssemblyScript source
  */
-export interface CompileResult {
+export interface CompileFileResult {
   /** WASM binary */
   binary: Uint8Array;
   /** Source map JSON */
@@ -520,6 +520,24 @@ export interface ParsedSourceInfo {
 // ============================================================================
 // Worker Communication & RPC
 // ============================================================================
+
+/**
+ * Task data for compileFile worker function
+ */
+export interface CompileFileTask {
+  /** Path to test file */
+  testFilePath: string;
+  /** True if the compiled binary should be instrumented */
+  shouldInstrument: boolean,
+  /** User-configured coverage exclusions */
+  relativeUserCoverageExclusions: string[];
+  /** Pool options */
+  poolOptions: ResolvedAssemblyScriptPoolOptions;
+  /** MessagePort for RPC communication */
+  port: MessagePort;
+  /** Project information for file task creation */
+  projectInfo: ProjectInfo;
+}
 
 /**
  * Discovered test metadata (from registration phase)

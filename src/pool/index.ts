@@ -34,7 +34,7 @@ import type {
   ResolvedHybridProviderOptions,
   ReportFileFailureTask,
   AssemblyScriptCompilerOptions,
-  CompileResult,
+  CompileFileResult,
   CachedCompilation,
   AssemblyScriptTestError,
   AssemblyScriptResolvedConfig,
@@ -42,6 +42,7 @@ import type {
   ReportTestFailureTask,
   TestExecutionStart,
   TestExecutionEnd,
+  CompileFileTask,
 } from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
@@ -66,6 +67,8 @@ import {
 
 const WORKER_PATH = resolve(import.meta.dirname, 'pool-worker/index.mjs');
 
+const WORKER_COMPILE_FILES_PER_THREAD_THRESHOLD = 4;
+
 // ============================================================================
 // Module-Level Pool Storage
 // ============================================================================
@@ -86,7 +89,7 @@ const pipelineCoverageByTestFile = new Map<string, CoverageData>();
 const pipelineCompileCacheByTestFile = new Map<string, CachedCompilation>();
 
 // Single sequential compilation queue for V8 warmup
-let compilationQueue = Promise.resolve({}) as Promise<CompileResult>;
+let compilationQueue = Promise.resolve({}) as Promise<CompileFileResult>;
 
 // ============================================================================
 // Helper Functions
@@ -171,13 +174,13 @@ async function pipelineQueueCompilation(
   config: AssemblyScriptResolvedConfig,
   signal: AbortSignal,
   isCollectTestsMode: boolean,
-): Promise<CompileResult> {
+): Promise<CompileFileResult> {
   const base = basename(testFilePath);
   const currentCompilation = compilationQueue
     .catch(() => {
       debug(`[Pipeline] ${base} - queueCompilation rejection before queueing (ignoring previous error)`);
     })
-    .then(async (): Promise<CompileResult> => {
+    .then(async (): Promise<CompileFileResult> => {
       throwPoolErrorIfAborted(signal);
 
       const poolOptions = config.poolOptions.assemblyScript;
@@ -220,6 +223,51 @@ async function pipelineQueueCompilation(
   compilationQueue = currentCompilation;
 
   return currentCompilation;
+}
+
+async function pipelineDispatchCompileFile(
+  spec: TestSpecification,
+  config: AssemblyScriptResolvedConfig,
+  pool: Tinypool,
+  signal: AbortSignal,
+  isCollectTestsMode: boolean
+): Promise<CompileFileResult> {
+  
+  // set debug mode within this async context
+  const poolOptions = config.poolOptions.assemblyScript;
+  setDebugMode(poolOptions.debug);
+  const base = basename(spec.moduleId);
+
+  debug(`[Pipeline] ${base} - Phase 1 (compile) starting`);
+
+  const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
+  const projectInfo = extractProjectInfo(spec);
+
+  // Only instrument when coverage is enabled and when not running a collectTests() operation
+  const shouldInstrument = config.coverage.enabled && !isCollectTestsMode;
+
+  try {
+    const compileTask: CompileFileTask = {
+      testFilePath: spec.moduleId,
+      shouldInstrument,
+      relativeUserCoverageExclusions: (config.coverage as ResolvedHybridProviderOptions).globbedAssemblyScriptProjectRelativeExcludeOnly || [],
+      poolOptions,
+      port: workerPort,
+      projectInfo,
+    };
+
+    const result: CompileFileResult = await pool.run(compileTask, {
+      name: 'compileFile',
+      transferList: [workerPort],
+      signal: signal
+    });
+
+    debug(`[Pipeline] ${base} - Phase 1 (compile) complete`);
+    return result;
+  } finally {
+    workerPort.close();
+    poolPort.close();
+  }
 }
 
 /**
@@ -676,6 +724,7 @@ async function pipelineDispatchReportTestTimeouts(
 async function collectTests(
   specs: TestSpecification[],
   config: AssemblyScriptResolvedConfig,
+  useWorkerCompilation: boolean,
   pool: Tinypool,
   poolAbortController: AbortController,
 ): Promise<void> {
@@ -708,7 +757,10 @@ async function collectTests(
         debug(`[Pipeline] ${base} -   NO existing pipeline cache for spec`);
       }
 
-      const compileResult = await pipelineQueueCompilation(testFilePath, config, signal, isCollectTestsMode);
+      const compileResult = useWorkerCompilation
+        ? await pipelineDispatchCompileFile(spec, config, pool, signal, isCollectTestsMode)
+        : await pipelineQueueCompilation(testFilePath, config, signal, isCollectTestsMode);
+      
       const newCompilation: CachedCompilation = {
         filePipelineStart: pipelineStart,
         testFilePath,
@@ -783,6 +835,7 @@ async function collectTests(
 async function runTests(
   specs: TestSpecification[],
   config: AssemblyScriptResolvedConfig,
+  useWorkerCompilation: boolean,
   pool: Tinypool,
   poolAbortController: AbortController,
   _invalidatedFiles?: string[]
@@ -841,7 +894,11 @@ async function runTests(
 
       // COMPILATION PHASE
       const p1Start = Date.now();
-      const compileResult = await pipelineQueueCompilation(testFilePath, config, signal, isCollectTestsMode);
+      
+      const compileResult = useWorkerCompilation
+        ? await pipelineDispatchCompileFile(spec, config, pool, signal, isCollectTestsMode)
+        : await pipelineQueueCompilation(testFilePath, config, signal, isCollectTestsMode);
+
       const p1Ms = Date.now() - p1Start;
       debug(`[TIMING] ${base} - Pipeline Phase 1: ${p1Ms}ms`);
 
@@ -1107,11 +1164,13 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
 
     // runs when executing vitest list
     async collectTests(specs: TestSpecification[]) {
-      return collectTests(specs, resolvedConfig, pool, poolAbortController);
+      const useWorkerCompilation = specs.length >= WORKER_COMPILE_FILES_PER_THREAD_THRESHOLD * maxThreads;
+      return collectTests(specs, resolvedConfig, useWorkerCompilation, pool, poolAbortController);
     },
 
     async runTests(specs: TestSpecification[], invalidates?: string[]) {
-      return runTests(specs, resolvedConfig, pool, poolAbortController, invalidates);
+      const useWorkerCompilation = specs.length >= WORKER_COMPILE_FILES_PER_THREAD_THRESHOLD * maxThreads;
+      return runTests(specs, resolvedConfig, useWorkerCompilation, pool, poolAbortController, invalidates);
     },
 
     // Cleanup when shutting down

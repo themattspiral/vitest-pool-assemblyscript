@@ -9,7 +9,7 @@
 import { resolve, basename } from 'node:path';
 import { readdirSync } from 'fs';
 import { readFile } from 'fs/promises';
-import type { CompileResult } from '../../src/types/types.js';
+import type { CompileFileResult } from '../../src/types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
   POOL_INTERNAL_PATHS,
@@ -18,7 +18,7 @@ import {
 // test with compiled version because asc strip-inline transform needs transpilation
 // (for now! TODO remove after switching to asc API)
 //@ts-ignore
-import { compileAssemblyScript as casDist } from '../../dist/index.js';
+import { compileAssemblyScript as casDist } from '../../dist/index.mjs';
 import { compileAssemblyScript as casSrc } from '../../src/index.js';
 const compileAssemblyScript: typeof casSrc = casDist;
 
@@ -44,7 +44,7 @@ export interface CompiledFixture {
   /** Fixture metadata */
   fixture: TestFixture;
   /** Compilation result */
-  compileResult: CompileResult;
+  compileResult: CompileFileResult;
   /** Source code lines */
   sourceLines: string[];
 }
