@@ -761,6 +761,14 @@ export interface ExecuteAfterAllHooksTask {
   fileTask: RunnerTestFile;
 }
 
+export interface AssemblyScriptConsoleLog {
+  msg: string;
+  time: number;
+  isError: boolean;
+}
+
+export type AssemblyScriptConsoleLogHandler = (msg: string, isError?: boolean) => void;
+
 // ============================================================================
 // Pool-Level Data Structures
 // ============================================================================

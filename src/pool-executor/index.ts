@@ -2,6 +2,7 @@ import { type SerializedDiffOptions } from '@vitest/utils/diff';
 import { MessagePort } from 'node:worker_threads';
 
 import type {
+  AssemblyScriptConsoleLogHandler,
   AssemblyScriptPoolError,
   AssemblyScriptTestError,
   AssemblyScriptTestOptions,
@@ -60,6 +61,7 @@ export async function discoverTests(
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   defaultTestOptions: AssemblyScriptTestOptions,
   isBinaryInstrumented: boolean,
+  handleLog: AssemblyScriptConsoleLogHandler,
 ): Promise<{ tests: DiscoveredTests }> {
   const tests: DiscoveredTests = {};
   const module = await WebAssembly.compile(binary as BufferSource);
@@ -75,7 +77,7 @@ export async function discoverTests(
     })
     : undefined;
 
-  const importObject = createDiscoveryImports(memory, tests, defaultTestOptions, coverageMemory);
+  const importObject = createDiscoveryImports(memory, tests, defaultTestOptions, handleLog, coverageMemory);
 
   // Instantiate WASM module
   const instance = new WebAssembly.Instance(module, importObject);
@@ -148,6 +150,7 @@ export async function executeTest(
   binary: Uint8Array,
   sourceMap: string,
   port: MessagePort,
+  handleLog: AssemblyScriptConsoleLogHandler,
   debugInfo?: BinaryDebugInfo,
   diffOptions?: SerializedDiffOptions,
 ): Promise<ExecuteTestResult> {
@@ -170,7 +173,7 @@ export async function executeTest(
   const testResultRef: ExecuteTestResultRef = { value: null };
 
   // Create import object with pool-side functions for capturing test execution results
-  const importObject = createTestExecutionImports(memory, testResultRef, coverageMemory);
+  const importObject = createTestExecutionImports(memory, testResultRef, handleLog, coverageMemory);
 
   // Instantiate fresh WASM instance for this test
   const instance = new WebAssembly.Instance(module, importObject);

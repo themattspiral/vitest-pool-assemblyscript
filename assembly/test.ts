@@ -6,7 +6,6 @@ import { TestOptions } from './test-options';
 @external("env", "__register_test")
 declare function __register_test(
   namePtr: usize,
-  nameLen: i32,
   fnIndex: u32,
   timeout: i32,
   retry: i32,
@@ -45,7 +44,6 @@ export function test<T = TestCallback, U = TestOptions>(
 
   __register_test(
     changetype<usize>(name),
-    name.length,
     fn.index,
     options._valueOfTimeout,
     options._valueOfRetry,

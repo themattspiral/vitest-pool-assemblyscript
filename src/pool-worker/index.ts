@@ -27,6 +27,8 @@ import type {
   ExecuteAfterAllHooksTask,
   AssemblyScriptCoveragePayload,
   ReportTestFailureTask,
+  AssemblyScriptConsoleLogHandler,
+  AssemblyScriptConsoleLog,
 } from '../types/types.js';
 import {
   COVERAGE_PAYLOAD_FORMATS,
@@ -46,6 +48,7 @@ import {
   reportFileCollected,
   reportTestPrepare,
   reportTestFinished,
+  reportUserConsoleLogs,
 } from './rpc-reporter.js';
 import { createPoolErrorFromAnyError, createTestExpectedToFailError } from '../util/pool-errors.js';
 
@@ -88,6 +91,11 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
     const queuedFileTask = createInitialFileTask(taskData.testFile, taskData.projectInfo.projectRoot, taskData.projectInfo.projectName);
     await reportFileQueued(rpc, queuedFileTask);
 
+    const logMessages: AssemblyScriptConsoleLog[] = [];
+    const handleLog: AssemblyScriptConsoleLogHandler = (msg: string, isError: boolean = false): void => {
+      logMessages.push({ msg, time: Date.now(), isError });
+    };
+
     // Discover tests
     const { tests } = await discoverTestsFromExecutor(
       taskData.binary,
@@ -95,7 +103,8 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
       base,
       taskData.poolOptions,
       taskData.defaultTestOptions,
-      taskData.isBinaryInstrumented
+      taskData.isBinaryInstrumented,
+      handleLog
     );
     
     const discoverTiming = performance.now() - discoverStart;
@@ -129,11 +138,17 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<Discov
       debug(`[Worker] Filtered ${skippedCount}/${tests.length} tests`);
     }
 
-    // Report onCollected with filtered tasks
-    await reportFileCollected(rpc, collectedFileTask);
+    // Report results
+    await Promise.all([
+      // Report user console logs
+      reportUserConsoleLogs(rpc, logMessages, queuedFileTask.id),
 
-    // Report suite-prepare
-    await reportSuitePrepare(rpc, collectedFileTask);
+      // Report onCollected with filtered tasks
+      reportFileCollected(rpc, collectedFileTask),
+
+      // Report suite-prepare
+      reportSuitePrepare(rpc, collectedFileTask),
+    ]);
 
     debug(`[Worker] discoverTests complete for "${taskData.testFile}"`);
 
@@ -162,6 +177,11 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
     // Create RPC client from port
     const rpc = createRpcClient(taskData.port);
 
+    const logMessages: AssemblyScriptConsoleLog[] = [];
+    const handleLog: AssemblyScriptConsoleLogHandler = (msg: string, isError: boolean = false): void => {
+      logMessages.push({ msg, time: Date.now(), isError });
+    };
+
     const { testTaskId, testTaskName, testTaskMeta, allResultErrors } = taskData;
     
     // Report test-prepare if this is not a retry execution
@@ -179,6 +199,7 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
       taskData.binary,
       taskData.sourceMap,
       taskData.port,
+      handleLog,
       taskData.debugInfo,
       taskData.diffOptions
     );
@@ -206,7 +227,25 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<ExecuteTes
     if (testResult.error) {
       allResultErrors.push(testResult.error);
     }
-    await reportTestFinished(rpc, taskData.test, testTaskId, testTaskName, testTaskMeta, testResult, allResultErrors, taskData.contextExecutionStart, taskData.retryCount);
+    
+    // Report results
+    await Promise.all([
+      // Report user console logs
+      reportUserConsoleLogs(rpc, logMessages, taskData.testTaskId),
+
+      // Report test results
+      reportTestFinished(
+        rpc,
+        taskData.test,
+        testTaskId,
+        testTaskName,
+        testTaskMeta,
+        testResult,
+        allResultErrors,
+        taskData.contextExecutionStart,
+        taskData.retryCount
+      )
+    ]);
 
     debug(`[Worker] executeTest complete for: "${taskData.testTaskName}"`);
 

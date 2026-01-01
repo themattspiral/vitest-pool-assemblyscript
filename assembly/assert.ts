@@ -8,9 +8,7 @@ declare function __assertion_pass(): void;
 @external("env", "__assertion_fail")
 declare function __assertion_fail<T>(
   msgPtr: usize,
-  msgLen: i32,
   typeNamePtr: usize,
-  typeNameLen: i32,
   valuesProvided: bool,
   expected?: T,
   actual?: T
@@ -18,7 +16,7 @@ declare function __assertion_fail<T>(
 
 
 /**
- * Minimal boolean assertion.
+ * Minimal conditional (boolean) assertion.
  *
  * IMPORTANT - AssemblyScript compiler bug workaround:
  * The AS compiler has a const-folding bug with arithmetic comparisons.
@@ -32,12 +30,12 @@ declare function __assertion_fail<T>(
  *
  * Always assign arithmetic expressions to typed variables before comparison.
  */
-export function assert(condition: bool, message: string = "Assertion failed"): void {
-  if (condition) {
+export function assert<T>(condition: T, message: string = "Assertion failed"): void {
+  if (!!condition) {
     __assertion_pass();
   } else {
     const typeName: string = nameof<i32>();
-    __assertion_fail<i32>(changetype<usize>(message), message.length, changetype<usize>(typeName), typeName.length, false);
+    __assertion_fail<i32>(changetype<usize>(message), changetype<usize>(typeName), false);
 
     // Abort on failure - terminates WASM execution - must be called from WASM
     // Imported abort handler will handle this and mark the test as failed
@@ -67,7 +65,7 @@ export function assertEqual<T>(actual: T, expected: T, message: string = "Equali
     __assertion_pass();
   } else {
     const typeName: string = nameof<T>();
-    __assertion_fail<T>(changetype<usize>(message), message.length, changetype<usize>(typeName), typeName.length, true, expected, actual);
+    __assertion_fail<T>(changetype<usize>(message), changetype<usize>(typeName), true, expected, actual);
 
     // Abort on failure - terminates WASM execution - must be called from WASM.
     // Imported abort handler will handle this and mark the test as failed.

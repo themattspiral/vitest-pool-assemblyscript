@@ -7,7 +7,7 @@
 
 import { createBirpc, type BirpcReturn } from 'birpc';
 import type { MessagePort } from 'node:worker_threads';
-import type { RunMode, RuntimeRPC } from 'vitest';
+import type { RunMode, RuntimeRPC, UserConsoleLog } from 'vitest';
 import type { RunnerTestCase, RunnerTestFile } from 'vitest/node';
 import { TaskResult, TaskEventPack, TaskResultPack, TaskMeta, TaskUpdateEvent } from '@vitest/runner/types';
 import { createFileTask } from '@vitest/runner/utils';
@@ -17,7 +17,8 @@ import type {
   ProjectInfo,
   DiscoveredTests,
   AssemblyScriptTestError,
-  DiscoveredTest
+  DiscoveredTest,
+  AssemblyScriptConsoleLog
 } from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_POOL_NAME
@@ -301,8 +302,59 @@ export async function flushRpcUpdates(
 }
 
 // ============================================================================
-// Error Reporting
+// Other Reporting
 // ============================================================================
+
+/**
+ * Report user console log message(s)
+ */
+export async function reportUserConsoleLogs(
+  rpc: BirpcReturn<RuntimeRPC>,
+  logs: AssemblyScriptConsoleLog[],
+  taskId: string,
+): Promise<void> {
+  if (logs.length === 0) {
+    return;
+  }
+
+  rpcDebug('[RPC] Reporting user console logs via rpc.onUserConsoleLog()');
+  
+  const stdLogs = logs.filter(l => !l.isError);
+  const errorLogs = logs.filter(l => l.isError);
+
+  const stdContent: string = stdLogs.map(l => `${l.msg}`).join('\n');
+  const errorContent: string = errorLogs.filter(l => l.isError).map(l => `${l.msg}`).join('\n');
+
+  const stdLog: UserConsoleLog = {
+    content: `${stdContent}\n`,
+    size: stdContent.length,
+    browser: false,
+    type: 'stdout',
+    time: stdLogs.length > 0 ? stdLogs[0]!.time : Date.now(),
+    taskId: taskId,
+    origin: taskId
+  };
+  
+  const errorLog: UserConsoleLog = {
+    content: `${errorContent}\n`,
+    size: errorContent.length,
+    browser: false,
+    type: 'stderr',
+    time: errorLogs.length > 0 ? errorLogs[0]!.time : Date.now(),
+    taskId: taskId,
+    origin: taskId
+  };
+
+  const reportPromises: Promise<void>[] = [];
+  if (stdContent.length > 0) {
+    reportPromises.push(rpc.onUserConsoleLog(stdLog));
+  }
+  if (errorContent.length > 0) {
+    reportPromises.push(rpc.onUserConsoleLog(errorLog));
+  }
+
+  await Promise.all(reportPromises);
+}
 
 /**
  * Report file-level error (compilation/discovery failure)

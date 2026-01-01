@@ -9,9 +9,11 @@
  */
 
 import { extractCallStack } from './source-maps.js';
-import { decodeString, decodeAbortInfo } from './wasm-memory.js';
+import { decodeAbortInfo } from './wasm-memory.js';
+import { createWasmConsole } from './wasm-console.js';
 import { debug } from '../util/debug.js';
 import type {
+  AssemblyScriptConsoleLogHandler,
   AssemblyScriptTestError,
   AssemblyScriptTestOptions,
   DiscoveredTests,
@@ -20,7 +22,7 @@ import type {
 } from '../types/types.js';
 import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { createPoolError } from '../util/pool-errors.js';
-
+import { liftString } from '../util/assemblyscript/binding-helpers.js';
 
 /**
  * Create import object for test discovery
@@ -37,6 +39,7 @@ export function createDiscoveryImports(
   memory: WebAssembly.Memory,
   mutableTestsCollection: DiscoveredTests,
   defaultTestOptions: AssemblyScriptTestOptions,
+  handleLog: AssemblyScriptConsoleLogHandler,
   coverageMemory?: WebAssembly.Memory
 ): WebAssembly.Imports {
   return {
@@ -47,7 +50,6 @@ export function createDiscoveryImports(
       // called by test() to register test names and function indices
       __register_test(
         namePtr: number,
-        nameLen: number,
         fnIndex: number,
         timeout: number,
         retry: number,
@@ -55,7 +57,7 @@ export function createDiscoveryImports(
         only: number,
         fails: number,
       ) {
-        const testName = decodeString(memory, namePtr, nameLen);
+        const testName = liftString(memory, namePtr) ?? 'unknown test';
 
         // unique id for the test within the binary, allowing for duplicated test names
         const id = `${testName}_${fnIndex}`;
@@ -125,9 +127,13 @@ export function createDiscoveryImports(
         throw poolError;
       },
 
-      trace(_msg: any, n: any, a0: any, a1: any, a2: any, a3: any) {
-        console.log(`WASM trace${n !== undefined ? ` (${String(n)})` : ''}:`, a0, a1, a2, a3);
-      }
+      trace(msgPtr: number, n: any, a0: any, a1: any, a2: any, a3: any) {
+        const msg = liftString(memory, msgPtr);
+
+        console.trace(`WASM Trace${n !== undefined ? ` (${String(n)})` : ''}:${msg ? ` ${msg}` : ''}`, a0, a1, a2, a3);
+      },
+
+      ...createWasmConsole(memory, handleLog),
     },
   };
 }
@@ -146,6 +152,7 @@ export function createDiscoveryImports(
 export function createTestExecutionImports(
   memory: WebAssembly.Memory,
   mutableTestResultRef: ExecuteTestResultRef,
+  handleLog: AssemblyScriptConsoleLogHandler,
   coverageMemory?: WebAssembly.Memory
 ): WebAssembly.Imports {
   return {
@@ -154,7 +161,7 @@ export function createTestExecutionImports(
       ...(coverageMemory ? { __coverage_memory: coverageMemory } : {}),
 
       // Test registration callback (no-op during execution)
-      __register_test(_namePtr: number, _nameLen: number, _fnIndex: number) {},
+      __register_test() {},
 
       // Assertion tracking
       __assertion_pass() {
@@ -162,11 +169,11 @@ export function createTestExecutionImports(
           mutableTestResultRef.value.assertionsPassed++;
         }
       },
-      __assertion_fail(msgPtr: number, msgLen: number, typeNamePtr: number, typeNameLen: number, valuesProvided: boolean, expected?: any, actual?: any) {
+      __assertion_fail(msgPtr: number, typeNamePtr: number, valuesProvided: boolean, expected?: any, actual?: any) {
         if (mutableTestResultRef.value) {
           mutableTestResultRef.value.assertionsFailed++;
           
-          const assertionValueType = decodeString(memory, typeNamePtr, typeNameLen);
+          const assertionValueType = liftString(memory, typeNamePtr);
 
           if (valuesProvided) {
             mutableTestResultRef.value.valuesProvided = true;
@@ -181,7 +188,7 @@ export function createTestExecutionImports(
             }
           }
 
-          const errorMsg = decodeString(memory, msgPtr, msgLen);
+          const errorMsg = liftString(memory, msgPtr);
           
           const valuesMsg = valuesProvided ? ` | Value Type: ${assertionValueType}`
             + ` | Expected: \`${expected !== undefined ? expected : ''}\` | Actual: \`${actual !== undefined ? actual : ''}\``
@@ -244,7 +251,9 @@ export function createTestExecutionImports(
 
       trace(_msg: any, n: any, a0: any, a1: any, a2: any, a3: any) {
         console.log(`WASM trace${n !== undefined  ? ` (${String(n)})` : ''}:`, a0, a1, a2, a3);
-      }
+      },
+
+      ...createWasmConsole(memory, handleLog),
     },
   };
 }

@@ -15,6 +15,7 @@ test('subtract function works', () => {
 test('multiply function works', () => {
   expect(multiply(2, 3)).toBe(6);
   expect(multiply(0, 5)).toBe(0);
+  console.log();
 });
 
 test('divide function works', () => {
