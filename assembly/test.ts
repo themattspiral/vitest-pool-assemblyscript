@@ -53,15 +53,6 @@ export function test<T = TestCallback, U = TestOptions>(
   );
 }
 
-export function it<T = TestCallback, U = TestOptions>(
-  name: string,
-  optionsOrFn: T,
-  // @ts-ignore
-  fnOrOptions: U = DEFAULT_TEST_OPTIONS
-): void {
-  return test(name, optionsOrFn, fnOrOptions);
-}
-
 function testWithMergedOption<T = TestCallback, U = TestOptions>(
   name: string,
   optionToMerge: TestOptions,
@@ -87,29 +78,69 @@ function testWithMergedOption<T = TestCallback, U = TestOptions>(
   return test(name, merged, fn);
 }
 
-export function skip<T = TestCallback, U = TestOptions>(
-  name: string,
-  optionsOrFn: T,
-  // @ts-ignore
-  fnOrOptions: U = DEFAULT_TEST_OPTIONS
-): void {
-  return testWithMergedOption(name, TestOptions.skip(), optionsOrFn, fnOrOptions);
+export namespace test {
+  export function skip<T = TestCallback, U = TestOptions>(
+    name: string,
+    optionsOrFn: T,
+    // @ts-ignore
+    fnOrOptions: U = DEFAULT_TEST_OPTIONS
+  ): void {
+    return testWithMergedOption(name, TestOptions.skip(), optionsOrFn, fnOrOptions);
+  }
+
+  export function only<T = TestCallback, U = TestOptions>(
+    name: string,
+    optionsOrFn: T,
+    // @ts-ignore
+    fnOrOptions: U = DEFAULT_TEST_OPTIONS
+  ): void {
+    return testWithMergedOption(name, TestOptions.only(), optionsOrFn, fnOrOptions);
+  }
+
+  export function fails<T = TestCallback, U = TestOptions>(
+    name: string,
+    optionsOrFn: T,
+    // @ts-ignore
+    fnOrOptions: U = DEFAULT_TEST_OPTIONS
+  ): void {
+    return testWithMergedOption(name, TestOptions.fails(), optionsOrFn, fnOrOptions);
+  }
 }
 
-export function only<T = TestCallback, U = TestOptions>(
+export function it<T = TestCallback, U = TestOptions>(
   name: string,
   optionsOrFn: T,
   // @ts-ignore
   fnOrOptions: U = DEFAULT_TEST_OPTIONS
 ): void {
-  return testWithMergedOption(name, TestOptions.only(), optionsOrFn, fnOrOptions);
+  return test(name, optionsOrFn, fnOrOptions);
 }
 
-export function fails<T = TestCallback, U = TestOptions>(
-  name: string,
-  optionsOrFn: T,
-  // @ts-ignore
-  fnOrOptions: U = DEFAULT_TEST_OPTIONS
-): void {
-  return testWithMergedOption(name, TestOptions.fails(), optionsOrFn, fnOrOptions);
+export namespace it {
+  export function skip<T = TestCallback, U = TestOptions>(
+    name: string,
+    optionsOrFn: T,
+    // @ts-ignore
+    fnOrOptions: U = DEFAULT_TEST_OPTIONS
+  ): void {
+    return testWithMergedOption(name, TestOptions.skip(), optionsOrFn, fnOrOptions);
+  }
+
+  export function only<T = TestCallback, U = TestOptions>(
+    name: string,
+    optionsOrFn: T,
+    // @ts-ignore
+    fnOrOptions: U = DEFAULT_TEST_OPTIONS
+  ): void {
+    return testWithMergedOption(name, TestOptions.only(), optionsOrFn, fnOrOptions);
+  }
+
+  export function fails<T = TestCallback, U = TestOptions>(
+    name: string,
+    optionsOrFn: T,
+    // @ts-ignore
+    fnOrOptions: U = DEFAULT_TEST_OPTIONS
+  ): void {
+    return testWithMergedOption(name, TestOptions.fails(), optionsOrFn, fnOrOptions);
+  }
 }

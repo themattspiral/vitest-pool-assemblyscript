@@ -1,4 +1,4 @@
-import { test, assert, only, skip, TestOptions, assertEqual } from '../../assembly';
+import { test, assert, TestOptions, assertEqual } from '../../assembly';
 import { add } from '../assembly-src/math';
 
 test("should be skipped", () => {
@@ -9,27 +9,27 @@ test("should also be skipped", TestOptions.skip(), () => {
   assert(true);
 });
 
-only("should run", () => {
+test.only("should run", () => {
     assert(true);
 });
 
-only("should run with options", TestOptions.timeout(300), () => {
+test.only("should run with options", TestOptions.timeout(300), () => {
     assert(true);
 });
 
-only("should also run with options", () => {
+test.only("should also run with options", () => {
     assert(true);
 }, TestOptions.timeout(300));
 
-skip("should be skipped too", () => {
+test.skip("should be skipped too", () => {
   assert(true);
 });
 
-skip("a skip that takes options", TestOptions.timeout(300), () => {
+test.skip("a skip that takes options", TestOptions.timeout(300), () => {
   assert(true);
 });
 
-skip("another skip that takes options", () => {
+test.skip("another skip that takes options", () => {
   assert(true);
 }, TestOptions.timeout(300));
 

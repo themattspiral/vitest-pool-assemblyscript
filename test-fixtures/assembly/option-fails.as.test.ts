@@ -1,4 +1,4 @@
-import { test, assert, fails, TestOptions, assertEqual } from '../../assembly';
+import { test, assert, TestOptions, assertEqual } from '../../assembly';
 import { add } from '../assembly-src/math';
 
 test("should pass normally", () => {
@@ -9,18 +9,18 @@ test("should pass with failing assertion when fails option is set", TestOptions.
   assert(false);
 });
 
-fails("should pass with failing assertion when fails function is used", () => {
+test.fails("should pass with failing assertion when fails function is used", () => {
   assert(false);
 });
 
-fails("should not pass with passing assertion when fails option is set [should fail]", () => {
+test.fails("should not pass with passing assertion when fails option is set [should fail]", () => {
   assert(true);
 });
 
-fails("should pass with failing assertion when fails function is used with options", TestOptions.retry(3), () => {
+test.fails("should pass with failing assertion when fails function is used with options", TestOptions.retry(3), () => {
   assert(false);
 });
 
-fails("should pass with failing assertion when fails function is used with options also", () => {
+test.fails("should pass with failing assertion when fails function is used with options also", () => {
   assert(false);
 }, TestOptions.retry(3));
