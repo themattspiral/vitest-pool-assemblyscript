@@ -1,10 +1,10 @@
-import type { TestProject } from 'vitest/node';
-import { createMethodsRPC } from 'vitest/node';
-import type { RuntimeRPC } from 'vitest';
-import type { TaskResultPack, TaskEventPack } from '@vitest/runner';
-import type { RunnerTestFile } from 'vitest/node';
-import { createBirpc } from 'birpc';
 import { MessageChannel } from 'node:worker_threads';
+import { createBirpc } from 'birpc';
+import type { RuntimeRPC } from 'vitest';
+import { type TestProject, createMethodsRPC } from 'vitest/node';
+import type { TaskResultPack, TaskEventPack } from '@vitest/runner';
+import type { File } from '@vitest/runner/types';
+
 import type { WorkerChannel } from '../types/types.js';
 import { debug } from '../util/debug.js';
 
@@ -37,7 +37,7 @@ export function createWorkerChannel(project: TestProject, collect: boolean): Wor
   const methods = createMethodsRPC(project, { collect });
   const wrappedMethods = {
     ...methods,
-    onCollected: async (files: RunnerTestFile[]) => {
+    onCollected: async (files: File[]) => {
       rpcDebug('[Pool] RPC received onCollected with', files.length, 'files, collect:', collect);
       rpcDebug('[Pool] First file - id:', files[0]?.id, 'filepath:', files[0]?.filepath, 'tasks:', files[0]?.tasks?.length);
       return methods.onCollected(files);

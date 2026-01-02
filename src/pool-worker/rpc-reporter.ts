@@ -8,8 +8,7 @@
 import { createBirpc, type BirpcReturn } from 'birpc';
 import type { MessagePort } from 'node:worker_threads';
 import type { RunMode, RuntimeRPC, UserConsoleLog } from 'vitest';
-import type { RunnerTestCase, RunnerTestFile } from 'vitest/node';
-import { TaskResult, TaskEventPack, TaskResultPack, TaskMeta, TaskUpdateEvent } from '@vitest/runner/types';
+import type { TaskResult, TaskEventPack, TaskResultPack, TaskMeta, TaskUpdateEvent, File, Test } from '@vitest/runner/types';
 import { createFileTask } from '@vitest/runner/utils';
 
 import type {
@@ -68,7 +67,7 @@ export function createInitialFileTask(
   testFile: string,
   projectRoot: string,
   projectName: string
-): RunnerTestFile {
+): File {
   const fileTask = createFileTask(
     testFile,
     projectRoot,
@@ -104,7 +103,7 @@ export function createCollectedFileTaskWithTestCases(
   tests: DiscoveredTests,
   compileTiming: number,
   discoverTiming: number
-): RunnerTestFile {
+): File {
   const fileTask = createFileTask(
     testFile,
     projectInfo.projectRoot,
@@ -124,7 +123,7 @@ export function createCollectedFileTaskWithTestCases(
 
   // Add test tasks
   for (const test of Object.values(tests)) {
-    const testTask: RunnerTestCase = {
+    const testTask: Test = {
       type: 'test',
       name: test.name,
       id: test.id,
@@ -167,7 +166,7 @@ export function createCollectedFileTaskWithTestCases(
  */
 export async function reportFileQueued(
   rpc: BirpcReturn<RuntimeRPC, object>,
-  fileTask: RunnerTestFile
+  fileTask: File
 ): Promise<void> {
   rpcDebug(`[RPC] Reporting onQueued for: "${fileTask.filepath}"`);
   await rpc.onQueued(fileTask);
@@ -183,7 +182,7 @@ export async function reportFileQueued(
  */
 export async function reportFileCollected(
   rpc: BirpcReturn<RuntimeRPC, object>,
-  fileTask: RunnerTestFile
+  fileTask: File
 ): Promise<void> {
   rpcDebug(`[RPC] Reporting onCollected (queued with tasks) for: "${fileTask.filepath}" with ${fileTask.tasks.length} tests`);
   await rpc.onCollected([fileTask]);
@@ -198,7 +197,7 @@ export async function reportFileCollected(
  */
 export async function reportSuitePrepare(
   rpc: BirpcReturn<RuntimeRPC, object>,
-  fileTask: RunnerTestFile
+  fileTask: File
 ): Promise<void> {
   const taskPack: TaskResultPack = [fileTask.id, fileTask.result, fileTask.meta];
   const eventPack: TaskEventPack = [fileTask.id, 'suite-prepare', undefined];
@@ -216,7 +215,7 @@ export async function reportSuitePrepare(
  */
 export async function reportSuiteFinished(
   rpc: BirpcReturn<RuntimeRPC, object>,
-  fileTask: RunnerTestFile
+  fileTask: File
 ): Promise<void> {
   const taskPack: TaskResultPack = [fileTask.id, fileTask.result, fileTask.meta];
   const eventPack: TaskEventPack = [fileTask.id, 'suite-finished', undefined];
@@ -305,7 +304,7 @@ export async function reportTestFinished(
  */
 export async function flushRpcUpdates(
   rpc: BirpcReturn<RuntimeRPC, object>,
-  fileTask?: RunnerTestFile
+  fileTask?: File
 ): Promise<void> {
   const context = fileTask ? ` for: ${fileTask.filepath}` : '';
   rpcDebug('[RPC] Sending final flush' + context);
@@ -380,7 +379,7 @@ export async function reportUserConsoleLogs(
  */
 export async function reportFileError(
   rpc: BirpcReturn<RuntimeRPC>,
-  fileTask: RunnerTestFile,
+  fileTask: File,
 ): Promise<void> {
   rpcDebug('[RPC] Reporting file-level error via rpc.onCollected');
   await rpc.onCollected([fileTask]);

@@ -6,12 +6,12 @@
  */
 
 import type { MessagePort } from 'node:worker_threads';
-import type { RuntimeRPC } from 'vitest';
 import type { BirpcReturn } from 'birpc';
+import type { RuntimeRPC } from 'vitest';
 import type { TestError } from '@vitest/utils';
+import type { ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
-import type { RunnerTestFile, RunnerTestCase, ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
-import type { TaskMeta, TestOptions } from '@vitest/runner/types';
+import type { File, Test, TaskMeta, TestOptions } from '@vitest/runner/types';
 
 import {
   ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID,
@@ -539,6 +539,14 @@ export interface CompileFileTask {
   projectInfo: ProjectInfo;
 }
 
+export interface AssemblyScriptFileTaskMeta extends TaskMeta {
+  fullDuration: number
+};
+
+export interface AssemblyScriptTestTaskMeta extends TaskMeta {
+  fnIndex: number;
+};
+
 /**
  * Discovered test metadata (from registration phase)
  */
@@ -553,7 +561,38 @@ export interface DiscoveredTest {
   options: AssemblyScriptTestOptions;
   /** True if this test's associated RunnerTestCase `mode` is 'run' */
   isResolvedToRun: boolean;
+
+  /** Vitest test task object */
+  // testTask: RunnerTestCase;
 }
+
+/**
+ * Discovered suite metadata (from registration phase). Represents
+ * a grouping of tests, either as an entire spec, or as a describe().
+ */
+// export interface DiscoveredSuite {
+//   /** Grouping name (user-defined). If a spec, then this is the file path. */
+//   name: string;
+//   /** Unique internal id assigned to identify this suite. Matches RunnerTestCase.id value */
+//   id: string;
+  
+//   /** Options for this specific suite if user-provided, otherwise defaults */
+//   // options: AssemblyScriptSuiteOptions;
+  
+//   /** True if this suite's associated File `mode` is 'run' */
+//   isResolvedToRun: boolean;
+
+//     /** Vitest test task object */ 
+//   testTask: RunnerTestCase;
+// }
+
+// export interface DiscoveredSpecFile extends DiscoveredSuite {
+//   /** Path to test file */
+//   testFilePath: string;
+//   /** File task with entire test/suite hierarchy */
+//   fileTask: File;
+
+// }
 
 /**
  * Discovered tests indexed by unique id
@@ -600,7 +639,7 @@ export interface DiscoverTestsTask {
  */
 export interface DiscoverTestsResult {
   /** File task with filtered tests (after applying testNamePattern) */
-  fileTask: RunnerTestFile;
+  fileTask: File;
   /** Discovered tests with names, function indices, and unique ids */
   tests: DiscoveredTests;
   /** Discovery phase timing */
@@ -692,7 +731,7 @@ export interface ReportFileResultsTask {
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Complete file task with all test results */
-  fileTask: RunnerTestFile;
+  fileTask: File;
   /** Coverage data for this test suite file (optional, only when coverage enabled) */
   coverageData?: CoverageData;
 }
@@ -760,7 +799,7 @@ export interface ExecuteBeforeAllHooksTask {
   /** Hooks to execute */
   hooks: unknown[]; // Hook type to be defined when implementing hooks
   /** File task for hook context */
-  fileTask: RunnerTestFile;
+  fileTask: File;
 }
 
 /**
@@ -777,7 +816,7 @@ export interface ExecuteAfterAllHooksTask {
   /** Hooks to execute */
   hooks: unknown[]; // Hook type to be defined when implementing hooks
   /** File task for hook context */
-  fileTask: RunnerTestFile;
+  fileTask: File;
 }
 
 export interface AssemblyScriptConsoleLog {
@@ -787,10 +826,6 @@ export interface AssemblyScriptConsoleLog {
 }
 
 export type AssemblyScriptConsoleLogHandler = (msg: string, isError?: boolean) => void;
-
-export interface AssemblyScriptTaskMeta extends TaskMeta {
-  fullDuration: number
-};
 
 // ============================================================================
 // Pool-Level Data Structures
@@ -835,7 +870,7 @@ export interface PoolTestExecutionContext {
   /** Path to test file */
   testFilePath: string;
   /** Vitest test task object */
-  testTask: RunnerTestCase;
+  testTask: Test;
   /** Result of the most recent test execution */
   result: ExecuteTestResult;
   /** Errors accumulated across all of this test's executions (initial + retries/reruns) */

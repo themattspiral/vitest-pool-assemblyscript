@@ -6,20 +6,20 @@
  * while keeping each test execution confined to an isolated WASM instance.
  */
 
-import type {
-  ProcessPool,
-  Vitest,
-  TestProject,
-  TestSpecification,
-  RunnerTestCase,
-  RunnerTestFile,
-} from 'vitest/node';
 import { resolve, basename, relative } from 'node:path';
 import { existsSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import Tinypool from 'tinypool';
+
 import { ModuleCacheMap } from 'vite-node/client';
 import { installSourcemapsSupport } from 'vite-node/source-map';
+import type {
+  Vitest,
+  ProcessPool,
+  TestProject,
+  TestSpecification,
+} from 'vitest/node';
+import { File, Test } from '@vitest/runner/types';
 
 import type {
   DiscoverTestsTask,
@@ -43,7 +43,7 @@ import type {
   TestExecutionStart,
   TestExecutionEnd,
   CompileFileTask,
-  AssemblyScriptTaskMeta,
+  AssemblyScriptFileTaskMeta,
 } from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
@@ -554,7 +554,7 @@ async function pipelineDispatchRunTests(
 async function pipelineDispatchReportFileResults(
   testFilePath: string,
   filePipelineStart: number,
-  fileTask: RunnerTestFile,
+  fileTask: File,
   testResults: PoolTestExecutionContext[],
   config: AssemblyScriptResolvedConfig,
   project: TestProject,
@@ -575,7 +575,7 @@ async function pipelineDispatchReportFileResults(
   if (fileTask.result) {
     fileTask.result.duration = positiveSum(testResults, r => r.result.duration);
 
-    const meta: AssemblyScriptTaskMeta = { fullDuration: fileEndTime - filePipelineStart };
+    const meta: AssemblyScriptFileTaskMeta = { fullDuration: fileEndTime - filePipelineStart };
     fileTask.meta = meta;
 
     if (fileTask.mode === 'skip') {
@@ -923,8 +923,8 @@ async function runTests(
       cached.discoverTiming = discoverResults.discoverTiming;
       cached.discoveredTests = discoverResults.tests;
 
-      // Extract test tasks from file task
-      const testTasks = discoverResults.fileTask.tasks as RunnerTestCase[];
+      // Extract test tasks from file task (TODO - suites!!)
+      const testTasks = discoverResults.fileTask.tasks as Test[];
 
       // Build text execution contexts for tasks configured to run
       const testContexts: PoolTestExecutionContext[] = [];
