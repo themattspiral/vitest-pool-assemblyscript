@@ -1,24 +1,22 @@
-import { type SerializedDiffOptions } from '@vitest/utils/diff';
+import type { SerializedDiffOptions } from '@vitest/utils/diff';
+import type { File, Test } from '@vitest/runner/types';
 
 import type {
   AssemblyScriptConsoleLogHandler,
   AssemblyScriptPoolError,
   AssemblyScriptTestError,
   AssemblyScriptTestOptions,
-  BinaryDebugInfo,
+  AssemblyScriptTestTaskMeta,
+  CachedCompilation,
   CoverageData,
-  DiscoveredTest,
-  DiscoveredTests,
-  ExecuteTestResult,
-  ExecuteTestResultRef,
   ResolvedAssemblyScriptPoolOptions,
 } from '../types/types.js';
 import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
 import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
-import { enhanceTestErrorOnResult, sourceMapAndParseWASMStack } from './wasm-errors.js';
-import { createPoolError, createPoolErrorFromAnyError, getTestErrorFromAnyError } from '../util/pool-errors.js';
+import { enhanceTestError, sourceMapAndParseWASMStack } from './wasm-errors.js';
+import { createPoolError, createPoolErrorFromAnyError } from '../util/pool-errors.js';
 import { parseSourceMap } from './source-maps.js';
 
 function createExecutorPoolError(
@@ -51,7 +49,7 @@ function createExecutorPoolError(
  * @param debugInfo - Optional debug info (presence indicates instrumented binary)
  * @returns Discovery result with tests array
  */
-export async function discoverTests(
+export async function executeWASMDiscovery(
   binary: Uint8Array,
   sourceMap: string,
   testFileBasename: string,
@@ -59,8 +57,8 @@ export async function discoverTests(
   defaultTestOptions: AssemblyScriptTestOptions,
   isBinaryInstrumented: boolean,
   handleLog: AssemblyScriptConsoleLogHandler,
-): Promise<{ tests: DiscoveredTests }> {
-  const tests: DiscoveredTests = {};
+  mutableFileTask: File,
+): Promise<void> {
   const module = await WebAssembly.compile(binary as BufferSource);
   const memory = createMemory();
 
@@ -74,13 +72,13 @@ export async function discoverTests(
     })
     : undefined;
 
-  const importObject = createDiscoveryImports(memory, tests, defaultTestOptions, handleLog, coverageMemory);
+  const importObject = createDiscoveryImports(memory, mutableFileTask, defaultTestOptions, handleLog, coverageMemory);
 
   // Instantiate WASM module
   const instance = new WebAssembly.Instance(module, importObject);
   const exports = instance.exports as Record<string, unknown>;
 
-  // Call _start to run top-level code (registers tests via callbacks)
+  // Call _start to run top-level test() and describe()
   if (typeof exports._start === 'function') {
     try {
       exports._start();
@@ -90,7 +88,7 @@ export async function discoverTests(
       // error came from the abort() handler
       if (thrownErrAny?.name === POOL_ERROR_NAMES.WASMExecutionAbortError) {
 
-        // for test *discovery* abort, test error comes from PoolError's `cause`
+        // for test discovery abort, test error comes from PoolError's `cause`
         if (Object.values(TEST_ERROR_NAMES).includes(thrownErrAny?.cause?.name)) {
           const reportableTestError = thrownErrAny.cause as AssemblyScriptTestError;
           
@@ -123,8 +121,8 @@ export async function discoverTests(
     throw createExecutorPoolError(testFileBasename, 'discoverTests', 'no _start() export');
   }
 
-  debug('[Executor] Discovered', Object.keys(tests).length, 'tests');
-  return { tests };
+  debug('[Executor] Discovered', mutableFileTask.tasks.length, 'tests');
+  return;
 }
 
 /**
@@ -137,21 +135,19 @@ export async function discoverTests(
  * @param debugInfo - Debug info from coverage instrumentation (required if collectCoverage is true)
  * @returns Test result with outcome, timing, and optional coverage
  */
-export async function executeTest(
+export async function executeWASMTest(
   executionStart: number,
-  test: DiscoveredTest,
+  test: Test,
+  cached: CachedCompilation,
   testFileBasename: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   collectCoverage: boolean,
-  binary: Uint8Array,
-  sourceMap: string,
   handleLog: AssemblyScriptConsoleLogHandler,
-  debugInfo?: BinaryDebugInfo,
   diffOptions?: SerializedDiffOptions,
-): Promise<ExecuteTestResult> {
+): Promise<Test> {
 
   // Compile the binary to usable WASM module
-  const module = await WebAssembly.compile(binary as BufferSource);
+  const module = await WebAssembly.compile(cached.binary as BufferSource);
 
   // Create fresh memory for this test instance
   const memory = createMemory();
@@ -164,11 +160,8 @@ export async function executeTest(
     })
     : undefined;
 
-  // Mutable reference for imported functions to update
-  const testResultRef: ExecuteTestResultRef = { value: null };
-
   // Create import object with pool-side functions for capturing test execution results
-  const importObject = createTestExecutionImports(memory, testResultRef, handleLog, coverageMemory);
+  const importObject = createTestExecutionImports(memory, test, handleLog, coverageMemory);
 
   // Instantiate fresh WASM instance for this test
   const instance = new WebAssembly.Instance(module, importObject);
@@ -181,7 +174,7 @@ export async function executeTest(
     // caught during discovery and source-mapped. If this somehow fails, the worker still catches it.
     exports._start();
   } else {
-    throw createExecutorPoolError(testFileBasename, 'executeTest', 'no _start() export');
+    throw createExecutorPoolError(testFileBasename, 'executeWASMTest', 'no _start() export');
   }
 
   let testFn: (() => void) | null | undefined;
@@ -191,33 +184,23 @@ export async function executeTest(
   const table = exports.table as WebAssembly.Table | undefined;
   
   if (table && typeof table.get === 'function') {
-    testFn = table.get(test.fnIndex) as (() => void) | null;
+    const idx = (test.meta as AssemblyScriptTestTaskMeta).fnIndex;
+    testFn = table.get(idx) as (() => void) | null;
 
     if (!testFn) {
       throw createExecutorPoolError(
         testFileBasename,
-        'executeTest',
-        `Test function at index ${test.fnIndex} not found in function table`
+        'executeWASMTest',
+        `Test function at index ${idx} not found in function table`
       );
     }
   } else {
     throw createExecutorPoolError(
       testFileBasename,
-      'executeTest',
+      'executeWASMTest',
       'Function table not found in WASM exports (missing --exportTable flag?)'
     );
   }
-
-  // Create an ExecuteTestResult to hold the result. This ref is updated from within WASM
-  // via the imported __assertion_pass(), __assertion_fail(), and abort() functions
-  testResultRef.value = {
-    name: test.name,
-    passed: true,
-    timedOut: false,
-    assertionsPassed: 0,
-    assertionsFailed: 0,
-    startTime: executionStart
-  };
 
   // try-catch to ensure we capture known test errors to report
   // as AssemblyScriptTestErrors to vitest
@@ -229,41 +212,48 @@ export async function executeTest(
     // Proceed below to prepare the test result
   } catch (error) {
     const thrownErrAny = error as any;
-    let reportableTestError: AssemblyScriptTestError | undefined;
-
     // If this is NOT a WASMExecutionAbort error, it means it did NOT originate from the
     // wasm abort() import and is unexpected, so we throw as a PoolError.
     //
-    // If this IS a WASMExecutionAbort error, it means the wasm abort() import threw it as a
+    // Otherwise this IS a WASMExecutionAbort error and the wasm abort() import threw it as a
     // known test error (assertion or wasm runtime), so we continue to prepare the test result 
     const isUnexpectedError = thrownErrAny?.name !== POOL_ERROR_NAMES.WASMExecutionAbortError;
 
     if (isUnexpectedError) {
       throw createExecutorPoolError(
         testFileBasename,
-        'executeTest',
+        'executeWASMTest',
         `Unexpected execution error: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
         (error as any)?.cause
       );
-    } else {
-      // for test execution abort, test error comes from the test result as testResultRef.value.error
-      reportableTestError = testResultRef.value?.error;
-
-      // this should not happen, but let's be defensive
-      if (!reportableTestError) {
-        reportableTestError = {
-          message: `Unknown execution abort ${typeof thrownErrAny?.cause === 'string' ? thrownErrAny.cause : thrownErrAny?.stack}`,
-          name: TEST_ERROR_NAMES.WASMRuntimeError,
-          cause: getTestErrorFromAnyError(error, 'Unknown execution abort', POOL_ERROR_NAMES.WASMExecutionHarnessError)
-        };
-      }
     }
   }
+
+  const meta = test.meta as AssemblyScriptTestTaskMeta;
   
   // If error is present, apply source mapping to make stack locations
   // useful, and add nicely-formatted diffs for reporting through vitest
-  if (testResultRef.value.error) {
-    await enhanceTestErrorOnResult(testResultRef.value, sourceMap, diffOptions);
+  if (meta.lastError) {
+    const enhancedError = await enhanceTestError(
+      meta.lastError,
+      test,
+      cached.sourceMap,
+      meta.lastErrorValuesProvided ?? false,
+      meta.lastErrorRawCallStack,
+      diffOptions
+    );
+
+    if (test.result) {
+      if (test.result.errors) {
+        test.result.errors.push(enhancedError);
+      } else {
+        test.result.errors = [enhancedError];
+      }
+    }
+
+    delete meta.lastError;
+    delete meta.lastErrorValuesProvided;
+    delete meta.lastErrorRawCallStack;
   }
 
   // Extract coverage hits from coverage memory
@@ -271,15 +261,15 @@ export async function executeTest(
     if (!coverageMemory) {
       throw createExecutorPoolError(
         testFileBasename,
-        'executeTest',
+        'executeWASMTest',
         'Coverage memory not created despite collectCoverage=true'
       );
     }
 
-    if (!debugInfo) {
+    if (!cached.debugInfo) {
       throw createExecutorPoolError(
         testFileBasename,
-        'executeTest',
+        'executeWASMTest',
         'debugInfo is required when collectCoverage=true'
       );
     }
@@ -289,12 +279,12 @@ export async function executeTest(
     };
 
     // Read counters from coverage memory
-    const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, debugInfo.instrumentedFunctionCount);
-    debug(`[Executor] Read coverage memory for ${debugInfo.instrumentedFunctionCount} instrumented functions`);
+    const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, cached.debugInfo.instrumentedFunctionCount);
+    debug(`[Executor] Read coverage memory for ${cached.debugInfo.instrumentedFunctionCount} instrumented functions`);
 
     // Iterate all instrumented functions and build coverage data with hit counts extracted from coverage memory
     let functionsHit = 0;
-    for (const [filePath, debugFunctions] of Object.entries(debugInfo.functionsByFileAndPosition)) {
+    for (const [filePath, debugFunctions] of Object.entries(cached.debugInfo.functionsByFileAndPosition)) {
       if (!coverage.hitCountsByFileAndPosition[filePath]) {
         coverage.hitCountsByFileAndPosition[filePath] = {};
         debug(`[Executor] Extracting hits for source file: "${filePath}"`);
@@ -321,11 +311,14 @@ export async function executeTest(
       }
     }
 
-    testResultRef.value.coverage = coverage;
+    meta.coverageData = coverage;
     debug(`[Executor] Extracted coverage data: ${functionsHit} functions hit`);
   }
 
-  testResultRef.value.duration = Date.now() - executionStart;
+  // result state is set by abort handler if fail, or worker if pass
+  if (test.result) {
+    test.result.duration = Date.now() - executionStart;
+  }
 
-  return testResultRef.value;
+  return test;
 }

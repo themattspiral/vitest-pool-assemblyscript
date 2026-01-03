@@ -8,6 +8,8 @@
  * - Coverage collection (instrumented binary)
  */
 
+import type { File, RunMode, Test } from '@vitest/runner/types';
+
 import { extractCallStack } from './source-maps.js';
 import { decodeAbortInfo } from './wasm-memory.js';
 import { createWasmConsole } from './wasm-console.js';
@@ -16,13 +18,51 @@ import type {
   AssemblyScriptConsoleLogHandler,
   AssemblyScriptTestError,
   AssemblyScriptTestOptions,
-  DiscoveredTests,
-  ExecuteTestResultRef,
-  TestErrorName
+  AssemblyScriptTestTaskMeta,
+  FailedAssertion,
 } from '../types/types.js';
 import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { createPoolError } from '../util/pool-errors.js';
 import { liftString } from '../util/assemblyscript/binding-helpers.js';
+
+function mergeTestOptions(
+  defaultTestOptions: AssemblyScriptTestOptions,
+  timeout: number,
+  retry: number,
+  skip: number,
+  only: number,
+  fails: number,
+): AssemblyScriptTestOptions {
+  const options: AssemblyScriptTestOptions = { ...defaultTestOptions };
+  
+  if (timeout >= 0) {
+    options.timeout = timeout;
+  }
+  if (retry >= 0) {
+    options.retry = retry;
+  }
+  if (skip >= 0) {
+    options.skip = skip === 0 ? false : true;
+  }
+  if (only >= 0) {
+    options.only = only === 0 ? false : true;
+  }
+  if (fails >= 0) {
+    options.fails = fails === 0 ? false : true;
+  }
+
+  return options;
+}
+
+function getInitialTaskMode(options: AssemblyScriptTestOptions): RunMode {
+  if (options.skip) {
+    return 'skip';
+  } else if (options.only) {
+    return 'only';
+  } else {
+    return 'queued';
+  }
+}
 
 /**
  * Create import object for test discovery
@@ -37,7 +77,7 @@ import { liftString } from '../util/assemblyscript/binding-helpers.js';
  */
 export function createDiscoveryImports(
   memory: WebAssembly.Memory,
-  mutableTestsCollection: DiscoveredTests,
+  mutableFileTask: File,
   defaultTestOptions: AssemblyScriptTestOptions,
   handleLog: AssemblyScriptConsoleLogHandler,
   coverageMemory?: WebAssembly.Memory
@@ -59,34 +99,44 @@ export function createDiscoveryImports(
       ) {
         const testName = liftString(memory, namePtr) ?? 'unknown test';
 
-        // unique id for the test within the binary, allowing for duplicated test names
+        // ensure this will be a unique id for the test within the binary
         const id = `${testName}_${fnIndex}`;
 
-        const options = { ...defaultTestOptions };
-        if (timeout >= 0) {
-          options.timeout = timeout;
-        }
-        if (retry >= 0) {
-          options.retry = retry;
-        }
-        if (skip >= 0) {
-          options.skip = skip === 0 ? false : true;
-        }
-        if (only >= 0) {
-          options.only = only === 0 ? false : true;
-        }
-        if (fails >= 0) {
-          options.fails = fails === 0 ? false : true;
-        }
+        const options = mergeTestOptions(defaultTestOptions, timeout, retry, skip, only, fails);
 
-        // create DiscoveredTest
-        mutableTestsCollection[id] = {
-          fnIndex,
-          id,
+        // create Test task
+        const test: Test = {
+          type: 'test',
           name: testName,
-          options,
-          isResolvedToRun: !options.skip
+          id,
+          file: mutableFileTask,
+          suite: mutableFileTask,
+          context: {} as any,
+          annotations: [],
+          meta: {},
+          
+          // set task mode based on options
+          mode: getInitialTaskMode(options),
+
+          // set test-specific options
+          timeout: options.timeout,
+          retry: options.retry,
+          fails: options.fails,
         };
+
+        mutableFileTask.tasks.push(test);
+
+        // use custom TaskMeta to ensure we capture test callback fnIndex and parent task index
+        const meta: AssemblyScriptTestTaskMeta = {
+          fnIndex,
+          parentTaskIndex: mutableFileTask.tasks.length - 1,
+          assertionsPassedCount: 0,
+          assertionsFailed: [],
+          timedOut: false,
+          resultInverted: false,
+        };
+
+        test.meta = meta;
         
         debug(`[Executor] Registered test: "${testName}" with fnIndex ${fnIndex} | timeout: ${options.timeout}ms`
           + ` | retry: ${options.retry} | skip: ${options.skip} | only: ${options.only} | fails: ${options.fails}`
@@ -151,7 +201,7 @@ export function createDiscoveryImports(
  */
 export function createTestExecutionImports(
   memory: WebAssembly.Memory,
-  mutableTestResultRef: ExecuteTestResultRef,
+  test: Test,
   handleLog: AssemblyScriptConsoleLogHandler,
   coverageMemory?: WebAssembly.Memory
 ): WebAssembly.Imports {
@@ -163,38 +213,37 @@ export function createTestExecutionImports(
       // Test registration callback (no-op during execution)
       __register_test() {},
 
-      // Assertion tracking
       __assertion_pass() {
-        if (mutableTestResultRef.value) {
-          mutableTestResultRef.value.assertionsPassed++;
-        }
+        (test.meta as AssemblyScriptTestTaskMeta).assertionsPassedCount++;
       },
+
       __assertion_fail(msgPtr: number, typeNamePtr: number, valuesProvided: boolean, expected?: any, actual?: any) {
-        if (mutableTestResultRef.value) {
-          mutableTestResultRef.value.assertionsFailed++;
-          
-          const assertionValueType = liftString(memory, typeNamePtr);
-
-          if (valuesProvided) {
-            mutableTestResultRef.value.valuesProvided = true;
-
-            // coerce to appropriate JS type based on AS type, for nicer diff formatting
-            if (assertionValueType === 'bool') {
-              mutableTestResultRef.value.expected = Boolean(expected);
-              mutableTestResultRef.value.actual = Boolean(actual);
-            } else {
-              mutableTestResultRef.value.expected = expected;
-              mutableTestResultRef.value.actual = actual;
-            }
+        const errorMsg = liftString(memory, msgPtr);
+        const assertionValueType = liftString(memory, typeNamePtr);
+        
+        const assertionFailure: FailedAssertion = {
+          message: errorMsg,
+          typeName: assertionValueType,
+          valuesProvided
+        };
+        
+        if (valuesProvided && test.result) {
+          // coerce to appropriate JS type based on AS type, for nicer diff formatting
+          if (assertionValueType === 'bool') {
+            assertionFailure.expected = Boolean(expected);
+            assertionFailure.actual = Boolean(actual);
+          } else {
+            assertionFailure.expected = expected;
+            assertionFailure.actual = actual;
           }
-
-          const errorMsg = liftString(memory, msgPtr);
-          
-          const valuesMsg = valuesProvided ? ` | Value Type: ${assertionValueType}`
-            + ` | Expected: \`${expected !== undefined ? expected : ''}\` | Actual: \`${actual !== undefined ? actual : ''}\``
-            : '';
-          debug(`[Executor] Assertion failed: ${errorMsg}${valuesMsg}`);
         }
+        
+        (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push(assertionFailure);
+        
+        const valuesMsg = valuesProvided ? ` | Value Type: ${assertionValueType}`
+          + ` | Expected: \`${expected !== undefined ? expected : ''}\` | Actual: \`${actual !== undefined ? actual : ''}\``
+          : '';
+        debug(`[Executor] Assertion failed: ${errorMsg}${valuesMsg}`);
       },
 
       abort(msgPtr: number, filePtr: number, line: number, column: number) {
@@ -203,48 +252,48 @@ export function createTestExecutionImports(
         
         debug(`[Executor] Handling test execution abort: ${msgAtLoc}`);
 
-        let errorName: TestErrorName = TEST_ERROR_NAMES.WASMRuntimeError;
-        let isAssertionFailure: boolean = false;
+        const testError: AssemblyScriptTestError = {
+          name: TEST_ERROR_NAMES.WASMRuntimeError,
+          message: message
+        };
 
-        if (mutableTestResultRef.value) {
-          // set test result to failed
-          mutableTestResultRef.value.passed = false;
+        if (test.result) {
+          test.result.state = 'fail';
+          
+          const meta = test.meta as AssemblyScriptTestTaskMeta;
           
           // determine if this was an assertion failure
-          if (mutableTestResultRef.value.assertionsFailed > 0) {
-            isAssertionFailure = true;
-            errorName = TEST_ERROR_NAMES.AssertionError;
+          if (meta.assertionsFailed.length > 0) {
+            testError.name = TEST_ERROR_NAMES.AssertionError;
+
+            const assertion: FailedAssertion = meta.assertionsFailed[meta.assertionsFailed.length - 1]!;
+
+            // set actual and expected values as strings, if provided
+            if (assertion.valuesProvided) {
+              meta.lastErrorValuesProvided = true;
+              testError.expected = assertion.expected !== undefined ? String(assertion.expected) : undefined;
+              testError.actual = assertion.actual !== undefined ? String(assertion.actual) : undefined;
+            }
           }
 
           // Create error to capture V8 stack trace and extract V8 call stack before throwing.
           // This gives us WAT line:column positions that can be mapped to AS source
           const capturedError = new Error(message);
-          mutableTestResultRef.value.rawCallStack = extractCallStack(capturedError);
+          meta.lastErrorRawCallStack = extractCallStack(capturedError);
+
           
-          // Set error to report to vitest on the test result.
-          // Stack gets updated when executor enhances/source-maps the error.
-          const testError: AssemblyScriptTestError = {
-            name: errorName,
-            message: message
-          };
-          mutableTestResultRef.value.error = testError;
+          // Set error to report to vitest on the test meta.
+          // Stack gets updated when executor enhances/source-maps the error, post-abort
+          meta.lastError = testError;
 
-          // set actual and expected values as strings, if provided
-          if (isAssertionFailure) {
-            mutableTestResultRef.value.error.expected = mutableTestResultRef.value.expected !== undefined
-              ? String(mutableTestResultRef.value.expected) : undefined;
-            mutableTestResultRef.value.error.actual = mutableTestResultRef.value.actual !== undefined
-              ? String(mutableTestResultRef.value.actual) : undefined;
-          }
-
-          debug('[Executor] Captured raw V8 call stack with', mutableTestResultRef.value.rawCallStack.length, 'frames');
+          debug('[Executor] Captured raw V8 call stack with', meta.lastErrorRawCallStack.length, 'frames');
         }
 
         // Must throw here to halt WASM execution on an assert() failure for this test.
         // This will be caught by the executor and reported as an appropriate test error
         // using the testResultRef.value.error value set above.
         throw createPoolError(
-          `AssemblyScript abort() import called during test execution for ${mutableTestResultRef.value?.name}`,
+          `AssemblyScript abort() import called during test execution for ${test.name}`,
           POOL_ERROR_NAMES.WASMExecutionAbortError,
         );
       },

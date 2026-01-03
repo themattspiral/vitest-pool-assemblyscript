@@ -9,7 +9,7 @@
 import { resolve, basename } from 'node:path';
 import { readdirSync } from 'fs';
 import { readFile } from 'fs/promises';
-import type { CompileFileResult } from '../../src/types/types.js';
+import type { AssemblyScriptCompilerResult } from '../../src/types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
   POOL_INTERNAL_PATHS,
@@ -44,7 +44,7 @@ export interface CompiledFixture {
   /** Fixture metadata */
   fixture: TestFixture;
   /** Compilation result */
-  compileResult: CompileFileResult;
+  compileResult: AssemblyScriptCompilerResult;
   /** Source code lines */
   sourceLines: string[];
 }

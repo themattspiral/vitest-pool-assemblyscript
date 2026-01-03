@@ -9,7 +9,7 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { BinaryDebugInfo, CompileFileResult } from '../../src/types/types.js';
+import type { BinaryDebugInfo, AssemblyScriptCompilerResult } from '../../src/types/types.js';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
 
@@ -258,7 +258,7 @@ export function validateDebugInfoStructure(debugInfo: BinaryDebugInfo, options: 
  * - File indices are valid
  * - Basic source map structure is correct
  */
-export function sanityCheckDebugInfoAgainstSourceMap(result: CompileFileResult): ValidationResult {
+export function sanityCheckDebugInfoAgainstSourceMap(result: AssemblyScriptCompilerResult): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const stats = {

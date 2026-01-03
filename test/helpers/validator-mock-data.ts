@@ -11,7 +11,7 @@
  *   - subtractOneLiner: line 25
  */
 
-import type { BinaryDebugInfo, FunctionDebugInfo, ExpressionDebugInfo, SourceLocation } from '../../src/types.js';
+import type { BinaryDebugInfo, FunctionDebugInfo, ExpressionDebugInfo, SourceLocation } from '../../src/types/types.js';
 
 /** Path to the math source file (relative to project root, as source maps use) */
 export const MATH_SOURCE_PATH = 'test-fixtures/assembly-src/math.ts';
@@ -42,6 +42,12 @@ export function createFunctionDebugInfo(
   return {
     expressions: [],
     basicBlocks: [],
+    representativeLocation: {
+      filePath: '<unknown>',
+      line: 0,
+      column: 0
+    },
+    coverageMemoryIndex: 0,
     ...overrides,
   };
 }
@@ -84,24 +90,9 @@ export function createBinaryDebugInfo(
   return {
     debugSourceFiles: [],
     functionsByFileAndPosition: {},
-    functionsByName: {},
+    instrumentedFunctionCount: 0,
     ...overrides,
   };
-}
-
-/**
- * Create BinaryDebugInfo with a single function
- * Convenience helper for simple test cases
- */
-export function createSingleFunctionDebugInfo(
-  funcName: string,
-  func: FunctionDebugInfo,
-  sourceFiles: string[] = []
-): BinaryDebugInfo {
-  return createBinaryDebugInfo({
-    debugSourceFiles: sourceFiles,
-    functionsByName: { [funcName]: func },
-  });
 }
 
 /**
@@ -124,32 +115,26 @@ export const MATH_FUNCTIONS: Record<string, FunctionDebugInfo> = {
   [mathFuncName('add')]: createFunctionDebugInfo({
     name: mathFuncName('add'),
     wasmIndex: 0,
-    signature: { params: ['i32', 'i32'], results: ['i32'] },
   }),
   [mathFuncName('subtract')]: createFunctionDebugInfo({
     name: mathFuncName('subtract'),
     wasmIndex: 1,
-    signature: { params: ['i32', 'i32'], results: ['i32'] },
   }),
   [mathFuncName('multiply')]: createFunctionDebugInfo({
     name: mathFuncName('multiply'),
     wasmIndex: 2,
-    signature: { params: ['i32', 'i32'], results: ['i32'] },
   }),
   [mathFuncName('divide')]: createFunctionDebugInfo({
     name: mathFuncName('divide'),
     wasmIndex: 3,
-    signature: { params: ['i32', 'i32'], results: ['i32'] },
   }),
   [mathFuncName('addOneLiner')]: createFunctionDebugInfo({
     name: mathFuncName('addOneLiner'),
     wasmIndex: 4,
-    signature: { params: ['i32', 'i32'], results: ['i32'] },
   }),
   [mathFuncName('subtractOneLiner')]: createFunctionDebugInfo({
     name: mathFuncName('subtractOneLiner'),
     wasmIndex: 5,
-    signature: { params: ['i32', 'i32'], results: ['i32'] },
   }),
 };
 
@@ -197,38 +182,6 @@ export function buildFunctionsByFileAndPosition(
 }
 
 /**
- * Create complete BinaryDebugInfo for math.ts with all functions.
- * Optionally customize specific functions via overrides.
- *
- * Note: This creates functions WITHOUT representativeLocation by default.
- * Use createMathDebugInfoWithPositions for full position-keyed debug info.
- */
-export function createMathDebugInfo(
-  functionOverrides: Partial<Record<string, Partial<FunctionDebugInfo>>> = {}
-): BinaryDebugInfo {
-  const functions = cloneDeep(MATH_FUNCTIONS);
-
-  // Apply overrides
-  for (const [name, overrides] of Object.entries(functionOverrides)) {
-    if (functions[name]) {
-      Object.assign(functions[name], overrides);
-    } else {
-      // New function being added (e.g., for testing nonexistent function errors)
-      functions[name] = createFunctionDebugInfo({
-        name,
-        wasmIndex: Object.keys(functions).length,
-        ...overrides,
-      } as FunctionDebugInfo);
-    }
-  }
-
-  return createBinaryDebugInfo({
-    debugSourceFiles: [MATH_SOURCE_PATH],
-    functionsByName: functions,
-  });
-}
-
-/**
  * Representative locations for math.ts functions (first statement position)
  * These are the positions where each function's first expression would be
  */
@@ -250,45 +203,4 @@ export function createExpressionAtMathRepLocation(
 ): ExpressionDebugInfo {
   const loc = MATH_REPRESENTATIVE_LOCATIONS[funcName];
   return createExpressionWithLocation(loc.filePath, loc.line, loc.column, overrides);
-}
-
-/**
- * Create complete BinaryDebugInfo with proper functionsByFileAndPosition.
- * All functions get representativeLocation, a default expression at that location,
- * and are indexed in both maps.
- */
-export function createMathDebugInfoWithPositions(
-  functionOverrides: Partial<Record<string, Partial<FunctionDebugInfo>>> = {}
-): BinaryDebugInfo {
-  // Start with base functions, add representativeLocation and default expression
-  const functions: Record<string, FunctionDebugInfo> = {};
-
-  for (const [shortName, location] of Object.entries(MATH_REPRESENTATIVE_LOCATIONS)) {
-    const fullName = mathFuncName(shortName as MathFunctionName);
-    const baseFunc = MATH_FUNCTIONS[fullName]!;
-    functions[fullName] = {
-      ...cloneDeep(baseFunc),
-      representativeLocation: { ...location },
-      expressions: [createExpressionWithLocation(location.filePath, location.line, location.column)],
-    };
-  }
-
-  // Apply overrides
-  for (const [name, overrides] of Object.entries(functionOverrides)) {
-    if (functions[name]) {
-      Object.assign(functions[name], overrides);
-    } else {
-      functions[name] = createFunctionDebugInfo({
-        name,
-        wasmIndex: Object.keys(functions).length,
-        ...overrides,
-      } as FunctionDebugInfo);
-    }
-  }
-
-  return createBinaryDebugInfo({
-    debugSourceFiles: [MATH_SOURCE_PATH],
-    functionsByName: functions,
-    functionsByFileAndPosition: buildFunctionsByFileAndPosition(functions),
-  });
 }

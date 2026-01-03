@@ -7,21 +7,18 @@
 
 import { createBirpc, type BirpcReturn } from 'birpc';
 import type { MessagePort } from 'node:worker_threads';
-import type { RunMode, RuntimeRPC, UserConsoleLog } from 'vitest';
-import type { TaskResult, TaskEventPack, TaskResultPack, TaskMeta, TaskUpdateEvent, File, Test } from '@vitest/runner/types';
+import type { RuntimeRPC, UserConsoleLog } from 'vitest';
+import type {
+  File,
+  Suite,
+  Test,
+  TaskEventPack,
+  TaskResultPack,
+} from '@vitest/runner/types';
 import { createFileTask } from '@vitest/runner/utils';
 
-import type {
-  ExecuteTestResult,
-  ProjectInfo,
-  DiscoveredTests,
-  AssemblyScriptTestError,
-  DiscoveredTest,
-  AssemblyScriptConsoleLog
-} from '../types/types.js';
-import {
-  ASSEMBLYSCRIPT_POOL_NAME
-} from '../types/constants.js';
+import type { AssemblyScriptConsoleLog } from '../types/types.js';
+import { ASSEMBLYSCRIPT_POOL_NAME } from '../types/constants.js';
 import { debug } from '../util/debug.js';
 
 const DEBUG_RPC = false;
@@ -74,82 +71,10 @@ export function createInitialFileTask(
     projectName,
     ASSEMBLYSCRIPT_POOL_NAME
   );
+
   fileTask.mode = 'queued';
-  return fileTask;
-}
-
-function getTaskModeFromTestOptions(test: DiscoveredTest): RunMode {
-  if (test.options.skip) {
-    return 'skip';
-  } else if (test.options.only) {
-    return 'only';
-  } else {
-    return 'queued';
-  }
-}
-
-/**
- * Create file task to represent the test suite, its timing metadata,
- * and to hold tests cases for discovered tests.
- *
- * @param testFile - Path to test file
- * @param projectInfo - Project information for file task creation
- * @param timings - Phase timings for duration metadata
- * @returns File task with test tasks and timing metadata
- */
-export function createCollectedFileTaskWithTestCases(
-  testFile: string,
-  projectInfo: ProjectInfo,
-  tests: DiscoveredTests,
-  compileTiming: number,
-  discoverTiming: number
-): File {
-  const fileTask = createFileTask(
-    testFile,
-    projectInfo.projectRoot,
-    projectInfo.projectName,
-    ASSEMBLYSCRIPT_POOL_NAME
-  );
-  fileTask.mode = 'queued';
-
-  // Add timing metadata
-  fileTask.prepareDuration = compileTiming;
   fileTask.environmentLoad = 0;  // AS pool has no environment setup
-  fileTask.setupDuration = 0;     // AS pool has no setup files
-  fileTask.collectDuration = discoverTiming;
-  fileTask.tasks = [];
-
-  let allSkipped: boolean = true;
-
-  // Add test tasks
-  for (const test of Object.values(tests)) {
-    const testTask: Test = {
-      type: 'test',
-      name: test.name,
-      id: test.id,
-      context: {} as any,
-      suite: fileTask,
-      mode: getTaskModeFromTestOptions(test),
-      meta: {},
-      file: fileTask,
-      annotations: [],
-      
-      // set test-specific config on the test task
-      timeout: test.options.timeout,
-      retry: test.options.retry,
-      fails: test.options.fails,
-    };
-
-    fileTask.tasks.push(testTask);
-
-    if (testTask.mode !== 'skip') {
-      allSkipped = false;
-    }
-  }
-
-  if (allSkipped) {
-    fileTask.mode = 'skip';
-  }
+  fileTask.setupDuration = 0;    // AS pool has no setup files
 
   return fileTask;
 }
@@ -184,27 +109,27 @@ export async function reportFileCollected(
   rpc: BirpcReturn<RuntimeRPC, object>,
   fileTask: File
 ): Promise<void> {
-  rpcDebug(`[RPC] Reporting onCollected (queued with tasks) for: "${fileTask.filepath}" with ${fileTask.tasks.length} tests`);
+  rpcDebug(`[RPC] Reporting onCollected (queued with tasks) for: "${fileTask.filepath}" with ${fileTask.tasks.length} tasks`);
   await rpc.onCollected([fileTask]);
   rpcDebug(`[RPC] Completed onCollected (queued with tasks) for: "${fileTask.filepath}"`);
 }
 
 /**
- * Report suite (file) starting execution
+ * Report suite starting execution
  *
  * @param rpc - RPC client for communication
- * @param fileTask - File task representing the suite
+ * @param suiteTask - Task representing the suite
  */
 export async function reportSuitePrepare(
   rpc: BirpcReturn<RuntimeRPC, object>,
-  fileTask: File
+  suiteTask: Suite
 ): Promise<void> {
-  const taskPack: TaskResultPack = [fileTask.id, fileTask.result, fileTask.meta];
-  const eventPack: TaskEventPack = [fileTask.id, 'suite-prepare', undefined];
+  const taskPack: TaskResultPack = [suiteTask.id, suiteTask.result, suiteTask.meta];
+  const eventPack: TaskEventPack = [suiteTask.id, 'suite-prepare', undefined];
 
-  rpcDebug(`[RPC] Reporting "suite-prepare" (run) for: "${fileTask.filepath}"`);
+  rpcDebug(`[RPC] Reporting "suite-prepare" (state: "${suiteTask.result?.state}") for: "${suiteTask.name}"`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] Completed "suite-prepare" (run) for: "${fileTask.filepath}"`);
+  rpcDebug(`[RPC] Completed "suite-prepare" (state: "${suiteTask.result?.state}") for: "${suiteTask.name}"`);
 }
 
 /**
@@ -220,9 +145,9 @@ export async function reportSuiteFinished(
   const taskPack: TaskResultPack = [fileTask.id, fileTask.result, fileTask.meta];
   const eventPack: TaskEventPack = [fileTask.id, 'suite-finished', undefined];
 
-  rpcDebug(`[RPC] Reporting "suite-finished" for: "${fileTask.filepath}" (fileTask.id ${fileTask.id})`);
+  rpcDebug(`[RPC] Reporting "suite-finished" (state: "${fileTask.result?.state}") for: "${fileTask.filepath}" (fileTask.id ${fileTask.id})`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] Completed "suite-finished" for: "${fileTask.filepath}"`);
+  rpcDebug(`[RPC] Completed "suite-finished" (state: "${fileTask.result?.state}") for: "${fileTask.filepath}"`);
 }
 
 // ============================================================================
@@ -237,23 +162,14 @@ export async function reportSuiteFinished(
  */
 export async function reportTestPrepare(
   rpc: BirpcReturn<RuntimeRPC>,
-  testTaskId: string,
-  testTaskName: string,
-  testTaskMeta: TaskMeta,
-  executionStart: number
+  test: Test,
 ): Promise<void> {
-  const result: TaskResult = {
-    state: 'run',
-    startTime: executionStart,
-    retryCount: 0
-  };
+  const taskPack: TaskResultPack = [test.id, test.result, test.meta];
+  const eventPack: TaskEventPack = [test.id, 'test-prepare', undefined];
 
-  const taskPack: TaskResultPack = [testTaskId, result, testTaskMeta];
-  const eventPack: TaskEventPack = [testTaskId, 'test-prepare', undefined];
-
-  rpcDebug(`[RPC] Calling rpc.onTaskUpdate with "test-prepare" (run) on test: "${testTaskName}"`);
+  rpcDebug(`[RPC] Calling rpc.onTaskUpdate with "test-prepare" (state: ${test.result?.state}) on test: "${test.name}"`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] Completed rpc.onTaskUpdate with "test-prepare" (run) on test: "${testTaskName}"`);
+  rpcDebug(`[RPC] Completed rpc.onTaskUpdate with "test-prepare" (state: ${test.result?.state}) on test: "${test.name}"`);
 }
 
 /**
@@ -265,31 +181,33 @@ export async function reportTestPrepare(
  */
 export async function reportTestFinished(
   rpc: BirpcReturn<RuntimeRPC>,
-  test: DiscoveredTest,
-  testTaskId: string,
-  testTaskName: string,
-  testTaskMeta: TaskMeta,
-  testResult: ExecuteTestResult,
-  allResultErrors: AssemblyScriptTestError[],
-  retryCount?: number,
+  test: Test,
 ): Promise<void> {
-  const result: TaskResult = {
-    state: testResult.passed ? 'pass' : 'fail',
-    errors: allResultErrors.length > 0 ? allResultErrors : undefined,
-    duration: testResult.duration,
-    startTime: testResult.startTime,
-    retryCount
-  };
+  const taskPack: TaskResultPack = [test.id, test.result, test.meta];
+  const eventPack: TaskEventPack = [test.id, 'test-finished', undefined];
 
-  const taskPack: TaskResultPack = [testTaskId, result, testTaskMeta];
-  
-  const taskEvent: TaskUpdateEvent = !testResult.passed && retryCount !== undefined && retryCount < test.options.retry ? 'test-retried' : 'test-finished';
-
-  const eventPack: TaskEventPack = [testTaskId, taskEvent, undefined];
-
-  rpcDebug(`[RPC] Calling rpc.onTaskUpdate with "${taskEvent}" event on test: "${testTaskName}" | duration: ${testResult.duration}ms`);
+  rpcDebug(`[RPC] Calling rpc.onTaskUpdate with "test-finished" event on test: "${test.name}" | duration: ${test.result?.duration}ms`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] Completed rpc.onTaskUpdate with "${taskEvent}" event on test: "${testTaskName}" | duration: ${testResult.duration}ms`);
+  rpcDebug(`[RPC] Completed rpc.onTaskUpdate with "test-finished" event on test: "${test.name}" | duration: ${test.result?.duration}ms`);
+}
+
+/**
+ * Report test retried (sent when test failed and is being retried)
+ *
+ * @param rpc - RPC client for communication
+ * @param testTask - Test task to report
+ * @param testResult - Test execution result
+ */
+export async function reportTestRetried(
+  rpc: BirpcReturn<RuntimeRPC>,
+  test: Test,
+): Promise<void> {
+  const taskPack: TaskResultPack = [test.id, test.result, test.meta];
+  const eventPack: TaskEventPack = [test.id, 'test-retried', undefined];
+
+  rpcDebug(`[RPC] Calling rpc.onTaskUpdate with "test-retried" event on test: "${test.name}" | duration: ${test.result?.duration}ms`);
+  await rpc.onTaskUpdate([taskPack], [eventPack]);
+  rpcDebug(`[RPC] Completed rpc.onTaskUpdate with "test-retried" event on test: "${test.name}" | duration: ${test.result?.duration}ms`);
 }
 
 // ============================================================================
