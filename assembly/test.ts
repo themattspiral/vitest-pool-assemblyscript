@@ -1,4 +1,4 @@
-import { TestOptions } from './test-options';
+import { TestOptions } from './options';
 
 // @external functions are imported to the WASM execution environment from pool code
 
@@ -39,7 +39,7 @@ export function test<T = TestCallback, U = TestOptions>(
     fn = fnOrOptions;
     options = optionsOrFn;
   } else {
-    throw new Error("Invalid test arguments");
+    throw new Error("Invalid test() arguments");
   }
 
   __register_test(
@@ -73,7 +73,7 @@ function testWithMergedOption<T = TestCallback, U = TestOptions>(
     throw new Error("Invalid test() arguments");
   }
 
-  const merged = options.merge(optionToMerge);
+  const merged = options.__merge(optionToMerge);
 
   return test(name, merged, fn);
 }

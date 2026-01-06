@@ -10,14 +10,14 @@ import type {
   CachedCompilation,
   CoverageData,
   ResolvedAssemblyScriptPoolOptions,
+  WASMExecutorPerfTimings,
 } from '../types/types.js';
 import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
 import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
-import { enhanceTestError, sourceMapAndParseWASMStack } from './wasm-errors.js';
+import { enhanceTestError, processWASMErrorStack } from './wasm-errors.js';
 import { createPoolError, createPoolErrorFromAnyError } from '../util/pool-errors.js';
-import { parseSourceMap } from './source-maps.js';
 
 function createExecutorPoolError(
   testFileBasename: string,
@@ -26,7 +26,7 @@ function createExecutorPoolError(
   cause?: any,
 ): AssemblyScriptPoolError {
   return createPoolError(
-    `${testFileBasename} - ${context} failure in executor: ${reason}`,
+    `${testFileBasename} - ${context} WASM executor: ${reason}`,
     POOL_ERROR_NAMES.WASMExecutionHarnessError,
     undefined,
     cause
@@ -57,7 +57,7 @@ export async function executeWASMDiscovery(
   defaultTestOptions: AssemblyScriptTestOptions,
   isBinaryInstrumented: boolean,
   handleLog: AssemblyScriptConsoleLogHandler,
-  mutableFileTask: File,
+  file: File,
 ): Promise<void> {
   const module = await WebAssembly.compile(binary as BufferSource);
   const memory = createMemory();
@@ -72,7 +72,7 @@ export async function executeWASMDiscovery(
     })
     : undefined;
 
-  const importObject = createDiscoveryImports(memory, mutableFileTask, defaultTestOptions, handleLog, coverageMemory);
+  const importObject = createDiscoveryImports(memory, file, defaultTestOptions, handleLog, coverageMemory);
 
   // Instantiate WASM module
   const instance = new WebAssembly.Instance(module, importObject);
@@ -88,15 +88,20 @@ export async function executeWASMDiscovery(
       // error came from the abort() handler
       if (thrownErrAny?.name === POOL_ERROR_NAMES.WASMExecutionAbortError) {
 
-        // for test discovery abort, test error comes from PoolError's `cause`
-        if (Object.values(TEST_ERROR_NAMES).includes(thrownErrAny?.cause?.name)) {
+        // For discovery abort, test error is set on PoolError's `cause`.
+        // Enhance it if it is present.
+        if (thrownErrAny?.cause?.name === TEST_ERROR_NAMES.WASMRuntimeError) {
           const reportableTestError = thrownErrAny.cause as AssemblyScriptTestError;
           
           // special handing for discovery's abort() handler
-          // it includes the rawErrorStack directly on the test error
+          // which includes the rawErrorStack directly on the test error
           if (reportableTestError.rawCallStack) {
-            const smObj = parseSourceMap(sourceMap);
-            reportableTestError.stacks = await sourceMapAndParseWASMStack(reportableTestError.rawCallStack as NodeJS.CallSite[], smObj, false);
+            const { parsedStack } = await processWASMErrorStack(
+              reportableTestError.rawCallStack as NodeJS.CallSite[],
+              sourceMap,
+              false
+            );
+            reportableTestError.stacks = parsedStack;
 
             // delete the raw stack so vitest doesn't complain about unexpected error values
             delete reportableTestError.rawCallStack;
@@ -105,13 +110,13 @@ export async function executeWASMDiscovery(
           throw createExecutorPoolError(
             testFileBasename,
             'discoverTests',
-            `Unexpected discovery error - ${reportableTestError.name}: ${reportableTestError.message}`,
+            `${reportableTestError.name}: ${reportableTestError.message}`,
             reportableTestError
           );
         }
       } else {
         throw createPoolErrorFromAnyError(
-          'Unexpected discovery error',
+          `${testFileBasename} - Unexpected discovery error`,
           POOL_ERROR_NAMES.WASMExecutionHarnessError,
           error
         );
@@ -121,22 +126,14 @@ export async function executeWASMDiscovery(
     throw createExecutorPoolError(testFileBasename, 'discoverTests', 'no _start() export');
   }
 
-  debug('[Executor] Discovered', mutableFileTask.tasks.length, 'tests');
+  debug('[Executor] Discovered', file.tasks.length, 'tests');
   return;
 }
 
 /**
  * Execute a single test with crash isolation
- *
- * @param binary - Compiled WASM binary (clean for dual-mode, instrumented for single-mode)
- * @param test - Test to execute (name and function index)
- * @param sourceMap - Source map JSON string (optional)
- * @param collectCoverage - Whether to collect coverage during execution
- * @param debugInfo - Debug info from coverage instrumentation (required if collectCoverage is true)
- * @returns Test result with outcome, timing, and optional coverage
  */
 export async function executeWASMTest(
-  executionStart: number,
   test: Test,
   cached: CachedCompilation,
   testFileBasename: string,
@@ -144,7 +141,13 @@ export async function executeWASMTest(
   collectCoverage: boolean,
   handleLog: AssemblyScriptConsoleLogHandler,
   diffOptions?: SerializedDiffOptions,
-): Promise<Test> {
+): Promise<{ test: Test, timings: WASMExecutorPerfTimings }> {
+  const timings: WASMExecutorPerfTimings = {
+    fnInit: performance.now(),
+    execStart: 0,
+    execEnd: 0,
+    fnfinal: 0
+  };
 
   // Compile the binary to usable WASM module
   const module = await WebAssembly.compile(cached.binary as BufferSource);
@@ -206,11 +209,15 @@ export async function executeWASMTest(
   // as AssemblyScriptTestErrors to vitest
   try {
     // Execute this test
+    timings.execStart = performance.now();
     testFn();
+    timings.execEnd = performance.now();
 
     // If we reach here, test passed, i.e. No abort occurred.
     // Proceed below to prepare the test result
   } catch (error) {
+    timings.execEnd = performance.now();
+
     const thrownErrAny = error as any;
     // If this is NOT a WASMExecutionAbort error, it means it did NOT originate from the
     // wasm abort() import and is unexpected, so we throw as a PoolError.
@@ -315,10 +322,7 @@ export async function executeWASMTest(
     debug(`[Executor] Extracted coverage data: ${functionsHit} functions hit`);
   }
 
-  // result state is set by abort handler if fail, or worker if pass
-  if (test.result) {
-    test.result.duration = Date.now() - executionStart;
-  }
+  timings.fnfinal = performance.now();
 
-  return test;
+  return { test, timings };
 }

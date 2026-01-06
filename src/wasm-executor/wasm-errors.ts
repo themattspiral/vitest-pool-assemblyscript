@@ -69,7 +69,7 @@ async function sourceMapRawCallStack(
   return mappedStack;
 }
 
-// Parse stack array for Vitest TestError reporting
+// Parse stack array  to Vitest TestError reporting format
 function parseMappedStack(mappedStack: WebAssemblyCallSite[], isAssertionFailure: boolean): ParsedStack[] {
   return mappedStack
     // if this is an assertion failure, filter out frames for internal assertion framework calls
@@ -85,25 +85,29 @@ function parseMappedStack(mappedStack: WebAssemblyCallSite[], isAssertionFailure
     }));
 }
 
-export async function sourceMapAndParseWASMStack(
+export async function processWASMErrorStack(
   rawCallStack: NodeJS.CallSite[],
-  sourceMap: RawSourceMap,
+  sourceMap: string,
   isAssertionFailure: boolean,
-): Promise<ParsedStack[]> {
-  // map stack call sites from WASM locations to source locations  
-  const sourceMappedStack = await sourceMapRawCallStack(rawCallStack, sourceMap);
+): Promise<{ parsedStack: ParsedStack[], parsedSourceMap: RawSourceMap }> {
+  const sourceMapObj = parseSourceMap(sourceMap);
+
+  // map stack call sites from WASM locations to source code locations  
+  const sourceMappedStack = await sourceMapRawCallStack(rawCallStack, sourceMapObj);
 
   debug(`[Executor] Mapped ${rawCallStack.length} call sites to ${sourceMappedStack.length} source locations`);
 
-  return parseMappedStack(sourceMappedStack, isAssertionFailure);
+  return {
+    parsedStack: parseMappedStack(sourceMappedStack, isAssertionFailure),
+    parsedSourceMap: sourceMapObj,
+  };
 }
+
+// export async enhanceDiscoveryError(error: AssemblyScr): Promise
 
 /**
  * Enhance reportable test error on the provided test result with source mapped stack locations
  * and a formatted diff based on the error type
- *
- * @param mutableTestResult - Test result with raw call stack
- * @param sourceMapJson - Parsed source map
  */
 export async function enhanceTestError(
   error: AssemblyScriptTestError,
@@ -131,26 +135,24 @@ export async function enhanceTestError(
     return error;
   }
 
-  const sourceMapObj = parseSourceMap(sourceMap);
-
   // map stack call sites from WASM locations to source locations
-  const parsedStacks: ParsedStack[] = await sourceMapAndParseWASMStack(rawCallStack, sourceMapObj, isAssertionFailure);
+  const { parsedStack, parsedSourceMap } = await processWASMErrorStack(rawCallStack, sourceMap, isAssertionFailure);
   
   // build additional strings to add to test error's `diff` field based on parsed stack contents
   let primaryStackFrameString: string | undefined;
   let highlightedSourceCodeFrameString: string | undefined;
   
-  if (parsedStacks.length > 0) {
-    const primaryStackFrame = parsedStacks[0]!;
+  if (parsedStack.length > 0) {
+    const primaryStackFrame = parsedStack[0]!;
     
     primaryStackFrameString = toVitestLikeStackFrameString(primaryStackFrame);
     
     // Test error is set to rest of the stack without the first frame.
     // Vitest will report the ParsedError[] on TestError.stacks below the diff we set.
-    error.stacks = parsedStacks.slice(1);
+    error.stacks = parsedStack.slice(1);
 
     // get source code diff from source map source content
-    highlightedSourceCodeFrameString = getSourceCodeFrameString(sourceMapObj, primaryStackFrame);
+    highlightedSourceCodeFrameString = getSourceCodeFrameString(parsedSourceMap, primaryStackFrame);
 
     debug(`[Executor] Enhanced ${error.name} error with parsed source stack`);
   }
@@ -170,7 +172,7 @@ export async function enhanceTestError(
   }
 
   // stack is used by vitest for error deduplication, so make sure it is set
-  error.stack = parsedStacks.map(toPlaintextStackFrameString).join('\n');
+  error.stack = parsedStack.map(toPlaintextStackFrameString).join('\n');
   
   debug(`[Executor] Enhanced ${error.name} error with diffs`);
 

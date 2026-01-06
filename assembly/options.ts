@@ -2,12 +2,111 @@ export const TEST_OPTION_UNDEFINED: i32 = -1;
 export const TEST_OPTION_FALSE: i32 = 0;
 export const TEST_OPTION_TRUE: i32 = 1;
 
-@unmanaged @final
-export class TestOptions {
-  _valueOfTimeout: i32;
-  _valueOfRetry: i32;
+@unmanaged
+export class SuiteOptions {
   _valueOfSkip: i32;
   _valueOfOnly: i32;
+
+  constructor(
+    skip: i32 = TEST_OPTION_UNDEFINED,
+    only: i32 = TEST_OPTION_UNDEFINED,
+  ) {
+    this._valueOfSkip = skip;
+    this._valueOfOnly = only;
+  }
+
+  /**
+   * Define `skip` option for a specific suite so that when true, it will still be registered
+   * but will not execute. Other options will be undefined.
+   * 
+   * Setting to false has no additional effect (compared to not defining) when creating new SuiteOptions.
+   */
+  static skip(isSkipped: bool = true): SuiteOptions {
+    return new SuiteOptions(
+      isSkipped ? TEST_OPTION_TRUE : TEST_OPTION_FALSE,
+      TEST_OPTION_UNDEFINED
+    );
+  }
+  /**
+   * Set `skip` option for a specific suite so that when true, it will still be registered
+   * but will not execute. Other options remain unchanged.
+   */
+  skip(isSkipped: bool = true): this {
+    this._valueOfSkip = isSkipped ? TEST_OPTION_TRUE : TEST_OPTION_FALSE;
+    return this;
+  }
+  
+  /**
+   * Define `only` option for a specific suite so that when true (and allowOnly is globally true),
+   * it will execute exclusively while others NOT marked `only` will be skipped.
+   * Other options will be undefined.
+   * 
+   * Setting to false has no additional effect (compared to not defining) when creating new SuiteOptions.
+   */
+  static only(isOnly: bool = true): SuiteOptions {
+    return new SuiteOptions(
+      TEST_OPTION_UNDEFINED,
+      isOnly ? TEST_OPTION_TRUE : TEST_OPTION_FALSE
+    );
+  }
+  /**
+   * Set `only` option for a specific suite so that when true (and allowOnly is globally true),
+   * it will execute exclusively while others NOT marked `only` will be skipped.
+   * Other options remain unchanged.
+   */
+  only(isOnly: bool = true): this {
+    this._valueOfOnly = isOnly ? TEST_OPTION_TRUE : TEST_OPTION_FALSE;
+    return this;
+  }
+  
+  protected static mergeNullableInt(a: i32, b: i32, smallestWins: bool = false): i32 {
+    if (a < 0 && b < 0) {
+      return TEST_OPTION_UNDEFINED;
+    } else if (a >= 0 && b < 0) {
+      return a;
+    } else if (a < 0 && b >= 0) {
+      return b;
+    } else {
+      if (smallestWins) {
+        return a < b ? a : b;
+      } else {
+        return a < b ? b : a;
+      }
+    }
+  }
+
+  static __mergeSuiteOptions(left: SuiteOptions | null, right: SuiteOptions | null): SuiteOptions {
+    const leftDefined: bool = left !== null;
+    const rightDefined: bool = right !== null;
+
+    if ( !leftDefined && !rightDefined ) {
+      return new SuiteOptions();
+    } else if ( leftDefined && !rightDefined ) {
+      return left!;
+    } else if ( !leftDefined && rightDefined ) {
+      return right!;
+    } else {
+      return new SuiteOptions(
+        SuiteOptions.mergeNullableInt(left!._valueOfSkip, right!._valueOfSkip),   // true if either is true
+        SuiteOptions.mergeNullableInt(left!._valueOfOnly, right!._valueOfOnly)    // true if either is true
+      );
+    }
+  }
+
+  @operator.binary("&")
+  static __bitwiseAndSuiteOptions(left: SuiteOptions | null, right: SuiteOptions | null): SuiteOptions {
+    return SuiteOptions.__mergeSuiteOptions(left, right);
+  }
+
+  __mergeSuiteOptions(other: SuiteOptions): SuiteOptions {
+    return SuiteOptions.__mergeSuiteOptions(this, other);
+  }
+}
+
+@unmanaged @final
+export class TestOptions extends SuiteOptions {
+  _valueOfTimeout: i32;
+  _valueOfRetry: i32;
   _valueOfFails: i32;
 
   constructor(
@@ -17,16 +116,21 @@ export class TestOptions {
     only: i32 = TEST_OPTION_UNDEFINED,
     fails: i32 = TEST_OPTION_UNDEFINED,
   ) {
+    super(skip, only);
     this._valueOfTimeout = timeout;
     this._valueOfRetry = retry;
-    this._valueOfSkip = skip;
-    this._valueOfOnly = only;
     this._valueOfFails = fails;
   }
 
   /** Define the timeout threshold (in ms) for a specific test. Other options will be undefined. */
   static timeout(timeoutMs: i32): TestOptions {
-    return new TestOptions(timeoutMs);
+    return new TestOptions(
+      timeoutMs,
+      TEST_OPTION_UNDEFINED,
+      TEST_OPTION_UNDEFINED,
+      TEST_OPTION_UNDEFINED,
+      TEST_OPTION_UNDEFINED
+    );
   }
   /** Set the timeout threshold (in ms) for a specific test. Other options remain unchanged. */
   timeout(timeoutMs: i32): this {
@@ -57,7 +161,7 @@ export class TestOptions {
   }
 
   /**
-   * Define `skip` option for a specific test so that when true, the test will still be defined
+   * Define `skip` option for a specific test so that when true, it will still be registered
    * but will not execute. Other options will be undefined.
    * 
    * Setting to false has no additional effect (compared to not defining) when creating new TestOptions.
@@ -72,7 +176,7 @@ export class TestOptions {
     );
   }
   /**
-   * Set `skip` option for a specific test so that when true, the test will still be defined
+   * Set `skip` option for a specific test so that when true, it will still be registered
    * but will not execute. Other options remain unchanged.
    */
   skip(isSkipped: bool = true): this {
@@ -82,7 +186,7 @@ export class TestOptions {
   
   /**
    * Define `only` option for a specific test so that when true (and allowOnly is globally true),
-   * the test will execute exclusively while others NOT marked `only` will be skipped.
+   * it will execute exclusively while others NOT marked `only` will be skipped.
    * Other options will be undefined.
    * 
    * Setting to false has no additional effect (compared to not defining) when creating new TestOptions.
@@ -98,16 +202,16 @@ export class TestOptions {
   }
   /**
    * Set `only` option for a specific test so that when true (and allowOnly is globally true),
-   * the test will execute exclusively while others NOT marked `only` will be skipped.
+   * it will execute exclusively while others NOT marked `only` will be skipped.
    * Other options remain unchanged.
    */
   only(isOnly: bool = true): this {
     this._valueOfOnly = isOnly ? TEST_OPTION_TRUE : TEST_OPTION_FALSE;
     return this;
   }
-  
+
   /**
-   * Define `fails` option for a specific test so that when true, the test will only pass with at least
+   * Define `fails` option for a specific test so that when true, it will only pass with at least
    * one failing assertion. Other options will be undefined.
    * 
    * Setting to false has no additional effect (compared to not defining) when creating new TestOptions.
@@ -122,32 +226,15 @@ export class TestOptions {
     );
   }
   /**
-   * Set `fails` option for a specific test so that when true, the test will only pass with at least
+   * Set `fails` option for a specific test so that when true, it will only pass with at least
    * one failing assertion. Other options remain unchanged.
-   * @returns 
    */
   fails(expectFailure: bool = true): this {
     this._valueOfFails = expectFailure ? TEST_OPTION_TRUE : TEST_OPTION_FALSE;
     return this;
   }
 
-  private static mergeNullableInt(a: i32, b: i32, smallestWins: bool = false): i32 {
-    if (a < 0 && b < 0) {
-      return TEST_OPTION_UNDEFINED;
-    } else if (a >= 0 && b < 0) {
-      return a;
-    } else if (a < 0 && b >= 0) {
-      return b;
-    } else {
-      if (smallestWins) {
-        return a < b ? a : b;
-      } else {
-        return a < b ? b : a;
-      }
-    }
-  }
-
-  static merge(left: TestOptions | null, right: TestOptions | null): TestOptions {
+  static __merge(left: TestOptions | null, right: TestOptions | null): TestOptions {
     const leftDefined: bool = left !== null;
     const rightDefined: bool = right !== null;
 
@@ -170,10 +257,10 @@ export class TestOptions {
 
   @operator.binary("&")
   static __bitwiseAnd(left: TestOptions | null, right: TestOptions | null): TestOptions {
-    return TestOptions.merge(left, right);
+    return TestOptions.__merge(left, right);
   }
 
-  merge(other: TestOptions): TestOptions {
-    return TestOptions.merge(this, other);
+  __merge(other: TestOptions): TestOptions {
+    return TestOptions.__merge(this, other);
   }
 }

@@ -62,5 +62,13 @@ export function createWasmConsole(
       handleLog(msg);
       delete timersByLabel[label];
     },
+
+    trace(msgPtr: number, n: number, a0: any, a1: any, a2: any, a3: any): void {
+      const msg = liftString(memory, msgPtr);
+      const args: any[] = [a0, a1, a2, a3];
+      const nArgs: any[] = n && n > 0 ? args.slice(0, n) : args;
+
+      console.trace(`WASM Trace:${msg ? ` ${msg}` : ''}`, ...nArgs);
+    },
   };
 }

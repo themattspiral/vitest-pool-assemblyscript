@@ -11,7 +11,7 @@ import type { RuntimeRPC } from 'vitest';
 import type { TestError } from '@vitest/utils';
 import type { ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
-import type { File, Test, TaskMeta, TestOptions } from '@vitest/runner/types';
+import type { File, Test, TaskMeta, TestOptions, Suite } from '@vitest/runner/types';
 
 import {
   ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID,
@@ -135,11 +135,15 @@ export type ResolvedHybridProviderOptions =
     globbedAssemblyScriptProjectRelativeExcludeOnly: string[],
   };
 
-export const AS_POOL_TEST_OPTIONS = ['timeout', 'retry', 'skip', 'only', 'fails'] as const;
+// define these constants here so they make sense in context
+const AS_POOL_SUITE_OPTIONS = ['skip', 'only'] as const;
+const AS_POOL_TEST_OPTIONS = ['timeout', 'retry', 'skip', 'only', 'fails'] as const;
 
-/** TestOptions fields that are supported by AssemblyScript tests in this pool */
-export type ASPoolSupportedTestOptionsFields = typeof AS_POOL_TEST_OPTIONS[number];
+// vitest TestOptions fields that are supported by AssemblyScript suites / tests in this pool
+type ASPoolSupportedSuiteOptionsFields = typeof AS_POOL_SUITE_OPTIONS[number];
+type ASPoolSupportedTestOptionsFields = typeof AS_POOL_TEST_OPTIONS[number];
 
+export type AssemblyScriptSuiteOptions = Required<Pick<TestOptions, ASPoolSupportedSuiteOptionsFields>>;
 export type AssemblyScriptTestOptions = Required<Pick<TestOptions, ASPoolSupportedTestOptionsFields>>;
 
 // ============================================================================
@@ -221,7 +225,9 @@ export interface InstrumentationResult {
 export interface CachedCompilation {
   filePipelineStart: number;
   /** File task for spec which will hold entire test/suite hierarchy */
-  fileTask: File,
+  fileTask: File;
+  /** File basename, used for debug logging */
+  base: string;
   binary: Uint8Array;
   sourceMap: string;
   isInstrumented: boolean;
@@ -531,15 +537,13 @@ export interface FailedAssertion {
   message?: string;
 }
 
-export interface AssemblyScriptFileTaskMeta extends TaskMeta {
-  fullDuration: number
+export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
+  idxInParentTasks: number;
+  coverageData?: CoverageData;
 }
 
-export interface AssemblyScriptSuiteMeta extends TaskMeta {
-  parentTaskIndex: number;
-}
-
-export interface AssemblyScriptTestTaskMeta extends AssemblyScriptSuiteMeta {
+export interface AssemblyScriptTestTaskMeta extends TaskMeta {
+  idxInParentTasks: number;
   fnIndex: number;
   assertionsPassedCount: number;
   assertionsFailed: FailedAssertion[];
@@ -550,6 +554,17 @@ export interface AssemblyScriptTestTaskMeta extends AssemblyScriptSuiteMeta {
   lastErrorValuesProvided?: boolean;
   lastErrorRawCallStack?: NodeJS.CallSite[];
 };
+
+export interface WASMExecutorPerfTimings {
+  /** function start */
+  fnInit: number;
+  /** test start: execStart - fnInit = env init time */
+  execStart: number;
+  /** test end: execEnd - execStart = test duration */
+  execEnd: number;
+  /** function end: fnFinal - execEnd = error prep and/or coverage extraction time */
+  fnfinal: number;
+}
 
 /**
  * Worker channel with RPC for suite-level communication
@@ -639,15 +654,13 @@ export interface ExecuteTestTask {
  *
  * Reports onAfterSuiteMeta and suite-finished and final flush after all tests complete
  */
-export interface ReportFileResultsTask {
+export interface ReportSuiteEventTask {
+  suite: Suite;
+  event: 'suite-prepare' | 'suite-finished',
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
-  /** Complete file task with all test results */
-  fileTask: File;
-  /** Coverage data for this test suite file (optional, only when coverage enabled) */
-  coverageData?: CoverageData;
 }
 
 /**

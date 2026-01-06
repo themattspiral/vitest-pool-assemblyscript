@@ -15,13 +15,17 @@ import type {
   TaskEventPack,
   TaskResultPack,
 } from '@vitest/runner/types';
-import { createFileTask } from '@vitest/runner/utils';
 
-import type { AssemblyScriptConsoleLog } from '../types/types.js';
-import { ASSEMBLYSCRIPT_POOL_NAME } from '../types/constants.js';
-import { debug } from '../util/debug.js';
+import type {
+  AssemblyScriptConsoleLog,
+  AssemblyScriptCoveragePayload,
+  AssemblyScriptSuiteTaskMeta
+} from '../types/types.js';
+import { debug, isDebugModeEnabled } from '../util/debug.js';
+import { COVERAGE_PAYLOAD_FORMATS } from '../types/constants.js';
 
-const DEBUG_RPC = false;
+// const DEBUG_RPC = false;
+const DEBUG_RPC = isDebugModeEnabled();
 
 function rpcDebug(...args: any[]): void {
   if (DEBUG_RPC) {
@@ -47,36 +51,6 @@ export function createRpcClient(port: MessagePort): BirpcReturn<RuntimeRPC> {
       on: (fn) => port.on('message', fn),
     }
   );
-}
-
-// ============================================================================
-// File Task Creation Helpers
-// ============================================================================
-
-/**
- * Create initial file task (for onQueued)
- *
- * @param testFile - Path to test file
- * @param projectInfo - Project information for file task creation
- * @returns File task with mode set to 'queued'
- */
-export function createInitialFileTask(
-  testFile: string,
-  projectRoot: string,
-  projectName: string
-): File {
-  const fileTask = createFileTask(
-    testFile,
-    projectRoot,
-    projectName,
-    ASSEMBLYSCRIPT_POOL_NAME
-  );
-
-  fileTask.mode = 'queued';
-  fileTask.environmentLoad = 0;  // AS pool has no environment setup
-  fileTask.setupDuration = 0;    // AS pool has no setup files
-
-  return fileTask;
 }
 
 // ============================================================================
@@ -109,45 +83,53 @@ export async function reportFileCollected(
   rpc: BirpcReturn<RuntimeRPC, object>,
   fileTask: File
 ): Promise<void> {
-  rpcDebug(`[RPC] Reporting onCollected (queued with tasks) for: "${fileTask.filepath}" with ${fileTask.tasks.length} tasks`);
+  rpcDebug(`[RPC] Reporting onCollected (${fileTask.tasks.length} tasks | mode: "${fileTask.mode}") for: "${fileTask.filepath}"`);
   await rpc.onCollected([fileTask]);
-  rpcDebug(`[RPC] Completed onCollected (queued with tasks) for: "${fileTask.filepath}"`);
+  rpcDebug(`[RPC] Completed onCollected (${fileTask.tasks.length} tasks | mode: "${fileTask.mode}") for: "${fileTask.filepath}"`);
 }
 
 /**
- * Report suite starting execution
+ * Report suite event
  *
  * @param rpc - RPC client for communication
- * @param suiteTask - Task representing the suite
+ * @param suite - Task representing the suite
  */
-export async function reportSuitePrepare(
+export async function reportSuiteLifecycleEvent(
   rpc: BirpcReturn<RuntimeRPC, object>,
-  suiteTask: Suite
+  suite: Suite,
+  event: 'suite-prepare' | 'suite-finished',
+  base: string,
+  suiteLabel: string,
 ): Promise<void> {
-  const taskPack: TaskResultPack = [suiteTask.id, suiteTask.result, suiteTask.meta];
-  const eventPack: TaskEventPack = [suiteTask.id, 'suite-prepare', undefined];
+  if (event === 'suite-finished') {
+    const meta = suite.meta as AssemblyScriptSuiteTaskMeta;
 
-  rpcDebug(`[RPC] Reporting "suite-prepare" (state: "${suiteTask.result?.state}") for: "${suiteTask.name}"`);
+    // Report coverage if available
+    if (meta.coverageData) {
+      debug(`[RPC] ${base} - ${suiteLabel}Reporting coverage via onAfterSuiteRun`);
+
+      const coverage: AssemblyScriptCoveragePayload = {
+        __format: COVERAGE_PAYLOAD_FORMATS.AssemblyScript,
+        coverageData: meta.coverageData,
+      };
+      await rpc.onAfterSuiteRun({
+        coverage,
+        testFiles: [suite.file.filepath],
+        transformMode: 'ssr',
+        projectName: suite.file.projectName,
+      });
+    } else {
+      debug(`[RPC] ${base} - ${suiteLabel}No coverage available to report via onAfterSuiteRun`);
+    }
+  }
+
+  // Report suite events without the custom task meta so reporters won't log it
+  const taskPack: TaskResultPack = [suite.id, suite.result, {}];
+  const eventPack: TaskEventPack = [suite.id, event, undefined];
+
+  debug(`[RPC] ${base} - ${suiteLabel}Reporting "${event}" with result: "${suite.result?.state}" (${suite.result?.duration ?? '-'}ms)`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] Completed "suite-prepare" (state: "${suiteTask.result?.state}") for: "${suiteTask.name}"`);
-}
-
-/**
- * Report suite (file) finished execution
- *
- * @param rpc - RPC client for communication
- * @param fileTask - File task representing the suite
- */
-export async function reportSuiteFinished(
-  rpc: BirpcReturn<RuntimeRPC, object>,
-  fileTask: File
-): Promise<void> {
-  const taskPack: TaskResultPack = [fileTask.id, fileTask.result, fileTask.meta];
-  const eventPack: TaskEventPack = [fileTask.id, 'suite-finished', undefined];
-
-  rpcDebug(`[RPC] Reporting "suite-finished" (state: "${fileTask.result?.state}") for: "${fileTask.filepath}" (fileTask.id ${fileTask.id})`);
-  await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] Completed "suite-finished" (state: "${fileTask.result?.state}") for: "${fileTask.filepath}"`);
+  rpcDebug(`[RPC] ${base} - ${suiteLabel}Completed "${event}" with result: "${suite.result?.state}" (${suite.result?.duration ?? '-'}ms)`);
 }
 
 // ============================================================================
