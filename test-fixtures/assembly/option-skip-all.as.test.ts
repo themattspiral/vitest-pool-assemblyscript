@@ -1,4 +1,4 @@
-import { test, assert, TestOptions, assertEqual, describe, SuiteOptions } from '../../assembly';
+import { test, assert, TestOptions, assertEqual, describe } from '../../assembly';
 import { add } from '../assembly-src/math';
 
 test.skip("should be skipped!!", () => {
@@ -37,7 +37,7 @@ describe.skip("suite using `skip` function  should be skipped regardless of opti
   });
 });
 
-describe("suite with `skip` option set should be skipped regardless of options on tests in it", SuiteOptions.skip(), () => {
+describe("suite with `skip` option set should be skipped regardless of options on tests in it", TestOptions.skip(), () => {
   test("should be skipped because it's in a skipped suite", () => {
     assert(true);
   });

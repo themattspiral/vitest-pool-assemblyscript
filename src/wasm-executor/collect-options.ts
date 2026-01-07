@@ -1,46 +1,35 @@
-import { AssemblyScriptSuiteOptions, AssemblyScriptTestOptions } from '../types/types.js';
+import { AssemblyScriptTestOptions } from '../types/types.js';
 
-export function mergeAssemblyScriptSuiteOptions(
-  defaultSuiteOptions: AssemblyScriptSuiteOptions,
-  skip: number,
-  only: number,
-): AssemblyScriptSuiteOptions {
-  const options: AssemblyScriptSuiteOptions = { ...defaultSuiteOptions };
-  
-  if (skip >= 0) {
-    options.skip = skip === 1 ? true : false;
-  }
-  if (only >= 0) {
-    options.only = only === 1 ? true : false;
-  }
-
-  return options;
-}
+const TEST_OPTION_UNDEFINED: number = -1;
+const TEST_OPTION_TRUE: number = 1;
 
 export function mergeAssemblyScriptTestOptions(
-  defaultTestOptions: AssemblyScriptTestOptions,
+  baseOptions: AssemblyScriptTestOptions,
   timeout: number,
   retry: number,
   skip: number,
   only: number,
   fails: number,
 ): AssemblyScriptTestOptions {
-  const options: AssemblyScriptTestOptions = { ...defaultTestOptions };
+  const options: AssemblyScriptTestOptions = { ...baseOptions };
   
-  if (timeout >= 0) {
+  // numerical options
+  if (timeout > TEST_OPTION_UNDEFINED) {
     options.timeout = timeout;
   }
-  if (retry >= 0) {
+  if (retry > TEST_OPTION_UNDEFINED) {
     options.retry = retry;
   }
-  if (skip >= 0) {
-    options.skip = skip === 1 ? true : false;
+
+  // boolean options
+  if (skip > TEST_OPTION_UNDEFINED) {
+    options.skip = skip === TEST_OPTION_TRUE ? true : false;
   }
-  if (only >= 0) {
-    options.only = only === 1 ? true : false;
+  if (only > TEST_OPTION_UNDEFINED) {
+    options.only = only === TEST_OPTION_TRUE ? true : false;
   }
-  if (fails >= 0) {
-    options.fails = fails === 1 ? true : false;
+  if (fails > TEST_OPTION_UNDEFINED) {
+    options.fails = fails === TEST_OPTION_TRUE ? true : false;
   }
 
   return options;

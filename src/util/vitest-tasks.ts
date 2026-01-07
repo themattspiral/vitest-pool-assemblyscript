@@ -2,7 +2,7 @@ import { RunMode, File, Suite, Task, Test } from '@vitest/runner/types';
 import { createFileTask, interpretTaskModes, someTasksAreOnly } from '@vitest/runner/utils';
 
 import {
-  AssemblyScriptSuiteOptions,
+  AssemblyScriptResolvedConfig,
   AssemblyScriptSuiteTaskMeta,
   AssemblyScriptTestError,
   AssemblyScriptTestOptions,
@@ -10,9 +10,10 @@ import {
   FailedAssertion,
   WASMExecutorPerfTimings
 } from '../types/types.js';
+import { ASSEMBLYSCRIPT_POOL_NAME, TEST_ERROR_NAMES } from '../types/constants.js';
+import { DEFAULT_ASSEMBLYSCRIPT_TEST_OPTIONS } from '../types/typed-constants.js';
 import { debug } from './debug.js';
 import { createTestExpectedToFailError, createTestTimeoutError } from './pool-errors.js';
-import { ASSEMBLYSCRIPT_POOL_NAME, TEST_ERROR_NAMES } from '../types/constants.js';
 import { extractCallStack } from '../wasm-executor/source-maps.js';
 
 // ============================================================================
@@ -33,11 +34,8 @@ export function getSuiteLogLabel(suite: Suite): string {
 // Task Creation
 // ============================================================================
 
-export function getInitialTaskMode(
-  options: AssemblyScriptTestOptions | AssemblyScriptSuiteOptions,
-  parent: Suite,
-): RunMode {
-  if (options.skip || parent.mode === 'skip') {
+export function getInitialTaskMode(options: AssemblyScriptTestOptions): RunMode {
+  if (options.skip) {
     return 'skip';
   } else if (options.only) {
     return 'only';
@@ -48,11 +46,11 @@ export function getInitialTaskMode(
 
 function getInitialTestTaskMeta(
   fnIndex: number,
-  parent: Suite,
+  parentAfterAddingTask: Suite,
 ): AssemblyScriptTestTaskMeta {
   return {
     fnIndex,
-    idxInParentTasks: parent.tasks.length - 1,
+    idxInParentTasks: parentAfterAddingTask.tasks.length - 1,
     assertionsPassedCount: 0,
     assertionsFailed: [],
     timedOut: false,
@@ -61,10 +59,12 @@ function getInitialTestTaskMeta(
 }
 
 function getInitialSuiteTaskMeta(
-  parent: Suite,
+  parentAfterAddingTask: Suite,
+  mergedOptions: AssemblyScriptTestOptions,
 ): AssemblyScriptSuiteTaskMeta {
   return {
-    idxInParentTasks: parent.tasks.length - 1,
+    idxInParentTasks: parentAfterAddingTask.tasks.length - 1,
+    defaultTestOptions: mergedOptions,
   };
 }
 
@@ -73,7 +73,7 @@ export function createTestTask(
   fnIndex: number,
   file: File,
   parent: Suite,
-  options: AssemblyScriptTestOptions,
+  mergedOptions: AssemblyScriptTestOptions,
 ): Test {
   const test: Test = {
     type: 'test',
@@ -84,10 +84,10 @@ export function createTestTask(
     context: {} as any,
     annotations: [],
     meta: {},
-    mode: getInitialTaskMode(options, parent),
-    timeout: options.timeout,
-    retry: options.retry,
-    fails: options.fails,
+    mode: getInitialTaskMode(mergedOptions),
+    timeout: mergedOptions.timeout,
+    retry: mergedOptions.retry,
+    fails: mergedOptions.fails,
   };
 
   parent.tasks.push(test);
@@ -102,9 +102,9 @@ export function createSuiteTask(
   name: string,
   file: File,
   parent: Suite,
-  options: AssemblyScriptSuiteOptions,
+  mergedOptions: AssemblyScriptTestOptions,
 ): Suite {
-  const suiteIsFile = parent.file.filepath === parent.name;
+  const suiteIsFile = parent.file.id === parent.id;
   const prefix = suiteIsFile ? parent.name : `${file.filepath}_${parent.name}`;
   const suite: Suite = {
     type: 'suite',
@@ -114,25 +114,25 @@ export function createSuiteTask(
     suite: parent,
     meta: {},
     tasks: [],
-    mode: getInitialTaskMode(options, parent)
+    mode: getInitialTaskMode(mergedOptions),
   };
 
   parent.tasks.push(suite);
 
-  // use custom TaskMeta to capture parent task index
-  suite.meta = getInitialSuiteTaskMeta(parent);
+  // use custom TaskMeta to capture parent task index and default options
+  suite.meta = getInitialSuiteTaskMeta(parent, mergedOptions);
 
   return suite;
 }
 
 export function createInitialFileTask(
   testFile: string,
-  projectRoot: string,
-  projectName: string
+  projectName: string,
+  config: AssemblyScriptResolvedConfig,
 ): File {
   const file: File = createFileTask(
     testFile,
-    projectRoot,
+    config.root,
     projectName,
     ASSEMBLYSCRIPT_POOL_NAME
   );
@@ -140,6 +140,43 @@ export function createInitialFileTask(
   file.mode = 'queued';
   file.environmentLoad = 0;  // AS pool has no environment setup
   file.setupDuration = 0;    // AS pool has no setup files
+
+  const defaultTestOptions: AssemblyScriptTestOptions = {
+    ...DEFAULT_ASSEMBLYSCRIPT_TEST_OPTIONS,
+    timeout: config.testTimeout,
+    retry: config.retry,
+  };
+
+  const meta: AssemblyScriptSuiteTaskMeta = {
+    idxInParentTasks: -1,  // file task has no parent, should never be used anyway
+    defaultTestOptions
+  }
+  file.meta = meta;
+
+  return file;
+}
+
+export function createFailedFileTask(
+  testFile: string,
+  projectName: string,
+  config: AssemblyScriptResolvedConfig,
+  error: AssemblyScriptTestError,
+): File {
+  const file: File = createFileTask(
+    testFile,
+    config.root,
+    projectName,
+    ASSEMBLYSCRIPT_POOL_NAME
+  );
+  file.mode = 'run';
+  file.result = {
+    state: 'fail',
+    errors: [error]
+  };
+  file.prepareDuration = 0;
+  file.environmentLoad = 0;
+  file.setupDuration = 0;
+  file.collectDuration = 0;
 
   return file;
 }

@@ -49,7 +49,6 @@ import { createPoolErrorFromAnyError } from '../util/pool-errors.js';
 import { compileAssemblyScript } from '../compiler/index.js';
 import {
   checkFailsAndInvertResult,
-  createInitialFileTask,
   prepareFileTaskForCollection,
   resetTestResult,
   setTestPrepareResult,
@@ -86,15 +85,9 @@ export async function compileSpecFile(taskData: CompileSpecFileTask): Promise<Co
 
     // Create RPC client
     const rpc = createRpcClient(taskData.port);
-
-    const fileTask = createInitialFileTask(
-      taskData.testFilePath,
-      taskData.projectRoot,
-      taskData.projectName,
-    );
     
     // Report onQueued
-    await reportFileQueued(rpc, fileTask);
+    await reportFileQueued(rpc, taskData.file);
 
     // TODO - move to options helpers
     const instrumentationOptions: InstrumentationOptions = {
@@ -117,9 +110,9 @@ export async function compileSpecFile(taskData: CompileSpecFileTask): Promise<Co
 
     debug(`[TIMING ${workerId}] comp #: ${compilationCount} | ${base} - compileAssemblyScript total: ${compilerResult.compileTiming.toFixed(2)}ms`);
     
-    fileTask.prepareDuration = compilerResult.compileTiming;
+    taskData.file.prepareDuration = compilerResult.compileTiming;
 
-    return { compilerResult, fileTask };
+    return { compilerResult, file: taskData.file };
   } catch (error) {
     throw createPoolErrorFromAnyError(
       `${base} - compileFile failure in worker`,
@@ -170,7 +163,6 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<File> 
       cached.sourceMap,
       base,
       poolOptions,
-      taskData.defaultTestOptions,
       cached.isInstrumented,
       handleLog,
       cached.fileTask,
@@ -336,32 +328,24 @@ export async function reportSuiteEvent(taskData: ReportSuiteEventTask): Promise<
 }
 
 export async function reportPipelineFileFailure(taskData: ReportFileFailureTask): Promise<void> {
-  const base = basename(taskData.testFile);
+  const { file, port, poolOptions } = taskData;
+  const base = basename(file.filepath);
 
   try {
-    setDebugMode(taskData.poolOptions.debug);
-    debug(`[Worker ${workerId}] reportPipelineFileFailure started for: "${taskData.testFile}"`);
+    setDebugMode(poolOptions.debug);
+    debug(`[Worker ${workerId}] ${base} - reportPipelineFileFailure started for: "${file.filepath}"`);
 
-    const rpc = createRpcClient(taskData.port);
+    const rpc = createRpcClient(port);
 
-    debug(`[Worker ${workerId}] Reporting onQueued with TestError (${taskData.error.name}) for: "${taskData.testFile}"`);
-    
-    const failedFileTask = createInitialFileTask(taskData.testFile, taskData.projectRoot, taskData.projectName);
-    failedFileTask.result = {
-      state: 'fail',
-      errors: [taskData.error]
-    };
-    failedFileTask.prepareDuration = taskData.compileTiming ?? 0;
-    failedFileTask.environmentLoad = 0;
-    failedFileTask.setupDuration = 0;
-    failedFileTask.collectDuration = taskData.discoverTiming ?? 0;
+    const errName = file.result?.errors ? (file.result.errors[0]?.name ?? 'undefined') : 'undefined';
+    debug(`[Worker ${workerId}] ${base} - Reporting onQueued with error "${errName}" for: "${file.filepath}"`);
 
-    await reportFileQueued(rpc, failedFileTask);
+    await reportFileQueued(rpc, file);
 
     // Final flush
     await rpc.onTaskUpdate([], []);
 
-    debug(`[Worker ${workerId}] reportPipelineFileFailure complete`);
+    debug(`[Worker ${workerId}] ${base} - reportPipelineFileFailure complete`);
   } catch (error) {
     throw createPoolErrorFromAnyError(
       `${base} - reportPipelineFileFailure failure in worker`,

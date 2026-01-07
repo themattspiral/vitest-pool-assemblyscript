@@ -1,27 +1,22 @@
 import { basename } from 'node:path';
 import type { File, Suite, Test } from '@vitest/runner/types';
 
-import { extractCallStack } from './source-maps.js';
-import { decodeAbortInfo } from './wasm-memory.js';
-import { createWasmConsole } from './wasm-console.js';
-import { debug } from '../util/debug.js';
 import type {
   AssemblyScriptConsoleLogHandler,
   AssemblyScriptSuiteTaskMeta,
   AssemblyScriptTestError,
-  AssemblyScriptTestOptions,
   AssemblyScriptTestTaskMeta,
   FailedAssertion,
 } from '../types/types.js';
-import { DEFAULT_ASSEMBLYSCRIPT_SUITE_OPTIONS } from '../types/typed-constants.js';
 import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
+import { debug } from '../util/debug.js';
 import { createPoolError } from '../util/pool-errors.js';
 import { liftString } from '../util/assemblyscript/binding-helpers.js';
+import { extractCallStack } from './source-maps.js';
+import { decodeAbortInfo } from './wasm-memory.js';
+import { createWasmConsole } from './wasm-console.js';
 import { createSuiteTask, createTestTask, failTest } from '../util/vitest-tasks.js';
-import {
-  mergeAssemblyScriptSuiteOptions,
-  mergeAssemblyScriptTestOptions
-} from './collect-options.js';
+import { mergeAssemblyScriptTestOptions } from './collect-options.js';
 
 /**
  * Create import object for test discovery
@@ -29,7 +24,6 @@ import {
 export function createDiscoveryImports(
   memory: WebAssembly.Memory,
   file: File,
-  defaultTestOptions: AssemblyScriptTestOptions,
   handleLog: AssemblyScriptConsoleLogHandler,
   coverageMemory?: WebAssembly.Memory
 ): WebAssembly.Imports {
@@ -46,15 +40,24 @@ export function createDiscoveryImports(
       __assertion_pass() {},
       __assertion_fail() {},
 
-      __begin_register_suite(namePtr: number, skip: number, only: number) {
-        const currentSuite = suiteStack[suiteStack.length - 1]!;
+      __begin_register_suite(
+        namePtr: number,
+        timeout: number,
+        retry: number,
+        skip: number,
+        only: number,
+        fails: number,
+      ) {
+        const parentSuite = suiteStack[suiteStack.length - 1]!;
+        const defaultTestOptions = (parentSuite.meta as AssemblyScriptSuiteTaskMeta).defaultTestOptions;
         const suiteName = liftString(memory, namePtr) ?? 'unknown suite';
-        const options = mergeAssemblyScriptSuiteOptions(DEFAULT_ASSEMBLYSCRIPT_SUITE_OPTIONS, skip, only);
-        const suite = createSuiteTask(suiteName, file, currentSuite, options);
+        const options = mergeAssemblyScriptTestOptions(defaultTestOptions, timeout, retry, skip, only, fails);
+        const suite = createSuiteTask(suiteName, file, parentSuite, options);
         suiteStack.push(suite);
 
         debug(
-          `[Executor] ${base} - Registering Suite: "${suiteName}" | skip: ${options.skip} | only: ${options.only}`
+          `[Executor] ${base} - Registering Suite: "${suiteName}" | timeout: ${options.timeout}ms | retry: ${options.retry}`
+          + ` | skip: ${options.skip} | only: ${options.only} | fails: ${options.fails} `
           + ` | parent: "${suite.suite?.name}" (parent idx: ${(suite.meta as AssemblyScriptSuiteTaskMeta).idxInParentTasks})`
         );
       },
@@ -78,10 +81,11 @@ export function createDiscoveryImports(
         only: number,
         fails: number,
       ) {
-        const currentSuite = suiteStack[suiteStack.length - 1]!;
+        const parentSuite = suiteStack[suiteStack.length - 1]!;
+        const defaultTestOptions = (parentSuite.meta as AssemblyScriptSuiteTaskMeta).defaultTestOptions;
         const testName = liftString(memory, namePtr) ?? 'unknown test';
         const options = mergeAssemblyScriptTestOptions(defaultTestOptions, timeout, retry, skip, only, fails);
-        const test = createTestTask(testName, fnIndex, file, currentSuite, options);
+        const test = createTestTask(testName, fnIndex, file, parentSuite, options);
         
         debug(`[Executor] ${base} - Registered test: "${testName}" | mode (pre-interp): "${test.mode}"`
           + ` | fnIndex ${fnIndex} | timeout: ${options.timeout}ms | retry: ${options.retry} | skip: ${options.skip}`

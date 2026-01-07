@@ -2,113 +2,21 @@ export const TEST_OPTION_UNDEFINED: i32 = -1;
 export const TEST_OPTION_FALSE: i32 = 0;
 export const TEST_OPTION_TRUE: i32 = 1;
 
-@unmanaged
-export class SuiteOptions {
-  _valueOfSkip: i32;
-  _valueOfOnly: i32;
-
-  constructor(
-    skip: i32 = TEST_OPTION_UNDEFINED,
-    only: i32 = TEST_OPTION_UNDEFINED,
-  ) {
-    this._valueOfSkip = skip;
-    this._valueOfOnly = only;
-  }
-
-  /**
-   * Define `skip` option for a specific suite so that when true, it will still be registered
-   * but will not execute. Other options will be undefined.
-   * 
-   * Setting to false has no additional effect (compared to not defining) when creating new SuiteOptions.
-   */
-  static skip(isSkipped: bool = true): SuiteOptions {
-    return new SuiteOptions(
-      isSkipped ? TEST_OPTION_TRUE : TEST_OPTION_FALSE,
-      TEST_OPTION_UNDEFINED
-    );
-  }
-  /**
-   * Set `skip` option for a specific suite so that when true, it will still be registered
-   * but will not execute. Other options remain unchanged.
-   */
-  skip(isSkipped: bool = true): this {
-    this._valueOfSkip = isSkipped ? TEST_OPTION_TRUE : TEST_OPTION_FALSE;
-    return this;
-  }
-  
-  /**
-   * Define `only` option for a specific suite so that when true (and allowOnly is globally true),
-   * it will execute exclusively while others NOT marked `only` will be skipped.
-   * Other options will be undefined.
-   * 
-   * Setting to false has no additional effect (compared to not defining) when creating new SuiteOptions.
-   */
-  static only(isOnly: bool = true): SuiteOptions {
-    return new SuiteOptions(
-      TEST_OPTION_UNDEFINED,
-      isOnly ? TEST_OPTION_TRUE : TEST_OPTION_FALSE
-    );
-  }
-  /**
-   * Set `only` option for a specific suite so that when true (and allowOnly is globally true),
-   * it will execute exclusively while others NOT marked `only` will be skipped.
-   * Other options remain unchanged.
-   */
-  only(isOnly: bool = true): this {
-    this._valueOfOnly = isOnly ? TEST_OPTION_TRUE : TEST_OPTION_FALSE;
-    return this;
-  }
-  
-  protected static mergeNullableInt(a: i32, b: i32, smallestWins: bool = false): i32 {
-    if (a < 0 && b < 0) {
-      return TEST_OPTION_UNDEFINED;
-    } else if (a >= 0 && b < 0) {
-      return a;
-    } else if (a < 0 && b >= 0) {
-      return b;
-    } else {
-      if (smallestWins) {
-        return a < b ? a : b;
-      } else {
-        return a < b ? b : a;
-      }
-    }
-  }
-
-  static __mergeSuiteOptions(left: SuiteOptions | null, right: SuiteOptions | null): SuiteOptions {
-    const leftDefined: bool = left !== null;
-    const rightDefined: bool = right !== null;
-
-    if ( !leftDefined && !rightDefined ) {
-      return new SuiteOptions();
-    } else if ( leftDefined && !rightDefined ) {
-      return left!;
-    } else if ( !leftDefined && rightDefined ) {
-      return right!;
-    } else {
-      return new SuiteOptions(
-        SuiteOptions.mergeNullableInt(left!._valueOfSkip, right!._valueOfSkip),   // true if either is true
-        SuiteOptions.mergeNullableInt(left!._valueOfOnly, right!._valueOfOnly)    // true if either is true
-      );
-    }
-  }
-
-  @operator.binary("&")
-  static __bitwiseAndSuiteOptions(left: SuiteOptions | null, right: SuiteOptions | null): SuiteOptions {
-    return SuiteOptions.__mergeSuiteOptions(left, right);
-  }
-
-  __mergeSuiteOptions(other: SuiteOptions): SuiteOptions {
-    return SuiteOptions.__mergeSuiteOptions(this, other);
-  }
-}
-
-@unmanaged @final
-export class TestOptions extends SuiteOptions {
+@final
+export class TestOptions {
   _valueOfTimeout: i32;
   _valueOfRetry: i32;
+  _valueOfSkip: i32;
+  _valueOfOnly: i32;
   _valueOfFails: i32;
 
+  /**
+   * Create a new TestOptions instance.
+   * 
+   * Defaults are all explicitly undefined in AssemblyScript.
+   * They are merged with the vitest config (timeout, retry, allowOnly) and
+   * also with any suite-level options externally in pool functions.
+   */
   constructor(
     timeout: i32 = TEST_OPTION_UNDEFINED,
     retry: i32 = TEST_OPTION_UNDEFINED,
@@ -116,9 +24,10 @@ export class TestOptions extends SuiteOptions {
     only: i32 = TEST_OPTION_UNDEFINED,
     fails: i32 = TEST_OPTION_UNDEFINED,
   ) {
-    super(skip, only);
     this._valueOfTimeout = timeout;
     this._valueOfRetry = retry;
+    this._valueOfSkip = skip;
+    this._valueOfOnly = only;
     this._valueOfFails = fails;
   }
 
@@ -234,6 +143,22 @@ export class TestOptions extends SuiteOptions {
     return this;
   }
 
+  private static mergeNullableInt(a: i32, b: i32, smallestWins: bool = false): i32 {
+    if (a < 0 && b < 0) {
+      return TEST_OPTION_UNDEFINED;
+    } else if (a >= 0 && b < 0) {
+      return a;
+    } else if (a < 0 && b >= 0) {
+      return b;
+    } else {
+      if (smallestWins) {
+        return a < b ? a : b;
+      } else {
+        return a < b ? b : a;
+      }
+    }
+  }
+
   static __merge(left: TestOptions | null, right: TestOptions | null): TestOptions {
     const leftDefined: bool = left !== null;
     const rightDefined: bool = right !== null;
@@ -264,3 +189,10 @@ export class TestOptions extends SuiteOptions {
     return TestOptions.__merge(this, other);
   }
 }
+
+/**
+ * Defaults are all explicitly undefined in AssemblyScript.
+ * They are merged with the vitest config (timeout, retry, allowOnly) and
+ * also with any suite-level options externally in pool functions.
+ */
+export const DEFAULT_TEST_OPTIONS = new TestOptions();

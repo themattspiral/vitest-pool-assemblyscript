@@ -1,6 +1,9 @@
-import { TestOptions } from './options';
+import { TestOptions, DEFAULT_TEST_OPTIONS } from './options';
 
-// @external functions are imported to the WASM execution environment from pool code
+/* 
+ * @external functions are imported to the
+ * WASM execution environment from pool executor
+ */
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @external("env", "__register_test")
@@ -16,8 +19,6 @@ declare function __register_test(
 
 export type TestCallback = () => void;
 
-const DEFAULT_TEST_OPTIONS = new TestOptions();
-
 /**
  * Register a test (called during top-level code execution in _start())
  *
@@ -27,7 +28,7 @@ export function test<T = TestCallback, U = TestOptions>(
   name: string,
   optionsOrFn: T,
   // @ts-ignore
-  fnOrOptions: U = DEFAULT_TEST_OPTIONS
+  fnOrOptions: U = DEFAULT_TEST_OPTIONS  // defaults all undefined here, merged with config & suite in JS
 ): void {
   let fn: TestCallback;
   let options: TestOptions;

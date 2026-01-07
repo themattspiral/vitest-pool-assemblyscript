@@ -5,7 +5,6 @@ import type {
   AssemblyScriptConsoleLogHandler,
   AssemblyScriptPoolError,
   AssemblyScriptTestError,
-  AssemblyScriptTestOptions,
   AssemblyScriptTestTaskMeta,
   CachedCompilation,
   CoverageData,
@@ -54,7 +53,6 @@ export async function executeWASMDiscovery(
   sourceMap: string,
   testFileBasename: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
-  defaultTestOptions: AssemblyScriptTestOptions,
   isBinaryInstrumented: boolean,
   handleLog: AssemblyScriptConsoleLogHandler,
   file: File,
@@ -72,7 +70,7 @@ export async function executeWASMDiscovery(
     })
     : undefined;
 
-  const importObject = createDiscoveryImports(memory, file, defaultTestOptions, handleLog, coverageMemory);
+  const importObject = createDiscoveryImports(memory, file, handleLog, coverageMemory);
 
   // Instantiate WASM module
   const instance = new WebAssembly.Instance(module, importObject);

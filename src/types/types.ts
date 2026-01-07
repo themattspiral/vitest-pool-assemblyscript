@@ -135,16 +135,8 @@ export type ResolvedHybridProviderOptions =
     globbedAssemblyScriptProjectRelativeExcludeOnly: string[],
   };
 
-// define these constants here so they make sense in context
-const AS_POOL_SUITE_OPTIONS = ['skip', 'only'] as const;
-const AS_POOL_TEST_OPTIONS = ['timeout', 'retry', 'skip', 'only', 'fails'] as const;
-
-// vitest TestOptions fields that are supported by AssemblyScript suites / tests in this pool
-type ASPoolSupportedSuiteOptionsFields = typeof AS_POOL_SUITE_OPTIONS[number];
-type ASPoolSupportedTestOptionsFields = typeof AS_POOL_TEST_OPTIONS[number];
-
-export type AssemblyScriptSuiteOptions = Required<Pick<TestOptions, ASPoolSupportedSuiteOptionsFields>>;
-export type AssemblyScriptTestOptions = Required<Pick<TestOptions, ASPoolSupportedTestOptionsFields>>;
+// vitest TestOptions fields that are supported by AssemblyScript tests in this pool
+export type AssemblyScriptTestOptions = Required<Pick<TestOptions, 'timeout' | 'retry' | 'skip' | 'only' | 'fails'>>;
 
 // ============================================================================
 // Utility Types
@@ -539,6 +531,7 @@ export interface FailedAssertion {
 
 export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
   idxInParentTasks: number;
+  defaultTestOptions: AssemblyScriptTestOptions;
   coverageData?: CoverageData;
 }
 
@@ -602,13 +595,13 @@ export interface CompileSpecFileTask {
   port: MessagePort;
   /** Project root directory */
   projectRoot: string;
-  /** Project name */
-  projectName: string;
+  /** vitest File task */
+  file: File;
 }
 
 export interface CompileSpecFileResult {
   compilerResult: AssemblyScriptCompilerResult;
-  fileTask: File;
+  file: File;
 }
 
 export interface DiscoverTestsTask {
@@ -620,8 +613,6 @@ export interface DiscoverTestsTask {
   reportOnQueued: boolean;
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
-  /** Options that should be applied to test configuration when not user-provided */
-  defaultTestOptions: AssemblyScriptTestOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Test name pattern for filtering (from -t flag) */
@@ -668,22 +659,12 @@ export interface ReportSuiteEventTask {
  * not per-test recoverable (compiler errors, instrumentation errors)
  */
 export interface ReportFileFailureTask {
-  /** Error to report to vitest for this test file */
-  error: AssemblyScriptTestError;
-  /** Path to test file */
-  testFile: string;
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
-  /** Project root directory */
-  projectRoot: string;
-  /** Project name */
-  projectName: string;
-  /** Compilation phase timings if applicable */
-  compileTiming?: number;
-  /** Discovery phase timings if applicable */
-  discoverTiming?: number;
+  /** File task with reportable error on the result */
+  file: File;
 }
 
 /**

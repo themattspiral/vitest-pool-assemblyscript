@@ -12,12 +12,7 @@ import { availableParallelism } from 'node:os';
 import Tinypool from 'tinypool';
 import { ModuleCacheMap } from 'vite-node/client';
 import { installSourcemapsSupport } from 'vite-node/source-map';
-import type {
-  Vitest,
-  ProcessPool,
-  TestProject,
-  TestSpecification,
-} from 'vitest/node';
+import type { Vitest, ProcessPool, TestProject, TestSpecification } from 'vitest/node';
 import type { File, Suite, Task, Test } from '@vitest/runner/types';
 
 import {
@@ -38,7 +33,6 @@ import type {
   CachedCompilation,
   AssemblyScriptTestError,
   AssemblyScriptResolvedConfig,
-  AssemblyScriptTestOptions,
   TestExecutionStart,
   TestExecutionEnd,
   CompileSpecFileTask,
@@ -48,7 +42,6 @@ import type {
   AssemblyScriptSuiteTaskMeta,
   ReportSuiteEventTask,
 } from '../types/types.js';
-import { DEFAULT_ASSEMBLYSCRIPT_TEST_OPTIONS } from '../types/typed-constants.js';
 import { setDebugMode, debug } from '../util/debug.js';
 import { compileAssemblyScript } from '../compiler/index.js';
 import { createWorkerChannel } from './worker-channel.js';
@@ -65,6 +58,7 @@ import {
 import {
   checkAndUpdateSoftTimeout,
   checkFailsAndInvertResult,
+  createFailedFileTask,
   createInitialFileTask,
   failTestWithTimeoutError,
   getRunnableTasks,
@@ -155,12 +149,14 @@ async function pipelineQueueCompileSpecFile(
         instrumentationOptions
       };
       const compilerResult = await compileAssemblyScript(testFilePath, compilerOptions, signal);
-      const fileTask = createInitialFileTask(testFilePath, config.root, spec.project.name);
-      fileTask.prepareDuration = compilerResult.compileTiming;
+
+      // create the file task - a suite representing the file and all tests in the hierarchy
+      const file = createInitialFileTask(testFilePath, spec.project.name, config);
+      file.prepareDuration = compilerResult.compileTiming;
 
       debug(`[TIMING] ${base} - compileAssemblyScript total: ${compilerResult.compileTiming.toFixed(2)}ms`);
 
-      return { compilerResult, fileTask };
+      return { compilerResult, file };
     })  
     .catch((err) => {
       throw createPoolErrorFromAnyError(`${base} - queueCompilation`, POOL_ERROR_NAMES.CompilationError, err);
@@ -176,7 +172,7 @@ async function pipelineDispatchCompileSpecFile(
   config: AssemblyScriptResolvedConfig,
   pool: Tinypool,
   signal: AbortSignal,
-  isCollectTestsMode: boolean
+  isCollectTestsMode: boolean,
 ): Promise<CompileSpecFileResult> {
   
   // set debug mode within this async context
@@ -193,6 +189,9 @@ async function pipelineDispatchCompileSpecFile(
   // Only instrument when coverage is enabled and when not running a collectTests() operation
   const shouldInstrument = config.coverage.enabled && !isCollectTestsMode;
 
+  // create the file task - a suite representing the file and all tests in the hierarchy
+  const file = createInitialFileTask(testFilePath, spec.project.name, config);
+
   try {
     const workerTaskData: CompileSpecFileTask = {
       testFilePath,
@@ -201,7 +200,7 @@ async function pipelineDispatchCompileSpecFile(
       poolOptions,
       port: workerPort,
       projectRoot: config.root,
-      projectName: spec.project.name,
+      file
     };
 
     const result: CompileSpecFileResult = await pool.run(workerTaskData, {
@@ -248,12 +247,6 @@ async function pipelineDispatchRunDiscovery(
 
   debug(`[Pipeline] ${base} - Phase 2 (discover) starting`);
 
-  const defaultTestOptions: AssemblyScriptTestOptions = {
-    ...DEFAULT_ASSEMBLYSCRIPT_TEST_OPTIONS,
-    timeout: config.testTimeout,
-    retry: config.retry,
-  };
-
   const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
   
   try {
@@ -261,7 +254,6 @@ async function pipelineDispatchRunDiscovery(
       cached,
       reportOnQueued,
       poolOptions,
-      defaultTestOptions,
       port: workerPort,
       testNamePattern: config.testNamePattern,
       allowOnly: config.allowOnly,
@@ -479,33 +471,31 @@ async function pipelineDispatchReportSuiteEvent(
 }
 
 async function pipelineDispatchReportFileFailure(
-  testFilePath: string,
-  project: TestProject,
+  spec: TestSpecification,
+  error: AssemblyScriptTestError,
   config: AssemblyScriptResolvedConfig,
   pool: Tinypool,
   poolAbortSignal: AbortSignal,
-  err: AssemblyScriptTestError,
   isCollectTestsMode: boolean,
 ): Promise<void> {
   const poolOptions = config.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
-  const base = basename(testFilePath);
+  const base = basename(spec.moduleId);
 
   const reportingStart = performance.now();
 
   debug(`[Pipeline] ${base} - Calling reportFileFailure | isCollectTestsMode: ${isCollectTestsMode}`);
 
-  const { workerPort, poolPort } = createWorkerChannel(project, isCollectTestsMode);
+  const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
+
+  // create the file task to report file failure
+  const file = createFailedFileTask(spec.moduleId, spec.project.name, config, error);
 
   try {
     const workerTaskData: ReportFileFailureTask = {
-      error: err,
-      testFile: testFilePath,
+      file,
       poolOptions,
       port: workerPort,
-      projectName: config.name,
-      projectRoot: config.root,
-      // TODO pass through compileTimings, discoveryTimings if applicable
     };
 
     await pool.run(workerTaskData, {
@@ -717,22 +707,10 @@ async function runTests(
   // debug('[Pool] Invalidated files:', invalidCount);
 
   // if (invalidCount > 0) {
-  //   debug('[Pool] Clearing coverage for invaldated files:');
-  //   for (let i = 0; i < invalidCount; i++) {
-  //     const file = invalidatedFiles![i]!;
-  //     const clearedCoverage = pipelineCoverageByTestFile.delete(file);
-  //     if (clearedCoverage) {
-  //       debug(`[Pool]   [${i}] Cleared pipeline coverage cache for: "${file}"`);
-  //     } else {
-  //       debug(`[Pool]   [${i}] No pipeline coverage found in cache to clear for: "${file}"`);
-  //     }
-  //   }
-  // }
-
-  // Clear cache for invalidated files and bump generations
-  // if (invalidatedFiles) {
-  //   debug('[Pool] Clearing compilation cache for invaldated files');
-  //   cache.invalidate(invalidatedFiles);
+  //   // probably:
+  //   //   0. pre-build a cached map of source files to specs that import them (using debuginfo?)
+  //   //   1. check if invalidated file is in map: if NOT ignore & continue loop to next file
+  //   //   2. create file pipeline for each spec the invalidated file maps to
   // }
 
   // Create pipeline for each file
@@ -765,9 +743,9 @@ async function runTests(
       let initialFileTask: File | undefined;
 
       if (useWorkerCompilation) {
-        ({ compilerResult, fileTask: initialFileTask } = await pipelineDispatchCompileSpecFile(spec, config, pool, signal, isCollectTestsMode));
+        ({ compilerResult, file: initialFileTask } = await pipelineDispatchCompileSpecFile(spec, config, pool, signal, isCollectTestsMode));
       } else {
-        ({ compilerResult, fileTask: initialFileTask } = await pipelineQueueCompileSpecFile(spec, config, signal, isCollectTestsMode));
+        ({ compilerResult, file: initialFileTask } = await pipelineQueueCompileSpecFile(spec, config, signal, isCollectTestsMode));
       }
 
       const p1Ms = Date.now() - p1Start;
@@ -817,7 +795,7 @@ async function runTests(
         debug(`[Pipeline] ${base} - file pipeline failure - Reporting test file failure:`, testError);
 
         // report a failure for this suite
-        await pipelineDispatchReportFileFailure(testFilePath, spec.project, config, pool, signal, testError, isCollectTestsMode);
+        await pipelineDispatchReportFileFailure(spec, testError, config, pool, signal, isCollectTestsMode);
       } catch (reportErr) {
         const poolReportError = createPoolErrorFromAnyError(`${base} - file pipeline failure reporting failure`,  POOL_ERROR_NAMES.PoolReportingError, reportErr);
         if (isAbortErrorString(poolReportError.name)) {
@@ -829,7 +807,7 @@ async function runTests(
         throw reportErr;
       }
 
-      // all errors either ignored, sent as a file failure, or thrown up if file failure report failed
+      // all errors either ignored, sent as a file failure, or thrown up if file failure report also failed
       return;
     } finally {
       debug(`[Pipeline] ${base} - Finished Pipeline Execution`);

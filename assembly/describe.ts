@@ -1,42 +1,57 @@
 import { TestCallback } from './test';
-import { SuiteOptions } from './options';
+import { TestOptions, DEFAULT_TEST_OPTIONS } from './options';
 
-// @external functions are imported to the WASM execution environment from pool code
+/* 
+ * @external functions are imported to the
+ * WASM execution environment from pool executor
+ */
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @external("env", "__begin_register_suite")
-declare function __begin_register_suite(name: string, skip: i32, only: i32): void;
+declare function __begin_register_suite(
+  name: string,
+  timeout: i32,
+  retry: i32,
+  skip: i32,
+  only: i32,
+  fails: i32
+): void;
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @external("env", "__end_register_suite")
 declare function __end_register_suite(name: string): void;
 
 
-const DEFAULT_SUITE_OPTIONS = new SuiteOptions();
-
 /**
  * Register a test suite (a collection of tests and suites).
  */
-export function describe<T = TestCallback, U = SuiteOptions>(
+export function describe<T = TestCallback, U = TestOptions>(
   name: string,
   optionsOrFn: T,
   // @ts-ignore
-  fnOrOptions: U = DEFAULT_SUITE_OPTIONS
+  fnOrOptions: U = DEFAULT_TEST_OPTIONS  // defaults all undefined here, merged with config in JS
 ): void {
   let fn: TestCallback;
-  let options: SuiteOptions;
+  let options: TestOptions;
 
-  if (isFunction(optionsOrFn) && fnOrOptions instanceof SuiteOptions) {
+  if (isFunction(optionsOrFn) && fnOrOptions instanceof TestOptions) {
     fn = optionsOrFn;
     options = fnOrOptions;
-  } else if (optionsOrFn instanceof SuiteOptions && isFunction(fnOrOptions)) {
+  } else if (optionsOrFn instanceof TestOptions && isFunction(fnOrOptions)) {
     fn = fnOrOptions;
     options = optionsOrFn;
   } else {
     throw new Error("Invalid describe() arguments");
   }
 
-  __begin_register_suite(name, options._valueOfSkip, options._valueOfOnly);
+  __begin_register_suite(
+    name,
+    options._valueOfTimeout,
+    options._valueOfRetry,
+    options._valueOfSkip,
+    options._valueOfOnly,
+    options._valueOfFails
+  );
 
   fn();
 
@@ -44,47 +59,47 @@ export function describe<T = TestCallback, U = SuiteOptions>(
 }
 
 
-function describeWithMergedOption<T = TestCallback, U = SuiteOptions>(
+function describeWithMergedOption<T = TestCallback, U = TestOptions>(
   name: string,
-  optionToMerge: SuiteOptions,
+  optionToMerge: TestOptions,
   optionsOrFn: T,
   // @ts-ignore
-  fnOrOptions: U = DEFAULT_SUITE_OPTIONS
+  fnOrOptions: U = DEFAULT_TEST_OPTIONS
 ): void {
   let fn: TestCallback;
-  let options: SuiteOptions;
+  let options: TestOptions;
 
-  if (isFunction(optionsOrFn) && fnOrOptions instanceof SuiteOptions) {
+  if (isFunction(optionsOrFn) && fnOrOptions instanceof TestOptions) {
     fn = optionsOrFn;
     options = fnOrOptions;
-  } else if (optionsOrFn instanceof SuiteOptions && isFunction(fnOrOptions)) {
+  } else if (optionsOrFn instanceof TestOptions && isFunction(fnOrOptions)) {
     fn = fnOrOptions;
     options = optionsOrFn;
   } else {
     throw new Error("Invalid describe() arguments");
   }
 
-  const merged = options.__mergeSuiteOptions(optionToMerge);
+  const merged = options.__merge(optionToMerge);
 
   return describe(name, merged, fn);
 }
 
 export namespace describe {
-  export function skip<T = TestCallback, U = SuiteOptions>(
+  export function skip<T = TestCallback, U = TestOptions>(
     name: string,
     optionsOrFn: T,
     // @ts-ignore
-    fnOrOptions: U = DEFAULT_SUITE_OPTIONS
+    fnOrOptions: U = DEFAULT_TEST_OPTIONS
   ): void {
-    return describeWithMergedOption(name, SuiteOptions.skip(), optionsOrFn, fnOrOptions);
+    return describeWithMergedOption(name, TestOptions.skip(), optionsOrFn, fnOrOptions);
   }
 
-  export function only<T = TestCallback, U = SuiteOptions>(
+  export function only<T = TestCallback, U = TestOptions>(
     name: string,
     optionsOrFn: T,
     // @ts-ignore
-    fnOrOptions: U = DEFAULT_SUITE_OPTIONS
+    fnOrOptions: U = DEFAULT_TEST_OPTIONS
   ): void {
-    return describeWithMergedOption(name, SuiteOptions.only(), optionsOrFn, fnOrOptions);
+    return describeWithMergedOption(name, TestOptions.only(), optionsOrFn, fnOrOptions);
   }
 }

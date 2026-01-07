@@ -44,18 +44,6 @@ export function assert<T>(condition: T, message: string = "Assertion failed"): v
 
 /**
  * Generic equality assertion. Assumes the same primitive type for both values.
- *
- * IMPORTANT - AssemblyScript compiler bug workaround:
- * The AS compiler has a const-folding bug with arithmetic comparisons.
- *
- * This FAILS (evaluates to false incorrectly):
- *   assert(1 + 1 == 2, "math works");
- *
- * This WORKS (evaluates correctly):
- *   const sum: i32 = 1 + 1;
- *   assert(sum == 2, "math works");
- *
- * Always assign arithmetic expressions to typed variables before comparison.
  */
 export function assertEqual<T>(actual: T, expected: T, message: string = "Equality assertion failed"): void {
   const condition = expected === actual;
