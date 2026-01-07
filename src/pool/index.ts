@@ -248,7 +248,9 @@ async function pipelineDispatchRunDiscovery(
   debug(`[Pipeline] ${base} - Phase 2 (discover) starting`);
 
   const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
-  
+  const diffOptions = typeof spec.project.serializedConfig.diff === 'object'
+      ? spec.project.serializedConfig.diff : undefined; 
+
   try {
     const workerTaskData: DiscoverTestsTask = {
       cached,
@@ -257,6 +259,7 @@ async function pipelineDispatchRunDiscovery(
       port: workerPort,
       testNamePattern: config.testNamePattern,
       allowOnly: config.allowOnly,
+      diffOptions,
     };
 
     const fileTask: File = await pool.run(workerTaskData, {

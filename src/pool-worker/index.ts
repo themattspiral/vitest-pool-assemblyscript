@@ -135,7 +135,7 @@ export async function compileSpecFile(taskData: CompileSpecFileTask): Promise<Co
  * @returns File task with filtered tests, discovered tests, and discovery timings
  */
 export async function discoverTests(taskData: DiscoverTestsTask): Promise<File> {
-  const { port, reportOnQueued, poolOptions, cached } = taskData;
+  const { port, reportOnQueued, poolOptions, cached, diffOptions } = taskData;
   const base = basename(cached.fileTask.filepath);
   
   try {
@@ -166,6 +166,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<File> 
       cached.isInstrumented,
       handleLog,
       cached.fileTask,
+      diffOptions
     );
     
     cached.fileTask.collectDuration = performance.now() - discoverStart;

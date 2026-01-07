@@ -13,8 +13,9 @@ export function createPoolError(
   name: PoolErrorName,
   stack?: string,
   cause?: any,
+  rawCallStack?: NodeJS.CallSite[],
 ): AssemblyScriptPoolError {
-  return { name, message, stack, cause, __type: ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID };
+  return { name, message, stack, cause, rawCallStack, __type: ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID };
 }
 
 export function createTestTimeoutError(
@@ -88,12 +89,18 @@ export function createPoolErrorFromAnyError(context: string, contextErrorName: P
 export function getTestErrorFromPoolError(error: AssemblyScriptPoolError): AssemblyScriptTestError {
   const anyCause: any = error?.cause;
   const message = error.message ?? anyCause.message ?? 'Unknown error';
+
+  if (error.causeIsEnhancedError) {
+    return error.cause as AssemblyScriptTestError;
+  }
+
   return {
     name: error.name ?? anyCause.name ?? POOL_ERROR_NAMES.PoolError,
     message,
     stack: anyCause?.stack ?? error.stack ?? message,
-    stacks: anyCause?.stacks,
-    cause: getTestErrorFromAnyError(anyCause?.cause)
+    stacks: anyCause?.stacks ,
+    cause: getTestErrorFromAnyError(anyCause?.cause),
+    diff: anyCause?.diff
   };
 }
 

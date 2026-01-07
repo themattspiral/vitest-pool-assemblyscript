@@ -92,6 +92,7 @@ export function createWebAssemblyCallSite(
     });
   
     if (!original.source || original.line === null || original.column === null) {
+      debug(`[SourceMap] Failed to map: ${debugString}`);
       return null;
     }
 

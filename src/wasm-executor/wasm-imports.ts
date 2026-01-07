@@ -106,18 +106,19 @@ export function createDiscoveryImports(
         const rawCallStack = extractCallStack(new Error());
 
         // Send the test error that we will report to vitest in the PoolError's `cause` field.
-        // The rawCallStack will be mapped, parsed, and deleted by the executor.
+        // The rawCallStack will be enahnced and deleted by the executor, with the parsed result
+        // added to the reported test error.
         const testError: AssemblyScriptTestError = {
-          message: msgAtLoc,
+          message,
           name: TEST_ERROR_NAMES.WASMRuntimeError,
-          rawCallStack
         };
 
         throw createPoolError(
           msgAtLoc,
           POOL_ERROR_NAMES.WASMExecutionAbortError,
           undefined,  // stack
-          testError   // cause 
+          testError,  // cause
+          rawCallStack
         );
       },
 

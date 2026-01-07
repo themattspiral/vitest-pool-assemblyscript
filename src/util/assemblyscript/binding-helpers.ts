@@ -20,8 +20,10 @@ export function liftString(
   pointer: number,
 ): string | undefined {
   if (!pointer) return undefined;
+
+  const unsigned = pointer >>> 0;
   
-  const lengthPtr = pointer - 4;
+  const lengthPtr = unsigned - 4;
 
   // convert byte-based lengthPtr to uint32-based index for Uint32Array
   // with: bytes / 4 (=== bytes >>> 2) and read length
@@ -32,8 +34,8 @@ export function liftString(
   
   // calculate end pointer, and convert byte-based start and end pointers
   // to uint16-based indexes for Uint16Array with: bytes / 2 (=== bytes >>> 1) 
-  const uint16EndPtr = (pointer + byteOffsetLength!) >>> 1;
-  let uint16StartPtr = pointer >>> 1;
+  const uint16EndPtr = (unsigned + byteOffsetLength!) >>> 1;
+  let uint16StartPtr = unsigned >>> 1;
 
   const memoryU16 = new Uint16Array(memory.buffer);
   let string = '';

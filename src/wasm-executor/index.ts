@@ -15,7 +15,7 @@ import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
 import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
-import { enhanceTestError, processWASMErrorStack } from './wasm-errors.js';
+import { enhanceTestError } from './wasm-errors.js';
 import { createPoolError, createPoolErrorFromAnyError } from '../util/pool-errors.js';
 
 function createExecutorPoolError(
@@ -33,20 +33,7 @@ function createExecutorPoolError(
 }
 
 /**
- * Discover tests via registration callbacks
- *
- * Process:
- * 1. Instantiate WASM with import callbacks
- * 2. Call _start() to run top-level code
- * 3. test() calls invoke __register_test callback with name and function index
- * 4. Return array of test objects with names and function indices
- *
- * Note: If the binary is instrumented (integrated/failsafe modes), we must provide
- * a stub coverage memory even though we're not collecting coverage during discovery.
- *
- * @param binary - Compiled WASM binary (may be instrumented)
- * @param debugInfo - Optional debug info (presence indicates instrumented binary)
- * @returns Discovery result with tests array
+ * Discover tests via test() and suites via describe() registration calls
  */
 export async function executeWASMDiscovery(
   binary: Uint8Array,
@@ -56,6 +43,7 @@ export async function executeWASMDiscovery(
   isBinaryInstrumented: boolean,
   handleLog: AssemblyScriptConsoleLogHandler,
   file: File,
+  diffOptions?: SerializedDiffOptions,
 ): Promise<void> {
   const module = await WebAssembly.compile(binary as BufferSource);
   const memory = createMemory();
@@ -83,35 +71,30 @@ export async function executeWASMDiscovery(
     } catch (error) {
       const thrownErrAny: any = error as any;
 
-      // error came from the abort() handler
-      if (thrownErrAny?.name === POOL_ERROR_NAMES.WASMExecutionAbortError) {
+      // Check to see if error came from the discovery abort() handler
+      // For discovery abort, test error is set on PoolError's `cause`,
+      // and the raw call stack is on PoolError's `rawCallStack`
+      if (
+        thrownErrAny?.name === POOL_ERROR_NAMES.WASMExecutionAbortError
+        && thrownErrAny?.cause?.name === TEST_ERROR_NAMES.WASMRuntimeError
+        && (error as AssemblyScriptPoolError).rawCallStack
+      ) {
+        const thrownPoolErr = thrownErrAny as AssemblyScriptPoolError;
+        thrownPoolErr.cause = await enhanceTestError(
+          thrownPoolErr.cause as AssemblyScriptTestError,
+          file,
+          sourceMap,
+          false,
+          thrownPoolErr.rawCallStack,
+          diffOptions
+        );
+        thrownPoolErr.causeIsEnhancedError = true;
 
-        // For discovery abort, test error is set on PoolError's `cause`.
-        // Enhance it if it is present.
-        if (thrownErrAny?.cause?.name === TEST_ERROR_NAMES.WASMRuntimeError) {
-          const reportableTestError = thrownErrAny.cause as AssemblyScriptTestError;
-          
-          // special handing for discovery's abort() handler
-          // which includes the rawErrorStack directly on the test error
-          if (reportableTestError.rawCallStack) {
-            const { parsedStack } = await processWASMErrorStack(
-              reportableTestError.rawCallStack as NodeJS.CallSite[],
-              sourceMap,
-              false
-            );
-            reportableTestError.stacks = parsedStack;
+        // delete the raw stack so vitest doesn't complain about unexpected error values
+        delete thrownPoolErr.rawCallStack;
 
-            // delete the raw stack so vitest doesn't complain about unexpected error values
-            delete reportableTestError.rawCallStack;
-          }
-
-          throw createExecutorPoolError(
-            testFileBasename,
-            'discoverTests',
-            `${reportableTestError.name}: ${reportableTestError.message}`,
-            reportableTestError
-          );
-        }
+        // rethrow it with the enhanced test error
+        throw thrownPoolErr;
       } else {
         throw createPoolErrorFromAnyError(
           `${testFileBasename} - Unexpected discovery error`,

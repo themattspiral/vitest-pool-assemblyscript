@@ -6,16 +6,16 @@
  * file:line:column information for better developer experience.
  */
 
-import { basename } from 'node:path';
 import { type ParsedStack } from '@vitest/utils';
 import { diff, type SerializedDiffOptions } from '@vitest/utils/diff';
-import type { Test } from '@vitest/runner/types';
+import type { Test, Suite } from '@vitest/runner/types';
 import { type RawSourceMap, SourceMapConsumer } from 'source-map';
 
 import { debug } from '../util/debug.js';
 import { POOL_INTERNAL_PATHS, TEST_ERROR_NAMES } from '../types/constants.js';
 import type { AssemblyScriptTestError, WebAssemblyCallSite } from '../types/types.js';
 import { createWebAssemblyCallSite, parseSourceMap } from './source-maps.js';
+import { getShortFunctionName } from './wasm-names.js';
 import {
   getSourceCodeFrameString,
   toPlaintextStackFrameString,
@@ -23,26 +23,6 @@ import {
 } from '../util/test-error-formatting.js';
 
 const POOL_INTERNAL_PATHS_SET = new Set(POOL_INTERNAL_PATHS);
-
-// Extract short function name from AS's namespace format
-//   "assembly/index/assert" → "assert"
-//   "tests/assembly/file.as.test/myFunction" → "myFunction"
-//   "tests/assembly/file.as.test/myClass#myMethod" → "myClass#myMethod"
-// Also strip filename prefix from anonymous functions:
-//   "sourcemap-accuracy-test.as.test~anonymous|1" → "anonymous|1"
-function getShortFunctionName(fullName: string, fileName: string): string {
-  const parts = fullName.split('/');
-  let shortName = parts[parts.length - 1] || fullName;
-
-  // Strip filename prefix if present (e.g., "basename~anonymous|1" → "anonymous|1")
-  // Remove any extension from the filename
-  const fileBasename = basename(fileName).replace(/\.[^.]+$/, '');
-  if (shortName.startsWith(`${fileBasename}~`)) {
-    shortName = shortName.substring(fileBasename.length + 1);
-  }
-
-  return shortName;
-};
 
 async function sourceMapRawCallStack(
   rawCallStack: NodeJS.CallSite[],
@@ -69,7 +49,7 @@ async function sourceMapRawCallStack(
   return mappedStack;
 }
 
-// Parse stack array  to Vitest TestError reporting format
+// Parse source-mapped stack array to Vitest TestError reporting format
 function parseMappedStack(mappedStack: WebAssemblyCallSite[], isAssertionFailure: boolean): ParsedStack[] {
   return mappedStack
     // if this is an assertion failure, filter out frames for internal assertion framework calls
@@ -78,7 +58,7 @@ function parseMappedStack(mappedStack: WebAssemblyCallSite[], isAssertionFailure
     
     // map to format that vitest reporter can display
     .map(frame => ({
-      method: getShortFunctionName(frame.functionName, frame.location.filePath),
+      method: getShortFunctionName(frame.functionName),
       file: frame.location.filePath,
       line: frame.location.line,
       column: frame.location.column + 1, // Convert from raw 0-indexed to 1-indexed for display
@@ -111,7 +91,7 @@ export async function processWASMErrorStack(
  */
 export async function enhanceTestError(
   error: AssemblyScriptTestError,
-  test: Test,
+  task: Test | Suite,
   sourceMap: string,
   valuesProvided: boolean,
   rawCallStack?: NodeJS.CallSite[],
@@ -130,7 +110,7 @@ export async function enhanceTestError(
     error.diff = expectedVsActualDiffString;
 
     // stack is used by vitest for error deduplication, so make sure it is set
-    error.stack = `${test.name} - ${error.message}`;
+    error.stack = `${task.name} - ${error.message}`;
 
     return error;
   }

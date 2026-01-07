@@ -40,6 +40,8 @@ export type PoolErrorName = typeof POOL_ERROR_NAMES[keyof typeof POOL_ERROR_NAME
 export interface AssemblyScriptPoolError extends Error {
   readonly __type: typeof ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID;
   name: PoolErrorName;
+  rawCallStack?: NodeJS.CallSite[];
+  causeIsEnhancedError?: boolean;
 }
 
 /**
@@ -619,6 +621,8 @@ export interface DiscoverTestsTask {
   testNamePattern?: RegExp;
   /** Allow .only modifier */
   allowOnly?: boolean;
+  /** User-defined diff options, if any */
+  diffOptions?: SerializedDiffOptions;
 }
 
 /**
