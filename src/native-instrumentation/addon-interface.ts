@@ -226,7 +226,8 @@ function transformDebugInfo(
 export function instrumentForCoverage(
   wasmBuffer: Buffer,
   sourceMapBuffer: Buffer,
-  instrumentationOptions: InstrumentationOptions
+  instrumentationOptions: InstrumentationOptions,
+  base: string,
 ): InstrumentationResult {
   if (!Buffer.isBuffer(wasmBuffer)) {
     throw createPoolError(
@@ -241,7 +242,7 @@ export function instrumentForCoverage(
     );
   }
 
-  debug('[AddonInterface] Calling native instrumentForCoverage');
+  debug(`[AddonInterface] ${base} - Calling native instrumentForCoverage`);
   const startTime = performance.now();
 
   const options: NativeInstrumentationOptions = {
@@ -253,7 +254,7 @@ export function instrumentForCoverage(
   };
   const nativeResult: NativeInstrumentationResult = addon.instrumentForCoverage(wasmBuffer, sourceMapBuffer, options);
   const addonTime = performance.now();
-  debug(`[AddonInterface] Native addon completed in ${(addonTime - startTime).toFixed(2)}ms`);
+  debug(`[AddonInterface] ${base} - TIMING Native addon completed in ${(addonTime - startTime).toFixed(2)}ms`);
 
   if (nativeResult.errors?.length) {
     throw createPoolError(
@@ -264,10 +265,8 @@ export function instrumentForCoverage(
 
   const debugInfo = transformDebugInfo(nativeResult.debugInfo);
   const transformTime = performance.now();
-  debug(`[AddonInterface] Transform completed in ${(transformTime - addonTime).toFixed(2)}ms`);
-  
-  debug(`[AddonInterface] Instrumented binary size: ${nativeResult.instrumentedWasm.length} bytes`);
-  debug(`[AddonInterface] Source map size: ${nativeResult.sourceMap.length} bytes`);
+  debug(`[AddonInterface] ${base} - TIMING Transform completed in: ${(transformTime - addonTime).toFixed(2)}ms`);
+  debug(`[AddonInterface] ${base} - Binary size: ${nativeResult.instrumentedWasm.length} bytes | Source map size: ${nativeResult.sourceMap.length * 2} bytes`);
 
   return {
     instrumentedWasm: nativeResult.instrumentedWasm,

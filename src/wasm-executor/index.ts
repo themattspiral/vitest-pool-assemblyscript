@@ -107,7 +107,7 @@ export async function executeWASMDiscovery(
     throw createExecutorPoolError(testFileBasename, 'discoverTests', 'no _start() export');
   }
 
-  debug('[Executor] Discovered', file.tasks.length, 'tests');
+  debug(`[Executor] ${testFileBasename} - Discovered ${file.tasks.length} top-level tasks`);
   return;
 }
 
@@ -268,27 +268,27 @@ export async function executeWASMTest(
 
     // Read counters from coverage memory
     const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, cached.debugInfo.instrumentedFunctionCount);
-    debug(`[Executor] Read coverage memory for ${cached.debugInfo.instrumentedFunctionCount} instrumented functions`);
+    debug(`[Executor] ${testFileBasename} - "${test.name}" - Read coverage memory for ${cached.debugInfo.instrumentedFunctionCount} instrumented functions`);
 
     // Iterate all instrumented functions and build coverage data with hit counts extracted from coverage memory
     let functionsHit = 0;
     for (const [filePath, debugFunctions] of Object.entries(cached.debugInfo.functionsByFileAndPosition)) {
       if (!coverage.hitCountsByFileAndPosition[filePath]) {
         coverage.hitCountsByFileAndPosition[filePath] = {};
-        debug(`[Executor] Extracting hits for source file: "${filePath}"`);
+        debug(`[Executor] ${testFileBasename} - "${test.name}" - Extracting hits for source file "${filePath}"`);
       }
 
       for (const [positionKey, funcInfo] of Object.entries(debugFunctions)) {
         if (funcInfo.coverageMemoryIndex === undefined) {
-          debug(`[Executor]   Skipping hit extraction for function "${funcInfo.name}" (${positionKey}) - No coverageMemoryIndex (not instrumented)`);
+          debug(`[Executor] WARNING NO COVERAGE MEMORY INDEX ${testFileBasename} - "${test.name}" - func "${funcInfo.name}" (${positionKey}) Skipping hit extraction`);
           continue;
         }
 
         const hitCount = extractedHitCounters[funcInfo.coverageMemoryIndex] ?? 0;
-        debug(`[Executor]   ${hitCount} hits [coverageMemoryIndex: ${funcInfo.coverageMemoryIndex}] for "${funcInfo.name}" at ${positionKey} `);
+        debug(`[Executor] ${testFileBasename} - "${test.name}" - func "${funcInfo.name}" (${positionKey}) [idx: ${funcInfo.coverageMemoryIndex}]: ${hitCount} hits`);
 
         if (coverage.hitCountsByFileAndPosition[filePath][positionKey] !== undefined) {
-          debug(`[Executor]   WARNING: DUPLICATE POSITION "${funcInfo.name}" (${positionKey}) already extracted to coverage for ${filePath}`);
+          debug(`[Executor] WARNING: DUPLICATE POSITION ${testFileBasename} - "${test.name}" - func "${funcInfo.name}" (${positionKey}) already extracted to coverage for ${filePath}`);
         }
         // Position key is already the position (line:column) from functionsByFileAndPosition
         coverage.hitCountsByFileAndPosition[filePath][positionKey] = hitCount;
@@ -300,7 +300,7 @@ export async function executeWASMTest(
     }
 
     meta.coverageData = coverage;
-    debug(`[Executor] Extracted coverage data: ${functionsHit} functions hit`);
+    debug(`[Executor] ${testFileBasename} - "${test.name}" - Extracted coverage data | ${functionsHit} functions hit`);
   }
 
   timings.fnfinal = performance.now();

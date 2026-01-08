@@ -24,7 +24,7 @@ const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, 'compiler/transforms
 
 if (!existsSync(STRIP_INLINE_TRANSFORM)) {
   throw createPoolError(
-    `ASC Compiler strip inline transform file not found at ${STRIP_INLINE_TRANSFORM}`,
+    `AS Compiler strip inline transform file not found at "${STRIP_INLINE_TRANSFORM}"`,
     POOL_ERROR_NAMES.CompilationError
   );
 }
@@ -52,6 +52,7 @@ export async function compileAssemblyScript(
 ): Promise<AssemblyScriptCompilerResult> {
   throwPoolErrorIfAborted(signal);
 
+  const base = basename(filename);
   const compileStart = performance.now();
 
   if (options.shouldInstrument && !options.instrumentationOptions) {
@@ -71,7 +72,7 @@ export async function compileAssemblyScript(
   // Use simple output name to avoid AS compiler prepending it to source map paths
   const outputFile = 'output.wasm';
 
-  debug(`[ASC Compiler] Compiling: "${filename}"`);
+  debug(`[AS Compiler] ${base} - Compiling: "${filename}"`);
 
   // Capture stdout/stderr (for potential error reporting)
   const stdout = {
@@ -109,7 +110,7 @@ export async function compileAssemblyScript(
     compilerFlags.push(
       '--transform', STRIP_INLINE_TRANSFORM
     );
-    debug('[ASC Compiler] Added Transform - Strip @inline decorators');
+    debug(`[AS Compiler] ${base} - Added Transform - Stripping @inline decorators`);
   }
 
   // Compile with AssemblyScript compiler
@@ -124,17 +125,17 @@ export async function compileAssemblyScript(
 
       if (name.endsWith('.wasm') && contents instanceof Uint8Array) {
         binary = contents;
-        debug(`[ASC Compiler] Captured binary in memory: "${name}"`);
+        debug(`[AS Compiler] Captured binary in memory: "${name}"`);
       } else if (name.endsWith('.wasm.map') && typeof contents === 'string') {
-        debug(`[ASC Compiler] Captured source map in memory: "${name}"`);
+        debug(`[AS Compiler] Captured source map in memory: "${name}"`);
         sourceMap = contents;
       } else {
-        debug(`[ASC Compiler] writeFile - Captured UNEXPECTED FILE: "${name}" at baseDir: "${_baseDir}"`);
+        debug(`[AS Compiler] writeFile - Captured UNEXPECTED FILE: "${name}" at baseDir: "${_baseDir}"`);
       }
     },
   });
-  const ascEnd = performance.now();
-  debug(`[TIMING] ${basename(filename)} - asc.main: ${(ascEnd - ascStart).toFixed(2)}ms`);
+
+  debug(`[AS Compiler] ${base} - TIMING asc.main: ${(performance.now() - ascStart).toFixed(2)}ms`);
 
   if (result.error) {
     const errorMessage = stderrLines.length > 0
@@ -146,7 +147,7 @@ export async function compileAssemblyScript(
 
   if (!binary) {
     const errorMessage = stderrLines.length > 0
-      ? `No WASM binary was generated\n\nASC Compiler output:\n${stderrLines.join('')}`
+      ? `No WASM binary was generated\n\nAS Compiler output:\n${stderrLines.join('')}`
       : 'No WASM binary was generated';
 
     throw createPoolError(errorMessage, POOL_ERROR_NAMES.CompilationError);
@@ -159,8 +160,8 @@ export async function compileAssemblyScript(
   const cleanBinary: Uint8Array = binary;
   const wasmSourceMap: string = sourceMap;
 
-  debug('[ASC Compiler] Compilation successful, clean binary size:', cleanBinary.length, 'bytes');
-  debug('[ASC Compiler] Source map generated, size:', wasmSourceMap.length, 'bytes');
+  debug(`[AS Compiler] ${base} - Compilation successful, clean binary size: ${cleanBinary.length} bytes`);
+  debug(`[AS Compiler] ${base} - Source map generated, size: ${wasmSourceMap.length * 2} bytes`);
   
   if (DEBUG_WRITE_FILES) {
     // Write source map to project maps directory for debugging
@@ -178,12 +179,12 @@ export async function compileAssemblyScript(
     // Format as well-formed JSON
     const formattedSourceMap = JSON.stringify(JSON.parse(wasmSourceMap), null, 2);
     writeFile(sourceMapPath, formattedSourceMap, { encoding: 'utf8' });
-    debug('[ASC Compiler] Wrote source map to:', sourceMapPath);
+    debug(`[AS Compiler] ${base} - Wrote source map to: "${sourceMapPath}"`);
 
     // Also write WASM binary for inspection
     const wasmPath = sourceMapPath.replace('.map', '.wasm');
     writeFile(wasmPath, cleanBinary);
-    debug('[ASC Compiler] Wrote WASM binary to:', wasmPath);
+    debug(`[AS Compiler] ${base} - Wrote WASM binary to: "${wasmPath}"`);
   }
 
   // Instrument binary for coverage if requested
@@ -194,13 +195,11 @@ export async function compileAssemblyScript(
     const wasmBuffer = Buffer.from(cleanBinary);
     const sourceMapBuffer = Buffer.from(wasmSourceMap);
 
-    const instrumentResult = instrumentForCoverage(wasmBuffer, sourceMapBuffer, options.instrumentationOptions!);
+    const instrumentResult = instrumentForCoverage(wasmBuffer, sourceMapBuffer, options.instrumentationOptions!, base);
     const instCount = instrumentResult.debugInfo.instrumentedFunctionCount;
 
     const instrumentEnd = performance.now();
-    debug(`[TIMING] ${basename(filename)} - instrumentation: ${(instrumentEnd - instrumentStart).toFixed(2)}ms`);
-    debug(`[ASC Compiler] Instrumented ${instCount} functions`);
-    debug('[ASC Compiler] Instrumented binary size:', instrumentResult.instrumentedWasm.length, 'bytes');
+    debug(`[AS Compiler] ${base} - TIMING Instrumented ${instCount} functions: ${(performance.now() - instrumentStart).toFixed(2)}ms`);
 
     return {
       binary: instrumentResult.instrumentedWasm,

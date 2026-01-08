@@ -45,7 +45,7 @@ import type {
 import { setDebugMode, debug } from '../util/debug.js';
 import { compileAssemblyScript } from '../compiler/index.js';
 import { createWorkerChannel } from './worker-channel.js';
-import { getAssemblyScriptResolvedConfig } from './options.js';
+import { getAssemblyScriptResolvedConfig } from './pool-config.js';
 import { mergeCoverageData } from '../coverage-provider/coverage-merge.js';
 import {
   createPoolError,
@@ -97,7 +97,7 @@ let compilationQueue = Promise.resolve({}) as Promise<CompileSpecFileResult>;
 // ============================================================================
 
 /**
- * Phase 1: Queue compilation sequentially in pool main thead so that compiler benefits from V8 JIT warmup.
+ * Queue compilation sequentially in pool main thead so that compiler benefits from V8 JIT warmup.
  *
  * @param testFilePath - Path to test file (absolute path)
  * @param config - Vitest resolved config
@@ -154,8 +154,6 @@ async function pipelineQueueCompileSpecFile(
       const file = createInitialFileTask(testFilePath, spec.project.name, config);
       file.prepareDuration = compilerResult.compileTiming;
 
-      debug(`[TIMING] ${base} - compileAssemblyScript total: ${compilerResult.compileTiming.toFixed(2)}ms`);
-
       return { compilerResult, file };
     })  
     .catch((err) => {
@@ -174,16 +172,11 @@ async function pipelineDispatchCompileSpecFile(
   signal: AbortSignal,
   isCollectTestsMode: boolean,
 ): Promise<CompileSpecFileResult> {
-  
   // set debug mode within this async context
   const poolOptions = config.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
 
   const testFilePath = spec.moduleId;
-  const base = basename(testFilePath);
-
-  debug(`[Pipeline] ${base} - Phase 1 (compile) starting`);
-
   const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
 
   // Only instrument when coverage is enabled and when not running a collectTests() operation
@@ -209,7 +202,6 @@ async function pipelineDispatchCompileSpecFile(
       signal: signal
     });
 
-    debug(`[Pipeline] ${base} - Phase 1 (compile) complete`);
     return result;
   } finally {
     workerPort.close();
@@ -218,18 +210,7 @@ async function pipelineDispatchCompileSpecFile(
 }
 
 /**
- * Phase 2: Discover tests in compiled binary
- * Always uses clean binary, populates cached.discoveredTests
- * Applies test name pattern filtering and returns file task with filtered tests
- * Throws on discovery failure
- *
- * @param testFilePath - Path to test file (absolute path)
- * @param cached - Cached compilation
- * @param spec - Test specification
- * @param pool - Tinypool instance
- * @param isCollectTestsMode - true when running a `collectTests()` operation only, false for full `runTests()`
- * @returns File task with filtered tests (undefined in collectTests mode)
- * @throws Error on discovery failure
+ * Discover tests
  */
 async function pipelineDispatchRunDiscovery(
   spec: TestSpecification,
@@ -243,9 +224,6 @@ async function pipelineDispatchRunDiscovery(
   // set debug mode within this async context
   const poolOptions = config.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
-  const base = basename(cached.fileTask.filepath);
-
-  debug(`[Pipeline] ${base} - Phase 2 (discover) starting`);
 
   const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
   const diffOptions = typeof spec.project.serializedConfig.diff === 'object'
@@ -268,7 +246,6 @@ async function pipelineDispatchRunDiscovery(
       signal: signal
     });
 
-    debug(`[Pipeline] ${base} - Phase 2 (discover) complete, found ${fileTask.tasks.length} tests`);
     return fileTask;
   } finally {
     workerPort.close();
@@ -277,7 +254,7 @@ async function pipelineDispatchRunDiscovery(
 }
 
 /**
- * Phase 3: Execute test
+ * Execute test
  */
 async function pipelineDispatchRunTest(
   test: Test,
@@ -291,8 +268,6 @@ async function pipelineDispatchRunTest(
   const poolOptions = config.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
   const base = basename(cached.fileTask.filepath);
-
-  debug(`[Pipeline] ${base} - Phase 3 Execute starting - Coverage: ${config.coverage.enabled}`);
 
   // used to abort this specific test's worker thread on timeout
   const testAbortController = new AbortController();
@@ -340,14 +315,13 @@ async function pipelineDispatchRunTest(
         const workerTimings = event as TestExecutionStart;
         workerExecutionStart = workerTimings.executionStart;
 
-        debug(`[Pipeline] ${base} - "${test.name}": Received worker execution start - Beginning test timeout timer ${test.timeout}ms`);
-
-        const workerQueuedDuration = workerExecutionStart - dispatchTime!;
-        debug(`[TIMING] ${base} - "${test.name}": Worker Queued ${workerQueuedDuration.toFixed(2)}ms`);
-        
         const transitDuration = poolReceivedExecutionStart - workerExecutionStart;
         const adjustedTimeout = Math.max(test.timeout - transitDuration, 0);
-        debug(`[TIMING] ${base} - "${test.name}": Execution start transit: ${transitDuration.toFixed(2)}ms | Adjusted timeout: ${adjustedTimeout}ms`);
+        debug(`[Pipeline] ${base} - "${test.name}": Received worker execution start (transit ${transitDuration}ms)`
+          + ` - Beginning test timeout timer ${test.timeout}ms (adjusted timeout: ${adjustedTimeout}ms)`);
+
+        const workerQueuedDuration = workerExecutionStart - dispatchTime!;
+        debug(`[Pipeline] ${base} - "${test.name}" TIMING Exec: Job Queued: ${workerQueuedDuration.toFixed(2)}ms`);
 
         // Enforce test timeout
         testTimeoutId = setTimeout(() => {
@@ -360,7 +334,7 @@ async function pipelineDispatchRunTest(
 
           testAbortController.abort(POOL_ERROR_NAMES.WASMExecutionTimeoutError);
 
-          debug(`[Pipeline] ${base} - Test "${test.name}" timed out (threshold ${test.timeout}ms)`
+          debug(`[Pipeline] ${base} - "${test.name}" timed out (threshold ${test.timeout}ms)`
             + ` - Aborted worker job (duration before abort: ${elapsedFromWorkerExecutionStart}ms)`
           );
         }, adjustedTimeout);
@@ -372,12 +346,12 @@ async function pipelineDispatchRunTest(
         const workerTimings = event as TestExecutionEnd;
         
         const elapsedFromWorkerExecutionStart = workerTimings.executionEnd - workerExecutionStart!;
-        debug(`[Pipeline] ${base} - "${test.name}": Received worker execution end - Clear test timeout timer`
-          + ` - Actual duration from worker exection start: ${elapsedFromWorkerExecutionStart}`
+        const transitDuration = poolReceivedExecutionEnd - workerTimings.executionEnd;
+        debug(`[Pipeline] ${base} - "${test.name}": Received worker execution end (transit: ${transitDuration}ms)`
+          + `- Clearing test timeout timer - Actual duration from worker exection start: ${elapsedFromWorkerExecutionStart}ms`
         );
         
-        const transitDuration = poolReceivedExecutionEnd - workerTimings.executionEnd;
-        debug(`[TIMING] ${base} - "${test.name}": Execution end transit: ${transitDuration.toFixed(2)}ms`);
+        debug(`[Pipeline] ${base} - "${test.name}" TIMING - End transit: ${transitDuration.toFixed(2)}ms`);
       }
     });
 
@@ -446,7 +420,8 @@ async function pipelineDispatchReportSuiteEvent(
 
   const reportingStart = performance.now();
   
-  debug(`[Pipeline] ${base} - ${suiteLabel}Calling reportSuiteEvent "${event}" | result state: ${suite.result?.state}`);
+  debug(`[Pipeline] ${base} - ${suiteLabel}Calling reportSuiteEvent "${event}"`
+    + ` | result state: "${suite.result ? suite.result?.state : '--'}"`);
   
   const { workerPort, poolPort } = createWorkerChannel(project, false);
   
@@ -464,8 +439,7 @@ async function pipelineDispatchReportSuiteEvent(
       signal: poolAbortSignal,
     });
 
-    debug(`[Pipeline] ${base} - ${suiteLabel}reportSuiteEvent "${event}" completed`);
-    debug(`[TIMING] ${base} - ${suiteLabel}reportSuiteEvent: ${(performance.now() - reportingStart).toFixed(2)}ms`);
+    debug(`[Pipeline] ${base} - ${suiteLabel}TIMING - reportSuiteEvent "${event}": ${(performance.now() - reportingStart).toFixed(2)}ms`);
 
   } finally {
     workerPort.close();
@@ -487,7 +461,7 @@ async function pipelineDispatchReportFileFailure(
 
   const reportingStart = performance.now();
 
-  debug(`[Pipeline] ${base} - Calling reportFileFailure | isCollectTestsMode: ${isCollectTestsMode}`);
+  debug(`[Pipeline] ${base} - Calling reportPipelineFileFailure | isCollectTestsMode: ${isCollectTestsMode}`);
 
   const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
 
@@ -507,9 +481,7 @@ async function pipelineDispatchReportFileFailure(
       signal: poolAbortSignal
     });
 
-    debug(`[Pipeline] ${base} - reportFileFailure completed`);
-    debug(`[TIMING] ${base} - reportFileFailure: ${(performance.now() - reportingStart).toFixed(2)}ms`);
-
+    debug(`[Pipeline] ${base} - TIMING reportFileFailure: ${(performance.now() - reportingStart).toFixed(2)}ms`);
   } finally {
     workerPort.close();
     poolPort.close();
@@ -546,8 +518,7 @@ async function pipelineDispatchReportTestTimeouts(
       signal: poolAbortSignal
     });
     
-    debug(`[Pipeline] ${base} - pipelineDispatchReportTestTimeouts completed`);
-    debug(`[TIMING] ${base} - pipelineDispatchReportTestTimeouts: ${(performance.now() - reportingStart).toFixed(2)}ms`);
+    debug(`[Pipeline] ${base} - TIMING pipelineDispatchReportTestTimeouts completed ${(performance.now() - reportingStart).toFixed(2)}ms`);
   } finally {
     workerPort.close();
     poolPort.close();
@@ -567,6 +538,7 @@ async function runSuite(
   pool: Tinypool,
   poolAbortSignal: AbortSignal,
 ): Promise<Suite> {
+  const suiteStart = performance.now();
   const suiteCoverage: CoverageData = { hitCountsByFileAndPosition: {} };
   const suiteLabel = getSuiteLogLabel(suite);
 
@@ -579,7 +551,6 @@ async function runSuite(
   let tasksToRun: Task[] = getRunnableTasks(suite);
   const finishedTasks: Task[] = [];
 
-  const p3Start = Date.now();
   let executeLoopCount: number = 0;
   
   // continue until there are no tasks left to run (e.g. needing retry)
@@ -633,7 +604,7 @@ async function runSuite(
         finishedTasks.push(task);
 
         debug(`[Pipeline] ${cached.base} - ${suiteLabel}"${task.name}" - Complete` 
-          + ` | Result: ${task.result?.state} | ${task.result?.retryCount ?? 0} retries`
+          + ` | Result: "${task.result?.state}" | ${task.result?.retryCount ?? 0} retries`
           + ` | ${task.result?.errors?.length ?? 0} errors | Collected Coverage: ${!!meta.coverageData}`
         );
       }
@@ -663,13 +634,13 @@ async function runSuite(
   }
   
   // update suite result based on its tasks
-  updateSuiteFinalResult(suite, cached.base, 'Pipeline');
+  updateSuiteFinalResult(suite, 'Pipeline', `${cached.base} - ${suiteLabel}`);
 
   // report the suite result
   await pipelineDispatchReportSuiteEvent(suite, 'suite-finished', config, project, pool, poolAbortSignal);
 
-  const p3Ms = Date.now() - p3Start;
-  debug(`[TIMING] ${cached.base} - ${suiteLabel}Pipeline Execution Loops: ${p3Ms}ms`);
+  const suiteTime = performance.now() - suiteStart;
+  debug(`[Pipeline] ${cached.base} - ${suiteLabel}TIMING - Pipeline Suite Run Complete: ${suiteTime.toFixed(2)}ms`);
 
   return suite;
 }
@@ -731,7 +702,7 @@ async function runTests(
       const oldCompilation = pipelineCompileCacheByTestFile.get(testFilePath);
       if (oldCompilation) {
         debug(`[Pipeline] ${base} - Deleting pipeline cache for existing spec (started at: `
-          + `${oldCompilation.filePipelineStart} tests: ${oldCompilation.fileTask.tasks.length}) before re-run`
+          + `${oldCompilation.filePipelineStart} | tests: ${oldCompilation.fileTask.tasks.length}) before re-run)`
         );
         
         pipelineCompileCacheByTestFile.delete(testFilePath);
@@ -740,7 +711,7 @@ async function runTests(
       }
 
       // COMPILATION PHASE
-      const p1Start = Date.now();
+      const compStart = performance.now();
       
       let compilerResult: AssemblyScriptCompilerResult | undefined;
       let initialFileTask: File | undefined;
@@ -751,8 +722,9 @@ async function runTests(
         ({ compilerResult, file: initialFileTask } = await pipelineQueueCompileSpecFile(spec, config, signal, isCollectTestsMode));
       }
 
-      const p1Ms = Date.now() - p1Start;
-      debug(`[TIMING] ${base} - Pipeline Phase 1: ${p1Ms}ms`);
+      const compTime = performance.now() - compStart;
+      // debug(`[Pipeline] ${base} - TIMING Pipeline Compilation Phase: ${compTime.toFixed(2)}ms | vs Worker --:ms | Diff: --ms`);
+      debug(`[Pipeline] ${base} - TIMING Pipeline Compilation Phase Complete: ${compTime.toFixed(2)}ms`);
 
       const cached: CachedCompilation = {
         filePipelineStart,
@@ -766,24 +738,27 @@ async function runTests(
       pipelineCompileCacheByTestFile.set(testFilePath, cached);
 
       // DISCOVERY PHASE
-      const p2Start = Date.now();
+      const discStart = performance.now();
+
       const reportOnQueued = !useWorkerCompilation;
       cached.fileTask = await pipelineDispatchRunDiscovery(spec, cached, config, pool, signal, isCollectTestsMode, reportOnQueued);
-      const p2End = Date.now();
-      const p2Ms = p2End - p2Start;
-      debug(`[TIMING] ${base} - Pipeline Phase 2: ${p2Ms}ms`);
-      debug(`[Pipeline] ${base} - Phase 2 complete, discovered ${cached.fileTask.tasks.length} tests`);
-
+      
+      const discTime = performance.now() - discStart;
+      debug(`[Pipeline] ${base} - TIMING Pipeline Discovery Phase: ${discTime.toFixed(2)}ms`);
+      
+      // if just collecting, consider the pipeline done - resolve async promise
       if (isCollectTestsMode) {
-        // consider this pipeline done - resolve async promise
         return;
       }
       
       // EXECUTION PHASE
+      const execStart = performance.now();
+
       await runSuite(cached.fileTask, cached, config, spec.project, pool, signal);
 
-      debug(`[TIMING] ${base} - File pipeline Total: ${Date.now() - p1Start}ms`
-      );
+      const execTime = performance.now() - execStart;
+      debug(`[Pipeline] ${base} - TIMING Pipeline Execution Phase: ${execTime.toFixed(2)}ms`);
+
     } catch (error) {
       if (isAbortError(error)) {
         debug(`[Pipeline] ${base} - file pipeline aborted during run`);
@@ -897,7 +872,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
 
   const maxThreads = poolOptions.maxThreads ?? availableParallelism() - 1;
 
-  debug('[Pool] Worker path:', WORKER_PATH);
+  debug(`[Pool] Worker path: "${WORKER_PATH}"`);
   debug(`[Pool] Worker configuration - maxThreads: ${maxThreads}`);
 
   // Initialize Tinypool for worker management

@@ -5,8 +5,9 @@
  * to Vitest via RPC. All helpers are designed to be composable and reusable.
  */
 
-import { createBirpc, type BirpcReturn } from 'birpc';
 import type { MessagePort } from 'node:worker_threads';
+import { basename } from 'node:path';
+import { createBirpc, type BirpcReturn } from 'birpc';
 import type { RuntimeRPC, UserConsoleLog } from 'vitest';
 import type {
   File,
@@ -67,10 +68,10 @@ export async function reportFileQueued(
   rpc: BirpcReturn<RuntimeRPC, object>,
   fileTask: File
 ): Promise<void> {
-  rpcDebug(`[RPC] Reporting onQueued for: "${fileTask.filepath}"`);
   await rpc.onQueued(fileTask);
-  rpcDebug(`[RPC] Completed onQueued for: "${fileTask.filepath}"`);
-  
+  rpcDebug(`[RPC] ${basename(fileTask.filepath)} - Reported onQueued for file "${fileTask.filepath}"`
+    + ` | mode: "${fileTask.mode}" | state: "${fileTask.result ? fileTask.result.state : '--'}"`
+  );
 }
 
 /**
@@ -83,53 +84,76 @@ export async function reportFileCollected(
   rpc: BirpcReturn<RuntimeRPC, object>,
   fileTask: File
 ): Promise<void> {
-  rpcDebug(`[RPC] Reporting onCollected (${fileTask.tasks.length} tasks | mode: "${fileTask.mode}") for: "${fileTask.filepath}"`);
   await rpc.onCollected([fileTask]);
-  rpcDebug(`[RPC] Completed onCollected (${fileTask.tasks.length} tasks | mode: "${fileTask.mode}") for: "${fileTask.filepath}"`);
+  rpcDebug(`[RPC] ${basename(fileTask.filepath)} - Reported onCollected for file "${fileTask.filepath}"`
+    + ` | ${fileTask.tasks.length} tasks | mode: "${fileTask.mode}" | state: "${fileTask.result?.state}"`
+  );
 }
 
 /**
- * Report suite event
- *
- * @param rpc - RPC client for communication
- * @param suite - Task representing the suite
+ * Report suite-prepare event
  */
-export async function reportSuiteLifecycleEvent(
+export async function reportSuitePrepare(
   rpc: BirpcReturn<RuntimeRPC, object>,
   suite: Suite,
-  event: 'suite-prepare' | 'suite-finished',
   base: string,
   suiteLabel: string,
 ): Promise<void> {
-  if (event === 'suite-finished') {
-    const meta = suite.meta as AssemblyScriptSuiteTaskMeta;
-
-    // Report coverage if available
-    if (meta.coverageData) {
-      debug(`[RPC] ${base} - ${suiteLabel}Reporting coverage via onAfterSuiteRun`);
-
-      const coverage: AssemblyScriptCoveragePayload = {
-        __format: COVERAGE_PAYLOAD_FORMATS.AssemblyScript,
-        coverageData: meta.coverageData,
-      };
-      await rpc.onAfterSuiteRun({
-        coverage,
-        testFiles: [suite.file.filepath],
-        transformMode: 'ssr',
-        projectName: suite.file.projectName,
-      });
-    } else {
-      debug(`[RPC] ${base} - ${suiteLabel}No coverage available to report via onAfterSuiteRun`);
-    }
-  }
-
   // Report suite events without the custom task meta so reporters won't log it
   const taskPack: TaskResultPack = [suite.id, suite.result, {}];
-  const eventPack: TaskEventPack = [suite.id, event, undefined];
+  const eventPack: TaskEventPack = [suite.id, 'suite-prepare', undefined];
 
-  debug(`[RPC] ${base} - ${suiteLabel}Reporting "${event}" with result: "${suite.result?.state}" (${suite.result?.duration ?? '-'}ms)`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] ${base} - ${suiteLabel}Completed "${event}" with result: "${suite.result?.state}" (${suite.result?.duration ?? '-'}ms)`);
+
+  rpcDebug(`[RPC] ${base} - ${suiteLabel}Reported "suite-prepare" | state: "${suite.result?.state}"`
+    + ` | duration: ${suite.result?.duration?.toFixed(2) ?? '--'}ms`
+  );
+}
+
+
+/**
+ * Report suite-finished event
+ */
+export async function reportSuiteFinished(
+  rpc: BirpcReturn<RuntimeRPC, object>,
+  suite: Suite,
+  base: string,
+  suiteLabel: string,
+): Promise<void> {
+  let coveragePromise: Promise<void> = Promise.resolve();
+  const meta = suite.meta as AssemblyScriptSuiteTaskMeta;
+
+  // Report coverage if available
+  if (meta.coverageData) {
+    const coverage: AssemblyScriptCoveragePayload = {
+      __format: COVERAGE_PAYLOAD_FORMATS.AssemblyScript,
+      coverageData: meta.coverageData,
+    };
+
+    coveragePromise = rpc.onAfterSuiteRun({
+      coverage,
+      testFiles: [suite.file.filepath],
+      transformMode: 'ssr',
+      projectName: suite.file.projectName,
+    });
+
+    debug(`[RPC] ${base} - ${suiteLabel}Reported suite coverage via onAfterSuiteRun`);
+  } else {
+    debug(`[RPC] ${base} - ${suiteLabel}No suite coverage available to report via onAfterSuiteRun`);
+  }
+
+  // Report suite event without the custom task meta so reporters won't log it
+  const taskPack: TaskResultPack = [suite.id, suite.result, {}];
+  const eventPack: TaskEventPack = [suite.id, "suite-finished", undefined];
+
+  await Promise.all([
+    coveragePromise,
+    rpc.onTaskUpdate([taskPack], [eventPack])
+  ]);
+
+  rpcDebug(`[RPC] ${base} - ${suiteLabel}Reported "suite-finished" | state: "${suite.result?.state}"`
+    + ` | duration: ${suite.result?.duration?.toFixed(2) ?? '--'}ms`
+  );
 }
 
 // ============================================================================
@@ -146,12 +170,12 @@ export async function reportTestPrepare(
   rpc: BirpcReturn<RuntimeRPC>,
   test: Test,
 ): Promise<void> {
-  const taskPack: TaskResultPack = [test.id, test.result, test.meta];
+  const taskPack: TaskResultPack = [test.id, test.result, {}];
   const eventPack: TaskEventPack = [test.id, 'test-prepare', undefined];
 
-  rpcDebug(`[RPC] Calling rpc.onTaskUpdate with "test-prepare" (state: ${test.result?.state}) on test: "${test.name}"`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] Completed rpc.onTaskUpdate with "test-prepare" (state: ${test.result?.state}) on test: "${test.name}"`);
+  rpcDebug(`[RPC] ${basename(test.file.filepath)} - Reported "test-prepare" on "${test.name}"`
+    + ` | state: "${test.result?.state}"`);
 }
 
 /**
@@ -165,12 +189,13 @@ export async function reportTestFinished(
   rpc: BirpcReturn<RuntimeRPC>,
   test: Test,
 ): Promise<void> {
-  const taskPack: TaskResultPack = [test.id, test.result, test.meta];
+  const taskPack: TaskResultPack = [test.id, test.result, {}];
   const eventPack: TaskEventPack = [test.id, 'test-finished', undefined];
 
-  rpcDebug(`[RPC] Calling rpc.onTaskUpdate with "test-finished" event on test: "${test.name}" | duration: ${test.result?.duration}ms`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] Completed rpc.onTaskUpdate with "test-finished" event on test: "${test.name}" | duration: ${test.result?.duration}ms`);
+  rpcDebug(`[RPC] ${basename(test.file.filepath)} - Reported "test-finished" on "${test.name}"`
+    + ` | state: "${test.result?.state}" | duration: ${test.result?.duration?.toFixed(2)}ms`
+  );
 }
 
 /**
@@ -184,12 +209,13 @@ export async function reportTestRetried(
   rpc: BirpcReturn<RuntimeRPC>,
   test: Test,
 ): Promise<void> {
-  const taskPack: TaskResultPack = [test.id, test.result, test.meta];
+  const taskPack: TaskResultPack = [test.id, test.result, {}];
   const eventPack: TaskEventPack = [test.id, 'test-retried', undefined];
 
-  rpcDebug(`[RPC] Calling rpc.onTaskUpdate with "test-retried" event on test: "${test.name}" | duration: ${test.result?.duration}ms`);
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] Completed rpc.onTaskUpdate with "test-retried" event on test: "${test.name}" | duration: ${test.result?.duration}ms`);
+  rpcDebug(`[RPC] ${basename(test.file.filepath)} - Reported "test-retried" on "${test.name}"`
+    + ` | state: "${test.result?.state}" | duration: ${test.result?.duration?.toFixed(2)}ms`
+  );
 }
 
 // ============================================================================
@@ -197,19 +223,12 @@ export async function reportTestRetried(
 // ============================================================================
 
 /**
- * Flush any pending RPC updates (matches vmThreads pattern)
- *
- * @param rpc - RPC client for communication
- * @param fileTask - Optional file task for detailed logging
+ * Flush any pending RPC updates
  */
 export async function flushRpcUpdates(
   rpc: BirpcReturn<RuntimeRPC, object>,
-  fileTask?: File
 ): Promise<void> {
-  const context = fileTask ? ` for: ${fileTask.filepath}` : '';
-  rpcDebug('[RPC] Sending final flush' + context);
   await rpc.onTaskUpdate([], []);
-  rpcDebug('[RPC] Final flush completed' + context);
 }
 
 // ============================================================================
@@ -222,6 +241,7 @@ export async function flushRpcUpdates(
 export async function reportUserConsoleLogs(
   rpc: BirpcReturn<RuntimeRPC>,
   logs: AssemblyScriptConsoleLog[],
+  base: string,
   taskId: string,
   label: string,
 ): Promise<void> {
@@ -229,8 +249,6 @@ export async function reportUserConsoleLogs(
     return;
   }
 
-  rpcDebug(`[RPC] Reporting rpc.onUserConsoleLog for "${label}"`);
-  
   const stdLogs = logs.filter(l => !l.isError);
   const errorLogs = logs.filter(l => l.isError);
 
@@ -267,26 +285,23 @@ export async function reportUserConsoleLogs(
 
   await Promise.all(reportPromises);
 
-  rpcDebug(`[RPC] Completed reporting rpc.onUserConsoleLog for "${label}"`);
+  rpcDebug(`[RPC] ${base} - Reported onUserConsoleLog for "${label}" | ${logs.length} messages`);
 }
 
 /**
  * Report file-level error (compilation/discovery failure)
- *
- * @param rpc - RPC client for communication
- * @param fileTask - File task to report error for
- * @param error - Error that occurred
  */
 export async function reportFileError(
   rpc: BirpcReturn<RuntimeRPC>,
   fileTask: File,
 ): Promise<void> {
-  rpcDebug('[RPC] Reporting file-level error via rpc.onCollected');
-  await rpc.onCollected([fileTask]);
+  // await rpc.onCollected([fileTask]);
 
-  const taskPack: TaskResultPack = [fileTask.id, fileTask.result, fileTask.meta];
-  await rpc.onTaskUpdate([taskPack], []);
-  rpcDebug('[RPC] Completed reporting file-level error via rpc.onCollected');
+  const taskPack: TaskResultPack = [fileTask.id, fileTask.result, {}];
+  const eventPack: TaskEventPack = [fileTask.id, "suite-failed-early", undefined];
+  await rpc.onTaskUpdate([taskPack], [eventPack]);
+
+  rpcDebug(`[RPC] ${basename(fileTask.filepath)} - Reported "suite-failed-early" for "${fileTask.filepath}"`);
 
 }
 

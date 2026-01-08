@@ -1,9 +1,9 @@
 /**
  * Hybrid Coverage Provider
  *
- * This provider handles BOTH JavaScript and AssemblyScript coverage in a single provider.
- * - Delegates JS coverage to Vitest's v8 provider
+ * This provider handles both AssemblyScript and JavaScript and coverage
  * - Converts AS coverage to Istanbul format
+ * - Delegates JS coverage to Vitest's v8 provider
  * - Merges both into a unified coverage report
  */
 
@@ -13,7 +13,6 @@ import type {
   ReportContext,
   ResolvedCoverageOptions,
   CustomProviderOptions,
-  CoverageProviderModule
 } from 'vitest/node';
 import { basename, relative } from 'node:path';
 import type { AfterSuiteRunMeta } from 'vitest';
@@ -25,7 +24,7 @@ import { parseFunctionsFromFile } from './ast-parser.js';
 import { globFiles } from './glob-utils.js';
 import { mergeCoverageData } from './coverage-merge.js';
 import { debug, setDebugMode } from '../util/debug.js';
-import { getAssemblyScriptResolvedConfig } from '../pool/options.js';
+import { getAssemblyScriptResolvedConfig } from '../pool/pool-config.js';
 import type {
   AssemblyScriptCoveragePayload,
   AssemblyScriptResolvedConfig,
@@ -42,7 +41,6 @@ import {
 // pick up CustomProviderOptions module augmentation
 import '../config/index.js';
 import { createPoolError } from '../util/pool-errors.js';
-import { ModuleExecutionInfo } from 'vite-node';
 
 export class HybridCoverageProvider implements CoverageProvider {
   name = 'hybrid-assemblyscript-v8' as const;
@@ -124,7 +122,7 @@ export class HybridCoverageProvider implements CoverageProvider {
       // Delegate to v8 provider for all other formats (JS, etc.)
       if (!this.v8Provider) {
         throw createPoolError(
-          'HybridCoverageProvider - onAfterSuiteRun failed to delegate to internal v8 provider',
+          'HybridCoverageProvider - onAfterSuiteRun failed to delegate to v8 provider',
           POOL_ERROR_NAMES.HybridCoverageProviderError
         );
       }
@@ -133,10 +131,10 @@ export class HybridCoverageProvider implements CoverageProvider {
     }
 
     debug(() => {
-      const files = meta.testFiles.map(tf => relative(this.resolvedProjectConfig.root, tf)).join(', ');
-      const baseFiles = meta.testFiles.map(tf => basename(this.resolvedProjectConfig.root, tf)).join(', ');
-      return `[HybridCoverageProvider] onAfterSuiteRun complete - testFiles: ${files}\n`
-           + `[TIMING] ${baseFiles} - onAfterSuiteRun: ${(performance.now() - start).toFixed(2)}ms`;
+      const files = meta.testFiles.map(tf => relative(this.resolvedProjectConfig.root, tf)).join(',');
+      const baseFiles = meta.testFiles.map(tf => basename(this.resolvedProjectConfig.root, tf)).join(',');
+      return `[HybridCoverageProvider] onAfterSuiteRun complete - testFiles: "${files}"\n`
+           + `[HybridCoverageProvider] ${baseFiles} - TIMING onAfterSuiteRun: ${(performance.now() - start).toFixed(2)}ms`;
     });
   }
 
@@ -157,7 +155,7 @@ export class HybridCoverageProvider implements CoverageProvider {
 
     if (!this.v8Provider) {
       throw createPoolError(
-        'HybridCoverageProvider - generateCoverage failed to delegate to internal v8 provider',
+        'HybridCoverageProvider - generateCoverage failed to delegate to v8 provider',
         POOL_ERROR_NAMES.HybridCoverageProviderError
       );
     }
@@ -202,20 +200,20 @@ export class HybridCoverageProvider implements CoverageProvider {
     }
 
     const asGenerateEnd = performance.now();
-    debug(`[TIMING] AS generateCoverage: ${(asGenerateEnd - start).toFixed(2)}ms`);
+    debug(`[HybridCoverageProvider] TIMING AS generateCoverage: ${(asGenerateEnd - start).toFixed(2)}ms`);
 
     // Get JS coverage from v8 provider
     debug('[HybridCoverageProvider] Getting JS coverage from v8 provider');
     const jsCoverage = await this.v8Provider.generateCoverage(context) as CoverageMap;
     debug(`[HybridCoverageProvider] JS coverage has ${Object.keys(jsCoverage.data).length} files`);
-    debug(`[TIMING] JS generateCoverage: ${(performance.now() - asGenerateEnd).toFixed(2)}ms`);
+    debug(`[HybridCoverageProvider] TIMING JS generateCoverage: ${(performance.now() - asGenerateEnd).toFixed(2)}ms`);
 
     // Merge AS coverage into JS coverage
     debug('[HybridCoverageProvider] Merging AS coverage into JS coverage');
     jsCoverage.merge(asCoverageMap);
     debug(`[HybridCoverageProvider] Final merged coverage has ${Object.keys(jsCoverage.data).length} files`);
 
-    debug(`[TIMING] Total generateCoverage: ${(performance.now() - start).toFixed(2)}ms`);
+    debug(`[HybridCoverageProvider] TIMING Total generateCoverage: ${(performance.now() - start).toFixed(2)}ms`);
 
     return jsCoverage;
   }
@@ -226,7 +224,7 @@ export class HybridCoverageProvider implements CoverageProvider {
   async reportCoverage(coverageMap: unknown, context: ReportContext): Promise<void> {
     if (!this.v8Provider) {
       throw createPoolError(
-        'HybridCoverageProvider - reportCoverage failed to delegate to internal v8 provider',
+        'HybridCoverageProvider - reportCoverage failed to delegate to v8 provider',
         POOL_ERROR_NAMES.HybridCoverageProviderError
       );
     }
@@ -241,7 +239,7 @@ export class HybridCoverageProvider implements CoverageProvider {
   resolveOptions(): ResolvedHybridProviderOptions {
     if (!this.v8Provider) {
       throw createPoolError(
-        'HybridCoverageProvider - resolveOptions failed to delegate to internal v8 provider',
+        'HybridCoverageProvider - resolveOptions failed to delegate to v8 provider',
         POOL_ERROR_NAMES.HybridCoverageProviderError
       );
     }
@@ -259,10 +257,10 @@ export class HybridCoverageProvider implements CoverageProvider {
       exclude: resolvedV8Options.exclude?.map(i => i.replace(/\0/g, '')) || undefined
     };
 
-    debug(`[HybridCoverageProvider]   AS include: ${(definedCoverageOptions.assemblyScriptInclude || []).join(', ') || '(none)'}`);
-    debug(`[HybridCoverageProvider]   AS exclude: ${(definedCoverageOptions.assemblyScriptExclude || []).join(', ') || '(none)'}`);
-    debug(`[HybridCoverageProvider]   JS include: ${(sanitizedV8Options.include || []).join(', ') || '(none)'}`);
-    debug(`[HybridCoverageProvider]   JS exclude: ${(sanitizedV8Options.exclude || []).join(', ') || '(none)'}`);
+    debug(`[HybridCoverageProvider] AS include: ${(definedCoverageOptions.assemblyScriptInclude || []).join(', ') || '(none)'}`);
+    debug(`[HybridCoverageProvider] AS exclude: ${(definedCoverageOptions.assemblyScriptExclude || []).join(', ') || '(none)'}`);
+    debug(`[HybridCoverageProvider] JS include: ${(sanitizedV8Options.include || []).join(', ') || '(none)'}`);
+    debug(`[HybridCoverageProvider] JS exclude: ${(sanitizedV8Options.exclude || []).join(', ') || '(none)'}`);
 
     debug(`[HybridCoverageProvider] Globbing AS source files to include for coverage map basis`);
     const globbedAssemblyScriptInclude = globFiles(
@@ -270,14 +268,14 @@ export class HybridCoverageProvider implements CoverageProvider {
       definedCoverageOptions.assemblyScriptExclude || [],
       this.resolvedProjectConfig.root
     );
-    debug(`[HybridCoverageProvider]   Including ${globbedAssemblyScriptInclude.length} AS files in coverage map`);
+    debug(`[HybridCoverageProvider] Including ${globbedAssemblyScriptInclude.length} AS files in coverage map`);
     
     const globbedAssemblyScriptExcludeOnly = globFiles(
       definedCoverageOptions.assemblyScriptExclude || [],
       [],
       this.resolvedProjectConfig.root
     );
-    debug(`[HybridCoverageProvider]   Excluding ${globbedAssemblyScriptExcludeOnly.length} AS files from coverage map & instrumentation`);
+    debug(`[HybridCoverageProvider] Excluding ${globbedAssemblyScriptExcludeOnly.length} AS files from coverage map & instrumentation`);
     
     const resolvedCoverageOptions: ResolvedHybridProviderOptions = {
       ...resolvedV8Options,
@@ -300,64 +298,11 @@ export class HybridCoverageProvider implements CoverageProvider {
     debug('[HybridCoverageProvider] Clean coverage data - clean:', clean);
     if (clean) {
       this.accumulatedCoverageData = { hitCountsByFileAndPosition: {} };
-      debug('[HybridCoverageProvider] Cleaning coverage data');
+      debug('[HybridCoverageProvider] Cleaned all coverage data!');
     }
+
     if (this.v8Provider) {
       await this.v8Provider.clean(clean);
     }
   }
 }
-
-/**
- * Export provider module for Vitest
- */
-const module: CoverageProviderModule = {
-  getProvider: (): HybridCoverageProvider => new HybridCoverageProvider(),
-
-  startCoverage: async (runtimeOptions: {
-    isolate: boolean
-  }): Promise<unknown> => {
-    debug('[HybridCoverageProvider] startCoverage called - delegating to v8');
-
-    if (v8CoverageModule.startCoverage) {
-      return await v8CoverageModule.startCoverage(runtimeOptions);
-    } else {
-      throw createPoolError(
-        'HybridCoverageProvider - v8 coverage module does not provide `startCoverage`',
-        POOL_ERROR_NAMES.HybridCoverageProviderError
-      );
-    }
-  },
-  
-  takeCoverage: async (runtimeOptions?: {
-    moduleExecutionInfo?: ModuleExecutionInfo
-  }): Promise<unknown> => {
-    debug('[HybridCoverageProvider] takeCoverage called - delegating to v8');
-
-    if (v8CoverageModule.takeCoverage) {
-      return await v8CoverageModule.takeCoverage(runtimeOptions);
-    } else {
-      throw createPoolError(
-        'HybridCoverageProvider - v8 coverage module does not provide `takeCoverage`',
-        POOL_ERROR_NAMES.HybridCoverageProviderError
-      );
-    }
-  },
-  
-  stopCoverage: async (runtimeOptions: {
-    isolate: boolean
-  }): Promise<unknown> => {
-    debug('[HybridCoverageProvider] stopCoverage called - delegating to v8');
-
-    if (v8CoverageModule.stopCoverage) {
-      return await v8CoverageModule.stopCoverage(runtimeOptions);
-    } else {
-      throw createPoolError(
-        'HybridCoverageProvider - v8 coverage module does not provide `stopCoverage`',
-        POOL_ERROR_NAMES.HybridCoverageProviderError
-      );
-    }
-  },
-};
-
-export default module;

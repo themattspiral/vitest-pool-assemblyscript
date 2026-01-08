@@ -316,6 +316,7 @@ export function failTest(
   test: Test,
   errorMessage: string,
   capturedError: Error,
+  module: string,
   context: string,
 ): void {
   if (test.result) {
@@ -353,7 +354,7 @@ export function failTest(
   // This gives us WAT line:column positions that can be mapped to AS source
   meta.lastErrorRawCallStack = extractCallStack(capturedError);
 
-  debug(`[${context}] Captured raw V8 call stack with ${meta.lastErrorRawCallStack.length} frames`);
+  debug(`[${module}] ${context} - Captured raw V8 call stack with ${meta.lastErrorRawCallStack.length} frames`);
 }
 
 export function failTestWithTimeoutError (test: Test, startTime: number, duration: number): void {
@@ -394,7 +395,7 @@ export function setSuitePrepareResult(suite: Suite): void {
   }
 };
 
-export function updateSuiteFinalResult(suite: Suite, base: string, context: string): void {
+export function updateSuiteFinalResult(suite: Suite, module: string, suiteContext: string): void {
   if (suite.mode === 'skip') {
     suite.result = {
       state: 'skip',
@@ -408,7 +409,7 @@ export function updateSuiteFinalResult(suite: Suite, base: string, context: stri
       suite.result.duration = positiveSum(suite.tasks, t => t.result?.duration);
       suite.result.state = hasFailures ? 'fail' : 'pass';
       
-      debug(`[${context}] ${base} - ${getSuiteLogLabel(suite)}Set result: "${suite.result.state}" (hasFailures: ${hasFailures})`);
+      debug(`[${module}] ${suiteContext}Set suite result: "${suite.result.state}" (hasFailures: ${hasFailures})`);
     }
   }
 }

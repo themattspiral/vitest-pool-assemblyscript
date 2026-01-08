@@ -99,7 +99,7 @@ export function createDiscoveryImports(
         const { message, location } = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
         const msgAtLoc = `${message}${location ? ` at ${location}` : ''}`;
         
-        debug(`[Executor] Unexpected abort during test discovery: ${msgAtLoc}`);
+        debug(`[Executor] ${base} - Unexpected abort during test discovery: ${msgAtLoc}`);
 
         // Create error to capture V8 stack trace and extract V8 call stack before throwing.
         // This gives us WAT line:column positions that can be mapped to AS source
@@ -139,6 +139,8 @@ export function createTestExecutionImports(
   handleLog: AssemblyScriptConsoleLogHandler,
   coverageMemory?: WebAssembly.Memory
 ): WebAssembly.Imports {
+  const context = `${basename(test.file.filepath)} - "${test.name}"`;
+
   return {
     env: {
       memory,
@@ -179,20 +181,20 @@ export function createTestExecutionImports(
         const valuesMsg = valuesProvided ? ` | Value Type: ${assertionValueType}`
           + ` | Expected: \`${expected !== undefined ? expected : ''}\` | Actual: \`${actual !== undefined ? actual : ''}\``
           : '';
-        debug(`[Executor] Assertion failed: ${errorMsg}${valuesMsg}`);
+        debug(`[Executor] ${context} - Assertion failed: ${errorMsg}${valuesMsg}`);
       },
 
       abort(msgPtr: number, filePtr: number, line: number, column: number) {
         const { message, location } = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
         const msgAtLoc = `${message}${location ? ` at ${location}` : ''}`;
         
-        debug(`[Executor] Handling test execution abort: ${msgAtLoc}`);
+        debug(`[Executor] ${context} - Handling test execution abort: ${msgAtLoc}`);
 
         // Create error to capture V8 stack trace and extract V8 call stack before throwing.
         // This gives us WAT line:column positions that can be mapped to AS source
         const capturedError = new Error();
 
-        failTest(test, message, capturedError, 'Executor');
+        failTest(test, message, capturedError, 'Executor', context);
 
         // Must throw here to halt WASM execution on an assert() failure for this test.
         // This will be caught by the executor and reported as an appropriate test error

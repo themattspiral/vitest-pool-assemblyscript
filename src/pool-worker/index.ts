@@ -39,11 +39,14 @@ import {
   createRpcClient,
   reportFileQueued,
   reportFileCollected,
-  reportSuiteLifecycleEvent,
   reportTestPrepare,
   reportTestFinished,
   reportTestRetried,
   reportUserConsoleLogs,
+  flushRpcUpdates,
+  reportSuitePrepare,
+  reportSuiteFinished,
+  reportFileError,
 } from './rpc-reporter.js';
 import { createPoolErrorFromAnyError } from '../util/pool-errors.js';
 import { compileAssemblyScript } from '../compiler/index.js';
@@ -81,13 +84,16 @@ export async function compileSpecFile(taskData: CompileSpecFileTask): Promise<Co
   
   try {
     setDebugMode(taskData.poolOptions.debug);
-    debug(`[Worker ${workerId}] compileFile started for: "${taskData.testFilePath}"`);
+    debug(`[Worker ${workerId}] ${base} - compileFile started for: "${taskData.testFilePath}"`);
 
     // Create RPC client
     const rpc = createRpcClient(taskData.port);
     
     // Report onQueued
     await reportFileQueued(rpc, taskData.file);
+    
+    // no other reporting to complete in this worker run
+    await flushRpcUpdates(rpc);
 
     // TODO - move to options helpers
     const instrumentationOptions: InstrumentationOptions = {
@@ -108,7 +114,7 @@ export async function compileSpecFile(taskData: CompileSpecFileTask): Promise<Co
     };
     const compilerResult = await compileAssemblyScript(taskData.testFilePath, compilerOptions);
 
-    debug(`[TIMING ${workerId}] comp #: ${compilationCount} | ${base} - compileAssemblyScript total: ${compilerResult.compileTiming.toFixed(2)}ms`);
+    debug(`[Worker ${workerId}] ${base} - TIMING compileAssemblyScript total (worker comp # ${compilationCount}): ${compilerResult.compileTiming.toFixed(2)}ms`);
     
     taskData.file.prepareDuration = compilerResult.compileTiming;
 
@@ -125,11 +131,8 @@ export async function compileSpecFile(taskData: CompileSpecFileTask): Promise<Co
 /**
  * Discover tests from compiled binary
  *
- * Instantiates the WASM binary and executes _start to register tests.
+ * Instantiates the WASM binary and executes _start to register suites & tests.
  * Applies test name pattern filtering and returns filtered file task.
- * Reports RPC events: onQueued, onCollected, suite-prepare.
- *
- * Called via: pool.run(taskData, { name: 'discoverTests', transferList: [port] })
  *
  * @param taskData - Discovery task data
  * @returns File task with filtered tests, discovered tests, and discovery timings
@@ -170,7 +173,7 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<File> 
     );
     
     cached.fileTask.collectDuration = performance.now() - discoverStart;
-    debug(`[TIMING ${workerId}] ${base} - discover: ${cached.fileTask.collectDuration.toFixed(2)}ms`);
+    debug(`[Worker ${workerId}] ${base} - TIMING discover: ${cached.fileTask.collectDuration.toFixed(2)}ms`);
 
     // set skips when using only and/or user test name pattert, skip file task if all tests skipped,
     prepareFileTaskForCollection(cached.fileTask, taskData.testNamePattern, taskData.allowOnly);
@@ -191,11 +194,13 @@ export async function discoverTests(taskData: DiscoverTestsTask): Promise<File> 
     // vitest collect - report discovery results
     await Promise.all([
       // Report user console logs
-      reportUserConsoleLogs(rpc, logMessages, cached.fileTask.id, cached.fileTask.filepath),
+      reportUserConsoleLogs(rpc, logMessages, base, cached.fileTask.id, cached.fileTask.filepath),
 
       // Report onCollected with collected and filtered tasks
       reportFileCollected(rpc, cached.fileTask),
     ]);
+
+    await flushRpcUpdates(rpc);
 
     debug(`[Worker ${workerId}] ${base} - discoverTests complete for "${cached.fileTask.filepath}"`, cached.fileTask.mode);
 
@@ -232,18 +237,19 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<Test> {
     const startMsg: TestExecutionStart = { executionStart };
     port.postMessage(startMsg);
     
-    let needsTestPrepare = false;
+    let testPreparePromise: Promise<void> = Promise.resolve();
+
     if (!test.retry || !test.result) {
       // first/only attempt: create test result and report test-prepare
       setTestPrepareResult(test, executionStart);
-      needsTestPrepare = true;
+      testPreparePromise = reportTestPrepare(rpc, test);
     } else if (test.result) {
       // this is a retry, reset the result state 
       resetTestResult(test, executionStart);
     }
 
      const [_reported, { test: testAfterRun, timings }] = await Promise.all([
-      needsTestPrepare ? reportTestPrepare(rpc, test) : Promise.resolve(),
+      testPreparePromise,
       executeWASMTest(
         test,
         cached,
@@ -270,7 +276,7 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<Test> {
       const currentFailures = 1 + previousFailures;
 
       if (currentFailures >= bail) {
-        debug(`[Worker ${workerId}] executeTest "${testAfterRun.name}" BAIL: ${currentFailures} >= ${bail} failures`);
+        debug(`[Worker ${workerId}] ${base} - executeTest "${testAfterRun.name}" BAIL: ${currentFailures} >= ${bail} failures`);
         rpc.onCancel('test-failure');
       }
     }
@@ -280,7 +286,7 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<Test> {
     // Report results
     await Promise.all([
       // Report user console logs
-      reportUserConsoleLogs(rpc, logMessages, testAfterRun.id, testAfterRun.name),
+      reportUserConsoleLogs(rpc, logMessages, base, testAfterRun.id, testAfterRun.name),
 
       // Report test results
       willRetry
@@ -288,7 +294,9 @@ export async function executeTest(taskData: ExecuteTestTask): Promise<Test> {
         : reportTestFinished(rpc, testAfterRun)
     ]);
 
-    debug(`[Worker ${workerId}] executeTest complete for: "${testAfterRun.name}"`);
+    await flushRpcUpdates(rpc);
+
+    debug(`[Worker ${workerId}] ${base} - executeTest complete for: "${testAfterRun.name}"`);
 
     return testAfterRun;
   } catch (error) {
@@ -312,11 +320,13 @@ export async function reportSuiteEvent(taskData: ReportSuiteEventTask): Promise<
     // Create RPC client
     const rpc = createRpcClient(port);
 
-    await reportSuiteLifecycleEvent(rpc, suite, event, base, suiteLabel);
+    if (event === 'suite-prepare') {
+      await reportSuitePrepare(rpc, suite, base, suiteLabel);
+    } else if (event === 'suite-finished') {
+      await reportSuiteFinished(rpc, suite, base, suiteLabel);
+    }
 
-    // Final flush
-    debug(`[Worker ${workerId}] ${base} - ${suiteLabel}Sending final flush`);
-    await rpc.onTaskUpdate([], []);
+    await flushRpcUpdates(rpc);
 
     debug(`[Worker ${workerId}] ${base} - ${suiteLabel}reportSuiteEvent "${event}" complete`);
   } catch (error) {
@@ -334,19 +344,20 @@ export async function reportPipelineFileFailure(taskData: ReportFileFailureTask)
 
   try {
     setDebugMode(poolOptions.debug);
-    debug(`[Worker ${workerId}] ${base} - reportPipelineFileFailure started for: "${file.filepath}"`);
+    // debug(`[Worker ${workerId}] ${base} - reportPipelineFileFailure started for: "${file.filepath}"`);
 
     const rpc = createRpcClient(port);
 
     const errName = file.result?.errors ? (file.result.errors[0]?.name ?? 'undefined') : 'undefined';
-    debug(`[Worker ${workerId}] ${base} - Reporting onQueued with error "${errName}" for: "${file.filepath}"`);
+    // debug(`[Worker ${workerId}] ${base} - Reporting onQueued with error "${errName}" for: "${file.filepath}"`);
 
     await reportFileQueued(rpc, file);
+    
+    await reportFileError(rpc, file);
 
-    // Final flush
-    await rpc.onTaskUpdate([], []);
+    await flushRpcUpdates(rpc);
 
-    debug(`[Worker ${workerId}] ${base} - reportPipelineFileFailure complete`);
+    debug(`[Worker ${workerId}] ${base} - reportPipelineFileFailure for "${errName}" complete`);
   } catch (error) {
     throw createPoolErrorFromAnyError(
       `${base} - reportPipelineFileFailure failure in worker`,
@@ -369,8 +380,7 @@ export async function reportTestFailures(taskData: ReportTestFailuresTask): Prom
 
     await Promise.all(testTasks.map(task => reportTestFinished(rpc, task)));
 
-    // Final flush
-    await rpc.onTaskUpdate([], []);
+    await flushRpcUpdates(rpc);
 
     debug(`[Worker ${workerId}] ${base} - reportTestFailure complete`);
   } catch (error) {
