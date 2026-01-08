@@ -1,38 +1,37 @@
 import type {
   AssemblyScriptPoolError,
   AssemblyScriptTestError,
-  DiscoveredTest,
   PoolErrorName,
   TestErrorName
 } from '../types/types.js';
 import { ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID, POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { getYellowString } from './test-error-formatting.js';
+import type { Test } from '@vitest/runner/types';
 
 export function createPoolError(
   message: string,
   name: PoolErrorName,
   stack?: string,
   cause?: any,
+  rawCallStack?: NodeJS.CallSite[],
 ): AssemblyScriptPoolError {
-  return { name, message, stack, cause, __type: ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID };
+  return { name, message, stack, cause, rawCallStack, __type: ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID };
 }
 
 export function createTestTimeoutError(
-  test: DiscoveredTest
+  test: Test
 ): AssemblyScriptTestError {
-  const message = `Test timed out (threshold ${test.options.timeout}ms)`;
+  const message = `Test timed out (threshold ${test.timeout}ms)`;
   const err: AssemblyScriptTestError = {
     name: POOL_ERROR_NAMES.WASMExecutionTimeoutError,
     message,
     stack: message,
-    diff: getYellowString(` Test Timeout Exceeded (${test.options.timeout}ms)`)
+    diff: getYellowString(` Test Timeout Exceeded (${test.timeout}ms)`)
   };
   return err;
 }
 
-export function createTestExpectedToFailError(
-  _test: DiscoveredTest
-): AssemblyScriptTestError {
+export function createTestExpectedToFailError(): AssemblyScriptTestError {
   const message = `Test is expected to fail, but all assertions passed`;
   const err: AssemblyScriptTestError = {
     name: TEST_ERROR_NAMES.AssertionError,
@@ -90,12 +89,18 @@ export function createPoolErrorFromAnyError(context: string, contextErrorName: P
 export function getTestErrorFromPoolError(error: AssemblyScriptPoolError): AssemblyScriptTestError {
   const anyCause: any = error?.cause;
   const message = error.message ?? anyCause.message ?? 'Unknown error';
+
+  if (error.causeIsEnhancedError) {
+    return error.cause as AssemblyScriptTestError;
+  }
+
   return {
     name: error.name ?? anyCause.name ?? POOL_ERROR_NAMES.PoolError,
     message,
     stack: anyCause?.stack ?? error.stack ?? message,
-    stacks: anyCause?.stacks,
-    cause: getTestErrorFromAnyError(anyCause?.cause)
+    stacks: anyCause?.stacks ,
+    cause: getTestErrorFromAnyError(anyCause?.cause),
+    diff: anyCause?.diff
   };
 }
 

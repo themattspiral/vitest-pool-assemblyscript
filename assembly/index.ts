@@ -8,6 +8,7 @@
  * 4. Execution: Pool calls table.get(fnIndex)() directly via exported function table
  */
 
-export * from './test';
 export * from './assert';
-export * from './test-options';
+export * from './describe';
+export * from './options';
+export * from './test';

@@ -6,12 +6,12 @@
  */
 
 import type { MessagePort } from 'node:worker_threads';
-import type { RuntimeRPC } from 'vitest';
 import type { BirpcReturn } from 'birpc';
+import type { RuntimeRPC } from 'vitest';
 import type { TestError } from '@vitest/utils';
+import type { ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
-import type { RunnerTestFile, RunnerTestCase, ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
-import type { TaskMeta, TestOptions } from '@vitest/runner/types';
+import type { File, Test, TaskMeta, TestOptions, Suite } from '@vitest/runner/types';
 
 import {
   ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID,
@@ -40,6 +40,8 @@ export type PoolErrorName = typeof POOL_ERROR_NAMES[keyof typeof POOL_ERROR_NAME
 export interface AssemblyScriptPoolError extends Error {
   readonly __type: typeof ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID;
   name: PoolErrorName;
+  rawCallStack?: NodeJS.CallSite[];
+  causeIsEnhancedError?: boolean;
 }
 
 /**
@@ -135,12 +137,8 @@ export type ResolvedHybridProviderOptions =
     globbedAssemblyScriptProjectRelativeExcludeOnly: string[],
   };
 
-export const AS_POOL_TEST_OPTIONS = ['timeout', 'retry', 'skip', 'only', 'fails'] as const;
-
-/** TestOptions fields that are supported by AssemblyScript tests in this pool */
-export type ASPoolSupportedTestOptionsFields = typeof AS_POOL_TEST_OPTIONS[number];
-
-export type AssemblyScriptTestOptions = Required<Pick<TestOptions, ASPoolSupportedTestOptionsFields>>;
+// vitest TestOptions fields that are supported by AssemblyScript tests in this pool
+export type AssemblyScriptTestOptions = Required<Pick<TestOptions, 'timeout' | 'retry' | 'skip' | 'only' | 'fails'>>;
 
 // ============================================================================
 // Utility Types
@@ -182,7 +180,7 @@ export interface AssemblyScriptCompilerOptions {
 /**
  * Result of successfully compiling AssemblyScript source
  */
-export interface CompileFileResult {
+export interface AssemblyScriptCompilerResult {
   /** WASM binary */
   binary: Uint8Array;
   /** Source map JSON */
@@ -217,21 +215,17 @@ export interface InstrumentationResult {
 
 /**
  * Cached compilation data
- *
- * NOTE: The compiled WebAssembly.Module is NOT included because it cannot be serialized
- * across worker thread boundaries. Workers must re-compile module from the ASC-compiled
- * binary with WebAssembly.compile, but this is fast.
  */
 export interface CachedCompilation {
   filePipelineStart: number;
-  testFilePath: string,
+  /** File task for spec which will hold entire test/suite hierarchy */
+  fileTask: File;
+  /** File basename, used for debug logging */
+  base: string;
   binary: Uint8Array;
   sourceMap: string;
   isInstrumented: boolean;
   debugInfo?: BinaryDebugInfo;
-  discoveredTests: DiscoveredTests;
-  compileTiming: number;
-  discoverTiming?: number;
 }
 
 // ============================================================================
@@ -521,10 +515,76 @@ export interface ParsedSourceInfo {
 // Worker Communication & RPC
 // ============================================================================
 
+export interface AssemblyScriptConsoleLog {
+  msg: string;
+  time: number;
+  isError: boolean;
+}
+
+export type AssemblyScriptConsoleLogHandler = (msg: string, isError?: boolean) => void;
+
+export interface FailedAssertion {
+  expected?: any;
+  actual?: any;
+  valuesProvided?: boolean;
+  typeName?: string;
+  message?: string;
+}
+
+export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
+  idxInParentTasks: number;
+  defaultTestOptions: AssemblyScriptTestOptions;
+  coverageData?: CoverageData;
+}
+
+export interface AssemblyScriptTestTaskMeta extends TaskMeta {
+  idxInParentTasks: number;
+  fnIndex: number;
+  assertionsPassedCount: number;
+  assertionsFailed: FailedAssertion[];
+  timedOut: boolean;
+  resultInverted: boolean;
+  coverageData?: CoverageData;
+  lastError?: AssemblyScriptTestError;
+  lastErrorValuesProvided?: boolean;
+  lastErrorRawCallStack?: NodeJS.CallSite[];
+};
+
+export interface WASMExecutorPerfTimings {
+  /** function start */
+  fnInit: number;
+  /** test start: execStart - fnInit = env init time */
+  execStart: number;
+  /** test end: execEnd - execStart = test duration */
+  execEnd: number;
+  /** function end: fnFinal - execEnd = error prep and/or coverage extraction time */
+  fnfinal: number;
+}
+
+/**
+ * Worker channel with RPC for suite-level communication
+ */
+export interface WorkerChannel {
+  /** Port to send to worker for RPC communication */
+  workerPort: MessagePort;
+  /** Pool-side port for cleanup */
+  poolPort: MessagePort;
+  /** RPC client for calling Vitest methods (only remote functions matter for our usage) */
+  rpc: BirpcReturn<RuntimeRPC, object>;
+}
+
+export interface TestExecutionStart {
+  executionStart: number;
+}
+
+export interface TestExecutionEnd {
+  executionEnd: number;
+}
+
 /**
  * Task data for compileFile worker function
  */
-export interface CompileFileTask {
+export interface CompileSpecFileTask {
   /** Path to test file */
   testFilePath: string;
   /** True if the compiled binary should be instrumented */
@@ -535,166 +595,67 @@ export interface CompileFileTask {
   poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
-  /** Project information for file task creation */
-  projectInfo: ProjectInfo;
+  /** Project root directory */
+  projectRoot: string;
+  /** vitest File task */
+  file: File;
 }
 
-/**
- * Discovered test metadata (from registration phase)
- */
-export interface DiscoveredTest {
-  /** Test name (user-defined) */
-  name: string;
-  /** Function table index for this test */
-  fnIndex: number;
-  /** Unique internal id assigned to identify this test. Matches RunnerTestCase.id value */
-  id: string;
-  /** Options for this specific test if user-provided, otherwise defaults */
-  options: AssemblyScriptTestOptions;
-  /** True if this test's associated RunnerTestCase `mode` is 'run' */
-  isResolvedToRun: boolean;
+export interface CompileSpecFileResult {
+  compilerResult: AssemblyScriptCompilerResult;
+  file: File;
 }
 
-/**
- * Discovered tests indexed by unique id
- */
-export type DiscoveredTests = Record<string, DiscoveredTest>;
-
-/**
- * Task data for discoverTests worker function
- */
 export interface DiscoverTestsTask {
-  /** Compiled binary to discover tests from */
-  binary: Uint8Array;
-  /** Source map JSON string for error location mapping */
-  sourceMap: string;
-  /** True if the included binary is instrumented */
-  isBinaryInstrumented: boolean,
+  cached: CachedCompilation;
   /** 
    * True: onQueued should be reported before discovery (e.g. main thread compilation).
    * False: onQueued should be omitted (e.g. already reported from worker thread compilation).
   */
   reportOnQueued: boolean;
-  /** Path to test file (for logging) */
-  testFile: string;
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
-  /** Options that should be applied to test configuration when not user-provided */
-  defaultTestOptions: AssemblyScriptTestOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
-  /** Project information for file task creation */
-  projectInfo: ProjectInfo;
-  /** Compilation phase timing */
-  compileTiming: number;
-  /** Debug info from coverage instrumentation (if binary is instrumented) */
-  debugInfo?: BinaryDebugInfo;
   /** Test name pattern for filtering (from -t flag) */
   testNamePattern?: RegExp;
   /** Allow .only modifier */
   allowOnly?: boolean;
-}
-
-/**
- * Result from discoverTests worker function
- */
-export interface DiscoverTestsResult {
-  /** File task with filtered tests (after applying testNamePattern) */
-  fileTask: RunnerTestFile;
-  /** Discovered tests with names, function indices, and unique ids */
-  tests: DiscoveredTests;
-  /** Discovery phase timing */
-  discoverTiming: number;
+  /** User-defined diff options, if any */
+  diffOptions?: SerializedDiffOptions;
 }
 
 /**
  * Task data for executeTest worker function
  */
 export interface ExecuteTestTask {
+  cached: CachedCompilation;
   /** True if coverage should be collected during this test run */
   collectCoverage: boolean,
-  /** Compiled WASM binary */
-  binary: Uint8Array;
-  /** Source map JSON string for error location mapping */
-  sourceMap: string;
-  /** Debug info from coverage instrumentation */
-  debugInfo?: BinaryDebugInfo;
   /** Test to execute */
-  test: DiscoveredTest;
-  /** Path to test file */
-  testFile: string;
+  test: Test,
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** User-defined diff options, if any */
   diffOptions?: SerializedDiffOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
-  /** Test task ID (for RPC reporting) */
-  testTaskId: string;
-  /** Test task name (for RPC reporting) */
-  testTaskName: string;
-  /** Test task metadata set on the test */
-  testTaskMeta: TaskMeta;
-  /** Errors accumulated across all of this test's executions (initial + retries/reruns) */
-  allResultErrors: AssemblyScriptTestError[];
-  /** Retry count represented by this test execution task */
-  retryCount?: number;
   /** Bail config (halt run after this many failures) */
   bail?: number;
 }
-
-/**
- * Result of a single test execution
- */
-export interface ExecuteTestResult {
-  /** Test name for reference/logging */
-  name: string;
-  /** Whether the test passed */
-  passed: boolean;
-  /** Whether the test timed out */
-  timedOut: boolean;
-  /** Number of assertions that passed */
-  assertionsPassed: number;
-  /** Number of assertions that failed */
-  assertionsFailed: number;
-  /** Error if the test failed */
-  error?: AssemblyScriptTestError;
-  /** Raw V8 call stack (internal, for async source mapping) */
-  rawCallStack?: NodeJS.CallSite[];
-  /** Mapped & filtered source stack trace (for error reporting) */
-  sourceStack?: WebAssemblyCallSite[];
-  /** Coverage data collected during this test */
-  coverage?: CoverageData;
-  /** Test start time in milliseconds */
-  startTime?: number;
-  /** Test duration in milliseconds */
-  duration?: number;
-  /** True if expected and actual values were provided with failure assertion */
-  valuesProvided?: boolean;
-  /** The user-provided expected value used to assert */
-  expected?: unknown;
-  /** The user-provided actual value calculated in the test */
-  actual?: unknown;
-}
-
-export type ExecuteTestResultRef = { value: ExecuteTestResult | null };
 
 /**
  * Task data for reportFileResults worker function
  *
  * Reports onAfterSuiteMeta and suite-finished and final flush after all tests complete
  */
-export interface ReportFileResultsTask {
-  /** Path to test file */
-  testFile: string;
+export interface ReportSuiteEventTask {
+  suite: Suite;
+  event: 'suite-prepare' | 'suite-finished',
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
-  /** Complete file task with all test results */
-  fileTask: RunnerTestFile;
-  /** Coverage data for this test suite file (optional, only when coverage enabled) */
-  coverageData?: CoverageData;
 }
 
 /**
@@ -702,48 +663,24 @@ export interface ReportFileResultsTask {
  * not per-test recoverable (compiler errors, instrumentation errors)
  */
 export interface ReportFileFailureTask {
-  /** Error to report to vitest for this test file */
-  error: AssemblyScriptTestError;
-  /** Path to test file */
-  testFile: string;
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
-  /** Project root directory */
-  projectRoot: string;
-  /** Project name */
-  projectName: string;
-  /** Compilation phase timings if applicable */
-  compileTiming?: number;
-  /** Discovery phase timings if applicable */
-  discoverTiming?: number;
+  /** File task with reportable error on the result */
+  file: File;
 }
 
 /**
- * Task data for reportTestFailure worker function
+ * Task data for reportTestFailures worker function
  */
-export interface ReportTestFailureTask {
-  /** Test to report results for */
-  test: DiscoveredTest;
-    /** Path to test file */
-  testFile: string;
+export interface ReportTestFailuresTask {
+  /** Vitest test tasks */
+  testTasks: Test[];
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
-  /** Result for this test containing a failure */
-  result: ExecuteTestResult;
-  /** Errors accumulated across all of this test's executions (initial + retries/reruns) */
-  allResultErrors: AssemblyScriptTestError[];
   /** MessagePort for RPC communication */
   port: MessagePort;
-  /** Test task ID (for RPC reporting) */
-  testTaskId: string;
-  /** Test task name (for RPC reporting) */
-  testTaskName: string;
-  /** Test task metadata set on the test */
-  testTaskMeta: TaskMeta;
-  /** Retry count attempted for this failed test */
-  retryCount?: number;
 }
 
 /**
@@ -760,7 +697,7 @@ export interface ExecuteBeforeAllHooksTask {
   /** Hooks to execute */
   hooks: unknown[]; // Hook type to be defined when implementing hooks
   /** File task for hook context */
-  fileTask: RunnerTestFile;
+  fileTask: File;
 }
 
 /**
@@ -777,86 +714,5 @@ export interface ExecuteAfterAllHooksTask {
   /** Hooks to execute */
   hooks: unknown[]; // Hook type to be defined when implementing hooks
   /** File task for hook context */
-  fileTask: RunnerTestFile;
-}
-
-export interface AssemblyScriptConsoleLog {
-  msg: string;
-  time: number;
-  isError: boolean;
-}
-
-export type AssemblyScriptConsoleLogHandler = (msg: string, isError?: boolean) => void;
-
-export interface AssemblyScriptTaskMeta extends TaskMeta {
-  fullDuration: number
-};
-
-// ============================================================================
-// Pool-Level Data Structures
-// ============================================================================
-
-/**
- * Project information needed for file task creation
- */
-export interface ProjectInfo {
-  /** Project root directory */
-  projectRoot: string;
-  /** Project name */
-  projectName: string;
-  /** Test timeout from config */
-  testTimeout: number;
-}
-
-/**
- * Worker channel with RPC for suite-level communication
- */
-export interface WorkerChannel {
-  /** Port to send to worker for RPC communication */
-  workerPort: MessagePort;
-  /** Pool-side port for cleanup */
-  poolPort: MessagePort;
-  /** RPC client for calling Vitest methods (only remote functions matter for our usage) */
-  rpc: BirpcReturn<RuntimeRPC, object>;
-}
-
-/**
- * Pool-internal test execution context, combining the discovered test definition with
- * the vitest task representing this test for reporting and the ultimate result of the
- * execution.
- *
- * Used within the pool to track test execution results along with their
- * associated Vitest task objects. Unlike ExecuteTestResult (worker communication),
- * this includes the full RunnerTestCase which cannot cross worker boundaries.
- */
-export interface PoolTestExecutionContext {
-  /** Test to execute */
-  test: DiscoveredTest;
-  /** Path to test file */
-  testFilePath: string;
-  /** Vitest test task object */
-  testTask: RunnerTestCase;
-  /** Result of the most recent test execution */
-  result: ExecuteTestResult;
-  /** Errors accumulated across all of this test's executions (initial + retries/reruns) */
-  allResultErrors: AssemblyScriptTestError[];
-
-  /**
-   * Number of times this test was executed (in addition to the first run)
-   * with re-runs either because it failed and was retried, or succeeded and was repeated
-   */
-  executeCount: number;
-  /**
-   * Number of times this test was executed after the first run because it failed and
-   * was retried. Undefined if no retried are configured on this test.
-   */
-  retryCount?: number;
-}
-
-export interface TestExecutionStart {
-  executionStart: number;
-}
-
-export interface TestExecutionEnd {
-  executionEnd: number;
+  fileTask: File;
 }

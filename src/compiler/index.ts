@@ -10,7 +10,7 @@ import { basename, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { writeFile, mkdir } from 'node:fs/promises';
 
-import { CompileFileResult, AssemblyScriptCompilerOptions } from '../types/types.js';
+import { AssemblyScriptCompilerResult, AssemblyScriptCompilerOptions } from '../types/types.js';
 import { POOL_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
 import { instrumentForCoverage } from '../native-instrumentation/addon-interface.js';
@@ -49,7 +49,7 @@ export async function compileAssemblyScript(
   filename: string,
   options: AssemblyScriptCompilerOptions,
   signal?: AbortSignal
-): Promise<CompileFileResult> {
+): Promise<AssemblyScriptCompilerResult> {
   throwPoolErrorIfAborted(signal);
 
   const compileStart = performance.now();

@@ -3,10 +3,8 @@
  * Tests basic arithmetic operations
  */
 
-import { test, assert, assertEqual } from '../../assembly';
+import { test, describe, assert, assertEqual } from '../../assembly';
 import { add, subtract, multiply, divide, addOneLiner, subtractOneLiner } from '../assembly-src/math';
-// import { subtract, multiply, divide, addOneLiner, subtractOneLiner } from '../assembly-src/math';
-// import { addOneLiner, subtractOneLiner } from '../assembly-src/math';
 
 test("addition works [should fail]", () => {
   const sum: i32 = add(1, 1);
@@ -38,13 +36,15 @@ test("division works", () => {
   console.timeEnd();
 });
 
-test("addition OL works - should merge coverage count for addOneLiner source with call from quick-tests.as.test.ts", () => {
-  console.debug('This is one line addition');
-  const sum: i32 = addOneLiner(1, 1);
-  assert(sum == 2, "1 + 1 should equal 2");
-});
-
-test("subtraction OL works", () => {
-  const diff: i32 = subtractOneLiner(5, 3);
-  assert(diff == 2, "5 - 3 should equal 2");
+describe("one liners", () => {
+  test("addition OL works - should merge coverage count for addOneLiner source with call from quick-tests.as.test.ts", () => {
+    console.debug('This is one line addition');
+    const sum: i32 = addOneLiner(1, 1);
+    assert(sum == 2, "1 + 1 should equal 2");
+  });
+  
+  test("subtraction OL works", () => {
+    const diff: i32 = subtractOneLiner(5, 3);
+    assert(diff == 2, "5 - 3 should equal 2");
+  });
 });

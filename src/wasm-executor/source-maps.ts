@@ -11,15 +11,25 @@ import { type RawSourceMap, SourceMapConsumer } from 'source-map';
 
 import { debug } from '../util/debug.js';
 import type { WebAssemblyCallSite } from '../types/types.js';
+import { createPoolErrorFromAnyError } from '../util/pool-errors.js';
+import { POOL_ERROR_NAMES } from '../types/constants.js';
 
 export function parseSourceMap(sourceMap: string): RawSourceMap {
   // Remove sourceRoot if present to prevent source-map library from prepending it to paths
   //   AS compiler sets sourceRoot: "./output" which would make paths like "output/tests/..."
   //   instead of "tests/..." - these paths don't exist and won't be found by Vitest
-  const sourceMapObj: RawSourceMap = JSON.parse(sourceMap);
-  delete sourceMapObj.sourceRoot;
-
-  return sourceMapObj;
+  try {
+    const sourceMapObj: RawSourceMap = JSON.parse(sourceMap);
+    delete sourceMapObj.sourceRoot;
+    return sourceMapObj;
+  }
+  catch (err) {
+    throw createPoolErrorFromAnyError(
+      `parseSourceMap error`,
+      POOL_ERROR_NAMES.PoolError,
+      err
+    )
+  }
 }
 
 /**
@@ -28,10 +38,10 @@ export function parseSourceMap(sourceMap: string): RawSourceMap {
  * V8 provides a special API to access structured stack traces with line:column info.
  * This gives us WAT text positions which can be mapped to AS source via source maps.
  *
- * @param error - Error object to extract stack from
+ * @param capturedError - Error object to extract stack from
  * @returns Array of V8 CallSite objects
  */
-export function extractCallStack(error: Error): NodeJS.CallSite[] {
+export function extractCallStack(capturedError: Error): NodeJS.CallSite[] {
   let stackTrace: NodeJS.CallSite[] = [];
 
   const originalPrepareStackTrace = Error.prepareStackTrace;
@@ -41,7 +51,7 @@ export function extractCallStack(error: Error): NodeJS.CallSite[] {
   };
 
   // Access error.stack to trigger prepareStackTrace (result unused, just triggers callback)
-  error.stack;
+  capturedError.stack;
 
   // Restore original
   Error.prepareStackTrace = originalPrepareStackTrace;
@@ -82,6 +92,7 @@ export function createWebAssemblyCallSite(
     });
   
     if (!original.source || original.line === null || original.column === null) {
+      debug(`[SourceMap] Failed to map: ${debugString}`);
       return null;
     }
 
