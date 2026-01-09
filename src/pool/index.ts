@@ -41,6 +41,8 @@ import type {
   AssemblyScriptTestTaskMeta,
   AssemblyScriptSuiteTaskMeta,
   ReportSuiteEventTask,
+  PoolRunMode,
+  RunFileTask,
 } from '../types/types.js';
 import { setDebugMode, debug } from '../util/debug.js';
 import { compileAssemblyScript } from '../compiler/index.js';
@@ -151,7 +153,7 @@ async function pipelineQueueCompileSpecFile(
       const compilerResult = await compileAssemblyScript(testFilePath, compilerOptions, signal);
 
       // create the file task - a suite representing the file and all tests in the hierarchy
-      const file = createInitialFileTask(testFilePath, spec.project.name, config);
+      const file = createInitialFileTask(spec.moduleId, spec.project.name, config.root, config.testTimeout, config.retry);
       file.prepareDuration = compilerResult.compileTiming;
 
       return { compilerResult, file };
@@ -183,7 +185,7 @@ async function pipelineDispatchCompileSpecFile(
   const shouldInstrument = config.coverage.enabled && !isCollectTestsMode;
 
   // create the file task - a suite representing the file and all tests in the hierarchy
-  const file = createInitialFileTask(testFilePath, spec.project.name, config);
+  const file = createInitialFileTask(spec.moduleId, spec.project.name, config.root, config.testTimeout, config.retry);
 
   try {
     const workerTaskData: CompileSpecFileTask = {
@@ -365,10 +367,10 @@ async function pipelineDispatchRunTest(
 
     // mark test as failed if it completed as passed, but its duration still execeeds the timeout threshold.
     // this may not have been set as failed by the worker in this edge case, so we do it here for proper reporting.
-    checkAndUpdateSoftTimeout(testAfterRun, base, 'Pipeline');
+    checkAndUpdateSoftTimeout(testAfterRun, 'Pipeline', base);
 
     // invert result if test configured as 'fails'
-    checkFailsAndInvertResult(testAfterRun, base, 'Pipeline');
+    checkFailsAndInvertResult(testAfterRun, 'Pipeline', base);
 
     if (testTimeoutId) {
       clearTimeout(testTimeoutId);
@@ -660,7 +662,7 @@ async function runTests(
   specs: TestSpecification[],
   config: AssemblyScriptResolvedConfig,
   isCollectTestsMode: boolean,
-  useWorkerCompilation: boolean,
+  poolRunMode: PoolRunMode,
   pool: Tinypool,
   poolAbortController: AbortController,
   _invalidatedFiles?: string[]
@@ -670,6 +672,7 @@ async function runTests(
 
   const mode = isCollectTestsMode ? 'collectTests' : 'runTests';
   debug(`[Pool] -------- ${mode} called for ${specs.length} specs --------`);
+  debug(`[Pool] Pool Run Mode: ${poolRunMode}`);
 
   if (isCollectTestsMode) {
     debug('[Pool] Clearing compilation cache before collectTests run');
@@ -699,6 +702,42 @@ async function runTests(
     debug(`[Pipeline] ${base} - Starting pipeline at ${filePipelineStart} for "${testFilePath}"`);
 
     try {
+      if (poolRunMode === 'full-worker') {
+        const file = createInitialFileTask(spec.moduleId, spec.project.name, config.root, config.testTimeout, config.retry);
+        const diffOptions = typeof spec.project.serializedConfig.diff === 'object'
+          ? spec.project.serializedConfig.diff : undefined;
+        const covExclusions = (config.coverage as ResolvedHybridProviderOptions).globbedAssemblyScriptProjectRelativeExcludeOnly || [];
+
+        const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
+        
+        const workerTaskData: RunFileTask = {
+          file,
+          isCollectTestsMode,
+          poolOptions,
+          port: workerPort,
+          projectRoot: config.root,
+          diffOptions,
+          collectCoverage: config.coverage.enabled,
+          relativeUserCoverageExclusions: covExclusions,
+          testNamePattern: config.testNamePattern,
+          allowOnly: config.allowOnly,
+          bail: config.bail,
+        };
+
+        try {
+           await pool.run(workerTaskData, {
+            name: 'runFile',
+            transferList: [workerPort],
+            signal: signal
+          });
+        } finally {
+          workerPort.close();
+          poolPort.close();
+        }
+        
+        return;
+      }
+
       const oldCompilation = pipelineCompileCacheByTestFile.get(testFilePath);
       if (oldCompilation) {
         debug(`[Pipeline] ${base} - Deleting pipeline cache for existing spec (started at: `
@@ -716,7 +755,7 @@ async function runTests(
       let compilerResult: AssemblyScriptCompilerResult | undefined;
       let initialFileTask: File | undefined;
 
-      if (useWorkerCompilation) {
+      if (poolRunMode === 'worker-compile') {
         ({ compilerResult, file: initialFileTask } = await pipelineDispatchCompileSpecFile(spec, config, pool, signal, isCollectTestsMode));
       } else {
         ({ compilerResult, file: initialFileTask } = await pipelineQueueCompileSpecFile(spec, config, signal, isCollectTestsMode));
@@ -740,7 +779,7 @@ async function runTests(
       // DISCOVERY PHASE
       const discStart = performance.now();
 
-      const reportOnQueued = !useWorkerCompilation;
+      const reportOnQueued = poolRunMode === 'pool-compile';
       cached.fileTask = await pipelineDispatchRunDiscovery(spec, cached, config, pool, signal, isCollectTestsMode, reportOnQueued);
       
       const discTime = performance.now() - discStart;
@@ -895,20 +934,34 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
     poolAbortController.abort();
   });
 
+  const getRunMode = (specCount: number): PoolRunMode => {
+    if (process.env.RUN_WORKER_COMPILE) {
+      return 'worker-compile';
+    } else if (process.env.RUN_POOL_COMPILE) {
+      return 'pool-compile';
+    } else if (process.env.RUN_FULL_WORKER) {
+      return 'full-worker';
+    }
+
+    return specCount >= WORKER_COMPILE_FILES_PER_THREAD_THRESHOLD * maxThreads
+      ? 'worker-compile'
+      : 'pool-compile';
+  };
+
   return {
     name: ASSEMBLYSCRIPT_POOL_NAME,
 
     // runs when executing vitest list
     async collectTests(specs: TestSpecification[]) {
-      const useWorkerCompilation = specs.length >= WORKER_COMPILE_FILES_PER_THREAD_THRESHOLD * maxThreads;
+      const poolRunMode = getRunMode(specs.length);
       const isCollectTestsMode = true;
-      return runTests(specs, resolvedConfig, isCollectTestsMode, useWorkerCompilation, pool, poolAbortController);
+      return runTests(specs, resolvedConfig, isCollectTestsMode, poolRunMode, pool, poolAbortController);
     },
 
     async runTests(specs: TestSpecification[], invalidates?: string[]) {
-      const useWorkerCompilation = specs.length >= WORKER_COMPILE_FILES_PER_THREAD_THRESHOLD * maxThreads;
+      const poolRunMode = getRunMode(specs.length);
       const isCollectTestsMode = false;
-      return runTests(specs, resolvedConfig, isCollectTestsMode, useWorkerCompilation, pool, poolAbortController, invalidates);
+      return runTests(specs, resolvedConfig, isCollectTestsMode, poolRunMode, pool, poolAbortController, invalidates);
     },
 
     // Cleanup when shutting down

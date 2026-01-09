@@ -6,7 +6,7 @@ import type {
   AssemblyScriptPoolError,
   AssemblyScriptTestError,
   AssemblyScriptTestTaskMeta,
-  CachedCompilation,
+  BinaryDebugInfo,
   CoverageData,
   ResolvedAssemblyScriptPoolOptions,
   WASMExecutorPerfTimings,
@@ -116,7 +116,9 @@ export async function executeWASMDiscovery(
  */
 export async function executeWASMTest(
   test: Test,
-  cached: CachedCompilation,
+  binary: Uint8Array,
+  sourceMap: string,
+  debugInfo: BinaryDebugInfo | undefined,
   testFileBasename: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   collectCoverage: boolean,
@@ -131,7 +133,7 @@ export async function executeWASMTest(
   };
 
   // Compile the binary to usable WASM module
-  const module = await WebAssembly.compile(cached.binary as BufferSource);
+  const module = await WebAssembly.compile(binary as BufferSource);
 
   // Create fresh memory for this test instance
   const memory = createMemory();
@@ -225,7 +227,7 @@ export async function executeWASMTest(
     const enhancedError = await enhanceTestError(
       meta.lastError,
       test,
-      cached.sourceMap,
+      sourceMap,
       meta.lastErrorValuesProvided ?? false,
       meta.lastErrorRawCallStack,
       diffOptions
@@ -254,7 +256,7 @@ export async function executeWASMTest(
       );
     }
 
-    if (!cached.debugInfo) {
+    if (!debugInfo) {
       throw createExecutorPoolError(
         testFileBasename,
         'executeWASMTest',
@@ -267,12 +269,12 @@ export async function executeWASMTest(
     };
 
     // Read counters from coverage memory
-    const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, cached.debugInfo.instrumentedFunctionCount);
-    debug(`[Executor] ${testFileBasename} - "${test.name}" - Read coverage memory for ${cached.debugInfo.instrumentedFunctionCount} instrumented functions`);
+    const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, debugInfo.instrumentedFunctionCount);
+    debug(`[Executor] ${testFileBasename} - "${test.name}" - Read coverage memory for ${debugInfo.instrumentedFunctionCount} instrumented functions`);
 
     // Iterate all instrumented functions and build coverage data with hit counts extracted from coverage memory
     let functionsHit = 0;
-    for (const [filePath, debugFunctions] of Object.entries(cached.debugInfo.functionsByFileAndPosition)) {
+    for (const [filePath, debugFunctions] of Object.entries(debugInfo.functionsByFileAndPosition)) {
       if (!coverage.hitCountsByFileAndPosition[filePath]) {
         coverage.hitCountsByFileAndPosition[filePath] = {};
         debug(`[Executor] ${testFileBasename} - "${test.name}" - Extracting hits for source file "${filePath}"`);

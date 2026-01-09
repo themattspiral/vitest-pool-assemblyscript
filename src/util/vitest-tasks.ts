@@ -128,11 +128,13 @@ export function createSuiteTask(
 export function createInitialFileTask(
   testFile: string,
   projectName: string,
-  config: AssemblyScriptResolvedConfig,
+  projectRoot: string,
+  configTestTimeout: number,
+  configRetry: number,
 ): File {
   const file: File = createFileTask(
     testFile,
-    config.root,
+    projectRoot,
     projectName,
     ASSEMBLYSCRIPT_POOL_NAME
   );
@@ -143,8 +145,8 @@ export function createInitialFileTask(
 
   const defaultTestOptions: AssemblyScriptTestOptions = {
     ...DEFAULT_ASSEMBLYSCRIPT_TEST_OPTIONS,
-    timeout: config.testTimeout,
-    retry: config.retry,
+    timeout: configTestTimeout,
+    retry: configRetry,
   };
 
   const meta: AssemblyScriptSuiteTaskMeta = {
@@ -243,9 +245,9 @@ export function shouldRetryTask(task: Task): boolean {
 /**
  * Mark test as failed if it completed as passed, but its duration still execeeds the timeout threshold.
  */
-export function checkAndUpdateSoftTimeout(test: Test, base: string, context: string): void {
+export function checkAndUpdateSoftTimeout(test: Test, module: string, base: string): void {
   if (test.result?.state === 'pass' && (test.result.duration || 0) > test.timeout) {
-    debug(`[${context}] ${base} - "${test.name}": Soft Timeout (completed over threshold): ${test.result?.duration?.toFixed(2)}ms`);
+    debug(`[${module}] ${base} - "${test.name}": Soft Timeout (completed over threshold): ${test.result?.duration?.toFixed(2)}ms`);
     
     (test.meta as AssemblyScriptTestTaskMeta).timedOut = true;
     test.result.state = 'fail';
@@ -265,7 +267,7 @@ export function checkAndUpdateSoftTimeout(test: Test, base: string, context: str
  * This is intentionally checked in the worker, prior to reporting, for an accurate result,
  * as well as in the main pool in case it failed without worker completion (e.g. timeout abort).
  */
-export function checkFailsAndInvertResult(test: Test, base: string, context: string): void {
+export function checkFailsAndInvertResult(test: Test, module: string, base: string): void {
   const meta = test.meta as AssemblyScriptTestTaskMeta;
 
   if (test.fails && meta.resultInverted === false) {
@@ -273,7 +275,7 @@ export function checkFailsAndInvertResult(test: Test, base: string, context: str
       test.result.state = 'fail';
       meta.resultInverted = true;
 
-      debug(`[${context}] ${base} - "${test.name}" has 'fails' option set - inverted "pass" to "fail"`);
+      debug(`[${module}] ${base} - "${test.name}" has 'fails' option set - inverted "pass" to "fail"`);
 
       const err = createTestExpectedToFailError();
       if (test.result.errors) {
@@ -285,7 +287,7 @@ export function checkFailsAndInvertResult(test: Test, base: string, context: str
       test.result.state = 'pass';
       meta.resultInverted = true;
 
-      debug(`[${context}] ${base} - "${test.name}" has 'fails' option set - inverted "fail" to "pass"`);
+      debug(`[${module}] ${base} - "${test.name}" has 'fails' option set - inverted "fail" to "pass"`);
       
       test.result.errors = [];
     }

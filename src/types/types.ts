@@ -149,6 +149,8 @@ export interface GlobResult {
   projectRootRelative: string;
 }
 
+export type PoolRunMode = 'pool-compile' | 'worker-compile' | 'full-worker';
+
 // ============================================================================
 // Compilation & Results
 // ============================================================================
@@ -575,10 +577,43 @@ export interface WorkerChannel {
 
 export interface TestExecutionStart {
   executionStart: number;
+  taskId: string;
+  workerId: number;
 }
 
 export interface TestExecutionEnd {
   executionEnd: number;
+  taskId: string;
+  workerId: number;
+}
+
+export interface RunFileTask {
+  /** vitest File task */
+  file: File;
+
+  /** true when running a `collectTests()` operation only, false for `runTests()` */
+  isCollectTestsMode: boolean;  
+  /** Pool options */
+  poolOptions: ResolvedAssemblyScriptPoolOptions;
+  /** MessagePort for RPC communication */
+  port: MessagePort;
+  /** Project root directory */
+  projectRoot: string;
+  /** User-defined diff options, if any */
+  diffOptions?: SerializedDiffOptions;
+  
+  /** True if coverage should be collected during this test run */
+  collectCoverage: boolean;
+  /** User-configured coverage exclusions */
+  relativeUserCoverageExclusions: string[];
+  
+  /** Test name pattern for filtering (from -t flag) */
+  testNamePattern?: RegExp;
+  /** Allow .only modifier */
+  allowOnly?: boolean;
+  
+  /** Bail config (halt run after this many failures) */
+  bail?: number;
 }
 
 /**
@@ -631,9 +666,9 @@ export interface DiscoverTestsTask {
 export interface ExecuteTestTask {
   cached: CachedCompilation;
   /** True if coverage should be collected during this test run */
-  collectCoverage: boolean,
+  collectCoverage: boolean;
   /** Test to execute */
-  test: Test,
+  test: Test;
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** User-defined diff options, if any */
