@@ -5,35 +5,27 @@
 import { basename, relative } from 'node:path';
 import type { MessagePort } from 'node:worker_threads';
 import { workerId } from 'tinypool';
-import { BirpcReturn } from 'birpc';
-import { RuntimeRPC } from 'vitest';
+import type { BirpcReturn } from 'birpc';
+import type { RuntimeRPC } from 'vitest';
 import type { File, Suite, Task, Test } from '@vitest/runner/types';
-import { SerializedDiffOptions } from '@vitest/utils/diff';
+import type { SerializedDiffOptions } from '@vitest/utils/diff';
 import { ModuleCacheMap } from 'vite-node/client';
 import { installSourcemapsSupport } from 'vite-node/source-map';
 
 import type {
-  DiscoverTestsTask,
-  ExecuteTestTask,
-  ReportSuiteEventTask,
   ReportFileFailureTask,
-  ExecuteBeforeAllHooksTask,
-  ExecuteAfterAllHooksTask,
   AssemblyScriptConsoleLogHandler,
   AssemblyScriptConsoleLog,
-  CompileSpecFileTask,
   InstrumentationOptions,
   AssemblyScriptCompilerOptions,
   TestExecutionStart,
   TestExecutionEnd,
-  CompileSpecFileResult,
-  ReportTestFailuresTask,
   RunFileTask,
   BinaryDebugInfo,
-  CoverageData,
   ResolvedAssemblyScriptPoolOptions,
   AssemblyScriptTestTaskMeta,
   AssemblyScriptSuiteTaskMeta,
+  WASMCompilation,
 } from '../types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
@@ -62,392 +54,56 @@ import { createPoolErrorFromAnyError } from '../util/pool-errors.js';
 import { compileAssemblyScript } from '../compiler/index.js';
 import {
   checkFailsAndInvertResult,
+  finalizeSuiteResult,
+  finalizeTestResult,
+  getFullTaskHierarchy,
   getRunnableTasks,
-  getSuiteLogLabel,
-  getTimedOutTests,
+  getTaskLogLabel,
+  getTaskLogPrefix,
   prepareFileTaskForCollection,
   resetTaskMeta,
   resetTestResult,
   setSuitePrepareResult,
   setTestPrepareResult,
   shouldRetryTask,
-  updateSuiteFinalResult,
+  updateSuiteFinishedResult,
   updateTestFinishedResult
 } from '../util/vitest-tasks.js';
 import { mergeCoverageData } from '../coverage-provider/coverage-merge.js';
 
-// Singleton module cache for source map support in worker threads
-// Shared across all tasks in this worker to enable accurate 
-// internal pool code stack traces
 const moduleCache = new ModuleCacheMap();
-
-// Install source map support for pool's own TypeScript code
-// This enables accurate stack traces when debugging the pool itself
 installSourcemapsSupport({
   getSourceMap: source => moduleCache.getSourceMap(source),
 });
 
 let compilationCount: number = 0;
 
-/**
- * Compile and instrument an AssemblyScript test file.
- *
- * Called via: pool.run(taskData, { name: 'compileFile', transferList: [port] })
- */
-export async function compileSpecFile(taskData: CompileSpecFileTask): Promise<CompileSpecFileResult> {
-  compilationCount++;
-
-  const base = basename(taskData.testFilePath);
-  
-  try {
-    setDebugMode(taskData.poolOptions.debug);
-    debug(`[Worker ${workerId}] ${base} - compileFile started for: "${taskData.testFilePath}"`);
-
-    // Create RPC client
-    const rpc = createRpcClient(taskData.port);
-    
-    // Report onQueued
-    await reportFileQueued(rpc, taskData.file);
-    
-    // no other reporting to complete in this worker run
-    await flushRpcUpdates(rpc);
-
-    // TODO - move to options helpers
-    const instrumentationOptions: InstrumentationOptions = {
-      relativeExcludedFiles: [
-        relative(taskData.projectRoot, taskData.testFilePath),
-        ...POOL_INTERNAL_PATHS,
-        ...taskData.relativeUserCoverageExclusions,
-      ],
-      excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
-      coverageMemoryPagesMin: taskData.poolOptions.coverageMemoryPagesMin,
-      coverageMemoryPagesMax: taskData.poolOptions.coverageMemoryPagesMax,
-    };
-    const compilerOptions: AssemblyScriptCompilerOptions = {
-      stripInline: taskData.poolOptions.stripInline,
-      projectRoot: taskData.projectRoot,
-      shouldInstrument: taskData.shouldInstrument,
-      instrumentationOptions
-    };
-    const compilerResult = await compileAssemblyScript(taskData.testFilePath, compilerOptions);
-
-    debug(`[Worker ${workerId}] ${base} - TIMING compileAssemblyScript total (worker comp # ${compilationCount}): ${compilerResult.compileTiming.toFixed(2)}ms`);
-    
-    taskData.file.prepareDuration = compilerResult.compileTiming;
-
-    return { compilerResult, file: taskData.file };
-  } catch (error) {
-    throw createPoolErrorFromAnyError(
-      `${base} - compileFile failure in worker`,
-      POOL_ERROR_NAMES.PoolError,
-      error
-    );
-  }
-}
-
-/**
- * Discover tests from compiled binary
- *
- * Instantiates the WASM binary and executes _start to register suites & tests.
- * Applies test name pattern filtering and returns filtered file task.
- *
- * @param taskData - Discovery task data
- * @returns File task with filtered tests, discovered tests, and discovery timings
- */
-export async function discoverTests(taskData: DiscoverTestsTask): Promise<File> {
-  const { port, reportOnQueued, poolOptions, cached, diffOptions } = taskData;
-  const base = basename(cached.fileTask.filepath);
-  
-  try {
-    setDebugMode(poolOptions.debug);
-    debug(`[Worker ${workerId}] ${base} - discoverTests started for: "${cached.fileTask.filepath}"`);
-
-    // Create RPC client
-    const rpc = createRpcClient(port);
-
-    const discoverStart = performance.now();
-
-    // Report onQueued if indicated (may have already been reported by compile worker)
-    if (reportOnQueued) {
-      await reportFileQueued(rpc, cached.fileTask);
-    }
-
-    const logMessages: AssemblyScriptConsoleLog[] = [];
-    const handleLog: AssemblyScriptConsoleLogHandler = (msg: string, isError: boolean = false): void => {
-      logMessages.push({ msg, time: Date.now(), isError });
-    };
-
-    // Discover tests
-    await executeWASMDiscovery(
-      cached.binary,
-      cached.sourceMap,
-      base,
-      poolOptions,
-      cached.isInstrumented,
-      handleLog,
-      cached.fileTask,
-      diffOptions
-    );
-    
-    cached.fileTask.collectDuration = performance.now() - discoverStart;
-    debug(`[Worker ${workerId}] ${base} - TIMING discover: ${cached.fileTask.collectDuration.toFixed(2)}ms`);
-
-    // set skips when using only and/or user test name pattern, skip file task if all tests skipped
-    prepareFileTaskForCollection(cached.fileTask, taskData.testNamePattern, taskData.allowOnly);
-
-    debug(() => {
-      const spacesForLevel = (level: number): string => new Array(level).fill('  ').join('');
-      const taskStr = (task: Task, level: number): string => {
-        if (task.type === 'test') {
-          return `${spacesForLevel(level)}Mode: "${task.mode}" Test: "${task.name}"`;
-        } else {
-          const suiteStr = `${spacesForLevel(level)}Mode: "${task.mode}" Suite: "${task.name}"\n`;
-          return suiteStr + task.tasks.map(t => taskStr(t, level + 1)).join('\n');
-        }
-      };
-      return `[Worker ${workerId}] ${base} - discovered hierarchy:\n${taskStr(cached.fileTask, 0)}`;
-    });
-
-    // vitest collect - report discovery results
-    await Promise.all([
-      // Report user console logs
-      reportUserConsoleLogs(rpc, logMessages, base, cached.fileTask.id, cached.fileTask.filepath),
-
-      // Report onCollected with collected and filtered tasks
-      reportFileCollected(rpc, cached.fileTask),
-    ]);
-
-    await flushRpcUpdates(rpc);
-
-    debug(`[Worker ${workerId}] ${base} - discoverTests complete for "${cached.fileTask.filepath}"`, cached.fileTask.mode);
-
-    return cached.fileTask;
-  } catch (error) {
-    throw createPoolErrorFromAnyError(
-      `${base} - discoverTests failure in worker`,
-      POOL_ERROR_NAMES.WASMExecutionHarnessError,
-      error
-    );
-  }
-}
-
-/**
- * Execute a single test
- */
-export async function executeTest(taskData: ExecuteTestTask): Promise<Test> {
-  const { cached, collectCoverage, test, poolOptions, diffOptions, port, bail } = taskData;
-  const base = basename(cached.fileTask.filepath);
-
-  try {
-    setDebugMode(poolOptions.debug);
-    debug(`[Worker ${workerId}] ${base} - executeTest started for: "${test.name}"`);
-
-    // Create RPC client from port
-    const rpc = createRpcClient(port);
-
-    const logMessages: AssemblyScriptConsoleLog[] = [];
-    const handleLog: AssemblyScriptConsoleLogHandler = (msg: string, isError: boolean = false): void => {
-      logMessages.push({ msg, time: Date.now(), isError });
-    };
-
-    const executionStart = Date.now();
-    const startMsg: TestExecutionStart = { executionStart, taskId: test.id, workerId };
-    port.postMessage(startMsg);
-    
-    let testPreparePromise: Promise<void> = Promise.resolve();
-
-    if (!test.retry || !test.result) {
-      // first/only attempt: create test result and report test-prepare
-      setTestPrepareResult(test, executionStart);
-      testPreparePromise = reportTestPrepare(rpc, test);
-    } else if (test.result) {
-      // this is a retry, reset the result state 
-      resetTestResult(test, executionStart);
-    }
-
-     const [_reported, { test: testAfterRun, timings }] = await Promise.all([
-      testPreparePromise,
-      executeWASMTest(
-        test,
-        cached.binary,
-        cached.sourceMap,
-        cached.debugInfo,
-        base,
-        poolOptions,
-        collectCoverage,
-        handleLog,
-        diffOptions
-      )
-     ]);
-
-    const endMsg: TestExecutionEnd = { executionEnd: Date.now(), taskId: test.id, workerId };
-    port.postMessage(endMsg);
-
-    // set passed if appropriate, set duration
-    updateTestFinishedResult(testAfterRun, timings);
-
-    // invert result if test configured as 'fails'
-    checkFailsAndInvertResult(testAfterRun, `Worker ${workerId}`, base);
-
-    // check if we should bail now
-    if (bail && testAfterRun.result?.state !== 'pass') {
-      const previousFailures = await rpc.getCountOfFailedTests();
-      const currentFailures = 1 + previousFailures;
-
-      if (currentFailures >= bail) {
-        debug(`[Worker ${workerId}] ${base} - executeTest "${testAfterRun.name}" BAIL: ${currentFailures} >= ${bail} failures`);
-        rpc.onCancel('test-failure');
-      }
-    }
-
-    const willRetry = shouldRetryTask(testAfterRun);
-    
-    // Report results
-    await Promise.all([
-      // Report user console logs
-      reportUserConsoleLogs(rpc, logMessages, base, testAfterRun.id, testAfterRun.name),
-
-      // Report test results
-      willRetry
-        ? reportTestRetried(rpc, testAfterRun)
-        : reportTestFinished(rpc, testAfterRun)
-    ]);
-
-    await flushRpcUpdates(rpc);
-
-    debug(`[Worker ${workerId}] ${base} - executeTest complete for: "${testAfterRun.name}"`);
-
-    return testAfterRun;
-  } catch (error) {
-    throw createPoolErrorFromAnyError(
-      `${base} - executeTest failure in worker for test "${test.name}"`,
-      POOL_ERROR_NAMES.WASMExecutionHarnessError,
-      error
-    );
-  }
-}
-
-export async function reportSuiteEvent(taskData: ReportSuiteEventTask): Promise<void> {
-  const { suite, event, port, poolOptions } = taskData;
-  const base = basename(suite.file.filepath);
-  const suiteLabel = suite.file.filepath === suite.name ? '' : `Suite: "${suite.name}" - `;
-
-  try {
-    setDebugMode(poolOptions.debug);
-    debug(`[Worker ${workerId}] ${base} - ${suiteLabel}reportSuiteEvent "${event}" started`);
-
-    // Create RPC client
-    const rpc = createRpcClient(port);
-
-    if (event === 'suite-prepare') {
-      await reportSuitePrepare(rpc, suite, base, suiteLabel);
-    } else if (event === 'suite-finished') {
-      await reportSuiteFinished(rpc, suite, base, suiteLabel);
-    }
-
-    await flushRpcUpdates(rpc);
-
-    debug(`[Worker ${workerId}] ${base} - ${suiteLabel}reportSuiteEvent "${event}" complete`);
-  } catch (error) {
-    throw createPoolErrorFromAnyError(
-      `${base} - reportSuiteEvent failure in worker`,
-      POOL_ERROR_NAMES.PoolReportingError,
-      error
-    );
-  }
-}
-
-export async function reportPipelineFileFailure(taskData: ReportFileFailureTask): Promise<void> {
+export async function reportFileSuiteFailure(taskData: ReportFileFailureTask): Promise<void> {
   const { file, port, poolOptions } = taskData;
   const base = basename(file.filepath);
+  const logModule = `Worker ${workerId}`;
+  const logLabel = getTaskLogLabel(base, file);
 
   try {
     setDebugMode(poolOptions.debug);
-    // debug(`[Worker ${workerId}] ${base} - reportPipelineFileFailure started for: "${file.filepath}"`);
-
-    const rpc = createRpcClient(port);
+    debug(`[${logModule}] ${logLabel} - reportFileSuiteFailure started for: "${file.filepath}"`);
 
     const errName = file.result?.errors ? (file.result.errors[0]?.name ?? 'undefined') : 'undefined';
-    // debug(`[Worker ${workerId}] ${base} - Reporting onQueued with error "${errName}" for: "${file.filepath}"`);
-
-    await reportFileQueued(rpc, file);
-    
-    await reportFileError(rpc, file);
-
-    await flushRpcUpdates(rpc);
-
-    debug(`[Worker ${workerId}] ${base} - reportPipelineFileFailure for "${errName}" complete`);
-  } catch (error) {
-    throw createPoolErrorFromAnyError(
-      `${base} - reportPipelineFileFailure failure in worker`,
-      POOL_ERROR_NAMES.PoolReportingError,
-      error
-    );
-  }
-}
-
-export async function reportTestFailures(taskData: ReportTestFailuresTask): Promise<void> {
-  const { testTasks, poolOptions, port } = taskData;
-  const file = testTasks.length > 0 ? testTasks[0]?.file.filepath ?? '' : '';
-  const base = basename(file);
-
-  try {
-    setDebugMode(poolOptions.debug);
-    debug(`[Worker ${workerId}] ${base} - reportTestFailure started for ${testTasks.length} tasks`);
-
     const rpc = createRpcClient(port);
 
-    await Promise.all(testTasks.map(task => reportTestFinished(rpc, task)));
-
+    await reportFileQueued(rpc, file, logModule, logLabel);
+    await reportFileError(rpc, file, logModule, logLabel);
     await flushRpcUpdates(rpc);
 
-    debug(`[Worker ${workerId}] ${base} - reportTestFailure complete`);
+    debug(`[${logModule}] ${logLabel} - reportFileSuiteFailure complete for "${errName}"`);
   } catch (error) {
     throw createPoolErrorFromAnyError(
-      `${base} - reportTestFailure failure in worker`,
+      `${base} - reportFileSuiteFailure failure in worker`,
       POOL_ERROR_NAMES.PoolReportingError,
       error
     );
   }
 }
-
-/**
- * Execute beforeAll hooks and report suite-prepare
- * Not yet implemented - placeholder for future hook support
- *
- * When implemented:
- * - Reports suite-prepare (moves from discoverTests)
- * - Executes beforeAll hooks sequentially
- * - Reports before-hook-start/end for each hook
- * - Blocks test execution until complete
- */
-export async function executeBeforeAllHooks(taskData: ExecuteBeforeAllHooksTask): Promise<void> {
-  setDebugMode(taskData.poolOptions.debug);
-  debug(`[Worker ${workerId}] executeBeforeAllHooks not yet implemented`);
-  throw createPoolErrorFromAnyError('executeBeforeAllHooks worker function', POOL_ERROR_NAMES.PoolError, 'executeBeforeAllHooks not yet implemented');
-}
-
-/**
- * Execute afterAll hooks
- * Not yet implemented - placeholder for future hook support
- *
- * When implemented:
- * - Executes afterAll hooks sequentially
- * - Reports after-hook-start/end for each hook
- * - Blocks suite-finished until complete
- */
-export async function executeAfterAllHooks(taskData: ExecuteAfterAllHooksTask): Promise<void> {
-  setDebugMode(taskData.poolOptions.debug);
-  debug(`[Worker ${workerId}] executeAfterAllHooks not yet implemented`);
-  throw createPoolErrorFromAnyError('executeAfterAllHooks worker function', POOL_ERROR_NAMES.PoolError, 'executeBeforeAllHooks not yet implemented');
-}
-
-
-
-
-
-
-
 
 async function runTest(
   rpc: BirpcReturn<RuntimeRPC>,
@@ -462,26 +118,30 @@ async function runTest(
   bail?: number,
   diffOptions?: SerializedDiffOptions,
 ): Promise<Test> {
+  const workerModuleLabel = `Worker ${workerId}`;
+  const testLogPrefix = getTaskLogPrefix(workerModuleLabel, base, test);
   const logMessages: AssemblyScriptConsoleLog[] = [];
   const handleLog: AssemblyScriptConsoleLogHandler = (msg: string, isError: boolean = false): void => {
     logMessages.push({ msg, time: Date.now(), isError });
   };
 
+  // inform pool of test task start so it can enforce timeouts
   const executionStart = Date.now();
-  const startMsg: TestExecutionStart = { executionStart, taskId: test.id, workerId };
+  const startMsg: TestExecutionStart = { executionStart, test };
   port.postMessage(startMsg);
   
   let testPreparePromise: Promise<void> = Promise.resolve();
-
   if (!test.retry || !test.result) {
     // first/only attempt: create test result and report test-prepare
     setTestPrepareResult(test, executionStart);
-    testPreparePromise = reportTestPrepare(rpc, test);
+    testPreparePromise = reportTestPrepare(rpc, test, workerModuleLabel, base);
   } else if (test.result) {
     // this is a retry, reset the result state 
     resetTestResult(test, executionStart);
   }
 
+  // do the test prepare message send and test execution async, so that the thread
+  // doesn't explicitly wait on the prepare send to finish before beginning execution 
   const [_reported, { test: testAfterRun, timings }] = await Promise.all([
     testPreparePromise,
     executeWASMTest(
@@ -493,18 +153,20 @@ async function runTest(
       poolOptions,
       collectCoverage,
       handleLog,
+      workerModuleLabel,
       diffOptions
     )
   ]);
 
-  const endMsg: TestExecutionEnd = { executionEnd: Date.now(), taskId: test.id, workerId };
+  // inform pool of test task end to stop timeout if under threshold
+  const endMsg: TestExecutionEnd = { executionEnd: Date.now(), testTaskId: test.id };
   port.postMessage(endMsg);
 
   // set passed if appropriate, set duration
   updateTestFinishedResult(testAfterRun, timings);
 
   // invert result if test configured as 'fails'
-  checkFailsAndInvertResult(testAfterRun, `Worker ${workerId}`, base);
+  checkFailsAndInvertResult(testAfterRun, testLogPrefix);
 
   // check if we should bail now
   if (bail && testAfterRun.result?.state !== 'pass') {
@@ -512,23 +174,41 @@ async function runTest(
     const currentFailures = 1 + previousFailures;
 
     if (currentFailures >= bail) {
-      debug(`[Worker ${workerId}] ${base} - executeTest "${testAfterRun.name}" BAIL: ${currentFailures} >= ${bail} failures`);
+      debug(`${testLogPrefix} BAIL: ${currentFailures} >= ${bail} failures`);
       rpc.onCancel('test-failure');
     }
   }
 
-  const willRetry = shouldRetryTask(testAfterRun);
-  
-  // Report results
-  await Promise.all([
-    // Report user console logs
-    reportUserConsoleLogs(rpc, logMessages, base, testAfterRun.id, testAfterRun.name),
+  let willRetry = shouldRetryTask(testAfterRun);
 
-    // Report test results
+  await Promise.all([
+    reportUserConsoleLogs(rpc, logMessages, workerModuleLabel, base, testAfterRun),
+
     willRetry
-      ? reportTestRetried(rpc, testAfterRun)
-      : reportTestFinished(rpc, testAfterRun)
+      ? reportTestRetried(rpc, testAfterRun, workerModuleLabel, base)
+      : reportTestFinished(rpc, testAfterRun, workerModuleLabel, base)
   ]);
+
+  while (willRetry) {
+    // reset meta before retrying
+    resetTaskMeta(testAfterRun);
+
+    // increment the retry count
+    testAfterRun.result!.retryCount = (testAfterRun.result?.retryCount || 0) + 1;
+
+    debug(`${testLogPrefix} - Retrying after failure`
+      + ` | Retry ${testAfterRun.result?.retryCount || 0} / ${testAfterRun.retry} ` 
+      + ` | ${testAfterRun.result?.errors?.length ?? 0} errors`
+    );
+
+    await runTest(rpc, port, base, collectCoverage, binary, sourceMap, debugInfo, testAfterRun, poolOptions, bail, diffOptions);
+
+    willRetry = shouldRetryTask(testAfterRun);
+  }
+
+  // ensure completed test will not be run again if another test
+  // times out later and the file worker thread gets re-launched
+  finalizeTestResult(testAfterRun);
 
   return testAfterRun;
 }
@@ -545,212 +225,233 @@ async function runSuite(
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   bail?: number,
   diffOptions?: SerializedDiffOptions,
+  timedOutTest?: Test,
 ): Promise<Suite> {
   const suiteStart = performance.now();
-  const suiteCoverage: CoverageData = { hitCountsByFileAndPosition: {} };
-  const suiteLabel = getSuiteLogLabel(suite);
+  const workerModuleLabel = `Worker ${workerId}`;
+  const suiteMeta = suite.meta as AssemblyScriptSuiteTaskMeta;
+  const suiteLogPrefix = getTaskLogPrefix(workerModuleLabel, base, suite);
+  const isTimedOutTestInSuite: boolean = timedOutTest?.suite?.id === suite.id;
 
-  // create a task result for the suite
-  setSuitePrepareResult(suite);
+  if (suiteMeta.resultFinal) {
+    debug(`${suiteLogPrefix} - Skipping completed suite | state: "${suite.result?.state}"`);
 
-  await reportSuitePrepare(rpc, suite, base, suiteLabel);
+    return suite;
+  } else {
+    debug(`${suiteLogPrefix} - runSuite ${!!timedOutTest
+      ? `resuming after test timeout ("${timedOutTest.name}")`
+      : 'beginning'
+    }`);
+  }
+
+  if (!suiteMeta.suitePreparedSent) {
+    setSuitePrepareResult(suite);
+    await reportSuitePrepare(rpc, suite, workerModuleLabel, base);
+
+    // ensure suite-prepare will only be sent once if a test
+    // times out and the file worker thread gets re-launched
+    suiteMeta.suitePreparedSent = true;
+  }
+
+  // restore suite coverage collected so far from the timed out test, if provided.
+  // otherwise create a suite-level coverage data object to aggregate all subtask coverage
+  if (isTimedOutTestInSuite) {
+    suiteMeta.coverageData = (timedOutTest!.suite!.meta as AssemblyScriptSuiteTaskMeta).coverageData;
+    
+    const coverageKeys: number = Object.keys(suiteMeta.coverageData ?? {}).length;
+    debug(`${suiteLogPrefix} - Restored suite coverage data after timeout (${coverageKeys} unique positions)`);
+  } {
+    // initialize aggregated coverage data for suite, which gets updated as each subtask completes
+    suiteMeta.coverageData = { hitCountsByFileAndPosition: {} };
+  }
 
   let tasksToRun: Task[] = getRunnableTasks(suite);
-  const finishedTasks: Task[] = [];
 
-  let executeLoopCount: number = 0;
-  
-  // continue until there are no tasks left to run (e.g. needing retry)
-  while (tasksToRun.length > 0) {
-    const loopStart = performance.now();
-    executeLoopCount++;
-    debug(`[Worker ${workerId}] ${base} - ${suiteLabel}Execution loop ${executeLoopCount} starting`);
+  for (const task of tasksToRun) {
+    if (task.type === 'suite') {
+      const suiteTaskMeta = task.meta as AssemblyScriptSuiteTaskMeta;
 
-    const tasksAfterRun = await Promise.all(
-      tasksToRun.map(async (task: Task): Promise<Suite | Test> => {
-        if (task.type === 'suite') {
-          return runSuite(rpc, port, base, collectCoverage, binary, sourceMap, debugInfo, task, poolOptions, bail, diffOptions);
-        } else {
-          return runTest(rpc, port, base, collectCoverage, binary, sourceMap, debugInfo, task, poolOptions, bail, diffOptions);
-        }
-      })
-    );
+      await runSuite(rpc, port, base, collectCoverage, binary, sourceMap, debugInfo, task, poolOptions, bail, diffOptions, timedOutTest);
 
-    // find and report timed out tests as they won't have been reported already in either case:
-    //  - worker thread was aborted because of timeout
-    //  - completed as passed, but should be marked failed and timed out based on duration
-    const timedOutTests = getTimedOutTests(tasksAfterRun);
-    if (timedOutTests.length > 0) {
-      await Promise.all(timedOutTests.map(test => reportTestFinished(rpc, test)));
-    }
-
-    // bucket finished vs failed tasks which are configured to retry
-    tasksToRun = [];
-    tasksAfterRun.forEach(task => {
-      const willRetry = shouldRetryTask(task);
-      if (willRetry) {
-        // reset meta before retrying
-        resetTaskMeta(task);
-
-        // increment the retry count
-        task.result!.retryCount = (task.result?.retryCount || 0) + 1;
-
-        tasksToRun.push(task);
-
-        debug(`[Worker ${workerId}] ${base} - ${suiteLabel}"${task.name}" - Submitting for retry`
-          + ` ${task.result?.retryCount || 0} / ${task.retry} ` 
-          + ` | ${task.result?.errors?.length ?? 0} errors`
-        );
-      } else {
-        // accumulate suite coverage data
-        const meta = task.meta as AssemblyScriptTestTaskMeta;
-        if (meta.coverageData) {
-          mergeCoverageData(suiteCoverage, meta.coverageData);
-        }
-
-        finishedTasks.push(task);
-
-        debug(`[Worker ${workerId}] ${base} - ${suiteLabel}"${task.name}" - Complete` 
-          + ` | Result: "${task.result?.state}" | ${task.result?.retryCount ?? 0} retries`
-          + ` | ${task.result?.errors?.length ?? 0} errors | Collected Coverage: ${!!meta.coverageData}`
-        );
+      // merge suite task coverage into parent suite coverage
+      if (suiteMeta.coverageData && suiteTaskMeta.coverageData) {
+        mergeCoverageData(suiteMeta.coverageData, suiteTaskMeta.coverageData);
       }
-    });
-
-    debug(`[Worker ${workerId}] ${base} - ${suiteLabel}Execution loop ${executeLoopCount} end: ${(performance.now() - loopStart).toFixed(2)}ms`);
-
-    if (tasksToRun.length > 0) {
-      debug(`[Worker ${workerId}] ${base} - ${suiteLabel}Re-executing ${tasksToRun.length} failed tests configured with retry settings`);
+      
     } else {
-      debug(`[Worker ${workerId}] ${base} - ${suiteLabel}Execution Phase Complete - No Retries`);
+      const testLogPrefix = getTaskLogPrefix(workerModuleLabel, base, task);
+      const testTaskMeta = task.meta as AssemblyScriptTestTaskMeta;
+
+      if (testTaskMeta.resultFinal) {
+        debug(`${testLogPrefix} - Skipping completed test | state: "${task.result?.state}"`);
+      } else if (!!timedOutTest && task.id === timedOutTest.id) {
+        if (shouldRetryTask(timedOutTest)) {
+          debug(`${testLogPrefix} - Retrying after test timeout`
+            + ` | retry ${timedOutTest.result?.retryCount || 0} / ${timedOutTest.retry} ` 
+            + ` | ${timedOutTest.result?.errors?.length ?? 0} errors`
+            + ` | state: "${timedOutTest.result?.state}"`
+          );
+          
+          await reportTestRetried(rpc, timedOutTest, workerModuleLabel, base);
+
+          // reset meta before retrying
+          resetTaskMeta(timedOutTest);
+
+          // increment the retry count
+          timedOutTest.result!.retryCount = (timedOutTest.result?.retryCount || 0) + 1;
+          
+          // retry timed out test
+          await runTest(rpc, port, base, collectCoverage, binary, sourceMap, debugInfo, task, poolOptions, bail, diffOptions);
+        } else {
+          debug(`${testLogPrefix} - Timed-out test has max retries`
+            + ` | retry ${timedOutTest.result?.retryCount || 0} / ${timedOutTest.retry} ` 
+            + ` | ${timedOutTest.result?.errors?.length ?? 0} errors`
+            + ` | state: "${timedOutTest.result?.state}"`
+          );
+
+          updateTestFinishedResult(timedOutTest);
+          await reportTestFinished(rpc, timedOutTest, workerModuleLabel, base);
+
+          // ensure completed test will not be run again if another test
+          // times out later and the file worker thread gets re-launched
+          finalizeTestResult(timedOutTest);
+        }
+      } else {
+        debug(`${testLogPrefix} - Running test task | state: "${task.result?.state}"`);
+        await runTest(rpc, port, base, collectCoverage, binary, sourceMap, debugInfo, task, poolOptions, bail, diffOptions);
+      }
+
+      // merge test coverage into suite coverage
+      if (suiteMeta.coverageData && testTaskMeta.coverageData) {
+        mergeCoverageData(suiteMeta.coverageData, testTaskMeta.coverageData);
+      }
     }
   }
 
-  // update all tasks on the suite with their results from the worker runs,
-  // because object mutations won't reflect across worker boundaries.
-  finishedTasks.forEach(task => {
-    const meta: AssemblyScriptTestTaskMeta | AssemblyScriptSuiteTaskMeta = task.type === 'suite'
-      ? task.meta as AssemblyScriptSuiteTaskMeta
-      : task.meta as AssemblyScriptTestTaskMeta;
-    suite.tasks[meta.idxInParentTasks] = task;
-  });
+  // update suite result based on its tasks, report coverage data, report suite task result
+  updateSuiteFinishedResult(suite, suiteLogPrefix);
+  await reportSuiteFinished(rpc, suite, workerModuleLabel, base);
 
-  // add coverage data if any is accumulated
-  if (Object.keys(suiteCoverage.hitCountsByFileAndPosition).length > 0) {
-    (suite.meta as AssemblyScriptSuiteTaskMeta).coverageData = suiteCoverage;
-  }
-  
-  // update suite result based on its tasks
-  updateSuiteFinalResult(suite, `Worker ${workerId}`, `${base} - ${suiteLabel}`);
-
-  await reportSuiteFinished(rpc, suite, base, suiteLabel);
+  // ensure completed test will not be run again if another test
+  // times out later and the file worker thread gets re-launched
+  finalizeSuiteResult(suite);
 
   const suiteTime = performance.now() - suiteStart;
-  debug(`[Worker ${workerId}] ${base} - ${suiteLabel}TIMING - Suite Run Complete: ${suiteTime.toFixed(2)}ms`);
+  debug(`${suiteLogPrefix} - Suite Run Complete | TIMING ${suiteTime.toFixed(2)}ms`);
 
   return suite;
 }
 
 export async function runFile(taskData: RunFileTask): Promise<void> {
-  const { file, poolOptions, port, projectRoot, collectCoverage, bail, diffOptions } = taskData;
+  const { file, poolOptions, port, projectRoot, collectCoverage, bail, diffOptions, timedOutTest, timedOutCompilation } = taskData;
+  const workerModuleLabel = `Worker ${workerId}`;
   const base = basename(file.filepath);
+  const fileLogPrefix = getTaskLogPrefix(workerModuleLabel, base, file);
+  const fileLogLabel = getTaskLogLabel(base, file);
   setDebugMode(poolOptions.debug);
 
-  debug(`[Worker ${workerId}] ${base} - Beginning runFile for "${file.filepath}" at ${Date.now()}`);
+  debug(`${fileLogPrefix} - Beginning runFile for "${file.filepath}" at ${Date.now()}`);
 
   const runStart = performance.now();
   const rpc = createRpcClient(port);
+  let compilation: WASMCompilation | undefined = timedOutCompilation;
 
   try {
-    await reportFileQueued(rpc, file);
+    if (!timedOutTest || !compilation) {
+      await reportFileQueued(rpc, file, workerModuleLabel, fileLogLabel);
 
-    // TODO - move to options helpers
-    const relativeTestFilePath = relative(projectRoot, file.filepath);
-    const instrumentationOptions: InstrumentationOptions = {
-      relativeExcludedFiles: [
-        relativeTestFilePath,
-        ...POOL_INTERNAL_PATHS,
-        ...taskData.relativeUserCoverageExclusions,
-      ],
-      excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
-      coverageMemoryPagesMin: poolOptions.coverageMemoryPagesMin,
-      coverageMemoryPagesMax: poolOptions.coverageMemoryPagesMax,
-    };
-    const compilerOptions: AssemblyScriptCompilerOptions = {
-      stripInline: poolOptions.stripInline,
-      projectRoot: projectRoot,
-      shouldInstrument: collectCoverage,
-      instrumentationOptions
-    };
-
-    const { binary, sourceMap, debugInfo, compileTiming } = await compileAssemblyScript(file.filepath, compilerOptions);
-    file.prepareDuration = compileTiming;
-    compilationCount++;
-
-    debug(`[Worker ${workerId}] ${base} - TIMING compileAssemblyScript total `
-      + `(worker comp # ${compilationCount}): ${compileTiming.toFixed(2)}ms`
-    );
-    
-    const logMessages: AssemblyScriptConsoleLog[] = [];
-    const handleLog: AssemblyScriptConsoleLogHandler = (msg: string, isError: boolean = false): void => {
-      logMessages.push({ msg, time: Date.now(), isError });
-    };
-    
-    const discoverStart = performance.now();
-
-    await executeWASMDiscovery(
-      binary,
-      sourceMap,
-      base,
-      poolOptions,
-      collectCoverage,
-      handleLog,
-      file,
-      diffOptions
-    );
-
-    // set skips when using only and/or user test name pattern, skip file task if all tests skipped
-    prepareFileTaskForCollection(file, taskData.testNamePattern, taskData.allowOnly);
-
-    file.collectDuration = performance.now() - discoverStart;
-    debug(`[Worker ${workerId}] ${base} - TIMING discovery phase: ${file.collectDuration.toFixed(2)}ms`);
-
-    debug(() => {
-      const spacesForLevel = (level: number): string => new Array(level).fill('  ').join('');
-      const taskStr = (task: Task, level: number): string => {
-        if (task.type === 'test') {
-          return `${spacesForLevel(level)}Mode: "${task.mode}" Test: "${task.name}"`;
-        } else {
-          const suiteStr = `${spacesForLevel(level)}Mode: "${task.mode}" Suite: "${task.name}"\n`;
-          return suiteStr + task.tasks.map(t => taskStr(t, level + 1)).join('\n');
-        }
+      // TODO - move to options helpers
+      const relativeTestFilePath = relative(projectRoot, file.filepath);
+      const instrumentationOptions: InstrumentationOptions = {
+        relativeExcludedFiles: [
+          relativeTestFilePath,
+          ...POOL_INTERNAL_PATHS,
+          ...taskData.relativeUserCoverageExclusions,
+        ],
+        excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
+        coverageMemoryPagesMin: poolOptions.coverageMemoryPagesMin,
+        coverageMemoryPagesMax: poolOptions.coverageMemoryPagesMax,
       };
-      return `[Worker ${workerId}] ${base} - discovered hierarchy:\n${taskStr(file, 0)}`;
-    });
+      const compilerOptions: AssemblyScriptCompilerOptions = {
+        stripInline: poolOptions.stripInline,
+        projectRoot: projectRoot,
+        shouldInstrument: collectCoverage,
+        instrumentationOptions
+      };
 
-    // vitest collect - report discovery results
-    await Promise.all([
-      // Report user console logs
-      reportUserConsoleLogs(rpc, logMessages, base, file.id, file.filepath),
+      const { binary, sourceMap, debugInfo, compileTiming } = await compileAssemblyScript(
+        file.filepath,
+        compilerOptions,
+        workerModuleLabel,
+        fileLogLabel
+      );
+      file.prepareDuration = compileTiming;
+      compilationCount++;
 
-      // Report onCollected with collected and filtered tasks
-      reportFileCollected(rpc, file),
-    ]);
+      debug(`${fileLogPrefix} - TIMING compileAssemblyScript total `
+        + `(worker comp # ${compilationCount}): ${compileTiming.toFixed(2)}ms`
+      );
 
-    // if just collecting, consider the pipeline done
-    if (taskData.isCollectTestsMode) {
-      return;
+      compilation = {
+        filePath: file.filepath,
+        binary,
+        sourceMap,
+        debugInfo,
+      }
+      port.postMessage(compilation);
+      
+      const logMessages: AssemblyScriptConsoleLog[] = [];
+      const handleLog: AssemblyScriptConsoleLogHandler = (msg: string, isError: boolean = false): void => {
+        logMessages.push({ msg, time: Date.now(), isError });
+      };
+      
+      const discoverStart = performance.now();
+
+      await executeWASMDiscovery(
+        binary,
+        sourceMap,
+        base,
+        poolOptions,
+        collectCoverage,
+        handleLog,
+        file,
+        workerModuleLabel,
+        diffOptions
+      );
+
+      // set skips when using only and/or user test name pattern, skip file task if all tests skipped
+      prepareFileTaskForCollection(file, taskData.testNamePattern, taskData.allowOnly);
+
+      file.collectDuration = performance.now() - discoverStart;
+      debug(`${fileLogPrefix} - TIMING Discovery Phase: ${file.collectDuration.toFixed(2)}ms`);
+
+      // vitest collect - report discovery results
+      await Promise.all([
+        // Report user console logs
+        reportUserConsoleLogs(rpc, logMessages, workerModuleLabel, base, file),
+
+        // Report onCollected with collected and filtered tasks
+        reportFileCollected(rpc, file, workerModuleLabel, fileLogLabel),
+      ]);
+
+      debug(() => `${fileLogPrefix} - Collected Test Suite Hierarchy:\n${getFullTaskHierarchy(file)}`);
+
+      // if just collecting, consider the worker run done here
+      if (taskData.isCollectTestsMode) {
+        return;
+      }
     }
 
+    const { binary, sourceMap, debugInfo } = compilation;
     const execStart = performance.now();
     
-    await runSuite(rpc, port, base, collectCoverage, binary, sourceMap, debugInfo, file, poolOptions, bail, diffOptions);
+    await runSuite(rpc, port, base, collectCoverage, binary, sourceMap, debugInfo, file, poolOptions, bail, diffOptions, timedOutTest);
 
     const execTime = performance.now() - execStart;
-    debug(`[Worker ${workerId}] ${base} - TIMING Execution Phase: ${execTime.toFixed(2)}ms`);
+    debug(`${fileLogPrefix} - TIMING Execution Phase: ${execTime.toFixed(2)}ms`);
 
     const totalTime = performance.now() - runStart;
-    debug(`[Worker ${workerId}] ${base} - TIMING Total File Run: ${totalTime.toFixed(2)}ms`);
+    debug(`${fileLogPrefix} - TIMING Total File Run: ${totalTime.toFixed(2)}ms`);
   } catch (error) {
     throw createPoolErrorFromAnyError(
       `${base} - runFile failure in worker`,

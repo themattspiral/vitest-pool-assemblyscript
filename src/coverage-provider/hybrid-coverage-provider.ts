@@ -95,29 +95,31 @@ export class HybridCoverageProvider implements CoverageProvider {
    */
   async onAfterSuiteRun(meta: AfterSuiteRunMeta): Promise<void> {
     const start = performance.now();
-
     const format: string | undefined = (meta?.coverage as any)?.__format;
-
-    debug(() => {
-      const files = meta.testFiles.map(tf => relative(this.resolvedProjectConfig.root, tf)).join(', ');
-      return `[HybridCoverageProvider] onAfterSuiteRun - format: ${format ?? '<unknown>'} | testFiles: ${files}`;
-    });
+    let suiteLogLabel = meta.testFiles.length > 0 ? basename(meta.testFiles[0]!) : '';
 
     // Check for AssemblyScript format marker
     if (format === COVERAGE_PAYLOAD_FORMATS.AssemblyScript) {
       const payload = meta.coverage as AssemblyScriptCoveragePayload;
-      const { coverageData } = payload;
+      const { coverageData, suiteLogLabel: label } = payload;
+      suiteLogLabel = label;
 
-      const fileCount = Object.keys(coverageData.hitCountsByFileAndPosition).length;
-      const positionCount = Object.values(coverageData.hitCountsByFileAndPosition)
-        .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
-      debug(`[HybridCoverageProvider] AS coverage payload: ${positionCount} unique positions hit across ${fileCount} source files`);
+      debug(() => {
+        const fileCount = Object.keys(coverageData.hitCountsByFileAndPosition).length;
+        const positionCount = Object.values(coverageData.hitCountsByFileAndPosition)
+          .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
+        return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun - Suite payload: ${positionCount} unique positions over ${fileCount} source files`;
+      });
 
       // Merge incoming coverage data into accumulated (by position, summing hit counts)
       mergeCoverageData(this.accumulatedCoverageData, coverageData);
 
-      const accumulatedFileCount = Object.keys(this.accumulatedCoverageData.hitCountsByFileAndPosition).length;
-      debug(`[HybridCoverageProvider] Accumulated coverage now has ${accumulatedFileCount} source files`);
+      debug(() => {
+        const fileCount = Object.keys(this.accumulatedCoverageData.hitCountsByFileAndPosition).length;
+        const positionCount = Object.values(this.accumulatedCoverageData.hitCountsByFileAndPosition)
+          .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
+        return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun - Accumulated coverage: ${positionCount} unique positions over ${fileCount} source files`;
+      });
     } else {
       // Delegate to v8 provider for all other formats (JS, etc.)
       if (!this.v8Provider) {
@@ -126,15 +128,14 @@ export class HybridCoverageProvider implements CoverageProvider {
           POOL_ERROR_NAMES.HybridCoverageProviderError
         );
       }
-      debug('[HybridCoverageProvider] Delegating to v8 provider');
+
+      debug(`[HybridCoverageProvider] ${suiteLogLabel} - Delegating to v8 provider`);
       await this.v8Provider.onAfterSuiteRun(meta);
     }
 
     debug(() => {
       const files = meta.testFiles.map(tf => relative(this.resolvedProjectConfig.root, tf)).join(',');
-      const baseFiles = meta.testFiles.map(tf => basename(this.resolvedProjectConfig.root, tf)).join(',');
-      return `[HybridCoverageProvider] onAfterSuiteRun complete - testFiles: "${files}"\n`
-           + `[HybridCoverageProvider] ${baseFiles} - TIMING onAfterSuiteRun: ${(performance.now() - start).toFixed(2)}ms`;
+      return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun complete - TIMING ${(performance.now() - start).toFixed(2)}ms | testFiles: "${files}"`;
     });
   }
 

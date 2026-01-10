@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
 import type { File, Test } from '@vitest/runner/types';
 
@@ -17,6 +18,7 @@ import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
 import { enhanceTestError } from './wasm-errors.js';
 import { createPoolError, createPoolErrorFromAnyError } from '../util/pool-errors.js';
+import { getTaskLogLabel } from '../util/vitest-tasks.js';
 
 function createExecutorPoolError(
   testFileBasename: string,
@@ -43,9 +45,12 @@ export async function executeWASMDiscovery(
   isBinaryInstrumented: boolean,
   handleLog: AssemblyScriptConsoleLogHandler,
   file: File,
+  moduleLabel: string,
   diffOptions?: SerializedDiffOptions,
 ): Promise<void> {
-  const module = await WebAssembly.compile(binary as BufferSource);
+  const base = basename(file.filepath);
+  const logPrefix = `[${moduleLabel} WASM Executor] ${getTaskLogLabel(base, file)}`;
+  const wasmModule = await WebAssembly.compile(binary as BufferSource);
   const memory = createMemory();
 
   // Create coverage memory matching instrumentation expections (from user config).
@@ -58,10 +63,10 @@ export async function executeWASMDiscovery(
     })
     : undefined;
 
-  const importObject = createDiscoveryImports(memory, file, handleLog, coverageMemory);
+  const importObject = createDiscoveryImports(memory, file, handleLog, logPrefix, coverageMemory);
 
   // Instantiate WASM module
-  const instance = new WebAssembly.Instance(module, importObject);
+  const instance = new WebAssembly.Instance(wasmModule, importObject);
   const exports = instance.exports as Record<string, unknown>;
 
   // Call _start to run top-level test() and describe()
@@ -85,6 +90,7 @@ export async function executeWASMDiscovery(
           file,
           sourceMap,
           false,
+          logPrefix,
           thrownPoolErr.rawCallStack,
           diffOptions
         );
@@ -107,7 +113,7 @@ export async function executeWASMDiscovery(
     throw createExecutorPoolError(testFileBasename, 'discoverTests', 'no _start() export');
   }
 
-  debug(`[Executor] ${testFileBasename} - Discovered ${file.tasks.length} top-level tasks`);
+  debug(`${logPrefix} - Discovered ${file.tasks.length} top-level tasks`);
   return;
 }
 
@@ -123,6 +129,7 @@ export async function executeWASMTest(
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   collectCoverage: boolean,
   handleLog: AssemblyScriptConsoleLogHandler,
+  moduleLabel: string,
   diffOptions?: SerializedDiffOptions,
 ): Promise<{ test: Test, timings: WASMExecutorPerfTimings }> {
   const timings: WASMExecutorPerfTimings = {
@@ -131,9 +138,13 @@ export async function executeWASMTest(
     execEnd: 0,
     fnfinal: 0
   };
+  const base = basename(test.file.filepath);
+  const fullModuleLabel = `${moduleLabel} WASM Executor`;
+  const taskLabel = getTaskLogLabel(base, test);
+  const logPrefix = `[${fullModuleLabel}] ${taskLabel}`;
 
   // Compile the binary to usable WASM module
-  const module = await WebAssembly.compile(binary as BufferSource);
+  const wasmModule = await WebAssembly.compile(binary as BufferSource);
 
   // Create fresh memory for this test instance
   const memory = createMemory();
@@ -147,10 +158,10 @@ export async function executeWASMTest(
     : undefined;
 
   // Create import object with pool-side functions for capturing test execution results
-  const importObject = createTestExecutionImports(memory, test, handleLog, coverageMemory);
+  const importObject = createTestExecutionImports(memory, test, handleLog, logPrefix, coverageMemory);
 
   // Instantiate fresh WASM instance for this test
-  const instance = new WebAssembly.Instance(module, importObject);
+  const instance = new WebAssembly.Instance(wasmModule, importObject);
   const exports = instance.exports as Record<string, unknown>;
 
   // Call _start to run top-level code. Test registration is stubbed/noop duing execution,
@@ -229,6 +240,7 @@ export async function executeWASMTest(
       test,
       sourceMap,
       meta.lastErrorValuesProvided ?? false,
+      logPrefix,
       meta.lastErrorRawCallStack,
       diffOptions
     );
@@ -270,27 +282,33 @@ export async function executeWASMTest(
 
     // Read counters from coverage memory
     const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, debugInfo.instrumentedFunctionCount);
-    debug(`[Executor] ${testFileBasename} - "${test.name}" - Read coverage memory for ${debugInfo.instrumentedFunctionCount} instrumented functions`);
+    debug(`${logPrefix} - Read coverage memory for ${debugInfo.instrumentedFunctionCount} instrumented functions`);
 
     // Iterate all instrumented functions and build coverage data with hit counts extracted from coverage memory
     let functionsHit = 0;
     for (const [filePath, debugFunctions] of Object.entries(debugInfo.functionsByFileAndPosition)) {
       if (!coverage.hitCountsByFileAndPosition[filePath]) {
         coverage.hitCountsByFileAndPosition[filePath] = {};
-        debug(`[Executor] ${testFileBasename} - "${test.name}" - Extracting hits for source file "${filePath}"`);
+        debug(`${logPrefix} - Extracting hits for source file "${filePath}"`);
       }
 
       for (const [positionKey, funcInfo] of Object.entries(debugFunctions)) {
         if (funcInfo.coverageMemoryIndex === undefined) {
-          debug(`[Executor] WARNING NO COVERAGE MEMORY INDEX ${testFileBasename} - "${test.name}" - func "${funcInfo.name}" (${positionKey}) Skipping hit extraction`);
+          debug(`${logPrefix} - WARNING: NO COVERAGE MEMORY INDEX`
+            + ` - func "${funcInfo.name}" (${positionKey}) Skipping hit extraction`
+          );
           continue;
         }
 
         const hitCount = extractedHitCounters[funcInfo.coverageMemoryIndex] ?? 0;
-        debug(`[Executor] ${testFileBasename} - "${test.name}" - func "${funcInfo.name}" (${positionKey}) [idx: ${funcInfo.coverageMemoryIndex}]: ${hitCount} hits`);
+        debug(`${logPrefix} - func "${funcInfo.name}" (${positionKey}) `
+          + `[idx: ${funcInfo.coverageMemoryIndex}]: ${hitCount} hits`
+        );
 
         if (coverage.hitCountsByFileAndPosition[filePath][positionKey] !== undefined) {
-          debug(`[Executor] WARNING: DUPLICATE POSITION ${testFileBasename} - "${test.name}" - func "${funcInfo.name}" (${positionKey}) already extracted to coverage for ${filePath}`);
+          debug(`${logPrefix} - WARNING: DUPLICATE POSITION`
+            + ` - func "${funcInfo.name}" (${positionKey}) already extracted to coverage for ${filePath}`
+          );
         }
         // Position key is already the position (line:column) from functionsByFileAndPosition
         coverage.hitCountsByFileAndPosition[filePath][positionKey] = hitCount;
@@ -302,7 +320,7 @@ export async function executeWASMTest(
     }
 
     meta.coverageData = coverage;
-    debug(`[Executor] ${testFileBasename} - "${test.name}" - Extracted coverage data | ${functionsHit} functions hit`);
+    debug(`${logPrefix} - Extracted coverage data | ${functionsHit} functions hit`);
   }
 
   timings.fnfinal = performance.now();

@@ -155,11 +155,13 @@ function convertFunction(
  * Transform raw native addon output to processed BinaryDebugInfo
  */
 function transformDebugInfo(
-  raw: NativeDebugInfoOutput
+  raw: NativeDebugInfoOutput,
+  logModule: string,
+  logLabel: string,
 ): BinaryDebugInfo {
   const functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo>> = {};
 
-  debug(`[AddonInterface] Converting ${raw.functions.length} functions`);
+  debug(`[${logModule} AddonInterface] ${logLabel} - Converting ${raw.functions.length} functions`);
 
   let positionCollisionCount = 0;
   let skippedCount = 0;
@@ -168,7 +170,7 @@ function transformDebugInfo(
   for (const rawFunc of raw.functions) {
     const result = convertFunction(rawFunc, raw.debugSourceFiles);
     if (!result) {
-      debug(`[AddonInterface] Skipped function (bad conversion): "${rawFunc.name}"`);
+      debug(`[${logModule} AddonInterface] ${logLabel} - WARNING: Skipped function (bad conversion): "${rawFunc.name}"`);
       skippedCount++;
       continue;
     }
@@ -196,7 +198,7 @@ function transformDebugInfo(
   }
 
   debug(
-    `[AddonInterface] BinaryDebugInfo transform complete: ${instrumentedFunctionCount} instrumented functions`
+    `[${logModule} AddonInterface] ${logLabel} - BinaryDebugInfo transform complete: ${instrumentedFunctionCount} instrumented functions`
     +` (${positionCollisionCount} position collisions, ${skippedCount} skipped)`
   );
 
@@ -227,7 +229,8 @@ export function instrumentForCoverage(
   wasmBuffer: Buffer,
   sourceMapBuffer: Buffer,
   instrumentationOptions: InstrumentationOptions,
-  base: string,
+  logModule: string,
+  logLabel: string,
 ): InstrumentationResult {
   if (!Buffer.isBuffer(wasmBuffer)) {
     throw createPoolError(
@@ -242,7 +245,10 @@ export function instrumentForCoverage(
     );
   }
 
-  debug(`[AddonInterface] ${base} - Calling native instrumentForCoverage`);
+  const interfaceLogPrefix = `[${logModule} AddonInterface] ${logLabel}`;
+  const nativeLogModule = `${logModule} NativeAddon`;
+
+  debug(`${interfaceLogPrefix} - Calling native instrumentForCoverage`);
   const startTime = performance.now();
 
   const options: NativeInstrumentationOptions = {
@@ -251,10 +257,12 @@ export function instrumentForCoverage(
     excludedFiles: instrumentationOptions.relativeExcludedFiles,
     excludedLibraryFilePrefix: instrumentationOptions.excludedLibraryFilePrefix,
     debug: isDebugModeEnabled(),
+    logModule: nativeLogModule,
+    logLabel,
   };
   const nativeResult: NativeInstrumentationResult = addon.instrumentForCoverage(wasmBuffer, sourceMapBuffer, options);
   const addonTime = performance.now();
-  debug(`[AddonInterface] ${base} - TIMING Native addon completed in ${(addonTime - startTime).toFixed(2)}ms`);
+  debug(`${interfaceLogPrefix} - TIMING Native addon: ${(addonTime - startTime).toFixed(2)}ms`);
 
   if (nativeResult.errors?.length) {
     throw createPoolError(
@@ -263,10 +271,11 @@ export function instrumentForCoverage(
     );
   } 
 
-  const debugInfo = transformDebugInfo(nativeResult.debugInfo);
+  const debugInfo = transformDebugInfo(nativeResult.debugInfo, logModule, logLabel);
+  
   const transformTime = performance.now();
-  debug(`[AddonInterface] ${base} - TIMING Transform completed in: ${(transformTime - addonTime).toFixed(2)}ms`);
-  debug(`[AddonInterface] ${base} - Binary size: ${nativeResult.instrumentedWasm.length} bytes | Source map size: ${nativeResult.sourceMap.length * 2} bytes`);
+  debug(`${interfaceLogPrefix} - TIMING Debug Info Transform: ${(transformTime - addonTime).toFixed(2)}ms`);
+  debug(`${interfaceLogPrefix} - Binary size: ${nativeResult.instrumentedWasm.length} bytes | Source map size: ${nativeResult.sourceMap.length * 2} bytes`);
 
   return {
     instrumentedWasm: nativeResult.instrumentedWasm,

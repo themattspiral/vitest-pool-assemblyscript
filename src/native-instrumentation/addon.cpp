@@ -30,9 +30,11 @@ const uint32_t BYTES_PER_COUNTER = 4;
 // 1 page = 64KB / 4bytes (32bits) each = 16384 counters
 const uint32_t COUNTERS_PER_PAGE = 16384;
 
-// GLOBAL: updated by every call. we don't expect it to 
+// GLOBALS: updated by every call. we don't expect them to 
 // change between different calls over the same vitest run
 bool DEBUG = false;
+std::string LOG_MODULE = "NativeAddon";
+std::string LOG_LABEL = "";
 
 struct SourceDebugLocation {
   bool exists;
@@ -217,7 +219,7 @@ bool shouldInstrumentFunction(Function* func, std::string& excludedLibraryFilePr
   // Skip functions without a body
   if (!func->body) {
     if (DEBUG) {
-      std::cout << "[NativeAddon]   Skip Reason: Empty Function Body" << std::endl;
+      std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   Skip Reason: Empty Function Body" << std::endl;
     }
     return false;
   }
@@ -225,7 +227,7 @@ bool shouldInstrumentFunction(Function* func, std::string& excludedLibraryFilePr
   // Skip if this is an import (has non-empty module)
   if (func->module.size() > 0) {
     if (DEBUG) {
-      std::cout << "[NativeAddon]   Skip Reason: Imported from \"" << func->module.toString() << "\"" << std::endl;
+      std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   Skip Reason: Imported from \"" << func->module.toString() << "\"" << std::endl;
     }
     return false;
   }
@@ -233,7 +235,7 @@ bool shouldInstrumentFunction(Function* func, std::string& excludedLibraryFilePr
   // Skip library functions
   if (excludedLibraryFilePrefix.length() > 0 && startsWith(name, excludedLibraryFilePrefix)) {
     if (DEBUG) {
-      std::cout << "[NativeAddon]   Skip Reason: Library file" << std::endl;
+      std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   Skip Reason: Library file" << std::endl;
     }
     return false;
   }
@@ -241,7 +243,7 @@ bool shouldInstrumentFunction(Function* func, std::string& excludedLibraryFilePr
   // Compiler-generated entry point
   if (name.compare("~start") == 0) {
     if (DEBUG) {
-      std::cout << "[NativeAddon]   Skip Reason: Module entry point" << std::endl;
+      std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   Skip Reason: Module entry point" << std::endl;
     }
     return false;
   }
@@ -259,7 +261,7 @@ SourceDebugLocation getRepresentativeLocationInBlockBody(
   SourceDebugLocation repLoc = { exists: false, fileIndex: 0, lineNumber: 0, columnNumber: 0 };
 
   if (DEBUG) {
-    std::cout << "[NativeAddon]     Checking func Block body: " << blockBody->list.size() << " body expressions" << std::endl;
+    std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -     Checking func Block body: " << blockBody->list.size() << " body expressions" << std::endl;
   }
   
   for (size_t i = 0; i < blockBody->list.size(); i++) {
@@ -276,17 +278,17 @@ SourceDebugLocation getRepresentativeLocationInBlockBody(
         repLoc.columnNumber = loc.columnNumber;
 
         if (DEBUG) {
-          std::cout << "[NativeAddon]     Block body expr [" << i << "] (" << getExpressionName(exprInBlockBody) << ")="
+          std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -     Block body expr [" << i << "] (" << getExpressionName(exprInBlockBody) << ")="
                     << loc.fileIndex << ":" << loc.lineNumber << ":" << loc.columnNumber << " - break" << std::endl;
         }
 
         break;
         
       } else if (DEBUG) {
-        std::cout << "[NativeAddon]     Block body expr [" << i << "] (" << getExpressionName(exprInBlockBody) << ") - No location" << std::endl;
+        std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -     Block body expr [" << i << "] (" << getExpressionName(exprInBlockBody) << ") - No location" << std::endl;
       }
     } else if (DEBUG) {
-      std::cout << "[NativeAddon]     WARNING: Block body expr [" << i << "] - EMPTY" << std::endl;
+      std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -     WARNING: Block body expr [" << i << "] - EMPTY" << std::endl;
     }
   }
 
@@ -301,7 +303,7 @@ SourceDebugLocation getRepresentativeLocation(Function* func) {
 
   if (!body) {
     if (DEBUG) {
-      std::cout << "[NativeAddon]   Function has no body expression - No debug locations available to check" << std::endl;
+      std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   Function has no body expression - No debug locations available to check" << std::endl;
     }
     return repLoc;
   }
@@ -313,7 +315,7 @@ SourceDebugLocation getRepresentativeLocation(Function* func) {
     //   - Block expressions are only containers and have no source locations of their own
     //   - Examine expressions within the block body to find location, if one exists
     if (DEBUG) {
-      std::cout << "[NativeAddon]   Checking function Block body expression list" << std::endl;
+      std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   Checking function Block body expression list" << std::endl;
     }
 
     return getRepresentativeLocationInBlockBody(body->cast<Block>(), func->debugLocations);
@@ -326,7 +328,7 @@ SourceDebugLocation getRepresentativeLocation(Function* func) {
     // Note: compiler-generated class member function setters use a Block body also,
     // but their expressions (Store+Call) have no locations
     if (DEBUG) {
-      std::cout << "[NativeAddon]   Compiler-generated accessor function (body=" << bodyType << ") - No location" << std::endl;
+      std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   Compiler-generated accessor function (body=" << bodyType << ") - No location" << std::endl;
     }
     return repLoc;
   }
@@ -341,11 +343,11 @@ SourceDebugLocation getRepresentativeLocation(Function* func) {
     repLoc.columnNumber = loc.columnNumber;
     
     if (DEBUG) {
-      std::cout << "[NativeAddon]   Using function body (" << bodyType << ")="
+      std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   Using function body (" << bodyType << ")="
                 << repLoc.fileIndex << ":" << repLoc.lineNumber << ":" << repLoc.columnNumber << std::endl;
     }
   } else if (DEBUG) {
-    std::cout << "[NativeAddon]     ERROR: Location expected on function body (" << bodyType << ") - No location found" << std::endl;
+    std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -     ERROR: Location expected on function body (" << bodyType << ") - No location found" << std::endl;
   }
 
   return repLoc;
@@ -410,13 +412,25 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     uint32_t coverageMemoryPagesMax = 4;
     uint32_t maxCounters = coverageMemoryPagesMax * COUNTERS_PER_PAGE;
 
+    if (options.Has("logModule")) {
+      Napi::Value logModuleProp = options.Get("logModule");
+      if (logModuleProp.IsString()) {
+        LOG_MODULE = logModuleProp.As<Napi::String>().Utf8Value();
+      }
+    }if (options.Has("logLabel")) {
+      Napi::Value logLabelProp = options.Get("logLabel");
+      if (logLabelProp.IsString()) {
+        LOG_LABEL = logLabelProp.As<Napi::String>().Utf8Value();
+      }
+    }
+
     if (options.Has("debug")) {
       Napi::Value debugProperty = options.Get("debug");
       if (debugProperty.IsBoolean()) {
         DEBUG = debugProperty.As<Napi::Boolean>().Value();
 
         if (DEBUG) {
-          std::cout << "[NativeAddon] OPTIONS - DEBUG enabled" << std::endl;
+          std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " - OPTIONS - DEBUG enabled" << std::endl;
         }
       }
     }
@@ -428,9 +442,9 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
 
         const uint32_t count = filesArray.Length();
         if (DEBUG && count > 0) {
-          std::cout << "[NativeAddon] OPTIONS - " << count << " Excluded Files:" << std::endl;
+          std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " - OPTIONS - " << count << " Excluded Files:" << std::endl;
         } else if (DEBUG) {
-          std::cout << "[NativeAddon] 0 Excluded Files" << std::endl;
+          std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " - 0 Excluded Files" << std::endl;
         }
 
         for (size_t i = 0; i < count; i++) {
@@ -439,7 +453,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
             const std::string file = fileItem.As<Napi::String>().Utf8Value();
             excludedFiles.insert(file);
             if (DEBUG) {
-              std::cout << "[NativeAddon]   [" << i << "] \"" << file << "\"" << std::endl;
+              std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   [" << i << "] \"" << file << "\"" << std::endl;
             }
           }
         }
@@ -452,7 +466,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         excludedLibraryFilePrefix = libraryFilePrefixProperty.As<Napi::String>().Utf8Value();
         
         if (DEBUG) {
-          std::cout << "[NativeAddon] OPTIONS - Excluded Library File Prefix: \"" << excludedLibraryFilePrefix << "\"" << std::endl;
+          std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " - OPTIONS - Excluded Library File Prefix: \"" << excludedLibraryFilePrefix << "\"" << std::endl;
         }
       }
     }
@@ -464,7 +478,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         
         if (DEBUG) {
           const uint32_t minCounters = coverageMemoryPagesMin * COUNTERS_PER_PAGE;
-          std::cout << "[NativeAddon] OPTIONS - Coverage Memory Pages MIN: " << coverageMemoryPagesMin
+          std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " - OPTIONS - Coverage Memory Pages MIN: " << coverageMemoryPagesMin
                     << " (" << minCounters << " counters)" << std::endl;
         }
       }
@@ -477,7 +491,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         maxCounters = coverageMemoryPagesMax * COUNTERS_PER_PAGE;
         
         if (DEBUG) {
-          std::cout << "[NativeAddon] OPTIONS - Coverage Memory Pages MAX: " << coverageMemoryPagesMax
+          std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " - OPTIONS - Coverage Memory Pages MAX: " << coverageMemoryPagesMax
                     << " (" << maxCounters << " counters)" << std::endl;
         }
       }
@@ -493,10 +507,10 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     reader.read();
 
     if (DEBUG) {
-      std::cout << "[NativeAddon] Read binary module with " << module.functions.size() << " functions" << std::endl;
-      std::cout << "[NativeAddon] Debug source files: " << module.debugInfoFileNames.size() << std::endl;
+      std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " - Read binary module with " << module.functions.size() << " functions" << std::endl;
+      std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " - Debug source files: " << module.debugInfoFileNames.size() << std::endl;
       for (size_t i = 0; i < module.debugInfoFileNames.size(); i++) {
-        std::cout << "[NativeAddon]   [" << i << "] " << module.debugInfoFileNames[i] << std::endl;
+        std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   [" << i << "] " << module.debugInfoFileNames[i] << std::endl;
       }
     }
 
@@ -527,20 +541,20 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
 
       if (coverageIndex >= maxCounters) {
         if (DEBUG) {
-          std::cout << "[NativeAddon] ERROR: Processing function: \"" << funcName << "\""
+          std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " - ERROR: Processing function: \"" << funcName << "\""
                     << " Further instrumentation would exceed max covergare memory size" << std::endl;
         }
         return;
       }
 
       if (DEBUG) {
-        std::cout << "[NativeAddon] Processing function: \"" << funcName << "\"" << std::endl;
+        std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " - Processing function: \"" << funcName << "\"" << std::endl;
       }
 
       // Check if this function should be instrumented
       if (!shouldInstrumentFunction(func, excludedLibraryFilePrefix)) {
         if (DEBUG) {
-          std::cout << "[NativeAddon]   SKIP function (quick filtered): \"" << funcName << "\"" << std::endl;
+          std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   SKIP function (quick filtered): \"" << funcName << "\"" << std::endl;
         }
         return;
       }
@@ -549,7 +563,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       walker.walkFunctionInModule(func, &module);
       
       if (DEBUG) {
-        std::cout << "[NativeAddon]   CFG Walked function - expressions with locations: " << walker.expressions.size() << std::endl;
+        std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   CFG Walked function - expressions with locations: " << walker.expressions.size() << std::endl;
       }
 
       const SourceDebugLocation representativeLocation = getRepresentativeLocation(func);
@@ -557,7 +571,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       // skip function if it has no representative location
       if (!representativeLocation.exists) {
         if (DEBUG) {
-          std::cout << "[NativeAddon]   SKIP function (No Representative Location, body=" << getExpressionName(func->body) << "): "
+          std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   SKIP function (No Representative Location, body=" << getExpressionName(func->body) << "): "
                     << "\"" << funcName << "\"" << std::endl;
         }
         return;
@@ -567,14 +581,14 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       const std::string functionDebugFilePath =  module.debugInfoFileNames[representativeLocation.fileIndex];
       if (excludedFiles.find(functionDebugFilePath) != excludedFiles.end()) {
         if (DEBUG) {
-          std::cout << "[NativeAddon]   SKIP function (excluded location file [" << representativeLocation.fileIndex << "] \""
+          std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   SKIP function (excluded location file [" << representativeLocation.fileIndex << "] \""
                     << functionDebugFilePath <<"\"): \"" << funcName << "\"" << std::endl;
         }
         return;
       }
 
       if (DEBUG) {
-        std::cout << "[NativeAddon]   Selected reprLoc=" << representativeLocation.fileIndex << ":" << representativeLocation.lineNumber
+        std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   Selected reprLoc=" << representativeLocation.fileIndex << ":" << representativeLocation.lineNumber
                   << ":" << representativeLocation.columnNumber << " | Now instrumenting with coverageMemoryIndex [" << coverageIndex << "]"
                   << " | " << std::endl;
       }
@@ -630,7 +644,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       func->body = builder.makeSequence(storeCounter, func->body, func->body->type);
 
       if (DEBUG) {
-        std::cout << "[NativeAddon]   INSTRUMENTED \"" << funcName << "\" | coverageMemoryIndex [" << coverageIndex << "]"
+        std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " -   INSTRUMENTED \"" << funcName << "\" | coverageMemoryIndex [" << coverageIndex << "]"
                   << " | reprLoc=" << representativeLocation.fileIndex << ":" << representativeLocation.lineNumber
                   << ":" << representativeLocation.columnNumber << std::endl;
       }
@@ -639,7 +653,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     });
 
     if (DEBUG) {
-      std::cout << "[NativeAddon] Instrumentation complete: " << coverageIndex << " functions instrumented" << std::endl;
+      std::cout << "[" << LOG_MODULE << "] " << LOG_LABEL << " - Instrumentation complete: " << coverageIndex << " functions instrumented" << std::endl;
     }
 
     // Write instrumented module with source map regeneration

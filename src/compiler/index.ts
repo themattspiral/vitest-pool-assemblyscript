@@ -48,12 +48,14 @@ if (!existsSync(STRIP_INLINE_TRANSFORM)) {
 export async function compileAssemblyScript(
   filename: string,
   options: AssemblyScriptCompilerOptions,
+  logModule: string,
+  logLabel: string,
   signal?: AbortSignal
 ): Promise<AssemblyScriptCompilerResult> {
   throwPoolErrorIfAborted(signal);
 
-  const base = basename(filename);
   const compileStart = performance.now();
+  const logPrefix = `[${logModule} AS Compiler] ${logLabel}`;
 
   if (options.shouldInstrument && !options.instrumentationOptions) {
     throw createPoolError(
@@ -72,7 +74,7 @@ export async function compileAssemblyScript(
   // Use simple output name to avoid AS compiler prepending it to source map paths
   const outputFile = 'output.wasm';
 
-  debug(`[AS Compiler] ${base} - Compiling: "${filename}"`);
+  debug(`${logPrefix} - Compiling: "${filename}"`);
 
   // Capture stdout/stderr (for potential error reporting)
   const stdout = {
@@ -110,7 +112,7 @@ export async function compileAssemblyScript(
     compilerFlags.push(
       '--transform', STRIP_INLINE_TRANSFORM
     );
-    debug(`[AS Compiler] ${base} - Added Transform - Stripping @inline decorators`);
+    debug(`${logPrefix} - Added Transform - Stripping @inline decorators`);
   }
 
   // Compile with AssemblyScript compiler
@@ -125,17 +127,17 @@ export async function compileAssemblyScript(
 
       if (name.endsWith('.wasm') && contents instanceof Uint8Array) {
         binary = contents;
-        debug(`[AS Compiler] Captured binary in memory: "${name}"`);
+        debug(`${logPrefix} - Captured binary in memory: "${name}"`);
       } else if (name.endsWith('.wasm.map') && typeof contents === 'string') {
-        debug(`[AS Compiler] Captured source map in memory: "${name}"`);
+        debug(`${logPrefix} - Captured source map in memory: "${name}"`);
         sourceMap = contents;
       } else {
-        debug(`[AS Compiler] writeFile - Captured UNEXPECTED FILE: "${name}" at baseDir: "${_baseDir}"`);
+        debug(`${logPrefix} - WARNING - Captured Unexpected File: "${name}" at baseDir: "${_baseDir}"`);
       }
     },
   });
 
-  debug(`[AS Compiler] ${base} - TIMING asc.main: ${(performance.now() - ascStart).toFixed(2)}ms`);
+  debug(`${logPrefix} - TIMING asc.main: ${(performance.now() - ascStart).toFixed(2)}ms`);
 
   if (result.error) {
     const errorMessage = stderrLines.length > 0
@@ -160,8 +162,8 @@ export async function compileAssemblyScript(
   const cleanBinary: Uint8Array = binary;
   const wasmSourceMap: string = sourceMap;
 
-  debug(`[AS Compiler] ${base} - Compilation successful, clean binary size: ${cleanBinary.length} bytes`);
-  debug(`[AS Compiler] ${base} - Source map generated, size: ${wasmSourceMap.length * 2} bytes`);
+  debug(`${logPrefix} - Compilation successful, clean binary size: ${cleanBinary.length} bytes`);
+  debug(`${logPrefix} - Source map generated, size: ${wasmSourceMap.length * 2} bytes`);
   
   if (DEBUG_WRITE_FILES) {
     // Write source map to project maps directory for debugging
@@ -179,12 +181,12 @@ export async function compileAssemblyScript(
     // Format as well-formed JSON
     const formattedSourceMap = JSON.stringify(JSON.parse(wasmSourceMap), null, 2);
     writeFile(sourceMapPath, formattedSourceMap, { encoding: 'utf8' });
-    debug(`[AS Compiler] ${base} - Wrote source map to: "${sourceMapPath}"`);
+    debug(`${logPrefix} - Wrote source map to: "${sourceMapPath}"`);
 
     // Also write WASM binary for inspection
     const wasmPath = sourceMapPath.replace('.map', '.wasm');
     writeFile(wasmPath, cleanBinary);
-    debug(`[AS Compiler] ${base} - Wrote WASM binary to: "${wasmPath}"`);
+    debug(`${logPrefix} - Wrote WASM binary to: "${wasmPath}"`);
   }
 
   // Instrument binary for coverage if requested
@@ -195,11 +197,11 @@ export async function compileAssemblyScript(
     const wasmBuffer = Buffer.from(cleanBinary);
     const sourceMapBuffer = Buffer.from(wasmSourceMap);
 
-    const instrumentResult = instrumentForCoverage(wasmBuffer, sourceMapBuffer, options.instrumentationOptions!, base);
+    const instrumentResult = instrumentForCoverage(wasmBuffer, sourceMapBuffer, options.instrumentationOptions!, logModule, logLabel);
     const instCount = instrumentResult.debugInfo.instrumentedFunctionCount;
 
     const instrumentEnd = performance.now();
-    debug(`[AS Compiler] ${base} - TIMING Instrumented ${instCount} functions: ${(performance.now() - instrumentStart).toFixed(2)}ms`);
+    debug(`${logPrefix} - TIMING Instrumented ${instCount} functions: ${(performance.now() - instrumentStart).toFixed(2)}ms`);
 
     return {
       binary: instrumentResult.instrumentedWasm,
