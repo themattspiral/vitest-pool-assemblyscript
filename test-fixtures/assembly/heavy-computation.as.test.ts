@@ -96,7 +96,7 @@ describe("primes", () => {
     assert(count == 6935)
   });
 
-  test('count primes to 80000', TestOptions.timeout(2).retry(3), () => {
+  test('count primes to 80000 [should fail]', TestOptions.timeout(2).retry(3), () => {
     const count = countPrimes(80000);
     assert(count == 7837)
   });

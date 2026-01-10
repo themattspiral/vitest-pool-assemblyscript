@@ -312,7 +312,7 @@ export function checkFailsAndInvertResult(test: Test, logPrefix: string): void {
 
       debug(`${logPrefix} - Has 'fails' option set - inverted "pass" to "fail"`);
 
-      const err = createTestExpectedToFailError();
+      const err = createTestExpectedToFailError(test);
       if (test.result.errors) {
         test.result.errors.push(err);
       } else {

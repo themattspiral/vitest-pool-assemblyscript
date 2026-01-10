@@ -21,22 +21,22 @@ export function createPoolError(
 export function createTestTimeoutError(
   test: Test
 ): AssemblyScriptTestError {
-  const message = `Test timed out (threshold ${test.timeout}ms)`;
+  const message = `Test timed out threshold ${test.timeout}ms)`;
   const err: AssemblyScriptTestError = {
     name: POOL_ERROR_NAMES.WASMExecutionTimeoutError,
     message,
-    stack: message,
+    stack: `${test.id}_${message}`,
     diff: getYellowString(` Test Timeout Exceeded (${test.timeout}ms)`)
   };
   return err;
 }
 
-export function createTestExpectedToFailError(): AssemblyScriptTestError {
+export function createTestExpectedToFailError(test: Test): AssemblyScriptTestError {
   const message = `Test is expected to fail, but all assertions passed`;
   const err: AssemblyScriptTestError = {
     name: TEST_ERROR_NAMES.AssertionError,
     message,
-    stack: message,
+    stack: `${test.id}_${message}`,
     diff: getYellowString(` Expected to fail, but all assertions passed`)
   };
   return err;
