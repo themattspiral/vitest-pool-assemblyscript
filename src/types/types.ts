@@ -11,7 +11,7 @@ import type { RuntimeRPC } from 'vitest';
 import type { TestError } from '@vitest/utils';
 import type { ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
-import type { File, Test, TaskMeta, TestOptions, Suite } from '@vitest/runner/types';
+import type { File, Test, TaskMeta, TestOptions } from '@vitest/runner/types';
 
 import {
   ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID,
@@ -213,21 +213,6 @@ export interface InstrumentationResult {
   debugInfo: BinaryDebugInfo;
 }
 
-/**
- * Cached compilation data
- */
-export interface CachedCompilation {
-  filePipelineStart: number;
-  /** File task for spec which will hold entire test/suite hierarchy */
-  fileTask: File;
-  /** File basename, used for debug logging */
-  base: string;
-  binary: Uint8Array;
-  sourceMap: string;
-  isInstrumented: boolean;
-  debugInfo?: BinaryDebugInfo;
-}
-
 // ============================================================================
 // Error Source Mapping
 // ============================================================================
@@ -278,6 +263,7 @@ export interface CoverageData {
 export interface AssemblyScriptCoveragePayload {
   readonly __format: typeof COVERAGE_PAYLOAD_FORMATS.AssemblyScript;
   coverageData: CoverageData;
+  suiteLogLabel: string;
 }
 
 
@@ -432,8 +418,10 @@ export interface NativeSourceLocation extends Omit<SourceLocation, 'filePath'> {
 }
 
 export interface NativeInstrumentationOptions extends Omit<InstrumentationOptions, 'relativeExcludedFiles'> {
-  excludedFiles: string[];
-  debug: boolean;
+  excludedFiles?: string[];
+  debug?: boolean;
+  logModule?: string;
+  logLabel?: string;
 }
 
 // ============================================================================
@@ -534,6 +522,8 @@ export interface FailedAssertion {
 export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
   idxInParentTasks: number;
   defaultTestOptions: AssemblyScriptTestOptions;
+  suitePreparedSent: boolean;
+  resultFinal: boolean;
   coverageData?: CoverageData;
 }
 
@@ -544,6 +534,7 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   assertionsFailed: FailedAssertion[];
   timedOut: boolean;
   resultInverted: boolean;
+  resultFinal: boolean;
   coverageData?: CoverageData;
   lastError?: AssemblyScriptTestError;
   lastErrorValuesProvided?: boolean;
@@ -575,91 +566,61 @@ export interface WorkerChannel {
 
 export interface TestExecutionStart {
   executionStart: number;
+  test: Test;
 }
 
 export interface TestExecutionEnd {
   executionEnd: number;
+  testTaskId: string;
 }
 
-/**
- * Task data for compileFile worker function
- */
-export interface CompileSpecFileTask {
-  /** Path to test file */
-  testFilePath: string;
-  /** True if the compiled binary should be instrumented */
-  shouldInstrument: boolean,
-  /** User-configured coverage exclusions */
-  relativeUserCoverageExclusions: string[];
+export interface WASMCompilation {
+  filePath: string;
+  binary: Uint8Array;
+  sourceMap: string;
+  debugInfo?: BinaryDebugInfo;
+}
+
+export interface TestRunRecord {
+  runningTest: Test;
+  runningTestStart: number;
+  runnungTestTimeoutId: NodeJS.Timeout;
+}
+
+export interface RunFileTask {
+  /** vitest File task */
+  file: File;
+
+  timedOutTest?: Test;
+  timedOutCompilation?: WASMCompilation;
+
+  /** true when running a `collectTests()` operation only, false for `runTests()` */
+  isCollectTestsMode: boolean;  
   /** Pool options */
   poolOptions: ResolvedAssemblyScriptPoolOptions;
   /** MessagePort for RPC communication */
   port: MessagePort;
   /** Project root directory */
   projectRoot: string;
-  /** vitest File task */
-  file: File;
-}
-
-export interface CompileSpecFileResult {
-  compilerResult: AssemblyScriptCompilerResult;
-  file: File;
-}
-
-export interface DiscoverTestsTask {
-  cached: CachedCompilation;
-  /** 
-   * True: onQueued should be reported before discovery (e.g. main thread compilation).
-   * False: onQueued should be omitted (e.g. already reported from worker thread compilation).
-  */
-  reportOnQueued: boolean;
-  /** Pool options */
-  poolOptions: ResolvedAssemblyScriptPoolOptions;
-  /** MessagePort for RPC communication */
-  port: MessagePort;
+  /** User-defined diff options, if any */
+  diffOptions?: SerializedDiffOptions;
+  
+  /** True if coverage should be collected during this test run */
+  collectCoverage: boolean;
+  /** User-configured coverage exclusions */
+  relativeUserCoverageExclusions: string[];
+  
   /** Test name pattern for filtering (from -t flag) */
   testNamePattern?: RegExp;
   /** Allow .only modifier */
   allowOnly?: boolean;
-  /** User-defined diff options, if any */
-  diffOptions?: SerializedDiffOptions;
-}
-
-/**
- * Task data for executeTest worker function
- */
-export interface ExecuteTestTask {
-  cached: CachedCompilation;
-  /** True if coverage should be collected during this test run */
-  collectCoverage: boolean,
-  /** Test to execute */
-  test: Test,
-  /** Pool options */
-  poolOptions: ResolvedAssemblyScriptPoolOptions;
-  /** User-defined diff options, if any */
-  diffOptions?: SerializedDiffOptions;
-  /** MessagePort for RPC communication */
-  port: MessagePort;
+  
   /** Bail config (halt run after this many failures) */
   bail?: number;
 }
 
 /**
- * Task data for reportFileResults worker function
- *
- * Reports onAfterSuiteMeta and suite-finished and final flush after all tests complete
- */
-export interface ReportSuiteEventTask {
-  suite: Suite;
-  event: 'suite-prepare' | 'suite-finished',
-  /** Pool options */
-  poolOptions: ResolvedAssemblyScriptPoolOptions;
-  /** MessagePort for RPC communication */
-  port: MessagePort;
-}
-
-/**
- * Task data for reporting an error in the pipeline at the file/suite level,
+ * Task data for reporting an error at the file/suite level, which is
  * not per-test recoverable (compiler errors, instrumentation errors)
  */
 export interface ReportFileFailureTask {
@@ -669,50 +630,4 @@ export interface ReportFileFailureTask {
   port: MessagePort;
   /** File task with reportable error on the result */
   file: File;
-}
-
-/**
- * Task data for reportTestFailures worker function
- */
-export interface ReportTestFailuresTask {
-  /** Vitest test tasks */
-  testTasks: Test[];
-  /** Pool options */
-  poolOptions: ResolvedAssemblyScriptPoolOptions;
-  /** MessagePort for RPC communication */
-  port: MessagePort;
-}
-
-/**
- * Task data for executeBeforeAllHooks worker function
- * Not yet implemented - placeholder for future hook support
- */
-export interface ExecuteBeforeAllHooksTask {
-  /** Path to test file */
-  testFile: string;
-  /** Pool options */
-  poolOptions: ResolvedAssemblyScriptPoolOptions;
-  /** MessagePort for RPC communication */
-  port: MessagePort;
-  /** Hooks to execute */
-  hooks: unknown[]; // Hook type to be defined when implementing hooks
-  /** File task for hook context */
-  fileTask: File;
-}
-
-/**
- * Task data for executeAfterAllHooks worker function
- * Not yet implemented - placeholder for future hook support
- */
-export interface ExecuteAfterAllHooksTask {
-  /** Path to test file */
-  testFile: string;
-  /** Pool options */
-  poolOptions: ResolvedAssemblyScriptPoolOptions;
-  /** MessagePort for RPC communication */
-  port: MessagePort;
-  /** Hooks to execute */
-  hooks: unknown[]; // Hook type to be defined when implementing hooks
-  /** File task for hook context */
-  fileTask: File;
 }

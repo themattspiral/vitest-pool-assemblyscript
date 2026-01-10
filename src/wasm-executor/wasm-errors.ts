@@ -6,7 +6,6 @@
  * file:line:column information for better developer experience.
  */
 
-import { basename } from 'node:path';
 import { type ParsedStack } from '@vitest/utils';
 import { diff, type SerializedDiffOptions } from '@vitest/utils/diff';
 import type { Test, Suite } from '@vitest/runner/types';
@@ -28,7 +27,7 @@ const POOL_INTERNAL_PATHS_SET = new Set(POOL_INTERNAL_PATHS);
 async function sourceMapRawCallStack(
   rawCallStack: NodeJS.CallSite[],
   sourceMap: RawSourceMap,
-  loggingContext: string,
+  loggingPrefix: string,
 ): Promise<WebAssemblyCallSite[]> {
   const mappedStack: WebAssemblyCallSite[] = [];
 
@@ -40,7 +39,7 @@ async function sourceMapRawCallStack(
   
   // map stack call sites from raw WASM locations to source locations  
   rawCallStack.forEach(callSite => {
-    const mappedCallSite = createWebAssemblyCallSite(callSite, sourceMapConsumer, loggingContext);
+    const mappedCallSite = createWebAssemblyCallSite(callSite, sourceMapConsumer, loggingPrefix);
     if (mappedCallSite) {
       mappedStack.push(mappedCallSite);
     }
@@ -71,14 +70,14 @@ export async function processWASMErrorStack(
   rawCallStack: NodeJS.CallSite[],
   sourceMap: string,
   isAssertionFailure: boolean,
-  loggingContext: string,
+  loggingPrefix: string,
 ): Promise<{ parsedStack: ParsedStack[], parsedSourceMap: RawSourceMap }> {
   const sourceMapObj = parseSourceMap(sourceMap);
 
   // map stack call sites from WASM locations to source code locations  
-  const sourceMappedStack = await sourceMapRawCallStack(rawCallStack, sourceMapObj, loggingContext);
+  const sourceMappedStack = await sourceMapRawCallStack(rawCallStack, sourceMapObj, loggingPrefix);
 
-  debug(`[Executor] ${loggingContext} - Mapped ${rawCallStack.length} call sites to ${sourceMappedStack.length} source locations`);
+  debug(`${loggingPrefix} - Mapped ${rawCallStack.length} call sites to ${sourceMappedStack.length} source locations`);
 
   return {
     parsedStack: parseMappedStack(sourceMappedStack, isAssertionFailure),
@@ -95,12 +94,10 @@ export async function enhanceTestError(
   task: Test | Suite,
   sourceMap: string,
   valuesProvided: boolean,
+  logPrefix: string,
   rawCallStack?: NodeJS.CallSite[],
   diffOptions?: SerializedDiffOptions
 ): Promise<AssemblyScriptTestError> {
-  const base = basename(task.file.filepath);
-  const loggingContext = `${base} - "${task.name}"`;
-
   const isAssertionFailure = error.name === TEST_ERROR_NAMES.AssertionError;
   let expectedVsActualDiffString: string = '';
 
@@ -120,7 +117,7 @@ export async function enhanceTestError(
   }
 
   // map stack call sites from WASM locations to source locations
-  const { parsedStack, parsedSourceMap } = await processWASMErrorStack(rawCallStack, sourceMap, isAssertionFailure, loggingContext);
+  const { parsedStack, parsedSourceMap } = await processWASMErrorStack(rawCallStack, sourceMap, isAssertionFailure, logPrefix);
   
   // build additional strings to add to test error's `diff` field based on parsed stack contents
   let primaryStackFrameString: string | undefined;
@@ -138,7 +135,7 @@ export async function enhanceTestError(
     // get source code diff from source map source content
     highlightedSourceCodeFrameString = getSourceCodeFrameString(parsedSourceMap, primaryStackFrame);
 
-    debug(`[Executor] ${loggingContext} - Enhanced ${error.name} error with parsed source stack`);
+    debug(`${logPrefix} - Enhanced ${error.name} error with parsed source stack`);
   }
 
   // Use the diff field as our way to show all output (other than result.error.stacks)
@@ -158,7 +155,7 @@ export async function enhanceTestError(
   // stack is used by vitest for error deduplication, so make sure it is set
   error.stack = parsedStack.map(toPlaintextStackFrameString).join('\n');
   
-  debug(`[Executor] ${loggingContext} - Enhanced ${error.name} error with diffs`);
+  debug(`[${logPrefix} - Enhanced ${error.name} error with diffs`);
 
   return error;
 }

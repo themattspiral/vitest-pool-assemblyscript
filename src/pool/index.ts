@@ -1,453 +1,50 @@
 /**
  * AssemblyScript Pool for Vitest
- *
- * This pool implements pipeline parallelism so that each file flows through
- * its pipeline independently, maximizing CPU utilization and minimizing idle time,
- * while keeping each test execution confined to an isolated WASM instance.
  */
 
-import { resolve, basename, relative } from 'node:path';
+import { resolve, basename } from 'node:path';
 import { existsSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import Tinypool from 'tinypool';
 import { ModuleCacheMap } from 'vite-node/client';
 import { installSourcemapsSupport } from 'vite-node/source-map';
-import type { Vitest, ProcessPool, TestProject, TestSpecification } from 'vitest/node';
-import type { File, Suite, Task, Test } from '@vitest/runner/types';
+import type { Vitest, ProcessPool, TestSpecification } from 'vitest/node';
+import type { Test } from '@vitest/runner/types';
 
 import {
-  ASSEMBLYSCRIPT_LIB_PREFIX,
   ASSEMBLYSCRIPT_POOL_NAME,
   POOL_ERROR_NAMES,
-  POOL_INTERNAL_PATHS,
 } from '../types/constants.js';
 import type {
-  DiscoverTestsTask,
-  ExecuteTestTask,
-  CoverageData,
-  InstrumentationOptions,
   ResolvedHybridProviderOptions,
-  ReportFileFailureTask,
-  AssemblyScriptCompilerOptions,
-  AssemblyScriptCompilerResult,
-  CachedCompilation,
-  AssemblyScriptTestError,
   AssemblyScriptResolvedConfig,
   TestExecutionStart,
   TestExecutionEnd,
-  CompileSpecFileTask,
-  CompileSpecFileResult,
-  ReportTestFailuresTask,
-  AssemblyScriptTestTaskMeta,
-  AssemblyScriptSuiteTaskMeta,
-  ReportSuiteEventTask,
+  RunFileTask,
+  WASMCompilation,
+  TestRunRecord,
+  ReportFileFailureTask,
+  AssemblyScriptTestError,
 } from '../types/types.js';
 import { setDebugMode, debug } from '../util/debug.js';
-import { compileAssemblyScript } from '../compiler/index.js';
 import { createWorkerChannel } from './worker-channel.js';
 import { getAssemblyScriptResolvedConfig } from './pool-config.js';
-import { mergeCoverageData } from '../coverage-provider/coverage-merge.js';
 import {
   createPoolError,
   createPoolErrorFromAnyError,
   getTestErrorFromPoolError,
   isAbortError,
   isAbortErrorString,
-  throwPoolErrorIfAborted,
 } from '../util/pool-errors.js';
 import {
-  checkAndUpdateSoftTimeout,
-  checkFailsAndInvertResult,
   createFailedFileTask,
   createInitialFileTask,
   failTestWithTimeoutError,
-  getRunnableTasks,
-  getSuiteLogLabel,
-  getTimedOutTests,
-  resetTaskMeta,
-  setSuitePrepareResult,
-  shouldRetryTask,
-  updateSuiteFinalResult,
 } from '../util/vitest-tasks.js';
 
 const WORKER_PATH = resolve(import.meta.dirname, 'pool-worker/index.mjs');
 
-const WORKER_COMPILE_FILES_PER_THREAD_THRESHOLD = 4;
-
-// ============================================================================
-// Module-Level Pool Storage
-// ============================================================================
-
-/*
- * This data persists over multiple pool instantiations within the same vitest process,
- * which is how vitest re-executes on file changes in watch mode: A new pool is instantiated.
- * Note: No pool instance's close() function is called until the vitest process stops, 
- * so the data persists across multiple runs of runTests() in different pool instances. 
- */
-
-// Compilation cache 
-const pipelineCompileCacheByTestFile = new Map<string, CachedCompilation>();
-
-// Single sequential compilation queue for V8 warmup
-let compilationQueue = Promise.resolve({}) as Promise<CompileSpecFileResult>;
-
-
-// ============================================================================
-// Phase Functions
-// ============================================================================
-
-/**
- * Queue compilation sequentially in pool main thead so that compiler benefits from V8 JIT warmup.
- *
- * @param testFilePath - Path to test file (absolute path)
- * @param config - Vitest resolved config
- * @param signal - abort signal
- * @param isCollectTestsMode - true when running a `collectTests()` operation only, false for full `runTests()`
- * @returns Promise that resolves with cached compilation
- */
-async function pipelineQueueCompileSpecFile(
-  spec: TestSpecification,
-  config: AssemblyScriptResolvedConfig,
-  signal: AbortSignal,
-  isCollectTestsMode: boolean,
-): Promise<CompileSpecFileResult> {
-  const testFilePath = spec.moduleId;
-  const base = basename(testFilePath);
-
-  const currentCompilation = compilationQueue
-    .catch(() => {
-      debug(`[Pipeline] ${base} - queueCompilation rejection before queueing (ignoring previous error)`);
-    })
-    .then(async (): Promise<CompileSpecFileResult> => {
-      throwPoolErrorIfAborted(signal);
-
-      const poolOptions = config.poolOptions.assemblyScript;
-
-      // set debug mode within this async context
-      setDebugMode(poolOptions.debug);
-
-      const isCoverageEnabled = config.coverage.enabled;
-
-      // Only instrument when coverage is enabled and when not running a collectTests() operation
-      const shouldInstrument = isCoverageEnabled && !isCollectTestsMode
-
-      // TODO - move to options helpers
-      const instrumentationOptions: InstrumentationOptions = {
-        relativeExcludedFiles: [
-          relative(config.root, testFilePath),
-          ...POOL_INTERNAL_PATHS,
-          ...((config.coverage as ResolvedHybridProviderOptions).globbedAssemblyScriptProjectRelativeExcludeOnly || []),
-        ],
-        excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
-        coverageMemoryPagesMin: poolOptions.coverageMemoryPagesMin,
-        coverageMemoryPagesMax: poolOptions.coverageMemoryPagesMax,
-      };
-      const compilerOptions: AssemblyScriptCompilerOptions = {
-        stripInline: poolOptions.stripInline,
-        projectRoot: config.root,
-        shouldInstrument: shouldInstrument,
-        instrumentationOptions
-      };
-      const compilerResult = await compileAssemblyScript(testFilePath, compilerOptions, signal);
-
-      // create the file task - a suite representing the file and all tests in the hierarchy
-      const file = createInitialFileTask(testFilePath, spec.project.name, config);
-      file.prepareDuration = compilerResult.compileTiming;
-
-      return { compilerResult, file };
-    })  
-    .catch((err) => {
-      throw createPoolErrorFromAnyError(`${base} - queueCompilation`, POOL_ERROR_NAMES.CompilationError, err);
-    });
-
-  compilationQueue = currentCompilation;
-
-  return currentCompilation;
-}
-
-async function pipelineDispatchCompileSpecFile(
-  spec: TestSpecification,
-  config: AssemblyScriptResolvedConfig,
-  pool: Tinypool,
-  signal: AbortSignal,
-  isCollectTestsMode: boolean,
-): Promise<CompileSpecFileResult> {
-  // set debug mode within this async context
-  const poolOptions = config.poolOptions.assemblyScript;
-  setDebugMode(poolOptions.debug);
-
-  const testFilePath = spec.moduleId;
-  const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
-
-  // Only instrument when coverage is enabled and when not running a collectTests() operation
-  const shouldInstrument = config.coverage.enabled && !isCollectTestsMode;
-
-  // create the file task - a suite representing the file and all tests in the hierarchy
-  const file = createInitialFileTask(testFilePath, spec.project.name, config);
-
-  try {
-    const workerTaskData: CompileSpecFileTask = {
-      testFilePath,
-      shouldInstrument,
-      relativeUserCoverageExclusions: (config.coverage as ResolvedHybridProviderOptions).globbedAssemblyScriptProjectRelativeExcludeOnly || [],
-      poolOptions,
-      port: workerPort,
-      projectRoot: config.root,
-      file
-    };
-
-    const result: CompileSpecFileResult = await pool.run(workerTaskData, {
-      name: 'compileSpecFile',
-      transferList: [workerPort],
-      signal: signal
-    });
-
-    return result;
-  } finally {
-    workerPort.close();
-    poolPort.close();
-  }
-}
-
-/**
- * Discover tests
- */
-async function pipelineDispatchRunDiscovery(
-  spec: TestSpecification,
-  cached: CachedCompilation,
-  config: AssemblyScriptResolvedConfig,
-  pool: Tinypool,
-  signal: AbortSignal,
-  isCollectTestsMode: boolean,
-  reportOnQueued: boolean
-): Promise<File> {
-  // set debug mode within this async context
-  const poolOptions = config.poolOptions.assemblyScript;
-  setDebugMode(poolOptions.debug);
-
-  const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
-  const diffOptions = typeof spec.project.serializedConfig.diff === 'object'
-      ? spec.project.serializedConfig.diff : undefined; 
-
-  try {
-    const workerTaskData: DiscoverTestsTask = {
-      cached,
-      reportOnQueued,
-      poolOptions,
-      port: workerPort,
-      testNamePattern: config.testNamePattern,
-      allowOnly: config.allowOnly,
-      diffOptions,
-    };
-
-    const fileTask: File = await pool.run(workerTaskData, {
-      name: 'discoverTests',
-      transferList: [workerPort],
-      signal: signal
-    });
-
-    return fileTask;
-  } finally {
-    workerPort.close();
-    poolPort.close();
-  }
-}
-
-/**
- * Execute test
- */
-async function pipelineDispatchRunTest(
-  test: Test,
-  cached: CachedCompilation,
-  config: AssemblyScriptResolvedConfig,
-  project: TestProject,
-  pool: Tinypool,
-  poolAbortSignal: AbortSignal
-): Promise<Test> {
-  // set debug mode within this async context
-  const poolOptions = config.poolOptions.assemblyScript;
-  setDebugMode(poolOptions.debug);
-  const base = basename(cached.fileTask.filepath);
-
-  // used to abort this specific test's worker thread on timeout
-  const testAbortController = new AbortController();
-  const combinedAbortSignal = AbortSignal.any([poolAbortSignal, testAbortController.signal]);
-
-  // Create RPC channel for this test
-  const { workerPort: testWorkerPort, poolPort: testPoolPort } = createWorkerChannel(project, false);
-
-  let testTimeoutId: NodeJS.Timeout | undefined;
-  let dispatchTime: number | undefined;
-  let workerExecutionStart: number | undefined;
-
-  try {
-    debug(`[Pipeline] ${base} - "${test.name}": Dispatching executeTest`
-      + ` | Retry: ${test.retry !== undefined && test.retry > 0 ? `${test.result?.retryCount ?? 0} / ${test.retry}` : 'n/a'}`
-      + ` | Errors: ${test.result?.errors?.length ?? 0}`
-    );
-
-    const diffOptions = typeof project.serializedConfig.diff === 'object'
-      ? project.serializedConfig.diff : undefined; 
-    const workerTaskData: ExecuteTestTask = {
-      cached,
-      test,
-      collectCoverage: config.coverage.enabled,
-      poolOptions,
-      port: testWorkerPort,
-      diffOptions,
-      bail: config.bail,
-    };
-
-    // Enforce test timeout using setTimeout() and worker messages.
-    //   1. worker sends a start message to indicate when the test has started
-    //   2. pool starts a timer using setTimeout() when worker start message is received
-    //   3. worker sends an end message to indicate when the test has completed
-    //     - if test completes before the timeout expires, the timer is cleared and everything proceeds
-    //     - if timeout expires, the test worker is actively aborted using the test-specific AbortController
-    //
-    // This approach (monitoring from the pool main thread) allows for accurate enforcement of the timeout,
-    // which is much harder to control from within the worker thread itself (which is busy running the WASM test).
-    // Using messages for start/end execution times avoids the potentially substantial skew that would be caused by
-    // worker jobs waiting queued to run when the next worker thread is not immediately available.
-    testPoolPort.on('message', event => {
-      if (event.executionStart) {
-        const poolReceivedExecutionStart = Date.now();
-        const workerTimings = event as TestExecutionStart;
-        workerExecutionStart = workerTimings.executionStart;
-
-        const transitDuration = poolReceivedExecutionStart - workerExecutionStart;
-        const adjustedTimeout = Math.max(test.timeout - transitDuration, 0);
-        debug(`[Pipeline] ${base} - "${test.name}": Received worker execution start (transit ${transitDuration}ms)`
-          + ` - Beginning test timeout timer ${test.timeout}ms (adjusted timeout: ${adjustedTimeout}ms)`);
-
-        const workerQueuedDuration = workerExecutionStart - dispatchTime!;
-        debug(`[Pipeline] ${base} - "${test.name}" TIMING Exec: Job Queued: ${workerQueuedDuration.toFixed(2)}ms`);
-
-        // Enforce test timeout
-        testTimeoutId = setTimeout(() => {
-          testTimeoutId = undefined;
-          
-          const poolTimeoutTime = Date.now();
-          const elapsedFromWorkerExecutionStart = poolTimeoutTime - workerExecutionStart!;
-
-          failTestWithTimeoutError(test, poolTimeoutTime, elapsedFromWorkerExecutionStart);
-
-          testAbortController.abort(POOL_ERROR_NAMES.WASMExecutionTimeoutError);
-
-          debug(`[Pipeline] ${base} - "${test.name}" timed out (threshold ${test.timeout}ms)`
-            + ` - Aborted worker job (duration before abort: ${elapsedFromWorkerExecutionStart}ms)`
-          );
-        }, adjustedTimeout);
-      } else if (event.executionEnd) {
-        const poolReceivedExecutionEnd = Date.now();
-        clearTimeout(testTimeoutId);
-        testTimeoutId = undefined;
-
-        const workerTimings = event as TestExecutionEnd;
-        
-        const elapsedFromWorkerExecutionStart = workerTimings.executionEnd - workerExecutionStart!;
-        const transitDuration = poolReceivedExecutionEnd - workerTimings.executionEnd;
-        debug(`[Pipeline] ${base} - "${test.name}": Received worker execution end (transit: ${transitDuration}ms)`
-          + `- Clearing test timeout timer - Actual duration from worker exection start: ${elapsedFromWorkerExecutionStart}ms`
-        );
-        
-        debug(`[Pipeline] ${base} - "${test.name}" TIMING - End transit: ${transitDuration.toFixed(2)}ms`);
-      }
-    });
-
-    // Worker executes the test!
-    dispatchTime = Date.now();
-    const testAfterRun: Test = await pool.run(workerTaskData, {
-      name: 'executeTest',
-      transferList: [testWorkerPort],
-      signal: combinedAbortSignal
-    });
-
-    // mark test as failed if it completed as passed, but its duration still execeeds the timeout threshold.
-    // this may not have been set as failed by the worker in this edge case, so we do it here for proper reporting.
-    checkAndUpdateSoftTimeout(testAfterRun, base, 'Pipeline');
-
-    // invert result if test configured as 'fails'
-    checkFailsAndInvertResult(testAfterRun, base, 'Pipeline');
-
-    if (testTimeoutId) {
-      clearTimeout(testTimeoutId);
-      
-      debug(`[Pipeline] ${base} - "${testAfterRun.name}": executeTest completed - Cleared test timeout timer that wasn't already cleared`
-        + ` | Retry: ${testAfterRun.retry !== undefined && testAfterRun.retry > 0 ? `${testAfterRun.result?.retryCount ?? 0} / ${testAfterRun.retry}` : 'n/a'}`
-        + ` | Errors: ${testAfterRun.result?.errors?.length ?? 0}`
-      );
-    } else {
-      debug(`[Pipeline] ${base} - "${testAfterRun.name}": executeTest completed - test timeout timer already cleared`
-        + ` | Retry: ${testAfterRun.retry !== undefined && testAfterRun.retry > 0 ? `${testAfterRun.result?.retryCount ?? 0} / ${testAfterRun.retry}` : 'n/a'}`
-        + ` | Errors: ${testAfterRun.result?.errors?.length ?? 0}`
-      );
-    }
-
-    return testAfterRun;
-  } catch (error) {
-    if (testTimeoutId) {
-      clearTimeout(testTimeoutId);
-    }
-    
-    if (isAbortError(error)) {
-      debug(`[Pipeline] ${base} - "${test.name}": pipelineDispatchRunTests - caught abort error from test timeout - swallowing and returning the timeout result`);
-      return test;
-    } else {
-      // executor captures test errors and adds them to the test result
-      // so if we're here, it's because of something unexpected
-      throw error;
-    }
-  } finally {
-    testWorkerPort.close();
-    testPoolPort.close();
-  }
-}
-
-async function pipelineDispatchReportSuiteEvent(
-  suite: Suite,
-  event: 'suite-prepare' | 'suite-finished',
-  config: AssemblyScriptResolvedConfig,
-  project: TestProject,
-  pool: Tinypool,
-  poolAbortSignal: AbortSignal,
-): Promise<void> {
-  // set debug mode within this async context
-  const poolOptions = config.poolOptions.assemblyScript;
-  setDebugMode(poolOptions.debug);
-  const base = basename(suite.file.filepath);
-  const suiteLabel = getSuiteLogLabel(suite);
-
-  const reportingStart = performance.now();
-  
-  debug(`[Pipeline] ${base} - ${suiteLabel}Calling reportSuiteEvent "${event}"`
-    + ` | result state: "${suite.result ? suite.result?.state : '--'}"`);
-  
-  const { workerPort, poolPort } = createWorkerChannel(project, false);
-  
-  try {
-    const workerTaskData: ReportSuiteEventTask = {
-      suite,
-      event,
-      poolOptions,
-      port: workerPort,
-    };
-
-    await pool.run(workerTaskData, {
-      name: 'reportSuiteEvent',
-      transferList: [workerPort],
-      signal: poolAbortSignal,
-    });
-
-    debug(`[Pipeline] ${base} - ${suiteLabel}TIMING - reportSuiteEvent "${event}": ${(performance.now() - reportingStart).toFixed(2)}ms`);
-
-  } finally {
-    workerPort.close();
-    poolPort.close();
-  }
-}
-
-async function pipelineDispatchReportFileFailure(
+async function dispatchReportFileFailure(
   spec: TestSpecification,
   error: AssemblyScriptTestError,
   config: AssemblyScriptResolvedConfig,
@@ -461,7 +58,7 @@ async function pipelineDispatchReportFileFailure(
 
   const reportingStart = performance.now();
 
-  debug(`[Pipeline] ${base} - Calling reportPipelineFileFailure | isCollectTestsMode: ${isCollectTestsMode}`);
+  debug(`[Pool] ${base} - Calling reportFileSuiteFailure | isCollectTestsMode: ${isCollectTestsMode}`);
 
   const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
 
@@ -476,191 +73,201 @@ async function pipelineDispatchReportFileFailure(
     };
 
     await pool.run(workerTaskData, {
-      name: 'reportPipelineFileFailure',
+      name: 'reportFileSuiteFailure',
       transferList: [workerPort],
       signal: poolAbortSignal
     });
 
-    debug(`[Pipeline] ${base} - TIMING reportFileFailure: ${(performance.now() - reportingStart).toFixed(2)}ms`);
+    debug(`[Pool] ${base} - TIMING reportFileSuiteFailure: ${(performance.now() - reportingStart).toFixed(2)}ms`);
   } finally {
     workerPort.close();
     poolPort.close();
   }
 }
 
-async function pipelineDispatchReportTestTimeouts(
-  testFilePath: string,
-  timedOutTests: Test[],
-  project: TestProject,
+async function dispatchFullWorkerRun(
+  spec: TestSpecification,
   config: AssemblyScriptResolvedConfig,
+  isCollectTestsMode: boolean,
   pool: Tinypool,
   poolAbortSignal: AbortSignal,
-): Promise<void> {
-  const poolOptions = config.poolOptions.assemblyScript;
-  setDebugMode(poolOptions.debug);
+  fileCache: Map<string, WASMCompilation>,
+  testTimeoutCache: Map<string, TestRunRecord>,
+  previousTimedOutTest?: Test,
+): Promise<Test | undefined> {
+  const fileRunStart = Date.now();
+  const testFilePath: string = spec.moduleId; // absolute path
   const base = basename(testFilePath);
 
-  debug(`[Pipeline] ${base} - pipelineDispatchReportTestTimeouts reporting ${timedOutTests.length} timeouts`);
+  // set debug mode within this async context
+  const poolOptions = config.poolOptions.assemblyScript;
+  setDebugMode(poolOptions.debug);
+  debug(`[Pool] ${base} - Starting file worker run at ${fileRunStart} for "${testFilePath}"`);
 
-  const reportingStart = performance.now();
-  const { workerPort, poolPort } = createWorkerChannel(project, false);
-    
+  let fileCompilation: WASMCompilation | undefined = fileCache.get(spec.moduleId);
+  const isTimeoutRedispatch: boolean = !!previousTimedOutTest && !!fileCompilation;
+
+  let timedOutTestThisRun: Test | undefined;
+
   try {
-    const workerTaskData: ReportTestFailuresTask = {
-      testTasks: timedOutTests,
-      poolOptions,
-      port: workerPort,
-    };
+    const fileAbortController = new AbortController();
+    const file = isTimeoutRedispatch
+      ? previousTimedOutTest!.file
+      : createInitialFileTask(spec.moduleId, spec.project.name, config.root, config.testTimeout, config.retry);
+    const diffOptions = typeof spec.project.serializedConfig.diff === 'object'
+      ? spec.project.serializedConfig.diff : undefined;
+    const covExclusions = (config.coverage as ResolvedHybridProviderOptions).globbedAssemblyScriptProjectRelativeExcludeOnly || [];
 
-    await pool.run(workerTaskData, {
-      name: 'reportTestFailures',
-      transferList: [workerPort],
-      signal: poolAbortSignal
-    });
-    
-    debug(`[Pipeline] ${base} - TIMING pipelineDispatchReportTestTimeouts completed ${(performance.now() - reportingStart).toFixed(2)}ms`);
-  } finally {
-    workerPort.close();
-    poolPort.close();
-  }
-}
+    const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
 
+    // Enforce test timeout using setTimeout() and worker messages.
+    //   1. worker sends a start message to indicate when the test has started
+    //   2. pool starts a timer using setTimeout() when worker start message is received
+    //   3. worker sends an end message to indicate when the test has completed
+    //     - if test completes before the timeout expires, the timer is cleared and everything proceeds
+    //     - if timeout expires, the test worker is actively aborted using the test-specific AbortController
+    //
+    // Monitoring from the pool main thread and actively aborting the runner allows for accurate enforcement of the test timeout,
+    // which is much harder/impossible to control from within the worker thread itself, which is busy/blocked running 
+    // the long-running WASM test.
+    poolPort.on('message', event => {
+      if (event.binary) {
+        fileCompilation = event as WASMCompilation;
+        fileCache.set(fileCompilation.filePath, fileCompilation);
+        debug(`[Pool] ${basename(fileCompilation.filePath)} - Got compiled file cache for "${fileCompilation.filePath}"`);
+      } else if (event.executionStart) {
+        const poolReceivedExecutionStart = Date.now();
+        const { executionStart, test } = event as TestExecutionStart;
 
-// ============================================================================
-// Orchestration
-// ============================================================================
+        const transitDuration = poolReceivedExecutionStart - executionStart;
+        const adjustedTimeout = Math.max(test.timeout - transitDuration, 0);
 
-async function runSuite(
-  suite: Suite | File,
-  cached: CachedCompilation,
-  config: AssemblyScriptResolvedConfig,
-  project: TestProject,
-  pool: Tinypool,
-  poolAbortSignal: AbortSignal,
-): Promise<Suite> {
-  const suiteStart = performance.now();
-  const suiteCoverage: CoverageData = { hitCountsByFileAndPosition: {} };
-  const suiteLabel = getSuiteLogLabel(suite);
-
-  // create a task result for the suite
-  setSuitePrepareResult(suite);
-
-  // report that suite is prepared and starting to run
-  await pipelineDispatchReportSuiteEvent(suite, 'suite-prepare', config, project, pool, poolAbortSignal);
-
-  let tasksToRun: Task[] = getRunnableTasks(suite);
-  const finishedTasks: Task[] = [];
-
-  let executeLoopCount: number = 0;
-  
-  // continue until there are no tasks left to run (e.g. needing retry)
-  while (tasksToRun.length > 0) {
-    const loopStart = performance.now();
-    executeLoopCount++;
-    debug(`[Pipeline] ${cached.base} - ${suiteLabel}Execution loop ${executeLoopCount} starting`);
-
-    const tasksAfterRun = await Promise.all(
-      tasksToRun.map(async (task: Task): Promise<Suite | Test> => {
-        if (task.type === 'suite') {
-          return runSuite(task, cached, config, project, pool, poolAbortSignal);
-        } else {
-          return pipelineDispatchRunTest(task, cached, config, project, pool, poolAbortSignal);
-        }
-      })
-    );
-
-    // find and report timed out tests as they won't have been reported already in either case:
-    //  - worker thread was aborted because of timeout
-    //  - completed as passed, but should be marked failed and timed out based on duration
-    const timedOutTests = getTimedOutTests(tasksAfterRun);
-    if (timedOutTests.length > 0) {
-      await pipelineDispatchReportTestTimeouts(cached.fileTask.filepath, timedOutTests, project, config, pool, poolAbortSignal);
-    }
-
-    // bucket finished vs failed tasks which are configured to retry
-    tasksToRun = [];
-    tasksAfterRun.forEach(task => {
-      const willRetry = shouldRetryTask(task);
-      if (willRetry) {
-        // reset meta before retrying
-        resetTaskMeta(task);
-
-        // increment the retry count
-        task.result!.retryCount = (task.result?.retryCount || 0) + 1;
-
-        tasksToRun.push(task);
-
-        debug(`[Pipeline] ${cached.base} - ${suiteLabel}"${task.name}" - Submitting for retry`
-          + ` ${task.result?.retryCount || 0} / ${task.retry} ` 
-          + ` | ${task.result?.errors?.length ?? 0} errors`
+        debug(`[Pool] ${base} - "${test.name}": Received worker execution start (transit ${transitDuration}ms)`
+          + ` - Beginning test timeout timer ${test.timeout}ms (adjusted timeout: ${adjustedTimeout}ms)`
         );
-      } else {
-        // accumulate suite coverage data
-        const meta = task.meta as AssemblyScriptTestTaskMeta;
-        if (meta.coverageData) {
-          mergeCoverageData(suiteCoverage, meta.coverageData);
+        
+        // Enforce test timeout
+        const testTimeoutId = setTimeout(async () => {
+          const poolTimeoutTime = Date.now();
+          const record = testTimeoutCache.get(test.id);
+          testTimeoutCache.delete(test.id);
+
+          if (record) {
+            const elapsedFromWorkerExecutionStart = poolTimeoutTime - record.runningTestStart;
+
+            failTestWithTimeoutError(record.runningTest, poolTimeoutTime, elapsedFromWorkerExecutionStart);
+
+            timedOutTestThisRun = test;
+            fileAbortController.abort(POOL_ERROR_NAMES.WASMExecutionTimeoutError);
+
+            debug(`[Pool] ${base} - "${record.runningTest.name}" timed out (threshold ${record.runningTest.timeout}ms)`
+              + ` - Aborted worker job (duration before abort: ${elapsedFromWorkerExecutionStart}ms)`
+            );
+          }
+        }, adjustedTimeout);
+
+        testTimeoutCache.set(test.id, {
+          runningTest: test,
+          runningTestStart: executionStart,
+          runnungTestTimeoutId: testTimeoutId,
+        });
+
+      } else if (event.executionEnd) {
+        const poolReceivedExecutionEnd = Date.now();
+        const { executionEnd, testTaskId } = event as TestExecutionEnd;
+        const record = testTimeoutCache.get(testTaskId);
+        testTimeoutCache.delete(testTaskId);
+
+        if (record) {
+          clearTimeout(record.runnungTestTimeoutId);
+
+          const elapsedFromWorkerExecutionStart = executionEnd - record.runningTestStart!;
+          const transitDuration = poolReceivedExecutionEnd - executionEnd;
+          debug(`[Pool] ${base} - "${record.runningTest.name}": Received worker execution end (transit: ${transitDuration}ms)`
+            + ` - Clearing test timeout timer - Actual duration from worker exection start: ${elapsedFromWorkerExecutionStart}ms`
+          );
         }
-
-        finishedTasks.push(task);
-
-        debug(`[Pipeline] ${cached.base} - ${suiteLabel}"${task.name}" - Complete` 
-          + ` | Result: "${task.result?.state}" | ${task.result?.retryCount ?? 0} retries`
-          + ` | ${task.result?.errors?.length ?? 0} errors | Collected Coverage: ${!!meta.coverageData}`
-        );
       }
     });
+    
+    const workerTaskData: RunFileTask = {
+      file,
+      isCollectTestsMode,
+      poolOptions,
+      port: workerPort,
+      projectRoot: config.root,
+      diffOptions,
+      collectCoverage: config.coverage.enabled,
+      relativeUserCoverageExclusions: covExclusions,
+      testNamePattern: config.testNamePattern,
+      allowOnly: config.allowOnly,
+      bail: config.bail,
+      timedOutTest: previousTimedOutTest,
+      timedOutCompilation: fileCompilation
+    };
 
-    debug(`[Pipeline] ${cached.base} - ${suiteLabel}Execution loop ${executeLoopCount} end: ${(performance.now() - loopStart).toFixed(2)}ms`);
-
-    if (tasksToRun.length > 0) {
-      debug(`[Pipeline] ${cached.base} - ${suiteLabel}Re-executing ${tasksToRun.length} failed tests configured with retry settings`);
-    } else {
-      debug(`[Pipeline] ${cached.base} - ${suiteLabel}Execution Phase Complete - No Retries`);
+    try {
+        await pool.run(workerTaskData, {
+        name: 'runFile',
+        transferList: [workerPort],
+        signal: AbortSignal.any([poolAbortSignal, fileAbortController.signal]),
+      });
+    } finally {
+      workerPort.close();
+      poolPort.close();
     }
+    
+    return;
+  } catch (error) {
+    if (isAbortError(error)) {
+      debug(`[Pool] ${base} - file worker aborted during run: ${String(error)}`);
+      
+      if (!!timedOutTestThisRun) {
+        // swallow abort error, return timed out test so worker can be re-launched
+        return timedOutTestThisRun;
+      } else {
+        // swallow abort error, this file worker run is done
+        return;
+      }
+    }
+
+    const poolError = createPoolErrorFromAnyError(`${base} - file worker failure`, POOL_ERROR_NAMES.PoolError, error);
+    const testError = getTestErrorFromPoolError(poolError);
+    
+    try {
+      debug(`[Pool] ${base} - file worker failure - Reporting test file failure:`, testError);
+
+      // report a failure for this suite
+      await dispatchReportFileFailure(spec, testError, config, pool, poolAbortSignal, isCollectTestsMode);
+    } catch (reportErr) {
+      const poolReportError = createPoolErrorFromAnyError(
+        `${base} - Failure while reporting file worker failure`,
+        POOL_ERROR_NAMES.PoolReportingError,
+        reportErr
+      );
+
+      if (isAbortErrorString(poolReportError.name)) {
+        // swallow abort error, this worker is done
+        return;
+      }
+
+      throw reportErr;
+    }
+
+    // all errors either ignored, sent as a file failure, or thrown up
+    return;
+  } finally {
+    debug(`[Pool] ${base} - Finished File Worker Execution`);
   }
-
-  // update all tasks on the suite with their results from the worker runs,
-  // because object mutations won't reflect across worker boundaries.
-  finishedTasks.forEach(task => {
-    const meta: AssemblyScriptTestTaskMeta | AssemblyScriptSuiteTaskMeta = task.type === 'suite'
-      ? task.meta as AssemblyScriptSuiteTaskMeta
-      : task.meta as AssemblyScriptTestTaskMeta;
-    suite.tasks[meta.idxInParentTasks] = task;
-  });
-
-  // add coverage data if any is accumulated
-  if (Object.keys(suiteCoverage.hitCountsByFileAndPosition).length > 0) {
-    (suite.meta as AssemblyScriptSuiteTaskMeta).coverageData = suiteCoverage;
-  }
-  
-  // update suite result based on its tasks
-  updateSuiteFinalResult(suite, 'Pipeline', `${cached.base} - ${suiteLabel}`);
-
-  // report the suite result
-  await pipelineDispatchReportSuiteEvent(suite, 'suite-finished', config, project, pool, poolAbortSignal);
-
-  const suiteTime = performance.now() - suiteStart;
-  debug(`[Pipeline] ${cached.base} - ${suiteLabel}TIMING - Pipeline Suite Run Complete: ${suiteTime.toFixed(2)}ms`);
-
-  return suite;
 }
 
 /**
- * Run tests using pipeline parallelism
- * 
- * Each file flows through its pipeline independently: compile → discover → execute tests
- *
- * @param specs - Test specifications from Vitest
- * @param config - Vitest resolved config
- * @param cache - Compilation cache instance
- * @param pool - Tinypool instance
- * @param invalidatedFiles - Optional list of invalidated file paths
+ * Run / Collect tests
  */
 async function runTests(
   specs: TestSpecification[],
   config: AssemblyScriptResolvedConfig,
   isCollectTestsMode: boolean,
-  useWorkerCompilation: boolean,
   pool: Tinypool,
   poolAbortController: AbortController,
   _invalidatedFiles?: string[]
@@ -671,11 +278,6 @@ async function runTests(
   const mode = isCollectTestsMode ? 'collectTests' : 'runTests';
   debug(`[Pool] -------- ${mode} called for ${specs.length} specs --------`);
 
-  if (isCollectTestsMode) {
-    debug('[Pool] Clearing compilation cache before collectTests run');
-    pipelineCompileCacheByTestFile.clear();
-  }
-
   // TODO - invalidation
   // const invalidCount = invalidatedFiles?.length ?? 0;
   // debug('[Pool] Invalidated files:', invalidCount);
@@ -684,124 +286,31 @@ async function runTests(
   //   // probably:
   //   //   0. pre-build a cached map of source files to specs that import them (using debuginfo?)
   //   //   1. check if invalidated file is in map: if NOT ignore & continue loop to next file
-  //   //   2. create file pipeline for each spec the invalidated file maps to
+  //   //   2. create file worker for each spec the invalidated file maps to
   // }
 
-  // Create pipeline for each file
-  const filePipelines: Promise<void>[] = specs.map(async (spec: TestSpecification): Promise<void> => {
-    const filePipelineStart = Date.now();
-    const testFilePath: string = spec.moduleId; // absolute path
-    const base = basename(testFilePath);
-    const { signal } = poolAbortController;
+  const fileCache: Map<string, WASMCompilation> = new Map();
+  const testTimeoutCache: Map<string, TestRunRecord> = new Map();
 
-    // set debug mode within this async context
-    setDebugMode(poolOptions.debug);
-    debug(`[Pipeline] ${base} - Starting pipeline at ${filePipelineStart} for "${testFilePath}"`);
-
-    try {
-      const oldCompilation = pipelineCompileCacheByTestFile.get(testFilePath);
-      if (oldCompilation) {
-        debug(`[Pipeline] ${base} - Deleting pipeline cache for existing spec (started at: `
-          + `${oldCompilation.filePipelineStart} | tests: ${oldCompilation.fileTask.tasks.length}) before re-run)`
-        );
-        
-        pipelineCompileCacheByTestFile.delete(testFilePath);
-      } else {
-        debug(`[Pipeline] ${base} - NO existing pipeline cache for spec`);
-      }
-
-      // COMPILATION PHASE
-      const compStart = performance.now();
-      
-      let compilerResult: AssemblyScriptCompilerResult | undefined;
-      let initialFileTask: File | undefined;
-
-      if (useWorkerCompilation) {
-        ({ compilerResult, file: initialFileTask } = await pipelineDispatchCompileSpecFile(spec, config, pool, signal, isCollectTestsMode));
-      } else {
-        ({ compilerResult, file: initialFileTask } = await pipelineQueueCompileSpecFile(spec, config, signal, isCollectTestsMode));
-      }
-
-      const compTime = performance.now() - compStart;
-      // debug(`[Pipeline] ${base} - TIMING Pipeline Compilation Phase: ${compTime.toFixed(2)}ms | vs Worker --:ms | Diff: --ms`);
-      debug(`[Pipeline] ${base} - TIMING Pipeline Compilation Phase Complete: ${compTime.toFixed(2)}ms`);
-
-      const cached: CachedCompilation = {
-        filePipelineStart,
-        fileTask: initialFileTask,
-        base,
-        binary: compilerResult.binary,
-        sourceMap: compilerResult.sourceMap,
-        debugInfo: compilerResult.debugInfo,
-        isInstrumented: compilerResult.isInstrumented,
-      };
-      pipelineCompileCacheByTestFile.set(testFilePath, cached);
-
-      // DISCOVERY PHASE
-      const discStart = performance.now();
-
-      const reportOnQueued = !useWorkerCompilation;
-      cached.fileTask = await pipelineDispatchRunDiscovery(spec, cached, config, pool, signal, isCollectTestsMode, reportOnQueued);
-      
-      const discTime = performance.now() - discStart;
-      debug(`[Pipeline] ${base} - TIMING Pipeline Discovery Phase: ${discTime.toFixed(2)}ms`);
-      
-      // if just collecting, consider the pipeline done - resolve async promise
-      if (isCollectTestsMode) {
-        return;
-      }
-      
-      // EXECUTION PHASE
-      const execStart = performance.now();
-
-      await runSuite(cached.fileTask, cached, config, spec.project, pool, signal);
-
-      const execTime = performance.now() - execStart;
-      debug(`[Pipeline] ${base} - TIMING Pipeline Execution Phase: ${execTime.toFixed(2)}ms`);
-
-    } catch (error) {
-      if (isAbortError(error)) {
-        debug(`[Pipeline] ${base} - file pipeline aborted during run`);
-        // swallow abort error, this pipeline is done
-        return;
-      }
-
-      const poolError = createPoolErrorFromAnyError(`${base} - file pipeline failure`, POOL_ERROR_NAMES.PoolError, error);
-      const testError = getTestErrorFromPoolError(poolError);
-      
-      try {
-        debug(`[Pipeline] ${base} - file pipeline failure - Reporting test file failure:`, testError);
-
-        // report a failure for this suite
-        await pipelineDispatchReportFileFailure(spec, testError, config, pool, signal, isCollectTestsMode);
-      } catch (reportErr) {
-        const poolReportError = createPoolErrorFromAnyError(`${base} - file pipeline failure reporting failure`,  POOL_ERROR_NAMES.PoolReportingError, reportErr);
-        if (isAbortErrorString(poolReportError.name)) {
-          debug(`[Pipeline] ${base} - file pipeline aborted during failure reporting`);
-          // swallow abort error, this pipeline is done
-          return;
-        }
-
-        throw reportErr;
-      }
-
-      // all errors either ignored, sent as a file failure, or thrown up if file failure report also failed
-      return;
-    } finally {
-      debug(`[Pipeline] ${base} - Finished Pipeline Execution`);
+  // Create worker for each file
+  const fileWorkers: Promise<void>[] = specs.map(async (spec: TestSpecification): Promise<void> => {
+    let timedOutTest = await dispatchFullWorkerRun(spec, config, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache);
+    
+    while (timedOutTest) {
+      timedOutTest = await dispatchFullWorkerRun(spec, config, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache, timedOutTest);
     }
   });
 
   if (isCollectTestsMode) {
     try {
-      await Promise.all(filePipelines);
-      debug('[Pipeline] collectTests - All file pipelines resolved');
+      await Promise.all(fileWorkers);
+      debug('[Pool] collectTests - All file workers resolved');
     } catch (err) {
-      debug('[Pipeline] collectTests - File pipeline REJECTED, Calling Pool Abort to bail this collectTests run');
+      debug('[Pool] collectTests - File worker REJECTED, Calling Pool Abort to bail this collectTests run');
       poolAbortController.abort();
     }
   } else {
-    const results = await Promise.allSettled(filePipelines);
+    const results = await Promise.allSettled(fileWorkers);
     const unexpectedErrors: any[] = [];
     results.forEach(r => {
       if (r.status === 'rejected') {
@@ -810,9 +319,9 @@ async function runTests(
     });
 
     if (unexpectedErrors.length === 0) {
-      debug(`[Pipeline] ${mode} - All file pipelines resolved`);
+      debug(`[Pool] ${mode} - All file workers resolved`);
     } else {
-      debug(`[Pipeline] ${mode} - Some file pipelines REJECTED unexpectedly. Throwing error(s) to vitest:`, unexpectedErrors);
+      debug(`[Pool] ${mode} - Some file workers REJECTED unexpectedly. Throwing error(s) to vitest:`, unexpectedErrors);
       throw {
         name: POOL_ERROR_NAMES.PoolError,
         message: `Unexpected AssemblyScript Pool Error(s) Encountered during ${mode}`,
@@ -820,6 +329,16 @@ async function runTests(
       };
     }
   }
+
+  debug(`[Pool] Timeout Cache Size: ${testTimeoutCache.size}`);
+  testTimeoutCache.forEach((record: TestRunRecord, testId: string) => {
+    if (record) {
+      debug(`[Pool] Leftover timeout entry for task: ${record.runningTest.name}`);
+      clearTimeout(record.runnungTestTimeoutId);
+    } else {
+      debug(`[Pool] Empty test timeout entry for task: ${testId}`);
+    }
+  });
 
   debug(`[Pool] -------- ${mode} completed --------`);
 }
@@ -885,10 +404,9 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
     isolateWorkers: false,
   });
 
-  // For explicitly terminating worker threads if needed
-  const poolAbortController = new AbortController();
-
+  // For explicitly terminating all worker threads because of
   // ctrl+c in terminal, or bail after test failures exceed bail count
+  const poolAbortController = new AbortController();
   ctx.onCancel(reason => {
     const reasonMsg = reason === 'test-failure' ? 'Bail after test failure' : reason;
     console.log(`${ASSEMBLYSCRIPT_POOL_NAME} - Aborting all tests: ${reasonMsg}`);
@@ -900,15 +418,13 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
 
     // runs when executing vitest list
     async collectTests(specs: TestSpecification[]) {
-      const useWorkerCompilation = specs.length >= WORKER_COMPILE_FILES_PER_THREAD_THRESHOLD * maxThreads;
       const isCollectTestsMode = true;
-      return runTests(specs, resolvedConfig, isCollectTestsMode, useWorkerCompilation, pool, poolAbortController);
+      return runTests(specs, resolvedConfig, isCollectTestsMode, pool, poolAbortController);
     },
 
     async runTests(specs: TestSpecification[], invalidates?: string[]) {
-      const useWorkerCompilation = specs.length >= WORKER_COMPILE_FILES_PER_THREAD_THRESHOLD * maxThreads;
       const isCollectTestsMode = false;
-      return runTests(specs, resolvedConfig, isCollectTestsMode, useWorkerCompilation, pool, poolAbortController, invalidates);
+      return runTests(specs, resolvedConfig, isCollectTestsMode, pool, poolAbortController, invalidates);
     },
 
     // Cleanup when shutting down
@@ -918,9 +434,6 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
       
       debug('[Pool] Tinypool destroyed');
       await pool.destroy();
-      
-      debug('[Pool] Clearing compilation cache');
-      pipelineCompileCacheByTestFile.clear();
 
       debug('[Pool] Exiting');
     },

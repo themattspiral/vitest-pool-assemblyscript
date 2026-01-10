@@ -6,14 +6,14 @@
  */
 
 import type { MessagePort } from 'node:worker_threads';
-import { basename } from 'node:path';
 import { createBirpc, type BirpcReturn } from 'birpc';
 import type { RuntimeRPC, UserConsoleLog } from 'vitest';
 import type {
   File,
   Suite,
   Test,
-  TaskEventPack,
+  Task,
+  TaskEventPack, 
   TaskResultPack,
 } from '@vitest/runner/types';
 
@@ -24,6 +24,7 @@ import type {
 } from '../types/types.js';
 import { debug, isDebugModeEnabled } from '../util/debug.js';
 import { COVERAGE_PAYLOAD_FORMATS } from '../types/constants.js';
+import { getTaskLogLabel, isSuiteOwnFile } from '../util/vitest-tasks.js';
 
 // const DEBUG_RPC = false;
 const DEBUG_RPC = isDebugModeEnabled();
@@ -38,12 +39,7 @@ function rpcDebug(...args: any[]): void {
 // RPC Client Factory
 // ============================================================================
 
-/**
- * Create RPC client from MessagePort
- *
- * @param port - MessagePort for worker communication
- * @returns Configured RPC client for RuntimeRPC methods
- */
+/** Create RPC client from MessagePort */
 export function createRpcClient(port: MessagePort): BirpcReturn<RuntimeRPC> {
   return createBirpc<RuntimeRPC>(
     {},
@@ -58,76 +54,87 @@ export function createRpcClient(port: MessagePort): BirpcReturn<RuntimeRPC> {
 // File Task Reporting
 // ============================================================================
 
-/**
- * Report file as queued (before collection starts)
- *
- * @param rpc - RPC client for communication
- * @param fileTask - File task to report
- */
+/** Report file as queued (before compilation & discovery starts) */
 export async function reportFileQueued(
   rpc: BirpcReturn<RuntimeRPC, object>,
-  fileTask: File
+  fileTask: File,
+  logModule: string,
+  logLabel: string,
 ): Promise<void> {
   await rpc.onQueued(fileTask);
-  rpcDebug(`[RPC] ${basename(fileTask.filepath)} - Reported onQueued for file "${fileTask.filepath}"`
+  rpcDebug(`[${logModule} RPC] ${logLabel} - Reported onQueued for file "${fileTask.filepath}"`
     + ` | mode: "${fileTask.mode}" | state: "${fileTask.result ? fileTask.result.state : '--'}"`
   );
 }
 
-/**
- * Report file collection complete with full task tree
- *
- * @param rpc - RPC client for communication
- * @param fileTask - File task with complete test tree
- */
+/** Report file collection complete with full task tree */
 export async function reportFileCollected(
   rpc: BirpcReturn<RuntimeRPC, object>,
-  fileTask: File
+  fileTask: File,
+  logModule: string,
+  logLabel: string,
 ): Promise<void> {
   await rpc.onCollected([fileTask]);
-  rpcDebug(`[RPC] ${basename(fileTask.filepath)} - Reported onCollected for file "${fileTask.filepath}"`
+  rpcDebug(`[${logModule} RPC] ${logLabel} - Reported onCollected for file "${fileTask.filepath}"`
     + ` | ${fileTask.tasks.length} tasks | mode: "${fileTask.mode}" | state: "${fileTask.result?.state}"`
   );
 }
 
-/**
- * Report suite-prepare event
- */
+/** Report file-level error (compilation/discovery failure) as "suite-failed-early" */
+export async function reportFileError(
+  rpc: BirpcReturn<RuntimeRPC>,
+  fileTask: File, 
+  logModule: string,
+  logLabel: string,
+): Promise<void> {
+  const taskPack: TaskResultPack = [fileTask.id, fileTask.result, {}];
+  const eventPack: TaskEventPack = [fileTask.id, "suite-failed-early", undefined];
+  await rpc.onTaskUpdate([taskPack], [eventPack]);
+
+  rpcDebug(`[${logModule} RPC] ${logLabel} - Reported "suite-failed-early" task update for "${fileTask.filepath}"`);
+}
+
+// ============================================================================
+// Suite Lifecycle Reporting
+// ============================================================================
+
+/** Report suite-prepare event */
 export async function reportSuitePrepare(
   rpc: BirpcReturn<RuntimeRPC, object>,
   suite: Suite,
+  logModule: string,
   base: string,
-  suiteLabel: string,
 ): Promise<void> {
-  // Report suite events without the custom task meta so reporters won't log it
+  // Report suite event (without the custom task meta so reporters won't log it)
   const taskPack: TaskResultPack = [suite.id, suite.result, {}];
   const eventPack: TaskEventPack = [suite.id, 'suite-prepare', undefined];
 
   await rpc.onTaskUpdate([taskPack], [eventPack]);
 
-  rpcDebug(`[RPC] ${base} - ${suiteLabel}Reported "suite-prepare" | state: "${suite.result?.state}"`
-    + ` | duration: ${suite.result?.duration?.toFixed(2) ?? '--'}ms`
+  rpcDebug(`[${logModule} RPC] ${getTaskLogLabel(base, suite)} - Reported "suite-prepare" task update`
+    + ` | state: "${suite.result?.state}" | duration: ${suite.result?.duration?.toFixed(2) ?? '--'}ms`
   );
 }
 
-
-/**
- * Report suite-finished event
- */
+/** Report suite-finished event */
 export async function reportSuiteFinished(
   rpc: BirpcReturn<RuntimeRPC, object>,
   suite: Suite,
+  logModule: string,
   base: string,
-  suiteLabel: string,
 ): Promise<void> {
-  let coveragePromise: Promise<void> = Promise.resolve();
+  const suiteLabel = getTaskLogLabel(base, suite);
+  const rpcLogPrefix = `[${logModule} RPC] ${suiteLabel}`;
   const meta = suite.meta as AssemblyScriptSuiteTaskMeta;
-
-  // Report coverage if available
-  if (meta.coverageData) {
+  const coverageKeys: number = Object.keys(meta.coverageData?.hitCountsByFileAndPosition ?? {}).length;
+  let coveragePromise: Promise<void> = Promise.resolve();
+  
+  // Report coverage if this is a file task, and coverage is available
+  if (isSuiteOwnFile(suite) && coverageKeys > 0) {
     const coverage: AssemblyScriptCoveragePayload = {
       __format: COVERAGE_PAYLOAD_FORMATS.AssemblyScript,
-      coverageData: meta.coverageData,
+      coverageData: meta.coverageData!,
+      suiteLogLabel: suiteLabel
     };
 
     coveragePromise = rpc.onAfterSuiteRun({
@@ -137,12 +144,12 @@ export async function reportSuiteFinished(
       projectName: suite.file.projectName,
     });
 
-    debug(`[RPC] ${base} - ${suiteLabel}Reported suite coverage via onAfterSuiteRun`);
-  } else {
-    debug(`[RPC] ${base} - ${suiteLabel}No suite coverage available to report via onAfterSuiteRun`);
+    debug(`${rpcLogPrefix} - onAfterSuiteRun: Reported suite coverage (${coverageKeys} unique positions)`);
+  } else if (coverageKeys === 0) {
+    debug(`${rpcLogPrefix} - onAfterSuiteRun: No suite coverage to report`);
   }
 
-  // Report suite event without the custom task meta so reporters won't log it
+  // Report suite event (without the custom task meta so reporters won't log it)
   const taskPack: TaskResultPack = [suite.id, suite.result, {}];
   const eventPack: TaskEventPack = [suite.id, "suite-finished", undefined];
 
@@ -151,7 +158,7 @@ export async function reportSuiteFinished(
     rpc.onTaskUpdate([taskPack], [eventPack])
   ]);
 
-  rpcDebug(`[RPC] ${base} - ${suiteLabel}Reported "suite-finished" | state: "${suite.result?.state}"`
+  rpcDebug(`${rpcLogPrefix} - Reported "suite-finished" task update | state: "${suite.result?.state}"`
     + ` | duration: ${suite.result?.duration?.toFixed(2) ?? '--'}ms`
   );
 }
@@ -160,90 +167,63 @@ export async function reportSuiteFinished(
 // Test Lifecycle Reporting
 // ============================================================================
 
-/**
- * Report test starting execution
- *
- * @param rpc - RPC client for communication
- * @param testTask - Test task to report
- */
-export async function reportTestPrepare(
+async function reportTestTaskUpdate(
   rpc: BirpcReturn<RuntimeRPC>,
   test: Test,
+  logModule: string,
+  base: string,
+  updateEvent: 'test-prepare' | 'test-finished' | 'test-retried'
 ): Promise<void> {
+  // Report test event (without the custom task meta so reporters won't log it)
   const taskPack: TaskResultPack = [test.id, test.result, {}];
-  const eventPack: TaskEventPack = [test.id, 'test-prepare', undefined];
+  const eventPack: TaskEventPack = [test.id, updateEvent, undefined];
 
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] ${basename(test.file.filepath)} - Reported "test-prepare" on "${test.name}"`
+  rpcDebug(`[${logModule} RPC] ${getTaskLogLabel(base, test)} - Reported "${updateEvent}" task update`
     + ` | state: "${test.result?.state}"`);
 }
 
-/**
- * Report test finished execution
- *
- * @param rpc - RPC client for communication
- * @param testTask - Test task to report
- * @param testResult - Test execution result
- */
+/** Report test starting execution */
+export async function reportTestPrepare(
+  rpc: BirpcReturn<RuntimeRPC>,
+  test: Test,
+  logModule: string,
+  base: string,
+): Promise<void> {
+  return reportTestTaskUpdate(rpc, test, logModule, base, 'test-prepare');
+}
+
+/** Report test finished execution */
 export async function reportTestFinished(
   rpc: BirpcReturn<RuntimeRPC>,
   test: Test,
+  logModule: string,
+  base: string,
 ): Promise<void> {
-  const taskPack: TaskResultPack = [test.id, test.result, {}];
-  const eventPack: TaskEventPack = [test.id, 'test-finished', undefined];
-
-  await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] ${basename(test.file.filepath)} - Reported "test-finished" on "${test.name}"`
-    + ` | state: "${test.result?.state}" | duration: ${test.result?.duration?.toFixed(2)}ms`
-  );
+  return reportTestTaskUpdate(rpc, test, logModule, base, 'test-finished');
 }
 
-/**
- * Report test retried (sent when test failed and is being retried)
- *
- * @param rpc - RPC client for communication
- * @param testTask - Test task to report
- * @param testResult - Test execution result
- */
+/** Report test retried (sent when test failed and is going to be retried) */
 export async function reportTestRetried(
   rpc: BirpcReturn<RuntimeRPC>,
   test: Test,
+  logModule: string,
+  base: string,
 ): Promise<void> {
-  const taskPack: TaskResultPack = [test.id, test.result, {}];
-  const eventPack: TaskEventPack = [test.id, 'test-retried', undefined];
-
-  await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[RPC] ${basename(test.file.filepath)} - Reported "test-retried" on "${test.name}"`
-    + ` | state: "${test.result?.state}" | duration: ${test.result?.duration?.toFixed(2)}ms`
-  );
-}
-
-// ============================================================================
-// Final Flush
-// ============================================================================
-
-/**
- * Flush any pending RPC updates
- */
-export async function flushRpcUpdates(
-  rpc: BirpcReturn<RuntimeRPC, object>,
-): Promise<void> {
-  await rpc.onTaskUpdate([], []);
+  return reportTestTaskUpdate(rpc, test, logModule, base, 'test-retried');
 }
 
 // ============================================================================
 // Other Reporting
 // ============================================================================
 
-/**
- * Report user console log message(s)
- */
+/** Report user console log messages */
 export async function reportUserConsoleLogs(
   rpc: BirpcReturn<RuntimeRPC>,
   logs: AssemblyScriptConsoleLog[],
+  logModule: string,
   base: string,
-  taskId: string,
-  label: string,
+  task: Task,
 ): Promise<void> {
   if (logs.length === 0) {
     return;
@@ -261,8 +241,8 @@ export async function reportUserConsoleLogs(
     browser: false,
     type: 'stdout',
     time: stdLogs.length > 0 ? stdLogs[0]!.time : Date.now(),
-    taskId: taskId,
-    origin: taskId
+    taskId: task.id,
+    origin: task.id
   };
   
   const errorLog: UserConsoleLog = {
@@ -271,8 +251,8 @@ export async function reportUserConsoleLogs(
     browser: false,
     type: 'stderr',
     time: errorLogs.length > 0 ? errorLogs[0]!.time : Date.now(),
-    taskId: taskId,
-    origin: taskId
+    taskId: task.id,
+    origin: task.id
   };
 
   const reportPromises: Promise<void>[] = [];
@@ -285,126 +265,16 @@ export async function reportUserConsoleLogs(
 
   await Promise.all(reportPromises);
 
-  rpcDebug(`[RPC] ${base} - Reported onUserConsoleLog for "${label}" | ${logs.length} messages`);
-}
-
-/**
- * Report file-level error (compilation/discovery failure)
- */
-export async function reportFileError(
-  rpc: BirpcReturn<RuntimeRPC>,
-  fileTask: File,
-): Promise<void> {
-  // await rpc.onCollected([fileTask]);
-
-  const taskPack: TaskResultPack = [fileTask.id, fileTask.result, {}];
-  const eventPack: TaskEventPack = [fileTask.id, "suite-failed-early", undefined];
-  await rpc.onTaskUpdate([taskPack], [eventPack]);
-
-  rpcDebug(`[RPC] ${basename(fileTask.filepath)} - Reported "suite-failed-early" for "${fileTask.filepath}"`);
-
+  rpcDebug(`[${logModule} RPC] ${getTaskLogLabel(base, task)} - Reported onUserConsoleLog | ${logs.length} messages`);
 }
 
 // ============================================================================
-// Hook Lifecycle Reporting (Not Yet Implemented)
+// Final Flush
 // ============================================================================
 
-/**
- * Report beforeAll hook starting
- * Not yet implemented - placeholder for future hook support
- */
-export async function reportBeforeAllHookStart(
-  _rpc: BirpcReturn<RuntimeRPC>,
-  _fileTaskId: string,
-  hookName: string
+/** Flush any pending RPC updates */
+export async function flushRpcUpdates(
+  rpc: BirpcReturn<RuntimeRPC, object>,
 ): Promise<void> {
-  rpcDebug('[RPC] [Not Implemented] Would report before-hook-start for beforeAll:', hookName);
-}
-
-/**
- * Report beforeAll hook finished
- * Not yet implemented - placeholder for future hook support
- */
-export async function reportBeforeAllHookEnd(
-  _rpc: BirpcReturn<RuntimeRPC>,
-  _fileTaskId: string,
-  hookName: string,
-  state: 'pass' | 'fail'
-): Promise<void> {
-  rpcDebug('[RPC] [Not Implemented] Would report before-hook-end for beforeAll:', hookName, state);
-}
-
-/**
- * Report afterAll hook starting
- * Not yet implemented - placeholder for future hook support
- */
-export async function reportAfterAllHookStart(
-  _rpc: BirpcReturn<RuntimeRPC>,
-  _fileTaskId: string,
-  hookName: string
-): Promise<void> {
-  rpcDebug('[RPC] [Not Implemented] Would report after-hook-start for afterAll:', hookName);
-}
-
-/**
- * Report afterAll hook finished
- * Not yet implemented - placeholder for future hook support
- */
-export async function reportAfterAllHookEnd(
-  _rpc: BirpcReturn<RuntimeRPC>,
-  _fileTaskId: string,
-  hookName: string,
-  state: 'pass' | 'fail'
-): Promise<void> {
-  rpcDebug('[RPC] [Not Implemented] Would report after-hook-end for afterAll:', hookName, state);
-}
-
-/**
- * Report beforeEach hook starting
- * Not yet implemented - placeholder for future hook support
- */
-export async function reportBeforeEachHookStart(
-  _rpc: BirpcReturn<RuntimeRPC>,
-  _testTaskId: string,
-  hookName: string
-): Promise<void> {
-  rpcDebug('[RPC] [Not Implemented] Would report before-hook-start for beforeEach:', hookName);
-}
-
-/**
- * Report beforeEach hook finished
- * Not yet implemented - placeholder for future hook support
- */
-export async function reportBeforeEachHookEnd(
-  _rpc: BirpcReturn<RuntimeRPC>,
-  _testTaskId: string,
-  hookName: string,
-  state: 'pass' | 'fail'
-): Promise<void> {
-  rpcDebug('[RPC] [Not Implemented] Would report before-hook-end for beforeEach:', hookName, state);
-}
-
-/**
- * Report afterEach hook starting
- * Not yet implemented - placeholder for future hook support
- */
-export async function reportAfterEachHookStart(
-  _rpc: BirpcReturn<RuntimeRPC>,
-  _testTaskId: string,
-  hookName: string
-): Promise<void> {
-  rpcDebug('[RPC] [Not Implemented] Would report after-hook-start for afterEach:', hookName);
-}
-
-/**
- * Report afterEach hook finished
- * Not yet implemented - placeholder for future hook support
- */
-export async function reportAfterEachHookEnd(
-  _rpc: BirpcReturn<RuntimeRPC>,
-  _testTaskId: string,
-  hookName: string,
-  state: 'pass' | 'fail'
-): Promise<void> {
-  rpcDebug('[RPC] [Not Implemented] Would report after-hook-end for afterEach:', hookName, state);
+  await rpc.onTaskUpdate([], []);
 }

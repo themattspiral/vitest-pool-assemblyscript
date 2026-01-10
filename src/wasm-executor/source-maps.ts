@@ -71,7 +71,7 @@ export function extractCallStack(capturedError: Error): NodeJS.CallSite[] {
 export function createWebAssemblyCallSite(
   callSite: NodeJS.CallSite,
   sourceMapConsumer: SourceMapConsumer,
-  loggingContext: string,
+  loggingPrefix: string,
 ): WebAssemblyCallSite | null {
   const fileName = callSite.getFileName();
 
@@ -93,11 +93,11 @@ export function createWebAssemblyCallSite(
     });
   
     if (!original.source || original.line === null || original.column === null) {
-      debug(`[SourceMap] ${loggingContext} - Failed to map: ${debugString}`);
+      debug(`${loggingPrefix} - Failed to source-map stack location: ${debugString}`);
       return null;
     }
 
-    debug(`[SourceMap] ${loggingContext} - Mapped ${debugString} → source: ${original.source}:${original.line}:${original.column}`);
+    debug(`${loggingPrefix} - Source-mapped stack location: ${debugString}  →  ${original.source}:${original.line}:${original.column}`);
     
     const callSite: WebAssemblyCallSite = {
       functionName,
@@ -111,7 +111,7 @@ export function createWebAssemblyCallSite(
     return callSite;
   }
 
-  debug(`[SourceMap] ${loggingContext} - Failed to map: ${debugString}`);
+  debug(`${loggingPrefix} - Failed to source-map stack-location: ${debugString}`);
 
   // Fallback to WAT position
   return {

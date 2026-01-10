@@ -26,8 +26,56 @@ function positiveSum<T>(items: T[], getSummableValue: (_next: T) => number | und
   }, 0);
 }
 
-export function getSuiteLogLabel(suite: Suite): string {
-  return suite.file.id === suite.id ? '' : `Suite: "${suite.name}" - `;
+function hasNonFileParentSuite(suite: Suite): boolean {
+  return !!suite.suite?.id && suite.suite.id !== suite.file.id;
+}
+
+function getSuiteHierarchyName(suite: Suite): string {
+  let name = suite.name;
+  let currentSuite = suite;
+  
+  while (hasNonFileParentSuite(currentSuite)) {
+    name = `${currentSuite.suite!.name} > ${name}`;
+    currentSuite = currentSuite.suite!;
+  }
+  
+  return name;
+}
+
+export function isSuiteOwnFile(suite: Suite): boolean {
+  return suite.file.id === suite.id;
+}
+
+export function getTaskLogLabel(base: string, task: Task): string {
+  if (task.type === 'suite') {
+    return isSuiteOwnFile(task) ?
+      `${base} File Suite`
+      : `${base} - "${getSuiteHierarchyName(task)}"`;
+  } else {
+    return `${base} - "${getSuiteHierarchyName(task.suite!)} > ${task.name}"`;
+  }
+}
+
+export function getTaskLogPrefix(logModule: string, base: string, task: Task): string {
+  return `[${logModule}] ${getTaskLogLabel(base, task)}`;
+}
+
+
+function spacesForLevel(level: number): string {
+  return new Array(level + 1).fill('  ').join('');
+}
+
+function taskStr(task: Task, level: number): string {
+  if (task.type === 'test') {
+    return `${spacesForLevel(level)}Mode: "${task.mode}" Test: "${task.name}"`;
+  } else {
+    const suiteStr = `${spacesForLevel(level)}Mode: "${task.mode}" Suite: "${task.name}"\n`;
+    return suiteStr + task.tasks.map(t => taskStr(t, level + 1)).join('\n');
+  }
+};
+
+export function getFullTaskHierarchy(file: File): string {
+  return taskStr(file, 0);
 }
 
 // ============================================================================
@@ -55,6 +103,7 @@ function getInitialTestTaskMeta(
     assertionsFailed: [],
     timedOut: false,
     resultInverted: false,
+    resultFinal: false,
   };
 }
 
@@ -65,6 +114,8 @@ function getInitialSuiteTaskMeta(
   return {
     idxInParentTasks: parentAfterAddingTask.tasks.length - 1,
     defaultTestOptions: mergedOptions,
+    suitePreparedSent: false,
+    resultFinal: false,
   };
 }
 
@@ -128,11 +179,13 @@ export function createSuiteTask(
 export function createInitialFileTask(
   testFile: string,
   projectName: string,
-  config: AssemblyScriptResolvedConfig,
+  projectRoot: string,
+  configTestTimeout: number,
+  configRetry: number,
 ): File {
   const file: File = createFileTask(
     testFile,
-    config.root,
+    projectRoot,
     projectName,
     ASSEMBLYSCRIPT_POOL_NAME
   );
@@ -143,13 +196,15 @@ export function createInitialFileTask(
 
   const defaultTestOptions: AssemblyScriptTestOptions = {
     ...DEFAULT_ASSEMBLYSCRIPT_TEST_OPTIONS,
-    timeout: config.testTimeout,
-    retry: config.retry,
+    timeout: configTestTimeout,
+    retry: configRetry,
   };
 
   const meta: AssemblyScriptSuiteTaskMeta = {
     idxInParentTasks: -1,  // file task has no parent, should never be used anyway
-    defaultTestOptions
+    defaultTestOptions,
+    suitePreparedSent: false,
+    resultFinal: false,
   }
   file.meta = meta;
 
@@ -241,31 +296,13 @@ export function shouldRetryTask(task: Task): boolean {
 }
 
 /**
- * Mark test as failed if it completed as passed, but its duration still execeeds the timeout threshold.
- */
-export function checkAndUpdateSoftTimeout(test: Test, base: string, context: string): void {
-  if (test.result?.state === 'pass' && (test.result.duration || 0) > test.timeout) {
-    debug(`[${context}] ${base} - "${test.name}": Soft Timeout (completed over threshold): ${test.result?.duration?.toFixed(2)}ms`);
-    
-    (test.meta as AssemblyScriptTestTaskMeta).timedOut = true;
-    test.result.state = 'fail';
-    const timeoutErr = createTestTimeoutError(test);
-    if (test.result.errors) {
-      test.result.errors.push(timeoutErr)
-    } else {
-      test.result.errors = [timeoutErr];
-    }
-  }
-}
-
-/**
  * Invert result if test configured as 'fails'.
  * 
  * Check `resultInverted` flag on meta to make sure we don't invert the result multiple times.
  * This is intentionally checked in the worker, prior to reporting, for an accurate result,
  * as well as in the main pool in case it failed without worker completion (e.g. timeout abort).
  */
-export function checkFailsAndInvertResult(test: Test, base: string, context: string): void {
+export function checkFailsAndInvertResult(test: Test, logPrefix: string): void {
   const meta = test.meta as AssemblyScriptTestTaskMeta;
 
   if (test.fails && meta.resultInverted === false) {
@@ -273,9 +310,9 @@ export function checkFailsAndInvertResult(test: Test, base: string, context: str
       test.result.state = 'fail';
       meta.resultInverted = true;
 
-      debug(`[${context}] ${base} - "${test.name}" has 'fails' option set - inverted "pass" to "fail"`);
+      debug(`${logPrefix} - Has 'fails' option set - inverted "pass" to "fail"`);
 
-      const err = createTestExpectedToFailError();
+      const err = createTestExpectedToFailError(test);
       if (test.result.errors) {
         test.result.errors.push(err);
       } else {
@@ -285,7 +322,7 @@ export function checkFailsAndInvertResult(test: Test, base: string, context: str
       test.result.state = 'pass';
       meta.resultInverted = true;
 
-      debug(`[${context}] ${base} - "${test.name}" has 'fails' option set - inverted "fail" to "pass"`);
+      debug(`${logPrefix} - Has 'fails' option set - inverted "fail" to "pass"`);
       
       test.result.errors = [];
     }
@@ -300,24 +337,27 @@ export function setTestPrepareResult(test: Test, startTime: number): void {
   };
 };
 
-export function updateTestFinishedResult(test: Test, timings: WASMExecutorPerfTimings): void {
+export function updateTestFinishedResult(test: Test, timings?: WASMExecutorPerfTimings): void {
   // while failed tests are actively set to failed, a passed test
   // will still be in the prepared result state (run), so set it to pass
   if (test.result?.state === 'run') {
     test.result.state = 'pass';
   }
 
-  if (test.result) {
+  if (test.result && timings) {
     test.result.duration = timings.execEnd - timings.execStart;
   }
+}
+
+export function finalizeTestResult(test: Test): void {
+  (test.meta as AssemblyScriptTestTaskMeta).resultFinal = true;
 }
 
 export function failTest(
   test: Test,
   errorMessage: string,
   capturedError: Error,
-  module: string,
-  context: string,
+  logPrefix: string,
 ): void {
   if (test.result) {
     test.result.state = 'fail';
@@ -354,11 +394,10 @@ export function failTest(
   // This gives us WAT line:column positions that can be mapped to AS source
   meta.lastErrorRawCallStack = extractCallStack(capturedError);
 
-  debug(`[${module}] ${context} - Captured raw V8 call stack with ${meta.lastErrorRawCallStack.length} frames`);
+  debug(`${logPrefix} - Captured raw V8 call stack with ${meta.lastErrorRawCallStack.length} frames`);
 }
 
 export function failTestWithTimeoutError (test: Test, startTime: number, duration: number): void {
-  (test.meta as AssemblyScriptTestTaskMeta).timedOut = true;
   const timeoutErr = createTestTimeoutError(test);
 
   if (test.result) {
@@ -395,7 +434,7 @@ export function setSuitePrepareResult(suite: Suite): void {
   }
 };
 
-export function updateSuiteFinalResult(suite: Suite, module: string, suiteContext: string): void {
+export function updateSuiteFinishedResult(suite: Suite, logPrefix: string): void {
   if (suite.mode === 'skip') {
     suite.result = {
       state: 'skip',
@@ -409,9 +448,13 @@ export function updateSuiteFinalResult(suite: Suite, module: string, suiteContex
       suite.result.duration = positiveSum(suite.tasks, t => t.result?.duration);
       suite.result.state = hasFailures ? 'fail' : 'pass';
       
-      debug(`[${module}] ${suiteContext}Set suite result: "${suite.result.state}" (hasFailures: ${hasFailures})`);
+      debug(`${logPrefix} - Set suite result: "${suite.result.state}" (hasFailures: ${hasFailures})`);
     }
   }
+}
+
+export function finalizeSuiteResult(suite: Suite): void {
+  (suite.meta as AssemblyScriptSuiteTaskMeta).resultFinal = true;
 }
 
 export function resetTaskMeta(task: Task): void {

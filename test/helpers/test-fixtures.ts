@@ -20,6 +20,7 @@ import {
 //@ts-ignore
 import { compileAssemblyScript as casDist } from '../../dist/index.mjs';
 import { compileAssemblyScript as casSrc } from '../../src/index.js';
+//@ts-ignore
 const compileAssemblyScript: typeof casSrc = casDist;
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
@@ -90,17 +91,22 @@ export function getAllFixtures(): TestFixture[] {
 export async function compileAndExtract(
   fixture: TestFixture,
 ): Promise<CompiledFixture> {
-  const compilePromise =  compileAssemblyScript(fixture.path, {
-    shouldInstrument: true,
-    stripInline: true,
-    projectRoot: PROJECT_ROOT,
-    instrumentationOptions: {
-      relativeExcludedFiles: [fixture.relPath].concat(POOL_INTERNAL_PATHS),
-      excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
-      coverageMemoryPagesMin: 1,
-      coverageMemoryPagesMax: 4
-    }
-  });
+  const compilePromise =  compileAssemblyScript(
+    fixture.path,
+    {
+      shouldInstrument: true,
+      stripInline: true,
+      projectRoot: PROJECT_ROOT,
+      instrumentationOptions: {
+        relativeExcludedFiles: [fixture.relPath].concat(POOL_INTERNAL_PATHS),
+        excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
+        coverageMemoryPagesMin: 1,
+        coverageMemoryPagesMax: 4
+      },
+    },
+    'test',
+    fixture.relPath
+  );
   const sourceCodePromise = readFile(fixture.path, 'utf-8');
   
   const [compileResult, sourceCode] = await Promise.all([compilePromise, sourceCodePromise]);

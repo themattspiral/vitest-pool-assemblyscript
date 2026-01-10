@@ -1,4 +1,3 @@
-import { basename } from 'node:path';
 import type { File, Suite, Test } from '@vitest/runner/types';
 
 import type {
@@ -25,9 +24,9 @@ export function createDiscoveryImports(
   memory: WebAssembly.Memory,
   file: File,
   handleLog: AssemblyScriptConsoleLogHandler,
+  logPrefix: string,
   coverageMemory?: WebAssembly.Memory
 ): WebAssembly.Imports {
-  const base = basename(file.filepath);
   const suiteStack: Suite[] = [file];
   
   return {
@@ -56,7 +55,7 @@ export function createDiscoveryImports(
         suiteStack.push(suite);
 
         debug(
-          `[Executor] ${base} - Registering Suite: "${suiteName}" | timeout: ${options.timeout}ms | retry: ${options.retry}`
+          `${logPrefix} - Registering Suite | timeout: ${options.timeout}ms | retry: ${options.retry}`
           + ` | skip: ${options.skip} | only: ${options.only} | fails: ${options.fails} `
           + ` | parent: "${suite.suite?.name}" (parent idx: ${(suite.meta as AssemblyScriptSuiteTaskMeta).idxInParentTasks})`
         );
@@ -66,7 +65,7 @@ export function createDiscoveryImports(
         const suite = suiteStack.pop();
 
         debug(
-          `[Executor] ${base} - Registered ${suite?.tasks.length} tasks in Suite: "${suite?.name}" | mode: "${suite?.mode}"`
+          `${logPrefix} - Registered Suite | ${suite?.tasks.length} top-level tasks | mode: "${suite?.mode}"`
           + ` | parent: "${suite?.suite?.name}" (parent idx: ${(suite?.meta as AssemblyScriptSuiteTaskMeta)?.idxInParentTasks})`
         );
       },
@@ -87,7 +86,7 @@ export function createDiscoveryImports(
         const options = mergeAssemblyScriptTestOptions(defaultTestOptions, timeout, retry, skip, only, fails);
         const test = createTestTask(testName, fnIndex, file, parentSuite, options);
         
-        debug(`[Executor] ${base} - Registered test: "${testName}" | mode (pre-interp): "${test.mode}"`
+        debug(`${logPrefix} - Registered test | mode (pre-interp): "${test.mode}"`
           + ` | fnIndex ${fnIndex} | timeout: ${options.timeout}ms | retry: ${options.retry} | skip: ${options.skip}`
           + ` | only: ${options.only} | fails: ${options.fails} | suite: "${test.suite?.name}"`
           + ` (parent idx: ${(test.meta as AssemblyScriptTestTaskMeta).idxInParentTasks})`
@@ -99,7 +98,7 @@ export function createDiscoveryImports(
         const { message, location } = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
         const msgAtLoc = `${message}${location ? ` at ${location}` : ''}`;
         
-        debug(`[Executor] ${base} - Unexpected abort during test discovery: ${msgAtLoc}`);
+        debug(`${logPrefix} - Unexpected abort during test discovery: ${msgAtLoc}`);
 
         // Create error to capture V8 stack trace and extract V8 call stack before throwing.
         // This gives us WAT line:column positions that can be mapped to AS source
@@ -137,9 +136,9 @@ export function createTestExecutionImports(
   memory: WebAssembly.Memory,
   test: Test,
   handleLog: AssemblyScriptConsoleLogHandler,
+  logPrefix: string,
   coverageMemory?: WebAssembly.Memory
 ): WebAssembly.Imports {
-  const context = `${basename(test.file.filepath)} - "${test.name}"`;
 
   return {
     env: {
@@ -181,20 +180,20 @@ export function createTestExecutionImports(
         const valuesMsg = valuesProvided ? ` | Value Type: ${assertionValueType}`
           + ` | Expected: \`${expected !== undefined ? expected : ''}\` | Actual: \`${actual !== undefined ? actual : ''}\``
           : '';
-        debug(`[Executor] ${context} - Assertion failed: ${errorMsg}${valuesMsg}`);
+        debug(`${logPrefix} - Assertion failed: ${errorMsg}${valuesMsg}`);
       },
 
       abort(msgPtr: number, filePtr: number, line: number, column: number) {
         const { message, location } = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
         const msgAtLoc = `${message}${location ? ` at ${location}` : ''}`;
         
-        debug(`[Executor] ${context} - Handling test execution abort: ${msgAtLoc}`);
+        debug(`${logPrefix} - Handling test execution abort: ${msgAtLoc}`);
 
         // Create error to capture V8 stack trace and extract V8 call stack before throwing.
         // This gives us WAT line:column positions that can be mapped to AS source
         const capturedError = new Error();
 
-        failTest(test, message, capturedError, 'Executor', context);
+        failTest(test, message, capturedError, logPrefix);
 
         // Must throw here to halt WASM execution on an assert() failure for this test.
         // This will be caught by the executor and reported as an appropriate test error
