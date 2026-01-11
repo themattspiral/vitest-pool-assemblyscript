@@ -13,7 +13,6 @@ import { ModuleCacheMap } from 'vite-node/client';
 import { installSourcemapsSupport } from 'vite-node/source-map';
 
 import type {
-  ReportFileFailureTask,
   AssemblyScriptConsoleLogHandler,
   AssemblyScriptConsoleLog,
   InstrumentationOptions,
@@ -50,10 +49,11 @@ import {
   reportSuiteFinished,
   reportFileError,
 } from './rpc-reporter.js';
-import { createPoolErrorFromAnyError } from '../util/pool-errors.js';
+import { createPoolErrorFromAnyError, getTestErrorFromPoolError } from '../util/pool-errors.js';
 import { compileAssemblyScript } from '../compiler/index.js';
 import {
   checkFailsAndInvertResult,
+  failFile,
   finalizeSuiteResult,
   finalizeTestResult,
   getFullTaskHierarchy,
@@ -77,33 +77,6 @@ installSourcemapsSupport({
 });
 
 let compilationCount: number = 0;
-
-export async function reportFileSuiteFailure(taskData: ReportFileFailureTask): Promise<void> {
-  const { file, port, poolOptions } = taskData;
-  const base = basename(file.filepath);
-  const logModule = `Worker ${workerId}`;
-  const logLabel = getTaskLogLabel(base, file);
-
-  try {
-    setDebugMode(poolOptions.debug);
-    debug(`[${logModule}] ${logLabel} - reportFileSuiteFailure started for: "${file.filepath}"`);
-
-    const errName = file.result?.errors ? (file.result.errors[0]?.name ?? 'undefined') : 'undefined';
-    const rpc = createRpcClient(port);
-
-    await reportFileQueued(rpc, file, logModule, logLabel);
-    await reportFileError(rpc, file, logModule, logLabel);
-    await flushRpcUpdates(rpc);
-
-    debug(`[${logModule}] ${logLabel} - reportFileSuiteFailure complete for "${errName}"`);
-  } catch (error) {
-    throw createPoolErrorFromAnyError(
-      `${base} - reportFileSuiteFailure failure in worker`,
-      POOL_ERROR_NAMES.PoolReportingError,
-      error
-    );
-  }
-}
 
 async function runTest(
   rpc: BirpcReturn<RuntimeRPC>,
@@ -343,9 +316,12 @@ async function runSuite(
 }
 
 export async function runFile(taskData: RunFileTask): Promise<void> {
-  const { file, poolOptions, port, projectRoot, collectCoverage, bail, diffOptions, timedOutTest, timedOutCompilation } = taskData;
-  const workerModuleLabel = `Worker ${workerId}`;
+  const {
+    file, poolOptions, port, projectRoot, collectCoverage, bail,
+    relativeUserCoverageExclusions, diffOptions, timedOutTest, timedOutCompilation
+  } = taskData;
   const base = basename(file.filepath);
+  const workerModuleLabel = `Worker ${workerId}`;
   const fileLogPrefix = getTaskLogPrefix(workerModuleLabel, base, file);
   const fileLogLabel = getTaskLogLabel(base, file);
   setDebugMode(poolOptions.debug);
@@ -366,7 +342,7 @@ export async function runFile(taskData: RunFileTask): Promise<void> {
         relativeExcludedFiles: [
           relativeTestFilePath,
           ...POOL_INTERNAL_PATHS,
-          ...taskData.relativeUserCoverageExclusions,
+          ...relativeUserCoverageExclusions,
         ],
         excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
         coverageMemoryPagesMin: poolOptions.coverageMemoryPagesMin,
@@ -453,10 +429,31 @@ export async function runFile(taskData: RunFileTask): Promise<void> {
     const totalTime = performance.now() - runStart;
     debug(`${fileLogPrefix} - TIMING Total File Run: ${totalTime.toFixed(2)}ms`);
   } catch (error) {
-    throw createPoolErrorFromAnyError(
-      `${base} - runFile failure in worker`,
+    const poolError = createPoolErrorFromAnyError(
+      `${fileLogLabel} - runFile failure in worker`,
       POOL_ERROR_NAMES.PoolError,
       error
     );
+    const testError = getTestErrorFromPoolError(poolError);
+
+    failFile(file, testError, runStart);
+
+    try {
+      await reportFileQueued(rpc, file, workerModuleLabel, fileLogLabel);
+      await reportFileError(rpc, file, workerModuleLabel, fileLogLabel);
+      await flushRpcUpdates(rpc);
+
+      debug(`${fileLogPrefix} - Reported file error`);
+    } catch (reportingError) {
+      const msg = 'Unrecoverable reporting failure in worker';
+      debug(`${fileLogPrefix} - ${msg} - Throwing PoolReportingError with cause:`, reportingError);
+      throw createPoolErrorFromAnyError(
+        `${fileLogLabel} - ${msg}`,
+        POOL_ERROR_NAMES.PoolReportingError,
+        reportingError
+      );
+    }
+  } finally {
+    debug(`${fileLogPrefix} - Completed File Worker Execution`);
   }
 }

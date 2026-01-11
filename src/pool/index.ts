@@ -23,8 +23,6 @@ import type {
   RunFileTask,
   WASMCompilation,
   TestRunRecord,
-  ReportFileFailureTask,
-  AssemblyScriptTestError,
 } from '../types/types.js';
 import { setDebugMode, debug } from '../util/debug.js';
 import { createWorkerChannel } from './worker-channel.js';
@@ -32,58 +30,14 @@ import { getAssemblyScriptResolvedConfig } from './pool-config.js';
 import {
   createPoolError,
   createPoolErrorFromAnyError,
-  getTestErrorFromPoolError,
   isAbortError,
-  isAbortErrorString,
 } from '../util/pool-errors.js';
 import {
-  createFailedFileTask,
   createInitialFileTask,
   failTestWithTimeoutError,
 } from '../util/vitest-tasks.js';
 
 const WORKER_PATH = resolve(import.meta.dirname, 'pool-worker/index.mjs');
-
-async function dispatchReportFileFailure(
-  spec: TestSpecification,
-  error: AssemblyScriptTestError,
-  config: AssemblyScriptResolvedConfig,
-  pool: Tinypool,
-  poolAbortSignal: AbortSignal,
-  isCollectTestsMode: boolean,
-): Promise<void> {
-  const poolOptions = config.poolOptions.assemblyScript;
-  setDebugMode(poolOptions.debug);
-  const base = basename(spec.moduleId);
-
-  const reportingStart = performance.now();
-
-  debug(`[Pool] ${base} - Calling reportFileSuiteFailure | isCollectTestsMode: ${isCollectTestsMode}`);
-
-  const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
-
-  // create the file task to report file failure
-  const file = createFailedFileTask(spec.moduleId, spec.project.name, config, error);
-
-  try {
-    const workerTaskData: ReportFileFailureTask = {
-      file,
-      poolOptions,
-      port: workerPort,
-    };
-
-    await pool.run(workerTaskData, {
-      name: 'reportFileSuiteFailure',
-      transferList: [workerPort],
-      signal: poolAbortSignal
-    });
-
-    debug(`[Pool] ${base} - TIMING reportFileSuiteFailure: ${(performance.now() - reportingStart).toFixed(2)}ms`);
-  } finally {
-    workerPort.close();
-    poolPort.close();
-  }
-}
 
 async function dispatchFullWorkerRun(
   spec: TestSpecification,
@@ -231,31 +185,7 @@ async function dispatchFullWorkerRun(
       }
     }
 
-    const poolError = createPoolErrorFromAnyError(`${base} - file worker failure`, POOL_ERROR_NAMES.PoolError, error);
-    const testError = getTestErrorFromPoolError(poolError);
-    
-    try {
-      debug(`[Pool] ${base} - file worker failure - Reporting test file failure:`, testError);
-
-      // report a failure for this suite
-      await dispatchReportFileFailure(spec, testError, config, pool, poolAbortSignal, isCollectTestsMode);
-    } catch (reportErr) {
-      const poolReportError = createPoolErrorFromAnyError(
-        `${base} - Failure while reporting file worker failure`,
-        POOL_ERROR_NAMES.PoolReportingError,
-        reportErr
-      );
-
-      if (isAbortErrorString(poolReportError.name)) {
-        // swallow abort error, this worker is done
-        return;
-      }
-
-      throw reportErr;
-    }
-
-    // all errors either ignored, sent as a file failure, or thrown up
-    return;
+    throw createPoolErrorFromAnyError(`${base} - unhandled file worker failure`, POOL_ERROR_NAMES.PoolError, error);
   } finally {
     debug(`[Pool] ${base} - Finished File Worker Execution`);
   }

@@ -25,18 +25,18 @@ export function createTestTimeoutError(
   const err: AssemblyScriptTestError = {
     name: POOL_ERROR_NAMES.WASMExecutionTimeoutError,
     message,
-    stack: `${test.id}_${message}`,
+    stack: message,
     diff: getYellowString(` Test Timeout Exceeded (${test.timeout}ms)`)
   };
   return err;
 }
 
-export function createTestExpectedToFailError(test: Test): AssemblyScriptTestError {
+export function createTestExpectedToFailError(): AssemblyScriptTestError {
   const message = `Test is expected to fail, but all assertions passed`;
   const err: AssemblyScriptTestError = {
     name: TEST_ERROR_NAMES.AssertionError,
     message,
-    stack: `${test.id}_${message}`,
+    stack: message,
     diff: getYellowString(` Expected to fail, but all assertions passed`)
   };
   return err;
@@ -88,12 +88,11 @@ export function createPoolErrorFromAnyError(context: string, contextErrorName: P
 
 export function getTestErrorFromPoolError(error: AssemblyScriptPoolError): AssemblyScriptTestError {
   const anyCause: any = error?.cause;
-  const message = error.message ?? anyCause.message ?? 'Unknown error';
-
   if (error.causeIsEnhancedError) {
     return error.cause as AssemblyScriptTestError;
   }
 
+  const message = error.message ?? anyCause.message ?? 'Unknown error';
   return {
     name: error.name ?? anyCause.name ?? POOL_ERROR_NAMES.PoolError,
     message,

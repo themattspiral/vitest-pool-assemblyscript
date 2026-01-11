@@ -312,7 +312,7 @@ export function checkFailsAndInvertResult(test: Test, logPrefix: string): void {
 
       debug(`${logPrefix} - Has 'fails' option set - inverted "pass" to "fail"`);
 
-      const err = createTestExpectedToFailError(test);
+      const err = createTestExpectedToFailError();
       if (test.result.errors) {
         test.result.errors.push(err);
       } else {
@@ -477,3 +477,28 @@ export function resetTestResult(test: Test, startTime: number): void {
   test.result!.state = 'run';
   test.result!.startTime = startTime;
 }
+
+export function failFile(
+  file: File,
+  error: AssemblyScriptTestError,
+  runStartPerf: number,
+): File {
+  file.mode = 'run';
+
+  if (file.result) {
+    file.result.state = 'fail';
+    file.result.errors = file.result.errors ? file.result.errors.concat(error) : [error];
+  } else {
+    file.result = {
+      state: 'fail',
+      errors: [error]
+    };
+  }
+  file.prepareDuration = file.prepareDuration ?? performance.now() - runStartPerf;
+  file.environmentLoad = file.environmentLoad ?? 0;
+  file.setupDuration = file.setupDuration ?? 0;
+  file.collectDuration = file.collectDuration ?? 0;
+
+  return file;
+}
+

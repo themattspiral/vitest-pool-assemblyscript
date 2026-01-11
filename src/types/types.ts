@@ -618,16 +618,3 @@ export interface RunFileTask {
   /** Bail config (halt run after this many failures) */
   bail?: number;
 }
-
-/**
- * Task data for reporting an error at the file/suite level, which is
- * not per-test recoverable (compiler errors, instrumentation errors)
- */
-export interface ReportFileFailureTask {
-  /** Pool options */
-  poolOptions: ResolvedAssemblyScriptPoolOptions;
-  /** MessagePort for RPC communication */
-  port: MessagePort;
-  /** File task with reportable error on the result */
-  file: File;
-}
