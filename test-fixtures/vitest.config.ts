@@ -1,5 +1,6 @@
 import { defineConfig, defineProject } from 'vitest/config';
-import { defineAssemblyScriptProject } from '../src/config/index.js';
+import { createAssemblyScriptPool, defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/config';
+
 
 export default defineConfig({
   test: {
@@ -8,10 +9,11 @@ export default defineConfig({
 
     name: 'test-fixtures',
 
-    reporters: ['verbose'],
+    reporters: ['tree'],
 
     retry: 2,
-    // bail: 5,
+    testTimeout: 500,
+    isolate: false,
 
     // Coverage configuration (must be global in vitest)
     coverage: {
@@ -52,8 +54,8 @@ export default defineConfig({
 
           include: [ 'test-fixtures/js/**/*.test.ts' ],
 
-          testTimeout: 200,
-          retry: 3,
+          retry: 0,
+          testTimeout: 100,
         }
       }),
 
@@ -68,17 +70,20 @@ export default defineConfig({
           include: ['test-fixtures/assembly/**/*.as.test.ts'],
           exclude: ['coverage-fixtures/**/*'],
 
-          testTimeout: 500,
+          // bail: 5,
           retry: 1,
+          testTimeout: 500,
+          isolate: false,
 
-          pool: 'vitest-pool-assemblyscript',
-          poolOptions: {
-            assemblyScript: {
-              debug: false,
-              stripInline: true,
-              coverageMemoryPagesMax: 2
-            },
-          },
+          pool: createAssemblyScriptPool(),
+          // pool: 'vitest-pool-assemblyscript',
+          // poolOptions: {
+          //   assemblyScript: {
+          //     debug: false,
+          //     stripInline: true,
+          //     coverageMemoryPagesMax: 2
+          //   },
+          // },
         }
       }),
     ]

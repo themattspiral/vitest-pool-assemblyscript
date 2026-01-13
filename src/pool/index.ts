@@ -6,8 +6,6 @@ import { resolve, basename } from 'node:path';
 import { existsSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import Tinypool from 'tinypool';
-import { ModuleCacheMap } from 'vite-node/client';
-import { installSourcemapsSupport } from 'vite-node/source-map';
 import type { Vitest, ProcessPool, TestSpecification } from 'vitest/node';
 import type { Test } from '@vitest/runner/types';
 
@@ -26,7 +24,7 @@ import type {
 } from '../types/types.js';
 import { setDebugMode, debug } from '../util/debug.js';
 import { createWorkerChannel } from './worker-channel.js';
-import { getAssemblyScriptResolvedConfig } from './pool-config.js';
+import { getResolvedAssemblyScriptConfig } from './pool-config.js';
 import {
   createPoolError,
   createPoolErrorFromAnyError,
@@ -96,8 +94,8 @@ async function dispatchFullWorkerRun(
         const transitDuration = poolReceivedExecutionStart - executionStart;
         const adjustedTimeout = Math.max(test.timeout - transitDuration, 0);
 
-        debug(`[Pool] ${base} - "${test.name}": Received worker execution start (transit ${transitDuration}ms)`
-          + ` - Beginning test timeout timer ${test.timeout}ms (adjusted timeout: ${adjustedTimeout}ms)`
+        debug(`[Pool] ${base} - "${test.name}": Received worker execution start (transit ${transitDuration} ms)`
+          + ` - Beginning test timeout timer ${test.timeout} ms (adjusted timeout: ${adjustedTimeout} ms)`
         );
         
         // Enforce test timeout
@@ -107,23 +105,23 @@ async function dispatchFullWorkerRun(
           testTimeoutCache.delete(test.id);
 
           if (record) {
-            const elapsedFromWorkerExecutionStart = poolTimeoutTime - record.runningTestStart;
+            const elapsedFromWorkerExecutionStart = poolTimeoutTime - record.executionStart;
 
-            failTestWithTimeoutError(record.runningTest, poolTimeoutTime, elapsedFromWorkerExecutionStart);
+            failTestWithTimeoutError(record.test, poolTimeoutTime, elapsedFromWorkerExecutionStart);
 
             timedOutTestThisRun = test;
             fileAbortController.abort(POOL_ERROR_NAMES.WASMExecutionTimeoutError);
 
-            debug(`[Pool] ${base} - "${record.runningTest.name}" timed out (threshold ${record.runningTest.timeout}ms)`
-              + ` - Aborted worker job (duration before abort: ${elapsedFromWorkerExecutionStart}ms)`
+            debug(`[Pool] ${base} - "${record.test.name}" timed out (threshold ${record.test.timeout} ms)`
+              + ` - Aborted worker job (duration before abort: ${elapsedFromWorkerExecutionStart} ms)`
             );
           }
         }, adjustedTimeout);
 
         testTimeoutCache.set(test.id, {
-          runningTest: test,
-          runningTestStart: executionStart,
-          runnungTestTimeoutId: testTimeoutId,
+          test: test,
+          executionStart: executionStart,
+          timeoutId: testTimeoutId,
         });
 
       } else if (event.executionEnd) {
@@ -133,12 +131,12 @@ async function dispatchFullWorkerRun(
         testTimeoutCache.delete(testTaskId);
 
         if (record) {
-          clearTimeout(record.runnungTestTimeoutId);
+          clearTimeout(record.timeoutId);
 
-          const elapsedFromWorkerExecutionStart = executionEnd - record.runningTestStart!;
+          const elapsedFromWorkerExecutionStart = executionEnd - record.executionStart!;
           const transitDuration = poolReceivedExecutionEnd - executionEnd;
-          debug(`[Pool] ${base} - "${record.runningTest.name}": Received worker execution end (transit: ${transitDuration}ms)`
-            + ` - Clearing test timeout timer - Actual duration from worker exection start: ${elapsedFromWorkerExecutionStart}ms`
+          debug(`[Pool] ${base} - "${record.test.name}": Received worker execution end (transit: ${transitDuration} ms)`
+            + ` - Clearing test timeout timer - Actual duration from worker exection start: ${elapsedFromWorkerExecutionStart} ms`
           );
         }
       }
@@ -263,8 +261,8 @@ async function runTests(
   debug(`[Pool] Timeout Cache Size: ${testTimeoutCache.size}`);
   testTimeoutCache.forEach((record: TestRunRecord, testId: string) => {
     if (record) {
-      debug(`[Pool] Leftover timeout entry for task: ${record.runningTest.name}`);
-      clearTimeout(record.runnungTestTimeoutId);
+      debug(`[Pool] Leftover timeout entry for task: ${record.test.name}`);
+      clearTimeout(record.timeoutId);
     } else {
       debug(`[Pool] Empty test timeout entry for task: ${testId}`);
     }
@@ -274,18 +272,6 @@ async function runTests(
 }
 
 export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
-  // Singleton module cache for source map support in worker threads
-  // Shared across all tasks in this worker to enable accurate 
-  // internal pool code stack traces
-  const moduleCache = new ModuleCacheMap();
-
-  // Install source map support for pool's own TypeScript code
-  // This enables accurate stack traces when debugging the pool itself
-  installSourcemapsSupport({
-    getSourceMap: source => moduleCache.getSourceMap(source),
-  });
-
-  // Worker path resolution - worker must be pre-compiled JavaScript
   if (!existsSync(WORKER_PATH)) {
     throw createPoolError(`Worker file not found at ${WORKER_PATH}`, POOL_ERROR_NAMES.PoolError,);
   }
@@ -307,7 +293,7 @@ export default function createAssemblyScriptPool(ctx: Vitest): ProcessPool {
   }
 
   // Resolve pool options and initialize debug mode
-  const resolvedConfig = getAssemblyScriptResolvedConfig(ctx.config, projectConfig);
+  const resolvedConfig = getResolvedAssemblyScriptConfig(ctx.config, projectConfig);
   const poolOptions = resolvedConfig.poolOptions.assemblyScript;
   setDebugMode(poolOptions.debug);
 

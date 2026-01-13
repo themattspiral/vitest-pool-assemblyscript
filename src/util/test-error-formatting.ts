@@ -1,6 +1,8 @@
 import { stripVTControlCharacters } from 'node:util';
-import { type ParsedStack, highlight } from '@vitest/utils';
-import { RawSourceMap } from 'source-map';
+import type { RawSourceMap } from 'source-map';
+// import { type ParsedStack, highlight } from '@vitest/utils';
+import type { ParsedStack } from '@vitest/utils';
+import { highlight } from '@vitest/utils/highlight';
 import c from 'tinyrainbow';
 
 const FRAME_POINTER = '❯' as const;

@@ -55,7 +55,7 @@ export function createDiscoveryImports(
         suiteStack.push(suite);
 
         debug(
-          `${logPrefix} - Registering Suite | timeout: ${options.timeout}ms | retry: ${options.retry}`
+          `${logPrefix} - Registering Suite "${suite.name}" | timeout: ${options.timeout} ms | retry: ${options.retry}`
           + ` | skip: ${options.skip} | only: ${options.only} | fails: ${options.fails} `
           + ` | parent: "${suite.suite?.name}" (parent idx: ${(suite.meta as AssemblyScriptSuiteTaskMeta).idxInParentTasks})`
         );
@@ -65,7 +65,7 @@ export function createDiscoveryImports(
         const suite = suiteStack.pop();
 
         debug(
-          `${logPrefix} - Registered Suite | ${suite?.tasks.length} top-level tasks | mode: "${suite?.mode}"`
+          `${logPrefix} - Registered Suite "${suite?.name}" | ${suite?.tasks.length} top-level tasks | mode: "${suite?.mode}"`
           + ` | parent: "${suite?.suite?.name}" (parent idx: ${(suite?.meta as AssemblyScriptSuiteTaskMeta)?.idxInParentTasks})`
         );
       },
@@ -86,8 +86,8 @@ export function createDiscoveryImports(
         const options = mergeAssemblyScriptTestOptions(defaultTestOptions, timeout, retry, skip, only, fails);
         const test = createTestTask(testName, fnIndex, file, parentSuite, options);
         
-        debug(`${logPrefix} - Registered test | mode (pre-interp): "${test.mode}"`
-          + ` | fnIndex ${fnIndex} | timeout: ${options.timeout}ms | retry: ${options.retry} | skip: ${options.skip}`
+        debug(`${logPrefix} - Registered test "${test.name}" | mode (pre-interp): "${test.mode}"`
+          + ` | fnIndex ${fnIndex} | timeout: ${options.timeout} ms | retry: ${options.retry} | skip: ${options.skip}`
           + ` | only: ${options.only} | fails: ${options.fails} | suite: "${test.suite?.name}"`
           + ` (parent idx: ${(test.meta as AssemblyScriptTestTaskMeta).idxInParentTasks})`
         );

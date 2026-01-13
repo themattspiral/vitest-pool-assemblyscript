@@ -4,6 +4,7 @@ export default defineConfig({
   entry: [
     'src/index.ts',
     'src/pool-worker/index.ts',
+    'src/pool-worker/v4-worker-thread.ts',
     'src/config/index.ts',
     'src/coverage-provider/index.ts',
     'src/compiler/transforms/strip-inline.mts',

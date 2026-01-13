@@ -6,8 +6,8 @@
  */
 
 import type { MessagePort } from 'node:worker_threads';
-import { createBirpc, type BirpcReturn } from 'birpc';
-import type { RuntimeRPC, UserConsoleLog } from 'vitest';
+import { createBirpc } from 'birpc';
+import type { RunnerRPC, RuntimeRPC, UserConsoleLog } from 'vitest';
 import type {
   File,
   Suite,
@@ -15,12 +15,14 @@ import type {
   Task,
   TaskEventPack, 
   TaskResultPack,
+  CancelReason,
 } from '@vitest/runner/types';
 
 import type {
   AssemblyScriptConsoleLog,
   AssemblyScriptCoveragePayload,
-  AssemblyScriptSuiteTaskMeta
+  AssemblyScriptSuiteTaskMeta,
+  WorkerRPC
 } from '../types/types.js';
 import { debug, isDebugModeEnabled } from '../util/debug.js';
 import { COVERAGE_PAYLOAD_FORMATS } from '../types/constants.js';
@@ -40,9 +42,11 @@ function rpcDebug(...args: any[]): void {
 // ============================================================================
 
 /** Create RPC client from MessagePort */
-export function createRpcClient(port: MessagePort): BirpcReturn<RuntimeRPC> {
-  return createBirpc<RuntimeRPC>(
-    {},
+export function createRpcClient(port: MessagePort): WorkerRPC {
+  return createBirpc<RuntimeRPC, RunnerRPC>(
+    {
+      onCancel: (_reason: CancelReason) => void { }
+    },
     {
       post: (v) => port.postMessage(v),
       on: (fn) => port.on('message', fn),
@@ -56,7 +60,7 @@ export function createRpcClient(port: MessagePort): BirpcReturn<RuntimeRPC> {
 
 /** Report file as queued (before compilation & discovery starts) */
 export async function reportFileQueued(
-  rpc: BirpcReturn<RuntimeRPC, object>,
+  rpc: WorkerRPC,
   fileTask: File,
   logModule: string,
   logLabel: string,
@@ -69,7 +73,7 @@ export async function reportFileQueued(
 
 /** Report file collection complete with full task tree */
 export async function reportFileCollected(
-  rpc: BirpcReturn<RuntimeRPC, object>,
+  rpc: WorkerRPC,
   fileTask: File,
   logModule: string,
   logLabel: string,
@@ -82,7 +86,7 @@ export async function reportFileCollected(
 
 /** Report file-level error (compilation/discovery failure) as "suite-failed-early" */
 export async function reportFileError(
-  rpc: BirpcReturn<RuntimeRPC>,
+  rpc: WorkerRPC,
   fileTask: File, 
   logModule: string,
   logLabel: string,
@@ -100,7 +104,7 @@ export async function reportFileError(
 
 /** Report suite-prepare event */
 export async function reportSuitePrepare(
-  rpc: BirpcReturn<RuntimeRPC, object>,
+  rpc: WorkerRPC,
   suite: Suite,
   logModule: string,
   base: string,
@@ -112,13 +116,13 @@ export async function reportSuitePrepare(
   await rpc.onTaskUpdate([taskPack], [eventPack]);
 
   rpcDebug(`[${logModule} RPC] ${getTaskLogLabel(base, suite)} - Reported "suite-prepare" task update`
-    + ` | state: "${suite.result?.state}" | duration: ${suite.result?.duration?.toFixed(2) ?? '--'}ms`
+    + ` | state: "${suite.result?.state}"`
   );
 }
 
 /** Report suite-finished event */
 export async function reportSuiteFinished(
-  rpc: BirpcReturn<RuntimeRPC, object>,
+  rpc: WorkerRPC,
   suite: Suite,
   logModule: string,
   base: string,
@@ -140,7 +144,8 @@ export async function reportSuiteFinished(
     coveragePromise = rpc.onAfterSuiteRun({
       coverage,
       testFiles: [suite.file.filepath],
-      transformMode: 'ssr',
+      // transformMode: 'ssr',
+      environment: 'node',
       projectName: suite.file.projectName,
     });
 
@@ -159,7 +164,7 @@ export async function reportSuiteFinished(
   ]);
 
   rpcDebug(`${rpcLogPrefix} - Reported "suite-finished" task update | state: "${suite.result?.state}"`
-    + ` | duration: ${suite.result?.duration?.toFixed(2) ?? '--'}ms`
+    + ` | duration: ${suite.result?.duration?.toFixed(2) ?? '--'} ms`
   );
 }
 
@@ -168,7 +173,7 @@ export async function reportSuiteFinished(
 // ============================================================================
 
 async function reportTestTaskUpdate(
-  rpc: BirpcReturn<RuntimeRPC>,
+  rpc: WorkerRPC,
   test: Test,
   logModule: string,
   base: string,
@@ -180,12 +185,14 @@ async function reportTestTaskUpdate(
 
   await rpc.onTaskUpdate([taskPack], [eventPack]);
   rpcDebug(`[${logModule} RPC] ${getTaskLogLabel(base, test)} - Reported "${updateEvent}" task update`
-    + ` | state: "${test.result?.state}"`);
+    + ` | state: "${test.result?.state}"`
+    + `${updateEvent === 'test-prepare' ? '' : ` | duration: ${test.result?.duration?.toFixed(2) ?? '--'} ms`}`
+  );
 }
 
 /** Report test starting execution */
 export async function reportTestPrepare(
-  rpc: BirpcReturn<RuntimeRPC>,
+  rpc: WorkerRPC,
   test: Test,
   logModule: string,
   base: string,
@@ -195,7 +202,7 @@ export async function reportTestPrepare(
 
 /** Report test finished execution */
 export async function reportTestFinished(
-  rpc: BirpcReturn<RuntimeRPC>,
+  rpc: WorkerRPC,
   test: Test,
   logModule: string,
   base: string,
@@ -205,7 +212,7 @@ export async function reportTestFinished(
 
 /** Report test retried (sent when test failed and is going to be retried) */
 export async function reportTestRetried(
-  rpc: BirpcReturn<RuntimeRPC>,
+  rpc: WorkerRPC,
   test: Test,
   logModule: string,
   base: string,
@@ -219,7 +226,7 @@ export async function reportTestRetried(
 
 /** Report user console log messages */
 export async function reportUserConsoleLogs(
-  rpc: BirpcReturn<RuntimeRPC>,
+  rpc: WorkerRPC,
   logs: AssemblyScriptConsoleLog[],
   logModule: string,
   base: string,
@@ -274,7 +281,7 @@ export async function reportUserConsoleLogs(
 
 /** Flush any pending RPC updates */
 export async function flushRpcUpdates(
-  rpc: BirpcReturn<RuntimeRPC, object>,
+  rpc: WorkerRPC,
 ): Promise<void> {
   await rpc.onTaskUpdate([], []);
 }

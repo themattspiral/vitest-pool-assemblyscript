@@ -164,7 +164,7 @@ export async function convertToIstanbulFormat(
 
   istanbulDebug(
     `[IstanbulConverter]   Coverage Coversion Complete: ${Object.keys(fnMap).length} functions,` 
-    + ` ${totalMs}ms total (matching: ${matchingMs}ms, convert: ${convertMs}ms)`
+    + ` ${totalMs} ms total (matching: ${matchingMs} ms, convert: ${convertMs} ms)`
   );
 
   return {

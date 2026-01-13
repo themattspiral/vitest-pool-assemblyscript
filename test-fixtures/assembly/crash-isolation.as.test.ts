@@ -10,7 +10,7 @@ it("first test passes", () => {
   assert(true, "first test should pass");
 }, TestOptions.timeout(300).retry(5));
 
-it("second test crashes [should fail]", TestOptions.timeout(300).retry(5), () => {
+it("second test crashes [should fail]", TestOptions.retry(2), () => {
   assert(false, "ASSERT_ERROR@14:3 this assertion should cause abort");
 });
 

@@ -55,7 +55,7 @@ export async function compileAssemblyScript(
   throwPoolErrorIfAborted(signal);
 
   const compileStart = performance.now();
-  const logPrefix = `[${logModule} AS Compiler] ${logLabel}`;
+  const logPrefix = `[${logModule} ASC] ${logLabel}`;
 
   if (options.shouldInstrument && !options.instrumentationOptions) {
     throw createPoolError(
@@ -137,7 +137,7 @@ export async function compileAssemblyScript(
     },
   });
 
-  debug(`${logPrefix} - TIMING asc.main: ${(performance.now() - ascStart).toFixed(2)}ms`);
+  debug(`${logPrefix} - TIMING asc.main: ${(performance.now() - ascStart).toFixed(2)} ms`);
 
   if (result.error) {
     const errorMessage = stderrLines.length > 0
@@ -201,7 +201,7 @@ export async function compileAssemblyScript(
     const instCount = instrumentResult.debugInfo.instrumentedFunctionCount;
 
     const instrumentEnd = performance.now();
-    debug(`${logPrefix} - TIMING Instrumented ${instCount} functions: ${(performance.now() - instrumentStart).toFixed(2)}ms`);
+    debug(`${logPrefix} - TIMING Instrumented ${instCount} functions: ${(performance.now() - instrumentStart).toFixed(2)} ms`);
 
     return {
       binary: instrumentResult.instrumentedWasm,

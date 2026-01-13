@@ -1,5 +1,5 @@
 import { defineConfig, defineProject } from 'vitest/config';
-import { defineAssemblyScriptProject } from './src/config/index.js';
+import { createAssemblyScriptPool, defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/config';
 
 export default defineConfig({
   test: {
@@ -47,13 +47,15 @@ export default defineConfig({
           include: ['test/assembly/**/*.as.test.ts'],
 
           // Use AssemblyScript pool to execute tests in this project
-          pool: 'vitest-pool-assemblyscript',
-          poolOptions: {
-            assemblyScript: {
-              debug: false,
-              stripInline: true,
-            },
-          },
+          pool: createAssemblyScriptPool(),
+
+          // pool: 'vitest-pool-assemblyscript',
+          // poolOptions: {
+          //   assemblyScript: {
+          //     debug: false,
+          //     stripInline: true,
+          //   },
+          // },
         }
       })
     ]

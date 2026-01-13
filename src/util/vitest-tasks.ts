@@ -1,5 +1,11 @@
-import { RunMode, File, Suite, Task, Test } from '@vitest/runner/types';
-import { createFileTask, interpretTaskModes, someTasksAreOnly } from '@vitest/runner/utils';
+import type { RunMode, File, Suite, Task, Test } from '@vitest/runner/types';
+import {
+  calculateSuiteHash,
+  createFileTask,
+  createTaskName,
+  interpretTaskModes,
+  someTasksAreOnly
+} from '@vitest/runner/utils';
 
 import {
   AssemblyScriptResolvedConfig,
@@ -49,7 +55,7 @@ export function isSuiteOwnFile(suite: Suite): boolean {
 export function getTaskLogLabel(base: string, task: Task): string {
   if (task.type === 'suite') {
     return isSuiteOwnFile(task) ?
-      `${base} File Suite`
+      `${base}`
       : `${base} - "${getSuiteHierarchyName(task)}"`;
   } else {
     return `${base} - "${getSuiteHierarchyName(task.suite!)} > ${task.name}"`;
@@ -67,9 +73,9 @@ function spacesForLevel(level: number): string {
 
 function taskStr(task: Task, level: number): string {
   if (task.type === 'test') {
-    return `${spacesForLevel(level)}Mode: "${task.mode}" Test: "${task.name}"`;
+    return `${spacesForLevel(level)}ID: ${task.id} Mode: "${task.mode}" Test: "${task.name}"`;
   } else {
-    const suiteStr = `${spacesForLevel(level)}Mode: "${task.mode}" Suite: "${task.name}"\n`;
+    const suiteStr = `${spacesForLevel(level)}ID: ${task.id} Mode: "${task.mode}" Suite: "${task.name}"\n`;
     return suiteStr + task.tasks.map(t => taskStr(t, level + 1)).join('\n');
   }
 };
@@ -129,11 +135,17 @@ export function createTestTask(
   const test: Test = {
     type: 'test',
     name,
-    id: `${parent.name}_${name}_${fnIndex}`,
+    fullName: createTaskName([
+      parent.fullName ?? file.fullName,
+      name,
+    ]),
+    fullTestName: createTaskName([parent.fullTestName, name]),
+    id: '',
     file,
     suite: parent,
     context: {} as any,
     annotations: [],
+    artifacts: [],
     meta: {},
     mode: getInitialTaskMode(mergedOptions),
     timeout: mergedOptions.timeout,
@@ -155,12 +167,17 @@ export function createSuiteTask(
   parent: Suite,
   mergedOptions: AssemblyScriptTestOptions,
 ): Suite {
-  const suiteIsFile = parent.file.id === parent.id;
-  const prefix = suiteIsFile ? parent.name : `${file.filepath}_${parent.name}`;
+  // const suiteIsFile = parent.file.id === parent.id;
+  // const prefix = suiteIsFile ? parent.name : `${file.filepath}_${parent.name}`;
   const suite: Suite = {
     type: 'suite',
     name,
-    id: `${prefix}_${name}`,
+    fullName: createTaskName([
+      parent.fullName ?? file.fullName,
+      name,
+    ]),
+    fullTestName: createTaskName([parent.fullTestName, name]),
+    id: '',
     file,
     suite: parent,
     meta: {},
@@ -228,7 +245,6 @@ export function createFailedFileTask(
     state: 'fail',
     errors: [error]
   };
-  file.prepareDuration = 0;
   file.environmentLoad = 0;
   file.setupDuration = 0;
   file.collectDuration = 0;
@@ -260,6 +276,8 @@ export function prepareFileTaskForCollection(
   testNamePattern?: RegExp,
   allowOnly?: boolean,
 ): void {
+  calculateSuiteHash(file);
+
   // Interpret task modes does the following:
   // 1. If only mode enabled on any test, flip all non-only test.mode to skip
   // 2. Apply test name pattern filtering (from -t flag) to skip if needed
@@ -312,7 +330,7 @@ export function checkFailsAndInvertResult(test: Test, logPrefix: string): void {
 
       debug(`${logPrefix} - Has 'fails' option set - inverted "pass" to "fail"`);
 
-      const err = createTestExpectedToFailError();
+      const err = createTestExpectedToFailError(test);
       if (test.result.errors) {
         test.result.errors.push(err);
       } else {
@@ -337,15 +355,15 @@ export function setTestPrepareResult(test: Test, startTime: number): void {
   };
 };
 
-export function updateTestFinishedResult(test: Test, timings?: WASMExecutorPerfTimings): void {
+export function updateTestFinishedResult(test: Test, testTimings?: WASMExecutorPerfTimings): void {
   // while failed tests are actively set to failed, a passed test
   // will still be in the prepared result state (run), so set it to pass
   if (test.result?.state === 'run') {
     test.result.state = 'pass';
   }
 
-  if (test.result && timings) {
-    test.result.duration = timings.execEnd - timings.execStart;
+  if (test.result && testTimings) {
+    test.result.duration = testTimings.execEnd - testTimings.execStart;
   }
 }
 
@@ -494,9 +512,8 @@ export function failFile(
       errors: [error]
     };
   }
-  file.prepareDuration = file.prepareDuration ?? performance.now() - runStartPerf;
   file.environmentLoad = file.environmentLoad ?? 0;
-  file.setupDuration = file.setupDuration ?? 0;
+  file.setupDuration = performance.now() - runStartPerf;
   file.collectDuration = file.collectDuration ?? 0;
 
   return file;

@@ -1,4 +1,4 @@
-import { test, expect } from 'vitest';
+import { test, describe, expect } from 'vitest';
 import { add, subtract, multiply, divide } from '../js-src/math.js';
 
 test('add function works [should fail] [for now]', { retry: 4 }, () => {
@@ -18,11 +18,13 @@ test('multiply function works', () => {
   console.log();
 });
 
-test('divide function works', () => {
-  expect(divide(6, 2)).toBe(3);
-  expect(divide(5, 2)).toBe(2.5);
-});
-
-test('divide by zero throws error', () => {
-  expect(() => divide(5, 0)).toThrow('divide by zero is not allowed');
-});
+describe('a suite!!', () => {
+  test('divide function works', () => {
+    expect(divide(6, 2)).toBe(3);
+    expect(divide(5, 2)).toBe(2.5);
+  });
+  
+  test('divide by zero throws error', () => {
+    expect(() => divide(5, 0)).toThrow('divide by zero is not allowed');
+  });
+})

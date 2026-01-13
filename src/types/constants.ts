@@ -9,7 +9,15 @@
 // General / Shared Constants
 // ============================================================================
 
-export const ASSEMBLYSCRIPT_POOL_NAME = 'vitest-pool-assemblyscript' as const;
+export const ASSEMBLYSCRIPT_POOL_NAME = 'assemblyscript' as const;
+
+export const AS_POOL_ERROR_TYPE_FLAG = '__as_pool__' as const;
+
+export const AS_POOL_WORKER_MSG_FLAG = '__as_pool__' as const;
+
+export const COVERAGE_PAYLOAD_FORMATS = {
+  AssemblyScript: 'assemblyscript',
+} as const;
 
 /** Prefix for AssemblyScript compiler strip-inline exclusions and instrumentation exclusions */
 export const ASSEMBLYSCRIPT_LIB_PREFIX = '~lib/' as const;
@@ -23,8 +31,6 @@ export const POOL_INTERNAL_PATHS: string[] = [
   'assembly/options.ts',
   'assembly/test.ts',
 ] as const;
-
-export const ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID = 'assemblyscript' as const;
 
 /** Error names for AssemblyScript test failures reported to vitest */
 export const TEST_ERROR_NAMES = {
@@ -60,10 +66,6 @@ export const POOL_ERROR_NAMES = {
   WASMExecutionAbortError: 'WASMExecutionAbortError',
   /** Flow Control: Indicates WASM execution halt because test timeout elapsed */
   WASMExecutionTimeoutError: 'WASMExecutionTimeoutError',
-} as const;
-
-export const COVERAGE_PAYLOAD_FORMATS = {
-  AssemblyScript: 'assemblyscript',
 } as const;
 
 // ============================================================================

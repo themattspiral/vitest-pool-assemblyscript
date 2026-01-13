@@ -6,8 +6,16 @@
  */
 
 import type { ViteUserConfig, UserWorkspaceConfig, ConfigEnv } from 'vitest/config';
-import { CoverageV8Options } from 'vitest/node';
-import type { AssemblyScriptPoolOptions, HybridProviderOptions } from '../types/types.js';
+import { CoverageV8Options, PoolRunnerInitializer } from 'vitest/node';
+
+import type {
+  AssemblyScriptPoolOptions,
+  HybridProviderOptions,
+  ResolvedHybridProviderOptions
+} from '../types/types.js';
+import { ASSEMBLYSCRIPT_POOL_NAME } from '../types/constants.js';
+import { resolvePoolOptions } from '../pool/pool-config.js';
+import { AssemblyScriptPoolWorker } from '../pool/v4-pool-worker.js';
 
 /**
  * Type for config that may be a value, Promise, or function
@@ -55,12 +63,17 @@ declare module 'vitest/node' {
  */
 export type AssemblyScriptUserConfig<T extends ViteUserConfig> = T & {
   test?: {
-    pool?: string;
-    poolOptions?: {
-      assemblyScript?: AssemblyScriptPoolOptions;
-    };
+    pool?: PoolRunnerInitializer;
   };
 };
+// export type AssemblyScriptUserConfig<T extends ViteUserConfig> = T & {
+//   test?: {
+//     pool?: string;
+//     poolOptions?: {
+//       assemblyScript?: AssemblyScriptPoolOptions;
+//     };
+//   };
+// };
 
 /**
  * Root-level config type with AssemblyScript pool support
@@ -178,4 +191,16 @@ export function defineAssemblyScriptProject(
 ): AnyConfigExport<AssemblyScriptProjectConfigExport> {
   // Pass through - this is just for type safety
   return config;
+}
+
+export function createAssemblyScriptPool(userPoolOptions?: AssemblyScriptPoolOptions): PoolRunnerInitializer {
+  const resolvedUserPoolOptions = resolvePoolOptions(userPoolOptions);
+
+  return {
+    name: ASSEMBLYSCRIPT_POOL_NAME,
+    createPoolWorker: (opts) => {
+      const resolvedCoverageOptions = opts.project.config.coverage as ResolvedHybridProviderOptions;
+      return new AssemblyScriptPoolWorker(opts, resolvedUserPoolOptions, resolvedCoverageOptions);
+    },
+  };
 }

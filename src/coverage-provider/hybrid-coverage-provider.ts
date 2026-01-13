@@ -24,7 +24,7 @@ import { parseFunctionsFromFile } from './ast-parser.js';
 import { globFiles } from './glob-utils.js';
 import { mergeCoverageData } from './coverage-merge.js';
 import { debug, setDebugMode } from '../util/debug.js';
-import { getAssemblyScriptResolvedConfig } from '../pool/pool-config.js';
+import { getResolvedAssemblyScriptConfig } from '../pool/pool-config.js';
 import type {
   AssemblyScriptCoveragePayload,
   AssemblyScriptResolvedConfig,
@@ -69,7 +69,7 @@ export class HybridCoverageProvider implements CoverageProvider {
       }
     }
 
-    this.resolvedProjectConfig = getAssemblyScriptResolvedConfig(ctx.config, projectConfig);
+    this.resolvedProjectConfig = getResolvedAssemblyScriptConfig(ctx.config, projectConfig);
 
     setDebugMode(this.resolvedProjectConfig.poolOptions.assemblyScript.debug);
 
@@ -135,7 +135,7 @@ export class HybridCoverageProvider implements CoverageProvider {
 
     debug(() => {
       const files = meta.testFiles.map(tf => relative(this.resolvedProjectConfig.root, tf)).join(',');
-      return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun complete - TIMING ${(performance.now() - start).toFixed(2)}ms | testFiles: "${files}"`;
+      return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun complete - TIMING ${(performance.now() - start).toFixed(2)} ms | testFiles: "${files}"`;
     });
   }
 
@@ -201,20 +201,20 @@ export class HybridCoverageProvider implements CoverageProvider {
     }
 
     const asGenerateEnd = performance.now();
-    debug(`[HybridCoverageProvider] TIMING AS generateCoverage: ${(asGenerateEnd - start).toFixed(2)}ms`);
+    debug(`[HybridCoverageProvider] TIMING AS generateCoverage: ${(asGenerateEnd - start).toFixed(2)} ms`);
 
     // Get JS coverage from v8 provider
     debug('[HybridCoverageProvider] Getting JS coverage from v8 provider');
     const jsCoverage = await this.v8Provider.generateCoverage(context) as CoverageMap;
     debug(`[HybridCoverageProvider] JS coverage has ${Object.keys(jsCoverage.data).length} files`);
-    debug(`[HybridCoverageProvider] TIMING JS generateCoverage: ${(performance.now() - asGenerateEnd).toFixed(2)}ms`);
+    debug(`[HybridCoverageProvider] TIMING JS generateCoverage: ${(performance.now() - asGenerateEnd).toFixed(2)} ms`);
 
     // Merge AS coverage into JS coverage
     debug('[HybridCoverageProvider] Merging AS coverage into JS coverage');
     jsCoverage.merge(asCoverageMap);
     debug(`[HybridCoverageProvider] Final merged coverage has ${Object.keys(jsCoverage.data).length} files`);
 
-    debug(`[HybridCoverageProvider] TIMING Total generateCoverage: ${(performance.now() - start).toFixed(2)}ms`);
+    debug(`[HybridCoverageProvider] TIMING Total generateCoverage: ${(performance.now() - start).toFixed(2)} ms`);
 
     return jsCoverage;
   }

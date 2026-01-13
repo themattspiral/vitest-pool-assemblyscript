@@ -30,16 +30,40 @@ const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOption
 } as const;
 
 /**
- * Get AssemblyScript pool options from resolved config
+ * Get AssemblyScript pool options from user-provided pool options
+ */
+export function resolvePoolOptions(userPoolOptions?: AssemblyScriptPoolOptions): ResolvedAssemblyScriptPoolOptions {
+  const poolOptions: AssemblyScriptPoolOptions = userPoolOptions ?? DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS;
+
+  // resolve fields with defaults if user hasn't provided them
+  for (const configKey of AS_POOL_FIELDS_WITH_DEFAULTS) {
+    if (poolOptions[configKey] === undefined) {
+      poolOptions[configKey] = DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS[configKey] as any;
+    }
+  }
+
+  const resolved = { ...poolOptions, isResolved: true } as ResolvedAssemblyScriptPoolOptions;
+
+  if (resolved.coverageMemoryPagesMin < 1 || resolved.coverageMemoryPagesMax < 1) {
+    throw createPoolError(
+      `Coverage memory page size options must be positive - coverageMemoryPagesMin: ${resolved.coverageMemoryPagesMin}`
+      + ` | coverageMemoryPagesMax: ${resolved.coverageMemoryPagesMax}`,
+      POOL_ERROR_NAMES.PoolConfigError
+    );
+  }
+
+  return resolved;
+}
+
+/**
+ * Get AssemblyScript pool options from resolved config (vitest v3)
  *
  * Extracts and casts poolOptions.assemblyScript from config with proper typing.
  * Resolves to default values if not user-provided.
- *
- * @param config - Vitest resolved config
- * @returns AssemblyScript pool options
  */
-export function getResolvedPoolOptions(config?: ResolvedConfig): ResolvedAssemblyScriptPoolOptions {
-  const poolOptions: AssemblyScriptPoolOptions = config?.poolOptions?.assemblyScript ?? DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS;
+export function getResolvedPoolOptions(_config?: ResolvedConfig): ResolvedAssemblyScriptPoolOptions {
+  // const poolOptions: AssemblyScriptPoolOptions = config?.poolOptions?.assemblyScript ?? DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS;
+  const poolOptions: AssemblyScriptPoolOptions = DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS;
 
   // resolve fields with defaults if user hasn't provided them
   for (const configKey of AS_POOL_FIELDS_WITH_DEFAULTS) {
@@ -64,7 +88,7 @@ export function getResolvedPoolOptions(config?: ResolvedConfig): ResolvedAssembl
   return resolved;
 }
 
-export function getAssemblyScriptResolvedConfig(globalConfig: ResolvedConfig, projectConfig: ResolvedConfig): AssemblyScriptResolvedConfig {
+export function getResolvedAssemblyScriptConfig(globalConfig: ResolvedConfig, projectConfig: ResolvedConfig): AssemblyScriptResolvedConfig {
   const mergedConfig: AssemblyScriptResolvedConfig = {
     ...globalConfig,
     poolOptions: {
