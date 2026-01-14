@@ -13,7 +13,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { debug, isDebugModeEnabled } from '../util/debug.js';
+import { debug } from '../util/debug.js';
 import {
   NativeInstrumentationResult,
   NativeDebugInfoOutput,
@@ -30,6 +30,8 @@ import {
 } from '../types/types.js';
 import { POOL_ERROR_NAMES } from '../types/constants.js';
 import { createPoolError } from '../util/pool-errors.js';
+
+const DEBUG_NATIVE_ADDON = false;
 
 // Load the native addon
 // The .node file is built by node-gyp into build/Release/ (see binding.gyp)
@@ -255,7 +257,7 @@ export function instrumentForCoverage(
     coverageMemoryPagesMax: instrumentationOptions.coverageMemoryPagesMax,
     excludedFiles: instrumentationOptions.relativeExcludedFiles,
     excludedLibraryFilePrefix: instrumentationOptions.excludedLibraryFilePrefix,
-    debug: isDebugModeEnabled(),
+    debug: DEBUG_NATIVE_ADDON,
     logPrefix: nativeLogPrefix
   };
   const nativeResult: NativeInstrumentationResult = addon.instrumentForCoverage(wasmBuffer, sourceMapBuffer, options);

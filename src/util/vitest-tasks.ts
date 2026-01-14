@@ -2,7 +2,6 @@ import type { RunMode, File, Suite, Task, Test } from '@vitest/runner/types';
 import {
   calculateSuiteHash,
   createFileTask,
-  createTaskName,
   interpretTaskModes,
   someTasksAreOnly
 } from '@vitest/runner/utils';
@@ -98,7 +97,7 @@ export function getInitialTaskMode(options: AssemblyScriptTestOptions): RunMode 
   }
 }
 
-function getInitialTestTaskMeta(
+export function getInitialTestTaskMeta(
   fnIndex: number,
   parentAfterAddingTask: Suite,
 ): AssemblyScriptTestTaskMeta {
@@ -113,7 +112,7 @@ function getInitialTestTaskMeta(
   };
 }
 
-function getInitialSuiteTaskMeta(
+export function getInitialSuiteTaskMeta(
   parentAfterAddingTask: Suite,
   mergedOptions: AssemblyScriptTestOptions,
 ): AssemblyScriptSuiteTaskMeta {
@@ -123,74 +122,6 @@ function getInitialSuiteTaskMeta(
     suitePreparedSent: false,
     resultFinal: false,
   };
-}
-
-export function createTestTask(
-  name: string,
-  fnIndex: number,
-  file: File,
-  parent: Suite,
-  mergedOptions: AssemblyScriptTestOptions,
-): Test {
-  const test: Test = {
-    type: 'test',
-    name,
-    fullName: createTaskName([
-      parent.fullName ?? file.fullName,
-      name,
-    ]),
-    fullTestName: createTaskName([parent.fullTestName, name]),
-    id: '',
-    file,
-    suite: parent,
-    context: {} as any,
-    annotations: [],
-    artifacts: [],
-    meta: {},
-    mode: getInitialTaskMode(mergedOptions),
-    timeout: mergedOptions.timeout,
-    retry: mergedOptions.retry,
-    fails: mergedOptions.fails,
-  };
-
-  parent.tasks.push(test);
-
-  // use custom TaskMeta to capture fnIndex, parent task index, etc
-  test.meta = getInitialTestTaskMeta(fnIndex, parent);
-
-  return test;
-}
-
-export function createSuiteTask(
-  name: string,
-  file: File,
-  parent: Suite,
-  mergedOptions: AssemblyScriptTestOptions,
-): Suite {
-  // const suiteIsFile = parent.file.id === parent.id;
-  // const prefix = suiteIsFile ? parent.name : `${file.filepath}_${parent.name}`;
-  const suite: Suite = {
-    type: 'suite',
-    name,
-    fullName: createTaskName([
-      parent.fullName ?? file.fullName,
-      name,
-    ]),
-    fullTestName: createTaskName([parent.fullTestName, name]),
-    id: '',
-    file,
-    suite: parent,
-    meta: {},
-    tasks: [],
-    mode: getInitialTaskMode(mergedOptions),
-  };
-
-  parent.tasks.push(suite);
-
-  // use custom TaskMeta to capture parent task index and default options
-  suite.meta = getInitialSuiteTaskMeta(parent, mergedOptions);
-
-  return suite;
 }
 
 export function createInitialFileTask(

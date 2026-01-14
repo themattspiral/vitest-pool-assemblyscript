@@ -7,6 +7,7 @@
  * - Merges both into a unified coverage report
  */
 
+import { basename, relative } from 'node:path';
 import type {
   CoverageProvider,
   Vitest,
@@ -14,17 +15,20 @@ import type {
   ResolvedCoverageOptions,
   CustomProviderOptions,
 } from 'vitest/node';
-import { basename, relative } from 'node:path';
 import type { AfterSuiteRunMeta } from 'vitest';
-import type { CoverageMap } from 'istanbul-lib-coverage';
-import libCoverage from 'istanbul-lib-coverage';
 import v8CoverageModule from '@vitest/coverage-v8';
+import { type CoverageMap, createCoverageMap } from 'istanbul-lib-coverage';
+
+// pick up CustomProviderOptions module augmentation
+import '../config/custom-provider-options.js';
+
 import { convertToIstanbulFormat } from './istanbul-converter.js';
 import { parseFunctionsFromFile } from './ast-parser.js';
 import { globFiles } from './glob-utils.js';
 import { mergeCoverageData } from './coverage-merge.js';
 import { debug, setDebugMode } from '../util/debug.js';
-import { getResolvedAssemblyScriptConfig } from '../pool/pool-config.js';
+import { createPoolError } from '../util/pool-errors.js';
+import { getResolvedAssemblyScriptConfig } from '../util/resolve-config.js';
 import type {
   AssemblyScriptCoveragePayload,
   AssemblyScriptResolvedConfig,
@@ -37,10 +41,6 @@ import {
   POOL_ERROR_NAMES,
   COVERAGE_PAYLOAD_FORMATS
 } from '../types/constants.js';
-
-// pick up CustomProviderOptions module augmentation
-import '../config/index.js';
-import { createPoolError } from '../util/pool-errors.js';
 
 export class HybridCoverageProvider implements CoverageProvider {
   name = 'hybrid-assemblyscript-v8' as const;
@@ -162,7 +162,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     }
 
     // Build AS coverage map
-    let asCoverageMap = libCoverage.createCoverageMap();
+    let asCoverageMap = createCoverageMap();
 
     if (this.coverageOptions.globbedAssemblyScriptInclude?.length > 0) {
       debug(`[HybridCoverageProvider] Building AS coverage map with ${this.coverageOptions.globbedAssemblyScriptInclude.length} source files `);

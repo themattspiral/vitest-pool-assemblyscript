@@ -1,21 +1,21 @@
-import { defineConfig, defineProject } from 'vitest/config';
+import { defineConfig, defineProject, ViteUserConfig } from 'vitest/config';
+
 import { createAssemblyScriptPool, defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/config';
 
-
-export default defineConfig({
+const config: ViteUserConfig = defineConfig({
   test: {
+    name: 'test-fixtures',
+    
     globals: false,
     environment: 'node',
 
-    name: 'test-fixtures',
-
     reporters: ['tree'],
+    // reporters: ['verbose'],
 
     retry: 2,
     testTimeout: 500,
     isolate: false,
 
-    // Coverage configuration (must be global in vitest)
     coverage: {
       enabled: true,
       reportOnFailure: true,
@@ -24,12 +24,10 @@ export default defineConfig({
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
 
-      // JS/TS sources to report coverage for
       include: [
         'test-fixtures/js-src/**/*.ts',
       ],
       
-      // AS sources to report coverage for
       assemblyScriptInclude: [
         'test-fixtures/assembly-src/**/*.ts'
       ]
@@ -55,7 +53,7 @@ export default defineConfig({
           include: [ 'test-fixtures/js/**/*.test.ts' ],
 
           retry: 0,
-          testTimeout: 100,
+          testTimeout: 500,
         }
       }),
 
@@ -75,7 +73,14 @@ export default defineConfig({
           testTimeout: 500,
           isolate: false,
 
-          pool: createAssemblyScriptPool(),
+          // v4
+          pool: createAssemblyScriptPool({
+            debug: false,
+            stripInline: true,
+            coverageMemoryPagesMax: 2,
+          }),
+
+          // v3
           // pool: 'vitest-pool-assemblyscript',
           // poolOptions: {
           //   assemblyScript: {
@@ -89,3 +94,5 @@ export default defineConfig({
     ]
   },
 });
+
+export default config;

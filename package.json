@@ -54,25 +54,29 @@
   "dependencies": {
     "birpc": "^2.4.0",
     "node-addon-api": "^8.5.0",
+    "semver": "^7.7.3",
     "source-map": "^0.7.6",
     "test-exclude": "^7.0.1",
     "tinypool": "^2.0.0",
     "tinyrainbow": "^3.0.3"
   },
   "peerDependencies": {
-    "@vitest/coverage-v8": "^4.0.16",
-    "@vitest/runner": "^4.0.16",
+    "@vitest/coverage-v8": "^3.2.0 || ^4.0.0",
+    "@vitest/runner": "^3.2.0 || ^4.0.0",
+    "@vitest/util": "^3.2.0 || ^4.0.0",
     "assemblyscript": "^0.28.9",
     "istanbul-lib-coverage": "^3.2.2",
-    "vitest": "^4.0.16"
+    "vitest": "^3.2.0 || ^4.0.0"
   },
   "devDependencies": {
     "@types/istanbul-lib-coverage": "^2.0.6",
     "@types/node": "22.19.1",
+    "@types/semver": "^7.7.1",
     "@types/source-map": "^0.5.2",
     "@types/test-exclude": "^6.0.2",
     "@vitest/coverage-v8": "^4.0.16",
     "@vitest/runner": "^4.0.16",
+    "@vitest/util": "^4.0.16",
     "assemblyscript": "^0.28.9",
     "istanbul-lib-coverage": "^3.2.2",
     "node-gyp": "^12.1.0",

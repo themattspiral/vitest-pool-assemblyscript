@@ -578,6 +578,7 @@ export interface WorkerThreadResumeContext {
 
 export interface AssemblyScriptPoolWorkerMessageBase {
   readonly [AS_POOL_WORKER_MSG_FLAG]: true;
+  readonly type: string;
 }
 
 export interface TestFileCompiled extends AssemblyScriptPoolWorkerMessageBase {

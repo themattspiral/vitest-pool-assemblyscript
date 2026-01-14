@@ -349,7 +349,7 @@ export async function runSuite(
   return suite;
 }
 
-export async function runFileGeneric(
+export async function runFile(
   file: File,
   logModule: string,
   rpc: WorkerRPC,

@@ -3,7 +3,7 @@ import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs'
 import type { PoolWorker, PoolOptions, WorkerRequest, PoolTask } from 'vitest/node';
 
-import {
+import type {
   AssemblyScriptPoolWorkerMessage,
   ResolvedAssemblyScriptPoolOptions,
   ResolvedHybridProviderOptions,
@@ -13,13 +13,14 @@ import {
   TestRunRecord,
   WASMCompilation,
   WorkerThreadInitData,
+  WorkerThreadResumeContext,
 } from '../types/types.js';
 import { failTestWithTimeoutError } from '../util/vitest-tasks.js';
 import { AS_POOL_WORKER_MSG_FLAG, ASSEMBLYSCRIPT_POOL_NAME, POOL_ERROR_NAMES } from '../types/constants.js';
 import { debug, setDebugMode } from '../util/debug.js';
 import { createPoolError } from '../util/pool-errors.js';
 
-const WORKER_PATH = resolve(import.meta.dirname, 'pool-worker/v4-worker-thread.mjs');
+const WORKER_PATH = resolve(import.meta.dirname, 'pool-thread/worker-thread.mjs');
 
 /** Callback function type for event listeners */
 type EventCallback = (arg: any) => void;
@@ -53,7 +54,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   private suppressExitEvents = false;
 
   // cached data for possible timeout resume
-  private currentTestRecord: TestRunRecord | undefined;
+  private currentTestRun: TestRunRecord | undefined;
   private currentCompilation: WASMCompilation | undefined;
   private lastStartMessage: (WorkerRequest & { type: 'start' }) | undefined;
   private lastRunMessage: (WorkerRequest & { type: 'run' }) | undefined;
@@ -86,8 +87,8 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       workerData,
     });
 
-    const resumeStr = this.currentTestRecord
-    ? `Resuming after test timeout on "${this.currentTestRecord.test.name}" from worker ${this.lastStartMessage?.workerId}`
+    const resumeStr = this.currentTestRun
+    ? `Resuming after test timeout on "${this.currentTestRun.test.name}" from worker ${this.lastStartMessage?.workerId}`
     : 'Initial run';
     debug(`[${this.logModuleWithId}] Created Worker Thread | threadId: ${this.thread.threadId} | ${resumeStr}`);
     
@@ -108,7 +109,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     }
 
     this.thread = undefined;
-    this.currentTestRecord = undefined;
+    this.currentTestRun = undefined;
     this.currentCompilation = undefined;
     this.lastStartMessage = undefined;
     this.lastRunMessage = undefined;
@@ -281,34 +282,34 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     const transitDuration = now - executionStart;
     const adjustedTimeout = Math.max(test.timeout - transitDuration, 0);
 
-    this.currentTestRecord = {
+    this.currentTestRun = {
       test,
       executionStart,
       timeoutId: setTimeout(() => this.handleTimeout(), adjustedTimeout)
     };
 
-    debug(`[${this.logModuleWithId}] START test timeout timer for "${this.currentTestRecord.test.name}"`);
+    debug(`[${this.logModuleWithId}] START test timeout timer for "${this.currentTestRun.test.name}"`);
   }
 
   private handleExecutionEnd(_msg: TestExecutionEnd): void {
     this.clearTimeoutTimer();
-    this.currentTestRecord = undefined;
+    this.currentTestRun = undefined;
   }
 
   private clearTimeoutTimer(): void {
-    if (this.currentTestRecord) {
-      const elapsed = Date.now() - this.currentTestRecord.executionStart;
-      debug(`[${this.logModuleWithId}] CLEAR test timeout timer (${elapsed.toFixed(2)} ms) for "${this.currentTestRecord?.test.name}"`);
-      clearTimeout(this.currentTestRecord.timeoutId);
+    if (this.currentTestRun) {
+      const elapsed = Date.now() - this.currentTestRun.executionStart;
+      debug(`[${this.logModuleWithId}] CLEAR test timeout timer (${elapsed.toFixed(2)} ms) for "${this.currentTestRun?.test.name}"`);
+      clearTimeout(this.currentTestRun.timeoutId);
     }
   }
 
   private async handleTimeout(): Promise<void> {
     if (this.isStopped) return;
 
-    if (!this.currentTestRecord || !this.currentCompilation || !this.lastStartMessage || !this.lastRunMessage) {
-      const missingStr = (this.currentTestRecord ? '' : 'currentTestRecord')
-        + (this.currentTestRecord?.test ? '' : ' currentTestRecord.test')
+    if (!this.currentTestRun || !this.currentTestRun.test || !this.currentCompilation || !this.lastStartMessage || !this.lastRunMessage) {
+      const missingStr = (this.currentTestRun ? '' : 'currentTestRecord')
+        + (this.currentTestRun?.test ? '' : ' currentTestRecord.test')
         + (this.currentCompilation ? '' : ' currentCompilation')
         + (this.lastStartMessage ? '' : ' lastStartMessage')
         + (this.lastRunMessage ? '' : ' lastRunMessage');
@@ -318,24 +319,23 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       );
     }
 
-    // extract these now to prevent edge-case race scenarios
-    // with this.currentTestRecord being updated by restart actions
-    const theTest = this.currentTestRecord.test;
-    const theComp = this.currentCompilation;
-    const duration = Date.now() - this.currentTestRecord.executionStart;
-    failTestWithTimeoutError(theTest, this.currentTestRecord.executionStart, duration);
+    const duration = Date.now() - this.currentTestRun.executionStart;
+    failTestWithTimeoutError(this.currentTestRun.test, this.currentTestRun.executionStart, duration);
 
     // supply timed-out test (includes entire file hierarchy & coverage)
     // and cached compiled files with the run request we'll eventually make
     const runWithTimeoutContext: WorkerRequest & { type: 'run' } = { ...this.lastRunMessage };
-    runWithTimeoutContext.context.providedContext['timedOutTest'] = theTest;
-    runWithTimeoutContext.context.providedContext['timedOutCompilation'] = theComp;
+    const resumeContext: WorkerThreadResumeContext = {
+      timedOutTest: this.currentTestRun.test,
+      timedOutCompilation: this.currentCompilation
+    };
+    runWithTimeoutContext.context.providedContext = resumeContext;
 
     // Suppress exit events before terminating to prevent vitest's unexpected-exit handler
     this.suppressExitEvents = true;
 
     const termThreadId = this.thread?.threadId;
-    debug(`[${this.logModuleWithId}] TIMEOUT on test "${theTest.name}" after ${duration.toFixed(2)} ms`
+    debug(`[${this.logModuleWithId}] TIMEOUT on test "${resumeContext.timedOutTest.name}" after ${duration.toFixed(2)} ms`
       +` - Terminating worker thread (threadId: ${termThreadId}) for timeout...`
     );
     await this.thread?.terminate();
@@ -365,7 +365,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
 
     // send vitest run message
     this.thread!.postMessage(runWithTimeoutContext);
-    debug(`[${this.logModuleWithId}] Sent "run" to resumed worker thread with timed out test "${theTest.name}"`);
+    debug(`[${this.logModuleWithId}] Sent "run" to resumed worker thread with timed out test "${resumeContext.timedOutTest.name}"`);
   }
 
   private get logModuleWithId(): string {

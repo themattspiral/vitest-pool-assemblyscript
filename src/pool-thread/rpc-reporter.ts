@@ -27,6 +27,7 @@ import type {
 import { debug, isDebugModeEnabled } from '../util/debug.js';
 import { COVERAGE_PAYLOAD_FORMATS } from '../types/constants.js';
 import { getTaskLogLabel, isSuiteOwnFile } from '../util/vitest-tasks.js';
+import { createAfterSuiteRunMeta } from '../util/vitest-compat.js';
 
 // const DEBUG_RPC = false;
 const DEBUG_RPC = isDebugModeEnabled();
@@ -140,14 +141,13 @@ export async function reportSuiteFinished(
       coverageData: meta.coverageData!,
       suiteLogLabel: suiteLabel
     };
-
-    coveragePromise = rpc.onAfterSuiteRun({
+    
+    const afterSuiteMeta = createAfterSuiteRunMeta(
       coverage,
-      testFiles: [suite.file.filepath],
-      // transformMode: 'ssr',
-      environment: 'node',
-      projectName: suite.file.projectName,
-    });
+      [suite.file.filepath],
+      suite.file.projectName
+    );
+    coveragePromise = rpc.onAfterSuiteRun(afterSuiteMeta);
 
     debug(`${rpcLogPrefix} - onAfterSuiteRun: Reported suite coverage (${coverageKeys} unique positions)`);
   } else if (coverageKeys === 0) {

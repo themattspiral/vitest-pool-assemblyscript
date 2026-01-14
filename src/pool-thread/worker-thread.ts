@@ -1,10 +1,13 @@
+/**
+ * Worker entry point - Node Worker (vitest v4)
+ */
 import { parentPort, threadId, workerData } from 'node:worker_threads';
 import { init } from 'vitest/worker';
 import type { WorkerGlobalState } from 'vitest';
 import type { WorkerRequest } from 'vitest/node';
 import type { FileSpecification } from '@vitest/runner/types';
 
-import { runFileGeneric } from './runner.js';
+import { runFile } from './runner.js';
 import { debug, setDebugMode } from '../util/debug.js';
 import { createInitialFileTask } from '../util/vitest-tasks.js';
 import type { WorkerThreadInitData, WorkerThreadResumeContext } from '../types/types.js';
@@ -52,7 +55,7 @@ async function run(state: WorkerGlobalState, isCollectTestsMode: boolean): Promi
       state.config.retry
     );
 
-    return runFileGeneric(
+    return runFile(
       file,
       logModuleWithId(),
       state.rpc,

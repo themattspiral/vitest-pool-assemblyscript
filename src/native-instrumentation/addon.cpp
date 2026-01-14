@@ -30,11 +30,11 @@ const uint32_t BYTES_PER_COUNTER = 4;
 // 1 page = 64KB / 4bytes (32bits) each = 16384 counters
 const uint32_t COUNTERS_PER_PAGE = 16384;
 
-// GLOBALS: updated by every call. we don't expect them to 
-// change between different calls over the same vitest run
-// so it's safe to use this approach
-bool DEBUG = false;
-std::string LOG_PREFIX = "InstNative";
+// TODO - pass these through the call stack as params instead
+// for now we don't expect them to  change between different calls
+// in the same thread over the same vitest run, so it's safe to use this approach
+thread_local bool DEBUG = false;
+thread_local std::string LOG_PREFIX = "InstNative";
 
 struct SourceDebugLocation {
   bool exists;
