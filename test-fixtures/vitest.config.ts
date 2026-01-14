@@ -57,8 +57,8 @@ const config: ViteUserConfig = defineConfig({
         }
       }),
 
-      // AssemblyScript tests (custom pool)
-      defineAssemblyScriptProject({
+      // v4
+      defineProject({
         test: {
           name: {
             label: 'as-fixtrures',
@@ -79,18 +79,36 @@ const config: ViteUserConfig = defineConfig({
             stripInline: true,
             coverageMemoryPagesMax: 2,
           }),
-
-          // v3
-          // pool: 'vitest-pool-assemblyscript',
-          // poolOptions: {
-          //   assemblyScript: {
-          //     debug: false,
-          //     stripInline: true,
-          //     coverageMemoryPagesMax: 2
-          //   },
-          // },
         }
       }),
+      
+      // v3
+      // defineAssemblyScriptProject({
+      //   test: {
+      //     name: {
+      //       label: 'as-fixtrures',
+      //       color: 'yellow'
+      //     },
+
+      //     include: ['test-fixtures/assembly/**/*.as.test.ts'],
+      //     exclude: ['coverage-fixtures/**/*'],
+
+      //     // bail: 5,
+      //     retry: 1,
+      //     testTimeout: 500,
+      //     isolate: false,
+
+      //     // v3
+      //     pool: 'vitest-pool-assemblyscript',
+      //     poolOptions: {
+      //       assemblyScript: {
+      //         debug: false,
+      //         stripInline: true,
+      //         coverageMemoryPagesMax: 2
+      //       },
+      //     },
+      //   }
+      // }),
     ]
   },
 });
