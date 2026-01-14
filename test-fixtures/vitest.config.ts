@@ -52,7 +52,7 @@ const config: ViteUserConfig = defineConfig({
 
           include: [ 'test-fixtures/js/**/*.test.ts' ],
 
-          retry: 0,
+          retry: 1,
           testTimeout: 500,
         }
       }),

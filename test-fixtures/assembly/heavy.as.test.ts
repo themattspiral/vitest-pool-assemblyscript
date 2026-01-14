@@ -32,7 +32,7 @@ describe("fibonacci", () => {
     assert(result == 2178309);
   });
 
-  describe("long running fibs, some [should fail]", TestOptions.timeout(350).retry(0), () => {
+  describe("long running fibs, some [should fail]", TestOptions.timeout(350), () => {
     test('fibonacci 33', () => {
       const result = fibonacciRecursive(33);
       assert(result == 3524578);

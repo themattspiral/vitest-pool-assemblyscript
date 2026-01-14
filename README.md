@@ -325,18 +325,18 @@ export default defineConfig({
 
 7. **Write your tests**
 ```typescript
-import { test, describe, assertEquals, TestOptions } from 'vitest-pool-assemblyscript/assembly';
+import { test, describe, assertEqual, TestOptions } from 'vitest-pool-assemblyscript/assembly';
 
 import { fibonacciRecursive } from 'assembly/math.ts';
 
 test('addition works', () => {
   const result: i32 = 1 + 1;
-  assertEquals(result, 2, 'one plus one should equal two');
+  assertEqual(result, 2, 'one plus one should equal two');
 });
 
 test('string concatenation', () => {
   const greeting: string = 'Hello' + ' ' + 'World';
-  assertEquals(greeting, 'Hello World');
+  assertEqual(greeting, 'Hello World');
 });
 
 describe("potential long running tests", TestOptions.timeout(500), () => {

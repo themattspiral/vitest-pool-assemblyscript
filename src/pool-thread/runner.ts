@@ -171,20 +171,12 @@ export async function runTest(
   };
   port.postMessage(endMsg);
 
-  // set passed if appropriate, set duration using executor timings
-  updateTestFinishedResult(test, testTimings);
-
-  // as needed: invert, bail
-  await postProcessTestResult(rpc, bail, test, testLogPrefix, logModule);
-
   let willRetry = shouldRetryTask(test);
 
   await Promise.all([
     reportUserConsoleLogs(rpc, logMessages, logModule, base, test),
 
-    willRetry
-      ? reportTestRetried(rpc, test, logModule, base)
-      : reportTestFinished(rpc, test, logModule, base)
+    willRetry ? reportTestRetried(rpc, test, logModule, base) : Promise.resolve(),
   ]);
 
   // non-timeout retry handling
@@ -197,10 +189,23 @@ export async function runTest(
       + ` | ${test.result?.errors?.length ?? 0} errors`
     );
 
-    await runTest(rpc, port, base, collectCoverage, binary, sourceMap, debugInfo, test, logModule, poolOptions, bail, diffOptions);
+    await runTest(
+      rpc, port, base, collectCoverage, binary, sourceMap, debugInfo,
+      test, logModule, poolOptions, bail, diffOptions
+    );
 
     willRetry = shouldRetryTask(test);
   }
+
+  // set passed if appropriate, set duration using executor timings
+  updateTestFinishedResult(test, testTimings);
+
+  await Promise.all([
+    // as needed: invert if `fails`, bail --- move after willRetry, before finished
+    postProcessTestResult(rpc, bail, test, testLogPrefix, logModule),
+
+    reportTestFinished(rpc, test, logModule, base),
+  ]);
 
   // ensure completed test will not be run again if another test
   // times out later and the file worker thread gets re-launched
@@ -267,7 +272,10 @@ export async function runSuite(
     if (task.type === 'suite') {
       const suiteTaskMeta = task.meta as AssemblyScriptSuiteTaskMeta;
 
-      await runSuite(rpc, port, base, collectCoverage, binary, sourceMap, debugInfo, task, logModule, poolOptions, bail, diffOptions, timedOutTest);
+      await runSuite(
+        rpc, port, base, collectCoverage, binary, sourceMap, debugInfo,
+        task, logModule, poolOptions, bail, diffOptions, timedOutTest
+      );
 
       // merge suite task coverage into parent suite coverage
       if (suiteMeta.coverageData && suiteTaskMeta.coverageData) {
@@ -284,10 +292,6 @@ export async function runSuite(
       if (testCompleted) {
         debug(`${testLogPrefix} - Skipping completed test | state: "${task.result?.state}"`);
       } else if (testTimedOutPreviously) {
-        // finish post-processing after previous thread term)
-        // as needed: invert, bail
-        await postProcessTestResult(rpc, bail, task, testLogPrefix, logModule);
-
         if (shouldRetryTask(task)) {
           const previousRetryCount = task.result?.retryCount ?? 0;
           const newRetryCount = previousRetryCount + 1;
@@ -308,7 +312,10 @@ export async function runSuite(
           // retry timed out test
           //  - if it passes, process as normal.
           // if it fails again, it will end up below
-          await runTest(rpc, port, base, collectCoverage, binary, sourceMap, debugInfo, task, logModule, poolOptions, bail, diffOptions);
+          await runTest(
+            rpc, port, base, collectCoverage, binary, sourceMap, debugInfo,
+            task, logModule, poolOptions, bail, diffOptions
+          );
         } else {
           debug(`${testLogPrefix} - Timed-out test has no retries left`
             + ` | retries attempted ${task.result?.retryCount || 0} / ${task.retry} ` 
@@ -316,8 +323,12 @@ export async function runSuite(
             + ` | state: "${task.result?.state}"`
           );
 
-          // updateTestFinishedResult(task);
-          await reportTestFinished(rpc, task, logModule, base);
+          await Promise.all([
+            // as needed: invert if `fails`, bail
+            postProcessTestResult(rpc, bail, task, testLogPrefix, logModule),
+  
+            reportTestFinished(rpc, task, logModule, base),
+          ]);
 
           // ensure completed test will not be run again if another test
           // times out later and the file worker thread gets re-launched
@@ -325,7 +336,10 @@ export async function runSuite(
         }
       } else {
         debug(`${testLogPrefix} - Running test task | state: "${task.result?.state}"`);
-        await runTest(rpc, port, base, collectCoverage, binary, sourceMap, debugInfo, task, logModule, poolOptions, bail, diffOptions);
+        await runTest(
+          rpc, port, base, collectCoverage, binary, sourceMap, debugInfo,
+          task, logModule, poolOptions, bail, diffOptions
+        );
       }
 
       // merge test coverage into suite coverage
