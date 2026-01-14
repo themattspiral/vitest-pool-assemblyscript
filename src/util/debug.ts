@@ -36,9 +36,9 @@ export function debug(...args: any): void {
     if (args?.length > 0 && typeof args[0] === 'function') {
       const result = args[0]();
       const rest = args.length > 1 ? args.slice(1) : [];
-      console.log(String(result), ...rest);
+      console.log(Date.now(), String(result), ...rest);
     } else {
-      console.log(...args);
+      console.log(Date.now(), ...args);
     }
   }
 }

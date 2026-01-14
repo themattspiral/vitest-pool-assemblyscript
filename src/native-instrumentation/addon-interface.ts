@@ -13,7 +13,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { debug, isDebugModeEnabled } from '../util/debug.js';
+import { debug } from '../util/debug.js';
 import {
   NativeInstrumentationResult,
   NativeDebugInfoOutput,
@@ -30,6 +30,8 @@ import {
 } from '../types/types.js';
 import { POOL_ERROR_NAMES } from '../types/constants.js';
 import { createPoolError } from '../util/pool-errors.js';
+
+const DEBUG_NATIVE_ADDON = false;
 
 // Load the native addon
 // The .node file is built by node-gyp into build/Release/ (see binding.gyp)
@@ -156,12 +158,11 @@ function convertFunction(
  */
 function transformDebugInfo(
   raw: NativeDebugInfoOutput,
-  logModule: string,
-  logLabel: string,
+  logPrefix: string,
 ): BinaryDebugInfo {
   const functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo>> = {};
 
-  debug(`[${logModule} AddonInterface] ${logLabel} - Converting ${raw.functions.length} functions`);
+  debug(`${logPrefix} - Converting ${raw.functions.length} functions`);
 
   let positionCollisionCount = 0;
   let skippedCount = 0;
@@ -170,7 +171,7 @@ function transformDebugInfo(
   for (const rawFunc of raw.functions) {
     const result = convertFunction(rawFunc, raw.debugSourceFiles);
     if (!result) {
-      debug(`[${logModule} AddonInterface] ${logLabel} - WARNING: Skipped function (bad conversion): "${rawFunc.name}"`);
+      debug(`${logPrefix} - WARNING: Skipped function (bad conversion): "${rawFunc.name}"`);
       skippedCount++;
       continue;
     }
@@ -198,7 +199,7 @@ function transformDebugInfo(
   }
 
   debug(
-    `[${logModule} AddonInterface] ${logLabel} - BinaryDebugInfo transform complete: ${instrumentedFunctionCount} instrumented functions`
+    `${logPrefix} - BinaryDebugInfo transform complete: ${instrumentedFunctionCount} instrumented functions`
     +` (${positionCollisionCount} position collisions, ${skippedCount} skipped)`
   );
 
@@ -245,8 +246,8 @@ export function instrumentForCoverage(
     );
   }
 
-  const interfaceLogPrefix = `[${logModule} AddonInterface] ${logLabel}`;
-  const nativeLogModule = `${logModule} NativeAddon`;
+  const interfaceLogPrefix = `[${logModule} Inst] ${logLabel}`;
+  const nativeLogPrefix = `[${logModule} InstNative] ${logLabel}`;
 
   debug(`${interfaceLogPrefix} - Calling native instrumentForCoverage`);
   const startTime = performance.now();
@@ -256,13 +257,12 @@ export function instrumentForCoverage(
     coverageMemoryPagesMax: instrumentationOptions.coverageMemoryPagesMax,
     excludedFiles: instrumentationOptions.relativeExcludedFiles,
     excludedLibraryFilePrefix: instrumentationOptions.excludedLibraryFilePrefix,
-    debug: isDebugModeEnabled(),
-    logModule: nativeLogModule,
-    logLabel,
+    debug: DEBUG_NATIVE_ADDON,
+    logPrefix: nativeLogPrefix
   };
   const nativeResult: NativeInstrumentationResult = addon.instrumentForCoverage(wasmBuffer, sourceMapBuffer, options);
   const addonTime = performance.now();
-  debug(`${interfaceLogPrefix} - TIMING Native addon: ${(addonTime - startTime).toFixed(2)}ms`);
+  debug(`${interfaceLogPrefix} - TIMING Native addon: ${(addonTime - startTime).toFixed(2)} ms`);
 
   if (nativeResult.errors?.length) {
     throw createPoolError(
@@ -271,10 +271,10 @@ export function instrumentForCoverage(
     );
   } 
 
-  const debugInfo = transformDebugInfo(nativeResult.debugInfo, logModule, logLabel);
+  const debugInfo = transformDebugInfo(nativeResult.debugInfo, interfaceLogPrefix);
   
   const transformTime = performance.now();
-  debug(`${interfaceLogPrefix} - TIMING Debug Info Transform: ${(transformTime - addonTime).toFixed(2)}ms`);
+  debug(`${interfaceLogPrefix} - TIMING DebugInfo Transform: ${(transformTime - addonTime).toFixed(2)} ms`);
   debug(`${interfaceLogPrefix} - Binary size: ${nativeResult.instrumentedWasm.length} bytes | Source map size: ${nativeResult.sourceMap.length * 2} bytes`);
 
   return {

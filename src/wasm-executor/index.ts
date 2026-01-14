@@ -20,6 +20,14 @@ import { enhanceTestError } from './wasm-errors.js';
 import { createPoolError, createPoolErrorFromAnyError } from '../util/pool-errors.js';
 import { getTaskLogLabel } from '../util/vitest-tasks.js';
 
+const DEBUG_COVERAGE_EXTRACT = false;
+
+function covDebug(...args: any[]): void {
+  if (DEBUG_COVERAGE_EXTRACT) {
+    debug(...args);
+  }
+};
+
 function createExecutorPoolError(
   testFileBasename: string,
   context: string,
@@ -49,7 +57,7 @@ export async function executeWASMDiscovery(
   diffOptions?: SerializedDiffOptions,
 ): Promise<void> {
   const base = basename(file.filepath);
-  const logPrefix = `[${moduleLabel} WASM Executor] ${getTaskLogLabel(base, file)}`;
+  const logPrefix = `[${moduleLabel} Exec] ${getTaskLogLabel(base, file)}`;
   const wasmModule = await WebAssembly.compile(binary as BufferSource);
   const memory = createMemory();
 
@@ -131,15 +139,15 @@ export async function executeWASMTest(
   handleLog: AssemblyScriptConsoleLogHandler,
   moduleLabel: string,
   diffOptions?: SerializedDiffOptions,
-): Promise<{ test: Test, timings: WASMExecutorPerfTimings }> {
-  const timings: WASMExecutorPerfTimings = {
+): Promise<{ test: Test, testTimings: WASMExecutorPerfTimings }> {
+  const testTimings: WASMExecutorPerfTimings = {
     fnInit: performance.now(),
     execStart: 0,
     execEnd: 0,
     fnfinal: 0
   };
   const base = basename(test.file.filepath);
-  const fullModuleLabel = `${moduleLabel} WASM Executor`;
+  const fullModuleLabel = `${moduleLabel} Exec`;
   const taskLabel = getTaskLogLabel(base, test);
   const logPrefix = `[${fullModuleLabel}] ${taskLabel}`;
 
@@ -203,14 +211,14 @@ export async function executeWASMTest(
   // as AssemblyScriptTestErrors to vitest
   try {
     // Execute this test
-    timings.execStart = performance.now();
+    testTimings.execStart = performance.now();
     testFn();
-    timings.execEnd = performance.now();
+    testTimings.execEnd = performance.now();
 
     // If we reach here, test passed, i.e. No abort occurred.
     // Proceed below to prepare the test result
   } catch (error) {
-    timings.execEnd = performance.now();
+    testTimings.execEnd = performance.now();
 
     const thrownErrAny = error as any;
     // If this is NOT a WASMExecutionAbort error, it means it did NOT originate from the
@@ -282,14 +290,14 @@ export async function executeWASMTest(
 
     // Read counters from coverage memory
     const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, debugInfo.instrumentedFunctionCount);
-    debug(`${logPrefix} - Read coverage memory for ${debugInfo.instrumentedFunctionCount} instrumented functions`);
+    covDebug(`${logPrefix} - Read coverage memory for ${debugInfo.instrumentedFunctionCount} instrumented functions`);
 
     // Iterate all instrumented functions and build coverage data with hit counts extracted from coverage memory
     let functionsHit = 0;
     for (const [filePath, debugFunctions] of Object.entries(debugInfo.functionsByFileAndPosition)) {
       if (!coverage.hitCountsByFileAndPosition[filePath]) {
         coverage.hitCountsByFileAndPosition[filePath] = {};
-        debug(`${logPrefix} - Extracting hits for source file "${filePath}"`);
+        covDebug(`${logPrefix} - Extracting hits for source file "${filePath}"`);
       }
 
       for (const [positionKey, funcInfo] of Object.entries(debugFunctions)) {
@@ -301,7 +309,7 @@ export async function executeWASMTest(
         }
 
         const hitCount = extractedHitCounters[funcInfo.coverageMemoryIndex] ?? 0;
-        debug(`${logPrefix} - func "${funcInfo.name}" (${positionKey}) `
+        covDebug(`${logPrefix} - func "${funcInfo.name}" (${positionKey}) `
           + `[idx: ${funcInfo.coverageMemoryIndex}]: ${hitCount} hits`
         );
 
@@ -323,7 +331,7 @@ export async function executeWASMTest(
     debug(`${logPrefix} - Extracted coverage data | ${functionsHit} functions hit`);
   }
 
-  timings.fnfinal = performance.now();
+  testTimings.fnfinal = performance.now();
 
-  return { test, timings };
+  return { test, testTimings };
 }

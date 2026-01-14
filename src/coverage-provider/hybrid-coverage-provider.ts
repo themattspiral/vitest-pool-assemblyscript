@@ -7,6 +7,7 @@
  * - Merges both into a unified coverage report
  */
 
+import { basename, relative } from 'node:path';
 import type {
   CoverageProvider,
   Vitest,
@@ -14,17 +15,20 @@ import type {
   ResolvedCoverageOptions,
   CustomProviderOptions,
 } from 'vitest/node';
-import { basename, relative } from 'node:path';
 import type { AfterSuiteRunMeta } from 'vitest';
-import type { CoverageMap } from 'istanbul-lib-coverage';
-import libCoverage from 'istanbul-lib-coverage';
 import v8CoverageModule from '@vitest/coverage-v8';
+import { type CoverageMap, createCoverageMap } from 'istanbul-lib-coverage';
+
+// pick up CustomProviderOptions module augmentation
+import '../config/custom-provider-options.js';
+
 import { convertToIstanbulFormat } from './istanbul-converter.js';
 import { parseFunctionsFromFile } from './ast-parser.js';
 import { globFiles } from './glob-utils.js';
 import { mergeCoverageData } from './coverage-merge.js';
 import { debug, setDebugMode } from '../util/debug.js';
-import { getAssemblyScriptResolvedConfig } from '../pool/pool-config.js';
+import { createPoolError } from '../util/pool-errors.js';
+import { getResolvedAssemblyScriptConfig } from '../util/resolve-config.js';
 import type {
   AssemblyScriptCoveragePayload,
   AssemblyScriptResolvedConfig,
@@ -37,10 +41,6 @@ import {
   POOL_ERROR_NAMES,
   COVERAGE_PAYLOAD_FORMATS
 } from '../types/constants.js';
-
-// pick up CustomProviderOptions module augmentation
-import '../config/index.js';
-import { createPoolError } from '../util/pool-errors.js';
 
 export class HybridCoverageProvider implements CoverageProvider {
   name = 'hybrid-assemblyscript-v8' as const;
@@ -69,7 +69,7 @@ export class HybridCoverageProvider implements CoverageProvider {
       }
     }
 
-    this.resolvedProjectConfig = getAssemblyScriptResolvedConfig(ctx.config, projectConfig);
+    this.resolvedProjectConfig = getResolvedAssemblyScriptConfig(ctx.config, projectConfig);
 
     setDebugMode(this.resolvedProjectConfig.poolOptions.assemblyScript.debug);
 
@@ -135,7 +135,7 @@ export class HybridCoverageProvider implements CoverageProvider {
 
     debug(() => {
       const files = meta.testFiles.map(tf => relative(this.resolvedProjectConfig.root, tf)).join(',');
-      return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun complete - TIMING ${(performance.now() - start).toFixed(2)}ms | testFiles: "${files}"`;
+      return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun complete - TIMING ${(performance.now() - start).toFixed(2)} ms | testFiles: "${files}"`;
     });
   }
 
@@ -162,7 +162,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     }
 
     // Build AS coverage map
-    let asCoverageMap = libCoverage.createCoverageMap();
+    let asCoverageMap = createCoverageMap();
 
     if (this.coverageOptions.globbedAssemblyScriptInclude?.length > 0) {
       debug(`[HybridCoverageProvider] Building AS coverage map with ${this.coverageOptions.globbedAssemblyScriptInclude.length} source files `);
@@ -201,20 +201,20 @@ export class HybridCoverageProvider implements CoverageProvider {
     }
 
     const asGenerateEnd = performance.now();
-    debug(`[HybridCoverageProvider] TIMING AS generateCoverage: ${(asGenerateEnd - start).toFixed(2)}ms`);
+    debug(`[HybridCoverageProvider] TIMING AS generateCoverage: ${(asGenerateEnd - start).toFixed(2)} ms`);
 
     // Get JS coverage from v8 provider
     debug('[HybridCoverageProvider] Getting JS coverage from v8 provider');
     const jsCoverage = await this.v8Provider.generateCoverage(context) as CoverageMap;
     debug(`[HybridCoverageProvider] JS coverage has ${Object.keys(jsCoverage.data).length} files`);
-    debug(`[HybridCoverageProvider] TIMING JS generateCoverage: ${(performance.now() - asGenerateEnd).toFixed(2)}ms`);
+    debug(`[HybridCoverageProvider] TIMING JS generateCoverage: ${(performance.now() - asGenerateEnd).toFixed(2)} ms`);
 
     // Merge AS coverage into JS coverage
     debug('[HybridCoverageProvider] Merging AS coverage into JS coverage');
     jsCoverage.merge(asCoverageMap);
     debug(`[HybridCoverageProvider] Final merged coverage has ${Object.keys(jsCoverage.data).length} files`);
 
-    debug(`[HybridCoverageProvider] TIMING Total generateCoverage: ${(performance.now() - start).toFixed(2)}ms`);
+    debug(`[HybridCoverageProvider] TIMING Total generateCoverage: ${(performance.now() - start).toFixed(2)} ms`);
 
     return jsCoverage;
   }

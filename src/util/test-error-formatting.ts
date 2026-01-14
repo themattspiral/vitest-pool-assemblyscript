@@ -1,10 +1,11 @@
 import { stripVTControlCharacters } from 'node:util';
-import { type ParsedStack, highlight } from '@vitest/utils';
-import { RawSourceMap } from 'source-map';
+import type { RawSourceMap } from 'source-map';
 import c from 'tinyrainbow';
+import type { ParsedStack } from '@vitest/utils';
+
+import { highlightCode } from './vitest-compat.js';
 
 const FRAME_POINTER = '❯' as const;
-const MAX_SOURCE_HIGHLIGHT_LENGTH = 100_000 as const;
 const CODE_FRAME_INDENT_SPACES = 4 as const;
 
 export function getYellowString(str: string): string {
@@ -36,8 +37,7 @@ export function getSourceCodeFrameString(sourceMap: RawSourceMap, frame: ParsedS
     return undefined;
   }
 
-  // same performance guard used in printError
-  const highlightedSource = source.length < MAX_SOURCE_HIGHLIGHT_LENGTH ? highlight(source, { colors: c }) : source;
+  const highlightedSource = highlightCode(source, { colors: c });
 
   return generateCodeFrame(highlightedSource, CODE_FRAME_INDENT_SPACES, frame);
 }

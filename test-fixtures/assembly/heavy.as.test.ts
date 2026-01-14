@@ -32,7 +32,7 @@ describe("fibonacci", () => {
     assert(result == 2178309);
   });
 
-  describe("long running fibs", TestOptions.retry(1), () => {
+  describe("long running fibs, some [should fail]", TestOptions.timeout(350).retry(0), () => {
     test('fibonacci 33', () => {
       const result = fibonacciRecursive(33);
       assert(result == 3524578);
@@ -53,14 +53,14 @@ describe("fibonacci", () => {
       assert(result == 14930352);
     });
 
-    test('fibonacci 38 [should fail]', TestOptions.timeout(50), () => {
+    test('fibonacci 38', () => {
       const result = fibonacciRecursive(38);
       assertEqual(result, 39088169);
     });
   });
 });
 
-describe("primes", () => {
+describe("primes", TestOptions.retry(1), () => {
   test('count primes to 10000', () => {
     const count = countPrimes(10000);
     assert(count == 1229);
@@ -81,7 +81,7 @@ describe("primes", () => {
     assert(count == 4203);
   });
 
-  test('count primes to 50000', () => {
+  test('count primes to 50000 [should fail]', TestOptions.timeout(2), () => {
     const count = countPrimes(50000);
     assert(count == 5133)
   });
@@ -96,11 +96,13 @@ describe("primes", () => {
     assert(count == 6935)
   });
 
-  test('count primes to 80000 [should fail]', TestOptions.timeout(2).retry(3), () => {
-    const count = countPrimes(80000);
-    assert(count == 7837)
-  });
-
+  test('count primes to 80000',
+    TestOptions.timeout(2).retry(2).fails(),
+    () => {
+      const count = countPrimes(80000);
+      assert(count == 7837)
+    }
+  );
 
   test('count primes to 90000', () => {
     const count = countPrimes(90000);

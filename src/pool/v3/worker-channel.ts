@@ -2,11 +2,10 @@ import { MessageChannel } from 'node:worker_threads';
 import { createBirpc } from 'birpc';
 import type { RuntimeRPC } from 'vitest';
 import { type TestProject, createMethodsRPC } from 'vitest/node';
-import type { TaskResultPack, TaskEventPack } from '@vitest/runner';
-import type { File } from '@vitest/runner/types';
+import type { File, TaskEventPack, TaskResultPack } from '@vitest/runner/types';
 
-import type { WorkerChannel } from '../types/types.js';
-import { debug } from '../util/debug.js';
+import type { WorkerChannel } from '../../types/types.js';
+import { debug } from '../../util/debug.js';
 
 const DEBUG_POOLSIDE_RPC = false;
 
@@ -17,14 +16,7 @@ function rpcPoolsideDebug(...args: any[]): void {
 };
 
 /**
- * Create a MessageChannel with RPC for worker communication
- *
- * This is used for suite-level events (onQueued, onCollected, suite-prepare, suite-finished).
- * Test-level events are reported directly by workers via their own MessagePorts.
- *
- * @param project - Vitest project with full TestProject object
- * @param collect - Whether this is for collection (true) or execution (false)
- * @returns Object with workerPort (to send to worker) and poolPort (for cleanup) and rpc client
+ * Create a MessageChannel with RPC for worker thread communication
  */
 export function createWorkerChannel(project: TestProject, collect: boolean): WorkerChannel {
   const channel = new MessageChannel();

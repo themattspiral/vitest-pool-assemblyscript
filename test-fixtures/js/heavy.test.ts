@@ -62,7 +62,7 @@ describe.skip('heavy math computation', () => {
     expect(count).toBe(6057)
   });
 
-  test('fibonacci 34', () => {
+  test.skip('fibonacci 34', () => {
     const result = fibonacciRecursive(34n);
     expect(result).toBe(5702887n);
   });
@@ -72,17 +72,17 @@ describe.skip('heavy math computation', () => {
     expect(count).toBe(6935)
   });
 
-  test('fibonacci 35', () => {
+  test.skip('fibonacci 35', () => {
     const result = fibonacciRecursive(35n);
     expect(result).toBe(9227465n);
   });
 
-  test('count primes to 80000', () => {
+  test('count primes to 80000', { timeout: 5, retry: 1, fails: true }, () => {
     const count = countPrimes(80000);
     expect(count).toBe(7837)
   });
 
-  test('fibonacci 36', () => {
+  test.skip('fibonacci 36', () => {
     const result = fibonacciRecursive(36n);
     expect(result).toBe(14930352n);
   });

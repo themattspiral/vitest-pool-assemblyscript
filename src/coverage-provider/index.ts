@@ -8,7 +8,6 @@
  */
 
 import { CoverageProviderModule } from 'vitest/node';
-import { ModuleExecutionInfo } from 'vite-node';
 import v8CoverageModule from '@vitest/coverage-v8';
 
 import { POOL_ERROR_NAMES } from '../types/constants.js';
@@ -39,9 +38,7 @@ const hybridProviderModule: CoverageProviderModule = {
     }
   },
   
-  takeCoverage: async (runtimeOptions?: {
-    moduleExecutionInfo?: ModuleExecutionInfo
-  }): Promise<unknown> => {
+  takeCoverage: async (runtimeOptions?: any): Promise<unknown> => {
     if (v8CoverageModule.takeCoverage) {
       return await v8CoverageModule.takeCoverage(runtimeOptions);
     } else {

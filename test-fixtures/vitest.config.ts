@@ -1,19 +1,21 @@
-import { defineConfig, defineProject } from 'vitest/config';
-import { defineAssemblyScriptProject } from '../src/config/index.js';
+import { defineConfig, defineProject, ViteUserConfig } from 'vitest/config';
 
-export default defineConfig({
+import { createAssemblyScriptPool, defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/config';
+
+const config: ViteUserConfig = defineConfig({
   test: {
+    name: 'test-fixtures',
+    
     globals: false,
     environment: 'node',
 
-    name: 'test-fixtures',
-
-    reporters: ['verbose'],
+    reporters: ['tree'],
+    // reporters: ['verbose'],
 
     retry: 2,
-    // bail: 5,
+    testTimeout: 500,
+    isolate: false,
 
-    // Coverage configuration (must be global in vitest)
     coverage: {
       enabled: true,
       reportOnFailure: true,
@@ -22,12 +24,10 @@ export default defineConfig({
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
 
-      // JS/TS sources to report coverage for
       include: [
         'test-fixtures/js-src/**/*.ts',
       ],
       
-      // AS sources to report coverage for
       assemblyScriptInclude: [
         'test-fixtures/assembly-src/**/*.ts'
       ]
@@ -52,8 +52,8 @@ export default defineConfig({
 
           include: [ 'test-fixtures/js/**/*.test.ts' ],
 
-          testTimeout: 200,
-          retry: 3,
+          retry: 0,
+          testTimeout: 500,
         }
       }),
 
@@ -68,19 +68,31 @@ export default defineConfig({
           include: ['test-fixtures/assembly/**/*.as.test.ts'],
           exclude: ['coverage-fixtures/**/*'],
 
-          testTimeout: 500,
+          // bail: 5,
           retry: 1,
+          testTimeout: 500,
+          isolate: false,
 
-          pool: 'vitest-pool-assemblyscript',
-          poolOptions: {
-            assemblyScript: {
-              debug: false,
-              stripInline: true,
-              coverageMemoryPagesMax: 2
-            },
-          },
+          // v4
+          pool: createAssemblyScriptPool({
+            debug: false,
+            stripInline: true,
+            coverageMemoryPagesMax: 2,
+          }),
+
+          // v3
+          // pool: 'vitest-pool-assemblyscript',
+          // poolOptions: {
+          //   assemblyScript: {
+          //     debug: false,
+          //     stripInline: true,
+          //     coverageMemoryPagesMax: 2
+          //   },
+          // },
         }
       }),
     ]
   },
 });
+
+export default config;

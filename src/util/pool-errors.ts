@@ -1,12 +1,17 @@
+import type { Test } from '@vitest/runner/types';
+
 import type {
   AssemblyScriptPoolError,
   AssemblyScriptTestError,
   PoolErrorName,
   TestErrorName
 } from '../types/types.js';
-import { ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID, POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
+import {
+  AS_POOL_ERROR_TYPE_FLAG,
+  POOL_ERROR_NAMES,
+  TEST_ERROR_NAMES
+} from '../types/constants.js';
 import { getYellowString } from './test-error-formatting.js';
-import type { Test } from '@vitest/runner/types';
 
 export function createPoolError(
   message: string,
@@ -15,28 +20,28 @@ export function createPoolError(
   cause?: any,
   rawCallStack?: NodeJS.CallSite[],
 ): AssemblyScriptPoolError {
-  return { name, message, stack, cause, rawCallStack, __type: ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID };
+  return { name, message, stack, cause, rawCallStack, [AS_POOL_ERROR_TYPE_FLAG]: true };
 }
 
 export function createTestTimeoutError(
   test: Test
 ): AssemblyScriptTestError {
-  const message = `Test timed out threshold ${test.timeout}ms)`;
+  const message = `Test timed out after ${test.timeout}ms`;
   const err: AssemblyScriptTestError = {
     name: POOL_ERROR_NAMES.WASMExecutionTimeoutError,
     message,
-    stack: message,
+    stack: `${test.id}_${message}`,
     diff: getYellowString(` Test Timeout Exceeded (${test.timeout}ms)`)
   };
   return err;
 }
 
-export function createTestExpectedToFailError(): AssemblyScriptTestError {
+export function createTestExpectedToFailError(test: Test): AssemblyScriptTestError {
   const message = `Test is expected to fail, but all assertions passed`;
   const err: AssemblyScriptTestError = {
     name: TEST_ERROR_NAMES.AssertionError,
     message,
-    stack: message,
+    stack: `${test.id}_${message}`,
     diff: getYellowString(` Expected to fail, but all assertions passed`)
   };
   return err;
@@ -60,14 +65,18 @@ export function isAbortError(error: any): boolean {
     || error?.message === 'Terminating worker thread';
 }
 
-export function createPoolErrorFromAnyError(context: string, contextErrorName: PoolErrorName, error: any): AssemblyScriptPoolError {
+export function createPoolErrorFromAnyError(
+  context: string,
+  contextErrorName: PoolErrorName,
+  error: any
+): AssemblyScriptPoolError {
   const isErrorAbortString = isAbortErrorString(error);
   if (isErrorAbortString) {
     const msg = `${contextErrorName}: ${context} - Aborted, Unknown Cause`;
     return createPoolError(msg, POOL_ERROR_NAMES.PoolRunAbortedError);
   }
 
-  if (error?.__type === ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID) {
+  if (error[AS_POOL_ERROR_TYPE_FLAG]) {
     return error as AssemblyScriptPoolError;
   }
 

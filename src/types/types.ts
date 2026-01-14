@@ -7,14 +7,15 @@
 
 import type { MessagePort } from 'node:worker_threads';
 import type { BirpcReturn } from 'birpc';
-import type { RuntimeRPC } from 'vitest';
+import type { RunnerRPC, RuntimeRPC } from 'vitest';
 import type { TestError } from '@vitest/utils';
 import type { ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
 import type { File, Test, TaskMeta, TestOptions } from '@vitest/runner/types';
 
 import {
-  ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID,
+  AS_POOL_WORKER_MSG_FLAG,
+  AS_POOL_ERROR_TYPE_FLAG,
   COVERAGE_PAYLOAD_FORMATS,
   POOL_ERROR_NAMES,
   TEST_ERROR_NAMES,
@@ -38,7 +39,7 @@ export type PoolErrorName = typeof POOL_ERROR_NAMES[keyof typeof POOL_ERROR_NAME
  * serialized across worker-pool boundery.
  */
 export interface AssemblyScriptPoolError extends Error {
-  readonly __type: typeof ASSEMBLYSCRIPT_POOL_ERROR_TYPE_ID;
+  readonly [AS_POOL_ERROR_TYPE_FLAG]: true;
   name: PoolErrorName;
   rawCallStack?: NodeJS.CallSite[];
   causeIsEnhancedError?: boolean;
@@ -420,8 +421,7 @@ export interface NativeSourceLocation extends Omit<SourceLocation, 'filePath'> {
 export interface NativeInstrumentationOptions extends Omit<InstrumentationOptions, 'relativeExcludedFiles'> {
   excludedFiles?: string[];
   debug?: boolean;
-  logModule?: string;
-  logLabel?: string;
+  logPrefix?: string;
 }
 
 // ============================================================================
@@ -552,6 +552,8 @@ export interface WASMExecutorPerfTimings {
   fnfinal: number;
 }
 
+export type WorkerRPC = BirpcReturn<RuntimeRPC, RunnerRPC>;
+
 /**
  * Worker channel with RPC for suite-level communication
  */
@@ -561,18 +563,43 @@ export interface WorkerChannel {
   /** Pool-side port for cleanup */
   poolPort: MessagePort;
   /** RPC client for calling Vitest methods (only remote functions matter for our usage) */
-  rpc: BirpcReturn<RuntimeRPC, object>;
+  rpc: WorkerRPC;
 }
 
-export interface TestExecutionStart {
+export interface WorkerThreadInitData {
+  asPoolOptions: ResolvedAssemblyScriptPoolOptions;
+  asCoverageOptions: ResolvedHybridProviderOptions;
+}
+
+export interface WorkerThreadResumeContext {
+  timedOutTest: Test;
+  timedOutCompilation: WASMCompilation;
+}
+
+export interface AssemblyScriptPoolWorkerMessageBase {
+  readonly [AS_POOL_WORKER_MSG_FLAG]: true;
+  readonly type: string;
+}
+
+export interface TestFileCompiled extends AssemblyScriptPoolWorkerMessageBase {
+  readonly type: 'file-compiled';
+  compilation: WASMCompilation;
+}
+
+
+export interface TestExecutionStart extends AssemblyScriptPoolWorkerMessageBase {
+  readonly type: 'execution-start';
   executionStart: number;
   test: Test;
 }
 
-export interface TestExecutionEnd {
+export interface TestExecutionEnd extends AssemblyScriptPoolWorkerMessageBase {
+  readonly type: 'execution-end';
   executionEnd: number;
   testTaskId: string;
 }
+
+export type AssemblyScriptPoolWorkerMessage = TestExecutionStart | TestExecutionEnd | TestFileCompiled;
 
 export interface WASMCompilation {
   filePath: string;
@@ -582,9 +609,9 @@ export interface WASMCompilation {
 }
 
 export interface TestRunRecord {
-  runningTest: Test;
-  runningTestStart: number;
-  runnungTestTimeoutId: NodeJS.Timeout;
+  test: Test;
+  executionStart: number;
+  timeoutId: NodeJS.Timeout;
 }
 
 export interface RunFileTask {
