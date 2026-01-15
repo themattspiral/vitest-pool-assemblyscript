@@ -259,8 +259,10 @@ export async function runSuite(
 
     return suite;
   } else {
+    const threadRestartTime = Date.now() - ((timedOutTest?.meta as AssemblyScriptTestTaskMeta)?.lastTimeoutTerminationTime ?? 0);
     debug(`${suiteLogPrefix} - runSuite ${!!timedOutTest
-      ? `resuming after test timeout ("${timedOutTest.name}") | isTestInSuite: ${isTimedOutTestInSuite}`
+      ? `resuming after timeout "${timedOutTest.name}" (thread restart ${threadRestartTime} ms)`
+        + ` | isTestInSuite: ${isTimedOutTestInSuite}`
       : 'beginning'
     }`);
   }

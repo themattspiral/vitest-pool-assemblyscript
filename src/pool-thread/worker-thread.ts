@@ -21,15 +21,15 @@ function logModuleWithId() {
 }
 
 setDebugMode(asPoolOptions.debug);
-debug(`[${logModule}] Worker thread started | Thread ID: ${threadId}`);
+debug(`[${logModule}] Worker thread created | Thread ID: ${threadId}`);
 
 // registered before init() in case we want to withhold messages
 parentPort!.on('message', async (message) => {
   if (message?.__vitest_worker_request__ && message.type === 'start') {
     workerId = (message as WorkerRequest & { type: 'start' }).workerId;
-    debug(`[${logModuleWithId()}] Got START from PoolWorker`);
+    debug(`[${logModuleWithId()}] Got START from PoolWorker | threadId: ${threadId}`);
   } else if (message?.__vitest_worker_request__ && message.type === 'stop') {
-    debug(`[${logModuleWithId()}] Got STOP from PoolWorker`);
+    debug(`[${logModuleWithId()}] Got STOP from PoolWorker | threadId: ${threadId}`);
   }
 
   // no return - vitest messages fall through to init()
@@ -39,11 +39,12 @@ async function run(state: WorkerGlobalState, isCollectTestsMode: boolean): Promi
   workerId = state.ctx.workerId;
   const mode = isCollectTestsMode ? 'collectTests' : 'runTests';
 
-  const { timedOutTest, timedOutCompilation } = state.providedContext as WorkerThreadResumeContext;
+  const { timedOutTest, timedOutCompilation, runResentTime } = state.providedContext as WorkerThreadResumeContext;
 
-  debug(`[${logModuleWithId()}] -------- ${mode} starting --------`);
+  debug(`[${logModuleWithId()}] -------- ${mode} starting -------- | threadId: ${threadId}`);
   debug(`[${logModuleWithId()}] projectName: "${state.ctx.projectName}"`
     + ` | files: "${state.ctx.files.map(f => f.filepath).join(',')}"`
+    + (!!timedOutTest && !!runResentTime ? ` | run to run ${(Date.now() - runResentTime).toFixed(2)} ms` : '')
   );
 
   const fileRuns: Promise<void>[] = state.ctx.files.map(async (fileSpec: FileSpecification): Promise<void> => {
@@ -89,6 +90,6 @@ init({
   collectTests: async (state) => run(state, true),
   teardown: async () => {
     parentPort!.removeAllListeners('message');
-    debug(`[${logModuleWithId()}] teardown complete`);
+    debug(`[${logModuleWithId()}] teardown complete | threadId: ${threadId}`);
   },
 });

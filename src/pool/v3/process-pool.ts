@@ -33,6 +33,7 @@ import {
 import {
   createInitialFileTask,
   failTestWithTimeoutError,
+  prepareForTermination,
 } from '../../util/vitest-tasks.js';
 
 const WORKER_PATH = resolve(import.meta.dirname, 'pool-thread/v3/tinypool-thread.mjs');
@@ -111,6 +112,8 @@ async function dispatchFullWorkerRun(
             const elapsedFromWorkerExecutionStart = poolTimeoutTime - record.executionStart;
 
             failTestWithTimeoutError(record.test, poolTimeoutTime, elapsedFromWorkerExecutionStart);
+
+            prepareForTermination(record.test);
 
             timedOutTestThisRun = test;
             fileAbortController.abort(POOL_ERROR_NAMES.WASMExecutionTimeoutError);

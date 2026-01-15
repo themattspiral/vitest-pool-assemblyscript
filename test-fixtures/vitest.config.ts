@@ -69,8 +69,8 @@ const config: ViteUserConfig = defineConfig({
           exclude: ['coverage-fixtures/**/*'],
 
           // bail: 5,
-          retry: 1,
-          testTimeout: 500,
+          retry: 2,
+          testTimeout: 20,
           isolate: false,
 
           // v4

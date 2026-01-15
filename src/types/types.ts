@@ -537,6 +537,7 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   lastError?: AssemblyScriptTestError;
   lastErrorValuesProvided?: boolean;
   lastErrorRawCallStack?: NodeJS.CallSite[];
+  lastTimeoutTerminationTime?: number;
 };
 
 export interface WASMExecutorPerfTimings {
@@ -572,6 +573,7 @@ export interface WorkerThreadInitData {
 export interface WorkerThreadResumeContext {
   timedOutTest: Test;
   timedOutCompilation: WASMCompilation;
+  runResentTime: number;
 }
 
 export interface AssemblyScriptPoolWorkerMessageBase {

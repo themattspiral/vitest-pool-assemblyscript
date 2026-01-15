@@ -283,6 +283,10 @@ export function updateResultAfterTestRun(test: Test, testTimings?: WASMExecutorP
   }
 }
 
+export function prepareForTermination(test: Test): void {
+  (test.meta as AssemblyScriptTestTaskMeta).lastTimeoutTerminationTime = Date.now();
+}
+
 export function finalizeTestResult(test: Test): void {
   (test.meta as AssemblyScriptTestTaskMeta).resultFinal = true;
 }
@@ -408,6 +412,7 @@ export function resetTestForRetry(test: Test, startTime: number): void {
   delete meta.lastError;
   delete meta.lastErrorValuesProvided;
   delete meta.lastErrorRawCallStack;
+  delete meta.lastTimeoutTerminationTime;
   delete meta.coverageData;
 }
 

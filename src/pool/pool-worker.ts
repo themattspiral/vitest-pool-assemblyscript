@@ -15,7 +15,7 @@ import type {
   WorkerThreadInitData,
   WorkerThreadResumeContext,
 } from '../types/types.js';
-import { failTestWithTimeoutError } from '../util/vitest-tasks.js';
+import { failTestWithTimeoutError, prepareForTermination } from '../util/vitest-tasks.js';
 import { AS_POOL_WORKER_MSG_FLAG, ASSEMBLYSCRIPT_POOL_NAME, POOL_ERROR_NAMES } from '../types/constants.js';
 import { debug, setDebugMode } from '../util/debug.js';
 import { createPoolError } from '../util/pool-errors.js';
@@ -34,6 +34,8 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   private readonly logModule = 'PoolWorker' as const;
 
   private thread: Worker | undefined;
+  private swapThread: Worker | undefined;
+  private swapThreadStarted: Promise<void> | undefined;
   private isStopped: boolean = true;
 
   /**
@@ -58,7 +60,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   private currentCompilation: WASMCompilation | undefined;
   private lastStartMessage: (WorkerRequest & { type: 'start' }) | undefined;
   private lastRunMessage: (WorkerRequest & { type: 'run' }) | undefined;
-  private workerId: number | undefined;
+  private currentWorkerId: number | undefined;
 
   constructor(
     options: PoolOptions,
@@ -80,35 +82,81 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   }
 
   async start(): Promise<void> {
-    const workerData: WorkerThreadInitData = { asPoolOptions: this.asPoolOptions, asCoverageOptions: this.asCoverageOptions };
-    this.thread = new Worker(WORKER_PATH, {
-      env: this.poolOptions.env,
-      execArgv: this.poolOptions.execArgv,
-      workerData,
-    });
+    let primaryCreatedTime: number | undefined;
 
-    const resumeStr = this.currentTestRun
-    ? `Resuming after test timeout on "${this.currentTestRun.test.name}" from worker ${this.lastStartMessage?.workerId}`
-    : 'Initial run';
-    debug(`[${this.logModuleWithId}] Created Worker Thread | threadId: ${this.thread.threadId} | ${resumeStr}`);
+    if (!this.thread) {
+      const start = performance.now();
+      const workerData: WorkerThreadInitData = { asPoolOptions: this.asPoolOptions, asCoverageOptions: this.asCoverageOptions };
+      this.thread = new Worker(WORKER_PATH, {
+        env: this.poolOptions.env,
+        execArgv: this.poolOptions.execArgv,
+        workerData,
+      });
+      primaryCreatedTime = performance.now() - start;
+    }
+
+    debug(() => {
+      const createStr = primaryCreatedTime === undefined
+        ? 'Using Swapped Worker Thread'
+        : `Created Primary Worker Thread in ${(primaryCreatedTime.toFixed(2))} ms`;
+      const resumeStr = this.currentTestRun
+        ? `Resuming after test timeout on "${this.currentTestRun.test.name}" from worker ${this.lastStartMessage?.workerId}`
+        : 'Initial run';
+      return `[${this.logModuleWithId}] start: ${createStr} | threadId: ${this.thread?.threadId} | ${resumeStr}`;
+    });
     
     // Re-register all listeners on the new thread
-    this.registerListenersOnThread();
+    const regStart = performance.now();
+    this.registerCachedListenersOnPrimaryThread();
+    debug(`[${this.logModuleWithId}] start: registered cached listeners in ${(performance.now() - regStart).toFixed(2)} ms`
+      + ` | threadId: ${this.thread?.threadId}`
+    );
+
+    if (!this.swapThread) {
+      const start = performance.now();
+      const workerData: WorkerThreadInitData = { asPoolOptions: this.asPoolOptions, asCoverageOptions: this.asCoverageOptions };
+      this.swapThread = new Worker(WORKER_PATH, {
+        env: this.poolOptions.env,
+        execArgv: this.poolOptions.execArgv,
+        workerData,
+      });
+      debug(`[${this.logModuleWithId}] start: Created Timeout Swap Thread in ${(performance.now() - start).toFixed(2)} ms`
+        + ` | threadId: ${this.swapThread.threadId}`
+      );
+
+      if (this.lastStartMessage) {
+        this.sendCachedStartToTimeoutSwapThread();
+      }
+    } else {
+      debug(`[${this.logModuleWithId}] start: WARNING Swap thread already exists! | threadId: ${this.swapThread.threadId}`);
+    }
   }
 
   async stop(): Promise<void> {
-    debug(`[${this.logModuleWithId}] STOPPING`);
     this.isStopped = true;
     this.clearTimeoutTimer(); // if any
+    debug(`[${this.logModuleWithId}] stop`);
 
-    if (this.thread) {
-      const termThreadId = this.thread.threadId;
-      debug(`[${this.logModuleWithId}] Terminating Worker Thread (threadId: ${termThreadId}) for stop...`);
-      await this.thread.terminate();
-      debug(`[${this.logModuleWithId}] Terminated Worker Thread (threadId: ${termThreadId})`);
-    }
+    const primaryId = this.thread?.threadId;
+    const swapId = this.swapThread?.threadId;
+
+    const start = performance.now();
+    debug(`[${this.logModuleWithId}] stop: Terminating Worker Threads | primary threadId: ${primaryId}`
+      + ` | timeout swap threadId: ${swapId}`
+    );
+
+    await Promise.all([
+      this.thread ? this.thread.terminate() : Promise.resolve(),
+      this.swapThread ? this.swapThread.terminate() : Promise.resolve(),
+    ]);
+
+    debug(`[${this.logModuleWithId}] stop: Terminated Worker Threads in ${(performance.now() - start).toFixed(2)} ms`
+      + `  | primary threadId: ${primaryId} | timeout swap threadId: ${swapId}`
+    );
 
     this.thread = undefined;
+    this.swapThread = undefined;
+    this.swapThreadStarted = undefined;
     this.currentTestRun = undefined;
     this.currentCompilation = undefined;
     this.lastStartMessage = undefined;
@@ -118,31 +166,36 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     this.listenerRegistry.clear();
 
     debug(`[${this.logModuleWithId}] AssemblyScriptPoolWorker stopped`);
-    this.workerId = undefined;
+    this.currentWorkerId = undefined;
   }
 
   send(message: WorkerRequest): void {
     // Capture start message for potential restart
     if (message.__vitest_worker_request__ && message.type === 'start') {
-      this.workerId = message.workerId;
+      this.currentWorkerId = message.workerId;
       this.lastStartMessage = message;
       this.isStopped = false;
 
       debug(`[${this.logModuleWithId}] Captured last 'start' message from vitest`);
+
+      if (this.swapThread) {
+        this.sendCachedStartToTimeoutSwapThread();
+      }
+      
     } else if (message.__vitest_worker_request__ && message.type === 'run') {
-      this.workerId = message.context.workerId;
+      this.currentWorkerId = message.context.workerId;
       this.lastRunMessage = message;
 
       let oldId: number | undefined;
       if (this.lastStartMessage) {
         oldId = this.lastStartMessage.workerId;
-        this.lastStartMessage.workerId = this.workerId;
+        this.lastStartMessage.workerId = this.currentWorkerId;
       }
 
-      const idStr = oldId === this.workerId
-        ? `same workerId ${this.workerId}`
-        : `reusing worker: workerId ${oldId} → ${this.workerId}`;
-      debug(`[${this.logModuleWithId}] Captured last 'run' message from vitest - ${idStr}`);
+      const idStr = oldId === this.currentWorkerId
+        ? `start/resume workerId ${this.currentWorkerId}`
+        : `reusing worker with new workerId: ${oldId} → ${this.currentWorkerId}`;
+      debug(`[${this.logModuleWithId}] Captured last 'run' message from vitest | ${idStr}`);
     }
 
     this.thread?.postMessage(message);
@@ -256,7 +309,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
    * or restart after timeout - critical)
    */
   // @ts-ignore
-  private registerListenersOnThread(): void {
+  private registerCachedListenersOnPrimaryThread(): void {
     for (const [event, registry] of this.listenerRegistry) {
       for (const [_vitestCallback, wrapper] of registry) {
         this.thread?.on(event, wrapper);
@@ -268,6 +321,26 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   // ─────────────────────────────────────────────────────────────────────────────
   // Custom Protocol Message Handlers
   // ─────────────────────────────────────────────────────────────────────────────
+
+  private sendCachedStartToTimeoutSwapThread() {
+    const startSentAt = performance.now();
+        
+    this.swapThreadStarted = new Promise<void>((resolve) => {
+      const startedListener = (msg: any) => {
+        if (msg?.__vitest_worker_response__ && msg.type === 'started') {
+          debug(`[${this.logModuleWithId}] Received "start" confirmation from timeout swap thread in`
+            + ` ${(performance.now() - startSentAt).toFixed(2)} ms | threadId: ${this.swapThread?.threadId}`
+          );
+          this.swapThread?.off('message', startedListener);
+          resolve();
+        }
+      };
+      this.swapThread?.on('message', startedListener);
+    });
+
+    this.swapThread?.postMessage(this.lastStartMessage);
+    debug(`[${this.logModuleWithId}] Sent "start" to timeout swap thread | threadId ${this.swapThread?.threadId}`);
+  }
 
   private handleFileCompiled(msg: TestFileCompiled): void {
     this.currentCompilation = msg.compilation;
@@ -314,7 +387,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
         + (this.lastStartMessage ? '' : ' lastStartMessage')
         + (this.lastRunMessage ? '' : ' lastRunMessage');
       throw createPoolError(
-        `Cannot timeout/resume worker thread for workerId ${this.workerId} - missing data: ${missingStr}`,
+        `Cannot timeout/resume worker thread for workerId ${this.currentWorkerId} - missing data: ${missingStr}`,
         POOL_ERROR_NAMES.PoolError
       );
     }
@@ -322,12 +395,16 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     const duration = Date.now() - this.currentTestRun.executionStart;
     failTestWithTimeoutError(this.currentTestRun.test, this.currentTestRun.executionStart, duration);
 
+    // set termination time metadata for measuring resume latency
+    prepareForTermination(this.currentTestRun.test);
+
     // supply timed-out test (includes entire file hierarchy & coverage)
-    // and cached compiled files with the run request we'll eventually make
+    // and cached compiled files with the run request which will resume testing
     const runWithTimeoutContext: WorkerRequest & { type: 'run' } = { ...this.lastRunMessage };
     const resumeContext: WorkerThreadResumeContext = {
       timedOutTest: this.currentTestRun.test,
-      timedOutCompilation: this.currentCompilation
+      timedOutCompilation: this.currentCompilation,
+      runResentTime: 0
     };
     runWithTimeoutContext.context.providedContext = resumeContext;
 
@@ -335,40 +412,45 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     this.suppressExitEvents = true;
 
     const termThreadId = this.thread?.threadId;
-    debug(`[${this.logModuleWithId}] TIMEOUT on test "${resumeContext.timedOutTest.name}" after ${duration.toFixed(2)} ms`
-      +` - Terminating worker thread (threadId: ${termThreadId}) for timeout...`
+    debug(`[${this.logModuleWithId}] TEST TIMEOUT "${resumeContext.timedOutTest.name}" after ${duration.toFixed(2)} ms`
+      +` - Terminating worker thread | threadId: ${termThreadId}`
     );
+    const termStart = performance.now();
     await this.thread?.terminate();
     this.thread = undefined;
-    debug(`[${this.logModuleWithId}] Worker thread terminated (threadId: ${termThreadId}) for timeout`);
 
-    // create new thread and re-register all listeners
+    debug(`[${this.logModuleWithId}] Primary worker thread terminated for timeout in ${(performance.now() - termStart).toFixed(2)} ms`
+      + ` | threadId: ${termThreadId}`
+    );
+
+    const swapStartWaitStart = performance.now();
+    await this.swapThreadStarted;
+    this.thread = this.swapThread;
+    this.swapThread = undefined;
+    this.swapThreadStarted = undefined;
+    debug(`[${this.logModuleWithId}] Timeout swap thread is now primary after ${(performance.now() - swapStartWaitStart).toFixed(2)} ms`
+      + ` | threadId: ${this.thread?.threadId}`
+    );
+
+    const callStart = performance.now();
+    // re-register all listeners on swapped thread, create new swap thread and send cached "start" to it async
     await this.start();
-
+    debug(`[${this.logModuleWithId}] Re-initialized primary thread and created new timeout swap worker in ${(performance.now() - callStart).toFixed(2)} ms`);
+    
     // Safe to allow exit events again now that new thread is running
     this.suppressExitEvents = false;
 
-    // send vitest start message
-    this.thread!.postMessage(this.lastStartMessage);
-    debug(`[${this.logModuleWithId}] Sent "start" to resumed worker thread - Waiting for confirmation...`);
-
-    await new Promise<void>((resolve) => {
-      const handler = (msg: any) => {
-        if (msg?.__vitest_worker_response__ && msg.type === 'started') {
-          debug(`[${this.logModuleWithId}] Received "start" confirmation from resumed worker thread`);
-          this.thread!.off('message', handler);
-          resolve();
-        }
-      };
-      this.thread!.on('message', handler);
-    });
-
     // send vitest run message
+    const runStart = performance.now();
+    resumeContext.runResentTime = Date.now();
+
     this.thread!.postMessage(runWithTimeoutContext);
-    debug(`[${this.logModuleWithId}] Sent "run" to resumed worker thread with timed out test "${resumeContext.timedOutTest.name}"`);
+    debug(`[${this.logModuleWithId}] Sent "run" to resumed primary worker thread in ${(performance.now() - runStart).toFixed(2)} ms`
+      + ` with timed out test "${resumeContext.timedOutTest.name}"`
+    );
   }
 
   private get logModuleWithId(): string {
-    return `${this.logModule}${this.workerId === undefined ? '' : ` ${this.workerId}`}`;
+    return `${this.logModule}${this.currentWorkerId === undefined ? '' : ` ${this.currentWorkerId}`}`;
   }
 }
