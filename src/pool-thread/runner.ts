@@ -57,13 +57,12 @@ import {
   getTaskLogLabel,
   getTaskLogPrefix,
   prepareFileTaskForCollection,
-  resetTaskMeta,
-  resetTestResult,
+  resetTestForRetry,
   setSuitePrepareResult,
-  setTestPrepareResult,
+  setResultForTestPrepare,
   shouldRetryTask,
   updateSuiteFinishedResult,
-  updateTestFinishedResult
+  updateResultAfterTestRun
 } from '../util/vitest-tasks.js';
 import { mergeCoverageData } from '../coverage-provider/coverage-merge.js';
 
@@ -102,7 +101,25 @@ async function postProcessTestResult(
   return bailIfNeeded(rpc, bailConfig, testWithResult, logPrefix, logModule);
 }
 
-export async function runTest(
+function notifyTestStart(port: MessagePort, test: Test): void {
+  port.postMessage({
+    executionStart: Date.now(),
+    test,
+    type: 'execution-start',
+    [AS_POOL_WORKER_MSG_FLAG]: true
+  } satisfies TestExecutionStart);
+}
+
+function notifyTestEnd(port: MessagePort, test: Test): void {
+  port.postMessage({
+    executionEnd: Date.now(),
+    testTaskId: test.id,
+    type: 'execution-end',
+    [AS_POOL_WORKER_MSG_FLAG]: true
+  } satisfies TestExecutionEnd);
+}
+
+async function runTest(
   rpc: WorkerRPC,
   port: MessagePort,
   base: string,
@@ -115,7 +132,7 @@ export async function runTest(
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   bail?: number,
   diffOptions?: SerializedDiffOptions,
-): Promise<Test> {
+): Promise<void> {
   const testLogPrefix = getTaskLogPrefix(logModule, base, test);
   const logMessages: AssemblyScriptConsoleLog[] = [];
   const handleLog: AssemblyScriptConsoleLogHandler = (msg: string, isError: boolean = false): void => {
@@ -123,28 +140,26 @@ export async function runTest(
   };
 
   const executionStart = Date.now();
-  
+
+  let thisRunIsARetry: boolean = false;
   let testPreparePromise: Promise<void> = Promise.resolve();
+  
   if (!test.retry || !test.result) {
+    debug(`${testLogPrefix} - Beginning test run`);
+
     // first/only attempt: create test result and report test-prepare
-    setTestPrepareResult(test, executionStart);
+    setResultForTestPrepare(test, executionStart);
     testPreparePromise = reportTestPrepare(rpc, test, logModule, base);
-    // await reportTestPrepare(rpc, test, logModule, base);
-  } else if (test.result) {
+  } else if (test.retry && test.result ) {
+    debug(`${testLogPrefix} - Beginning test retry run`);
+    thisRunIsARetry = true;
+
     // this is a retry, reset the result state and meta
-    resetTestResult(test, executionStart);
-    resetTaskMeta(test);
+    resetTestForRetry(test, executionStart);
   }
   
   // inform pool of test task start so it can enforce timeouts
-  const startMsg: TestExecutionStart = {
-    executionStart: Date.now(),
-    test,
-    type:
-    'execution-start',
-    [AS_POOL_WORKER_MSG_FLAG]: true
-  };
-  port.postMessage(startMsg);
+  notifyTestStart(port, test);
 
   const [_reported, { testTimings }] = await Promise.all([
     testPreparePromise,
@@ -163,13 +178,10 @@ export async function runTest(
   ]);
 
   // inform pool of test task end to stop timeout if under threshold
-  const endMsg: TestExecutionEnd = {
-    executionEnd: Date.now(),
-    testTaskId: test.id,
-    type: 'execution-end',
-    [AS_POOL_WORKER_MSG_FLAG]: true
-  };
-  port.postMessage(endMsg);
+  notifyTestEnd(port, test);
+
+  // update run->pass if appropriate, accumulate duration using executor timings
+  updateResultAfterTestRun(test, testTimings);
 
   let willRetry = shouldRetryTask(test);
 
@@ -178,6 +190,11 @@ export async function runTest(
 
     willRetry ? reportTestRetried(rpc, test, logModule, base) : Promise.resolve(),
   ]);
+
+  if (thisRunIsARetry) {
+    debug(`${testLogPrefix} - Completed test retry run`);
+    return;
+  }
 
   // non-timeout retry handling
   while (willRetry) {
@@ -195,13 +212,16 @@ export async function runTest(
     );
 
     willRetry = shouldRetryTask(test);
+
+    if (!willRetry) {
+      debug(`${testLogPrefix} - Max retries ${test.result?.retryCount || 0} / ${test.retry} ` 
+      + ` | ${test.result?.errors?.length ?? 0} errors`
+    );
+    }
   }
 
-  // set passed if appropriate, set duration using executor timings
-  updateTestFinishedResult(test, testTimings);
-
   await Promise.all([
-    // as needed: invert if `fails`, bail --- move after willRetry, before finished
+    // as needed: invert if `fails`, bail
     postProcessTestResult(rpc, bail, test, testLogPrefix, logModule),
 
     reportTestFinished(rpc, test, logModule, base),
@@ -211,7 +231,7 @@ export async function runTest(
   // times out later and the file worker thread gets re-launched
   finalizeTestResult(test);
 
-  return test;
+  debug(`${testLogPrefix} - Completed test run`);
 }
 
 export async function runSuite(
@@ -310,8 +330,8 @@ export async function runSuite(
           task.result!.retryCount = newRetryCount;
           
           // retry timed out test
-          //  - if it passes, process as normal.
-          // if it fails again, it will end up below
+          //  - if it passes, process as normal
+          //  - if it fails again, it will end up in the else block below
           await runTest(
             rpc, port, base, collectCoverage, binary, sourceMap, debugInfo,
             task, logModule, poolOptions, bail, diffOptions
@@ -333,6 +353,8 @@ export async function runSuite(
           // ensure completed test will not be run again if another test
           // times out later and the file worker thread gets re-launched
           finalizeTestResult(task);
+
+          debug(`${testLogPrefix} - Completed timed out test run`);
         }
       } else {
         debug(`${testLogPrefix} - Running test task | state: "${task.result?.state}"`);

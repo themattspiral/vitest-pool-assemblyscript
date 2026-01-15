@@ -106,8 +106,6 @@ export function getInitialTestTaskMeta(
     idxInParentTasks: parentAfterAddingTask.tasks.length - 1,
     assertionsPassedCount: 0,
     assertionsFailed: [],
-    timedOut: false,
-    resultInverted: false,
     resultFinal: false,
   };
 }
@@ -192,11 +190,6 @@ export function getRunnableTasks(suite: Suite): Task[] {
   return suite.tasks.filter(t => t.mode === 'queued' || t.mode === 'run');
 }
 
-export function getTimedOutTests(tasks: Task[]): Test[] {
-  return tasks.filter(task => {
-      return task.type === 'test' && (task.meta as AssemblyScriptTestTaskMeta).timedOut;
-    }) as Test[];
-}
 
 // ============================================================================
 // Discovery Helpers
@@ -246,18 +239,11 @@ export function shouldRetryTask(task: Task): boolean {
 
 /**
  * Invert result if test configured as 'fails'.
- * 
- * Check `resultInverted` flag on meta to make sure we don't invert the result multiple times.
- * This is intentionally checked in the worker, prior to reporting, for an accurate result,
- * as well as in the main pool in case it failed without worker completion (e.g. timeout abort).
  */
 export function checkFailsAndInvertResult(test: Test, logPrefix: string): void {
-  const meta = test.meta as AssemblyScriptTestTaskMeta;
-
-  if (test.fails && meta.resultInverted === false) {
+  if (test.fails) {
     if (test.result?.state === 'pass') {
       test.result.state = 'fail';
-      meta.resultInverted = true;
 
       debug(`${logPrefix} - Has 'fails' option set - inverted "pass" to "fail"`);
 
@@ -269,16 +255,14 @@ export function checkFailsAndInvertResult(test: Test, logPrefix: string): void {
       }
     } else if (test.result?.state === 'fail') {
       test.result.state = 'pass';
-      meta.resultInverted = true;
+      test.result.errors = [];
 
       debug(`${logPrefix} - Has 'fails' option set - inverted "fail" to "pass"`);
-      
-      test.result.errors = [];
     }
   }
 }
 
-export function setTestPrepareResult(test: Test, startTime: number): void {
+export function setResultForTestPrepare(test: Test, startTime: number): void {
   test.result = {
     state: 'run',
     startTime,
@@ -286,15 +270,16 @@ export function setTestPrepareResult(test: Test, startTime: number): void {
   };
 };
 
-export function updateTestFinishedResult(test: Test, testTimings?: WASMExecutorPerfTimings): void {
+export function updateResultAfterTestRun(test: Test, testTimings?: WASMExecutorPerfTimings): void {
   // while failed tests are actively set to failed, a passed test
   // will still be in the prepared result state (run), so set it to pass
   if (test.result?.state === 'run') {
     test.result.state = 'pass';
   }
-
+  
   if (test.result && testTimings) {
-    test.result.duration = testTimings.execEnd - testTimings.execStart;
+    // accumulate duration for any retries that may be done
+    test.result.duration = (test.result.duration ?? 0) + (testTimings.execEnd - testTimings.execStart);
   }
 }
 
@@ -352,7 +337,10 @@ export function failTestWithTimeoutError (test: Test, startTime: number, duratio
   if (test.result) {
     test.result.state = 'fail';
     test.result.startTime = startTime;
-    test.result.duration = duration;
+    
+    // accumulate duration for any retries that may be done
+    test.result.duration = (test.result.duration ?? 0) + duration;
+
     if (test.result.errors) {
       test.result.errors.push(timeoutErr)
     } else {
@@ -381,7 +369,7 @@ export function setSuitePrepareResult(suite: Suite): void {
       startTime: Date.now(),
     };
   }
-};
+}
 
 export function updateSuiteFinishedResult(suite: Suite, logPrefix: string): void {
   if (suite.mode === 'skip') {
@@ -406,25 +394,21 @@ export function finalizeSuiteResult(suite: Suite): void {
   (suite.meta as AssemblyScriptSuiteTaskMeta).resultFinal = true;
 }
 
-export function resetTaskMeta(task: Task): void {
-  if (task.type === 'test') {
-    const meta = task.meta as AssemblyScriptTestTaskMeta;
-
-    // clear any custom metadata associated with the immediate last run
-    meta.assertionsPassedCount = 0;
-    meta.assertionsFailed = [];
-    meta.timedOut = false;
-    meta.resultInverted = false;
-    delete meta.lastError;
-    delete meta.lastErrorValuesProvided;
-    delete meta.lastErrorRawCallStack;
-    delete meta.coverageData;
+export function resetTestForRetry(test: Test, startTime: number): void {
+  if (test.result) {
+    test.result!.state = 'run';
+    test.result!.startTime = startTime;
   }
-}
 
-export function resetTestResult(test: Test, startTime: number): void {
-  test.result!.state = 'run';
-  test.result!.startTime = startTime;
+  const meta = test.meta as AssemblyScriptTestTaskMeta;
+
+  // clear any custom metadata associated with the immediate last run
+  meta.assertionsPassedCount = 0;
+  meta.assertionsFailed = [];
+  delete meta.lastError;
+  delete meta.lastErrorValuesProvided;
+  delete meta.lastErrorRawCallStack;
+  delete meta.coverageData;
 }
 
 export function failFile(

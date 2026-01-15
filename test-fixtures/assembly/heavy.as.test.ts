@@ -1,6 +1,5 @@
 /**
  * Heavy computation tests - CPU-intensive operations
- * Used to measure execution time vs compilation time
  */
 
 import { test, assert, assertEqual, TestOptions, describe } from '../../assembly';
@@ -17,9 +16,9 @@ describe("fibonacci", () => {
     assert(result == 514229);
   });
   
-  test('fibonacci 30', () => {
+  test('fibonacci 30 [should fail]', TestOptions.retry(3), () => {
     const result = fibonacciRecursive(30);
-    assert(result == 832040);
+    assertEqual(result, 832041); // intentionally wrong
   });
   
   test('fibonacci 31', () => {
@@ -27,13 +26,13 @@ describe("fibonacci", () => {
     assert(result == 1346269);
   });
   
-  test('fibonacci 32', () => {
+  test('fibonacci 32', TestOptions.timeout(5).retry(1).fails(), () => {
     const result = fibonacciRecursive(32);
     assert(result == 2178309);
   });
 
-  describe("long running fibs, some [should fail]", TestOptions.timeout(350), () => {
-    test('fibonacci 33', () => {
+  describe("long running fibs", TestOptions.retry(0), () => {
+    test('fibonacci 33 [should fail]',  TestOptions.timeout(15).retry(1), () => {
       const result = fibonacciRecursive(33);
       assert(result == 3524578);
     });
@@ -53,7 +52,7 @@ describe("fibonacci", () => {
       assert(result == 14930352);
     });
 
-    test('fibonacci 38', () => {
+    test('fibonacci 38 [should fail]', TestOptions.timeout(200), () => {
       const result = fibonacciRecursive(38);
       assertEqual(result, 39088169);
     });
@@ -81,7 +80,7 @@ describe("primes", TestOptions.retry(1), () => {
     assert(count == 4203);
   });
 
-  test('count primes to 50000 [should fail]', TestOptions.timeout(2), () => {
+  test('count primes to 50000', () => {
     const count = countPrimes(50000);
     assert(count == 5133)
   });
@@ -96,9 +95,7 @@ describe("primes", TestOptions.retry(1), () => {
     assert(count == 6935)
   });
 
-  test('count primes to 80000',
-    TestOptions.timeout(2).retry(2).fails(),
-    () => {
+  test('count primes to 80000', () => {
       const count = countPrimes(80000);
       assert(count == 7837)
     }

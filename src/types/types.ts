@@ -532,8 +532,6 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   fnIndex: number;
   assertionsPassedCount: number;
   assertionsFailed: FailedAssertion[];
-  timedOut: boolean;
-  resultInverted: boolean;
   resultFinal: boolean;
   coverageData?: CoverageData;
   lastError?: AssemblyScriptTestError;
