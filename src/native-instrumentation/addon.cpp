@@ -310,18 +310,9 @@ SourceDebugLocation getRepresentativeLocation(Function* func) {
 
   const std::string bodyType = getExpressionName(body);
 
-  if (body->is<Block>()) {
-    // Block body:
-    //   - Block expressions are only containers and have no source locations of their own
-    //   - Examine expressions within the block body to find location, if one exists
-    if (DEBUG) {
-      std::cout << LOG_PREFIX << " -   Checking function Block body expression list" << std::endl;
-    }
-
-    return getRepresentativeLocationInBlockBody(body->cast<Block>(), func->debugLocations);
-  } else if (body->is<Load>() || body->is<Store>()) {
+  if (body->is<Load>() || body->is<Store>()) {
     // Load/Store body:
-    //   - Compiler-generated functions with no expression locations
+    //   - Compiler-generated functions with no expressions with locations
     //   - LOAD: Compiler-generated class member getters (field value getters, function member getters)
     //   - STORE: Compiler-generated class member value setters (field value setters)
     // 
@@ -331,6 +322,15 @@ SourceDebugLocation getRepresentativeLocation(Function* func) {
       std::cout << LOG_PREFIX << " -   Compiler-generated accessor function (body=" << bodyType << ") - No location" << std::endl;
     }
     return repLoc;
+  } else if (body->is<Block>()) {
+    // Block body:
+    //   - Block expressions are only containers and have no source locations of their own
+    //   - Examine expressions within the block body to find location, if one exists
+    if (DEBUG) {
+      std::cout << LOG_PREFIX << " -   Checking function Block body expression list" << std::endl;
+    }
+
+    repLoc = getRepresentativeLocationInBlockBody(body->cast<Block>(), func->debugLocations);
   }
 
   // use body expression's debug location if available
@@ -346,8 +346,10 @@ SourceDebugLocation getRepresentativeLocation(Function* func) {
       std::cout << LOG_PREFIX << " -   Using function body (" << bodyType << ")="
                 << repLoc.fileIndex << ":" << repLoc.lineNumber << ":" << repLoc.columnNumber << std::endl;
     }
-  } else if (DEBUG) {
-    std::cout << LOG_PREFIX << " -     ERROR: Location expected on function body (" << bodyType << ") - No location found" << std::endl;
+  }
+
+  if (!repLoc.exists && DEBUG) {
+    std::cout << LOG_PREFIX << " -     Warning: Location expected on function body (" << bodyType << ") - No location found" << std::endl;
   }
 
   return repLoc;

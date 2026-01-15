@@ -167,19 +167,20 @@ export async function compileAssemblyScript(
   
   if (DEBUG_WRITE_FILES) {
     // Write source map to project maps directory for debugging
-    const mapsDir = './maps';
+    const dir = './debug';
     const sourceMapFileName = `${basename(filename, '.ts')}.as.ts.map`;
-    const sourceMapPath = `${mapsDir}/${sourceMapFileName}`;
+    const sourceMapPath = `${dir}/${sourceMapFileName}`;
 
-    // Create maps directory if it doesn't exist
+    // Create directory if it doesn't exist
     try {
-      await mkdir(mapsDir, { recursive: true });
+      await mkdir(dir, { recursive: true });
     } catch {
       // Directory already exists or creation failed, continue
     }
 
     // Format as well-formed JSON
     const formattedSourceMap = JSON.stringify(JSON.parse(wasmSourceMap), null, 2);
+
     writeFile(sourceMapPath, formattedSourceMap, { encoding: 'utf8' });
     debug(`${logPrefix} - Wrote source map to: "${sourceMapPath}"`);
 
