@@ -1,22 +1,16 @@
-import type { RunMode, File, Suite, Task, Test } from '@vitest/runner/types';
-import {
-  calculateSuiteHash,
-  createFileTask,
-  interpretTaskModes,
-  someTasksAreOnly
-} from '@vitest/runner/utils';
+import type { File, RunMode, Suite, Task, Test } from '@vitest/runner/types';
 
-import {
-  AssemblyScriptResolvedConfig,
+import type {
+  AssemblyScriptCoveragePayload,
   AssemblyScriptSuiteTaskMeta,
   AssemblyScriptTestError,
   AssemblyScriptTestOptions,
   AssemblyScriptTestTaskMeta,
   FailedAssertion,
+  VitestVersion,
   WASMExecutorPerfTimings
 } from '../types/types.js';
-import { ASSEMBLYSCRIPT_POOL_NAME, TEST_ERROR_NAMES } from '../types/constants.js';
-import { DEFAULT_ASSEMBLYSCRIPT_TEST_OPTIONS } from '../types/typed-constants.js';
+import { TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from './debug.js';
 import { createTestExpectedToFailError, createTestTimeoutError } from './pool-errors.js';
 import { extractCallStack } from '../wasm-executor/source-maps.js';
@@ -65,22 +59,19 @@ export function getTaskLogPrefix(logModule: string, base: string, task: Task): s
   return `[${logModule}] ${getTaskLogLabel(base, task)}`;
 }
 
+export function createAfterSuiteRunMeta(
+  coverage: AssemblyScriptCoveragePayload,
+  testFiles: string[],
+  projectName: string = '',
+  vitestVersion: VitestVersion = 'v4',
+): any {
+  const base = { coverage, testFiles, projectName };
 
-function spacesForLevel(level: number): string {
-  return new Array(level + 1).fill('  ').join('');
-}
-
-function taskStr(task: Task, level: number): string {
-  if (task.type === 'test') {
-    return `${spacesForLevel(level)}ID: ${task.id} Mode: "${task.mode}" Test: "${task.name}"`;
+  if (vitestVersion) {
+    return { ...base, transformMode: 'ssr' as const };
   } else {
-    const suiteStr = `${spacesForLevel(level)}ID: ${task.id} Mode: "${task.mode}" Suite: "${task.name}"\n`;
-    return suiteStr + task.tasks.map(t => taskStr(t, level + 1)).join('\n');
+    return { ...base, environment: 'node' as const };
   }
-};
-
-export function getFullTaskHierarchy(file: File): string {
-  return taskStr(file, 0);
 }
 
 // ============================================================================
@@ -122,63 +113,95 @@ export function getInitialSuiteTaskMeta(
   };
 }
 
-export function createInitialFileTask(
-  testFile: string,
-  projectName: string,
-  projectRoot: string,
-  configTestTimeout: number,
-  configRetry: number,
-): File {
-  const file: File = createFileTask(
-    testFile,
-    projectRoot,
-    projectName,
-    ASSEMBLYSCRIPT_POOL_NAME
-  );
 
-  file.mode = 'queued';
-  file.environmentLoad = 0;  // AS pool has no environment setup
-  file.setupDuration = 0;    // AS pool has no setup files
-
-  const defaultTestOptions: AssemblyScriptTestOptions = {
-    ...DEFAULT_ASSEMBLYSCRIPT_TEST_OPTIONS,
-    timeout: configTestTimeout,
-    retry: configRetry,
-  };
-
-  const meta: AssemblyScriptSuiteTaskMeta = {
-    idxInParentTasks: -1,  // file task has no parent, should never be used anyway
-    defaultTestOptions,
-    suitePreparedSent: false,
-    resultFinal: false,
-  }
-  file.meta = meta;
-
-  return file;
+function createTaskName(names: readonly (string | undefined)[], separator: string = ' > '): string {
+  return names.filter(name => name !== undefined).join(separator);
 }
 
-export function createFailedFileTask(
-  testFile: string,
-  projectName: string,
-  config: AssemblyScriptResolvedConfig,
-  error: AssemblyScriptTestError,
-): File {
-  const file: File = createFileTask(
-    testFile,
-    config.root,
-    projectName,
-    ASSEMBLYSCRIPT_POOL_NAME
-  );
-  file.mode = 'run';
-  file.result = {
-    state: 'fail',
-    errors: [error]
+export function createTestTask(
+  name: string,
+  fnIndex: number,
+  file: File,
+  parent: Suite,
+  mergedOptions: AssemblyScriptTestOptions,
+  vitestVersion: VitestVersion = 'v4',
+): Test {
+  const test: Test = {
+    type: 'test',
+    name,
+    fullName: createTaskName([
+      parent?.fullName ?? file?.fullName,
+      name,
+    ]),
+    fullTestName: createTaskName([parent?.fullTestName, name]),
+    id: '',
+    file,
+    suite: parent,
+    context: {} as any,
+    annotations: [],
+    artifacts: [],
+    meta: {},
+    mode: getInitialTaskMode(mergedOptions),
+    timeout: mergedOptions.timeout,
+    retry: mergedOptions.retry,
+    fails: mergedOptions.fails,
   };
-  file.environmentLoad = 0;
-  file.setupDuration = 0;
-  file.collectDuration = 0;
 
-  return file;
+  if (vitestVersion === 'v3') {
+    // @ts-ignore
+    delete test.fullName;
+    // @ts-ignore
+    delete test.fullTestName;
+    // @ts-ignore
+    delete test.artifacts;
+  }
+
+  parent.tasks.push(test);
+
+  // use custom TaskMeta to capture fnIndex, parent task index, etc
+  test.meta = getInitialTestTaskMeta(fnIndex, parent);
+
+  return test;
+}
+
+export function createSuiteTask(
+  name: string,
+  file: File,
+  parent: Suite,
+  mergedOptions: AssemblyScriptTestOptions,
+  vitestVersion: VitestVersion = 'v4',
+): Suite {
+  // const suiteIsFile = parent.file.id === parent.id;
+  // const prefix = suiteIsFile ? parent.name : `${file.filepath}_${parent.name}`;
+  const suite: Suite = {
+    type: 'suite',
+    name,
+    fullName: createTaskName([
+      parent?.fullName ?? file?.fullName,
+      name,
+    ]),
+    fullTestName: createTaskName([parent?.fullTestName, name]),
+    id: '',
+    file,
+    suite: parent,
+    meta: {},
+    tasks: [],
+    mode: getInitialTaskMode(mergedOptions),
+  };
+
+  if (vitestVersion === 'v3') {
+    // @ts-ignore
+    delete suite.fullName;
+    // @ts-ignore
+    delete suite.fullTestName;
+  }
+
+  parent.tasks.push(suite);
+
+  // use custom TaskMeta to capture parent task index and default options
+  suite.meta = getInitialSuiteTaskMeta(parent, mergedOptions);
+
+  return suite;
 }
 
 
@@ -190,37 +213,6 @@ export function getRunnableTasks(suite: Suite): Task[] {
   return suite.tasks.filter(t => t.mode === 'queued' || t.mode === 'run');
 }
 
-
-// ============================================================================
-// Discovery Helpers
-// ============================================================================
-
-export function prepareFileTaskForCollection(
-  file: File,
-  testNamePattern?: RegExp,
-  allowOnly?: boolean,
-): void {
-  calculateSuiteHash(file);
-
-  // Interpret task modes does the following:
-  // 1. If only mode enabled on any test, flip all non-only test.mode to skip
-  // 2. Apply test name pattern filtering (from -t flag) to skip if needed
-  // 3. If all test modes are skip, set file task mode to skip
-  const hasOnly = someTasksAreOnly(file);
-  interpretTaskModes(
-    file,
-    testNamePattern,  // user regexp
-    undefined,  // testLocations
-    hasOnly,    // onlyMode - true if only is used anywhere
-    false,      // parentIsOnly - always false for the file task
-    allowOnly
-  );
-
-  // update from queued (onQueued report) to run (onCollected report)
-  if (file.mode === 'queued') {
-    file.mode = 'run';
-  }
-}
 
 // ============================================================================
 // Result Handling Helpers
@@ -262,7 +254,7 @@ export function checkFailsAndInvertResult(test: Test, logPrefix: string): void {
   }
 }
 
-export function setResultForTestPrepare(test: Test, startTime: number): void {
+export function setTestResultForTestPrepare(test: Test, startTime: number): void {
   test.result = {
     state: 'run',
     startTime,
@@ -270,7 +262,7 @@ export function setResultForTestPrepare(test: Test, startTime: number): void {
   };
 };
 
-export function updateResultAfterTestRun(test: Test, testTimings?: WASMExecutorPerfTimings): void {
+export function updateTestResultAfterRun(test: Test, testTimings?: WASMExecutorPerfTimings): void {
   // while failed tests are actively set to failed, a passed test
   // will still be in the prepared result state (run), so set it to pass
   if (test.result?.state === 'run') {
@@ -283,11 +275,11 @@ export function updateResultAfterTestRun(test: Test, testTimings?: WASMExecutorP
   }
 }
 
-export function prepareForTermination(test: Test): void {
+export function flagTestTerminated(test: Test): void {
   (test.meta as AssemblyScriptTestTaskMeta).lastTimeoutTerminationTime = Date.now();
 }
 
-export function finalizeTestResult(test: Test): void {
+export function flagTestFinalized(test: Test): void {
   (test.meta as AssemblyScriptTestTaskMeta).resultFinal = true;
 }
 
@@ -416,26 +408,4 @@ export function resetTestForRetry(test: Test, startTime: number): void {
   delete meta.coverageData;
 }
 
-export function failFile(
-  file: File,
-  error: AssemblyScriptTestError,
-  runStartPerf: number,
-): File {
-  file.mode = 'run';
-
-  if (file.result) {
-    file.result.state = 'fail';
-    file.result.errors = file.result.errors ? file.result.errors.concat(error) : [error];
-  } else {
-    file.result = {
-      state: 'fail',
-      errors: [error]
-    };
-  }
-  file.environmentLoad = file.environmentLoad ?? 0;
-  file.setupDuration = performance.now() - runStartPerf;
-  file.collectDuration = file.collectDuration ?? 0;
-
-  return file;
-}
 

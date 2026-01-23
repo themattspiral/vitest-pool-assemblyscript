@@ -15,8 +15,7 @@ import { extractCallStack } from './source-maps.js';
 import { decodeAbortInfo } from './wasm-memory.js';
 import { createWasmConsole } from './wasm-console.js';
 import { mergeAssemblyScriptTestOptions } from './collect-options.js';
-import { failTest } from '../util/vitest-tasks.js';
-import { createSuiteTask, createTestTask } from '../util/vitest-compat.js';
+import { createSuiteTask, createTestTask, failTest } from '../util/vitest-tasks.js';
 
 /**
  * Create import object for test discovery

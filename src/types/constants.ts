@@ -15,6 +15,10 @@ export const AS_POOL_ERROR_TYPE_FLAG = '__as_pool__' as const;
 
 export const AS_POOL_WORKER_MSG_FLAG = '__as_pool__' as const;
 
+export const VITEST_WORKER_REQUEST_MSG_FLAG = '__vitest_worker_request__' as const;
+
+export const VITEST_WORKER_RESPONSE_MSG_FLAG = '__vitest_worker_response__' as const;
+
 export const COVERAGE_PAYLOAD_FORMATS = {
   AssemblyScript: 'assemblyscript',
 } as const;

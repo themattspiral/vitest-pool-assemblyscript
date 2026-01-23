@@ -26,7 +26,7 @@ import { convertToIstanbulFormat } from './istanbul-converter.js';
 import { parseFunctionsFromFile } from './ast-parser.js';
 import { globFiles } from './glob-utils.js';
 import { mergeCoverageData } from './coverage-merge.js';
-import { debug, setDebugMode } from '../util/debug.js';
+import { debug, setGlobalDebugMode } from '../util/debug.js';
 import { createPoolError } from '../util/pool-errors.js';
 import { getResolvedAssemblyScriptConfig } from '../util/resolve-config.js';
 import type {
@@ -71,7 +71,7 @@ export class HybridCoverageProvider implements CoverageProvider {
 
     this.resolvedProjectConfig = getResolvedAssemblyScriptConfig(ctx.config, projectConfig);
 
-    setDebugMode(this.resolvedProjectConfig.poolOptions.assemblyScript.debug);
+    setGlobalDebugMode(this.resolvedProjectConfig.poolOptions.assemblyScript.debug);
 
     debug('[HybridCoverageProvider] Initializing Provider');
 

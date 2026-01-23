@@ -1,4 +1,4 @@
-import { test, assert } from '../../assembly';
+import { test, assert, TestOptions } from '../../assembly';
 import { increment } from '../assembly-src/smoke-utils';
 
 test('as smoke pass', () => {

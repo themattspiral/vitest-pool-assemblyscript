@@ -7,11 +7,12 @@
 
 import type { MessagePort } from 'node:worker_threads';
 import type { BirpcReturn } from 'birpc';
-import type { RunnerRPC, RuntimeRPC } from 'vitest';
+import type { RunnerRPC, RuntimeRPC, SerializedConfig } from 'vitest';
 import type { TestError } from '@vitest/utils';
 import type { ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
-import type { File, Test, TaskMeta, TestOptions } from '@vitest/runner/types';
+import type { File, Test, TaskMeta, TestOptions, FileSpecification } from '@vitest/runner/types';
+import type { Colors } from 'tinyrainbow';
 
 import {
   AS_POOL_WORKER_MSG_FLAG,
@@ -144,6 +145,10 @@ export type AssemblyScriptTestOptions = Required<Pick<TestOptions, 'timeout' | '
 // ============================================================================
 // Utility Types
 // ============================================================================
+
+export type VitestVersion = 'v3' | 'v4';
+
+export type HighlightFunc = (code: string, options: { colors: Colors }) => string;
 
 export interface GlobResult {
   absolute: string;
@@ -570,12 +575,6 @@ export interface WorkerThreadInitData {
   asCoverageOptions: ResolvedHybridProviderOptions;
 }
 
-export interface WorkerThreadResumeContext {
-  timedOutTest: Test;
-  timedOutCompilation: WASMCompilation;
-  runResentTime: number;
-}
-
 export interface AssemblyScriptPoolWorkerMessageBase {
   readonly [AS_POOL_WORKER_MSG_FLAG]: true;
   readonly type: string;
@@ -614,7 +613,47 @@ export interface TestRunRecord {
   timeoutId: NodeJS.Timeout;
 }
 
+export interface ThreadSpec {
+  file: File;
+  compilation?: WASMCompilation;
+}
+
+export interface StartWorkerThreadTask {
+  dispatchStart: number;
+}
+
 export interface RunFileTask {
+  dispatchStart: number;
+  workerId: number;
+  port: MessagePort;
+  fileSpecs: FileSpecification[];
+  config: SerializedConfig;
+  isCollectTestsMode: boolean;
+  timedOutTest?: Test;
+  timedOutCompilation?: WASMCompilation;
+}
+
+export interface RunCompileAndDiscoverTask {
+  dispatchStart: number;
+  workerId: number;
+  port: MessagePort;
+  file: File;
+  config: SerializedConfig;
+  isCollectTestsMode: boolean;
+}
+
+export interface RunTestsTask {
+  dispatchStart: number;
+  workerId: number;
+  port: MessagePort;
+  file: File;
+  compilation: WASMCompilation;
+  config: SerializedConfig;
+  isCollectTestsMode: boolean;
+  timedOutTest?: Test;
+}
+
+export interface ProcessPoolRunFileTask {
   /** vitest File task */
   file: File;
 

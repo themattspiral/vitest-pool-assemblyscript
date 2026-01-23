@@ -22,12 +22,16 @@ import type {
   AssemblyScriptConsoleLog,
   AssemblyScriptCoveragePayload,
   AssemblyScriptSuiteTaskMeta,
+  VitestVersion,
   WorkerRPC
 } from '../types/types.js';
 import { debug, isDebugModeEnabled } from '../util/debug.js';
 import { COVERAGE_PAYLOAD_FORMATS } from '../types/constants.js';
-import { getTaskLogLabel, isSuiteOwnFile } from '../util/vitest-tasks.js';
-import { createAfterSuiteRunMeta } from '../util/vitest-compat.js';
+import {
+  createAfterSuiteRunMeta,
+  getTaskLogLabel,
+  isSuiteOwnFile
+} from '../util/vitest-tasks.js';
 
 // const DEBUG_RPC = false;
 const DEBUG_RPC = isDebugModeEnabled();
@@ -127,6 +131,7 @@ export async function reportSuiteFinished(
   suite: Suite,
   logModule: string,
   base: string,
+  vitestVersion: VitestVersion = 'v4',
 ): Promise<void> {
   const suiteLabel = getTaskLogLabel(base, suite);
   const rpcLogPrefix = `[${logModule} RPC] ${suiteLabel}`;
@@ -145,7 +150,8 @@ export async function reportSuiteFinished(
     const afterSuiteMeta = createAfterSuiteRunMeta(
       coverage,
       [suite.file.filepath],
-      suite.file.projectName
+      suite.file.projectName,
+      vitestVersion
     );
     coveragePromise = rpc.onAfterSuiteRun(afterSuiteMeta);
 
@@ -183,6 +189,10 @@ async function reportTestTaskUpdate(
   const taskPack: TaskResultPack = [test.id, test.result, {}];
   const eventPack: TaskEventPack = [test.id, updateEvent, undefined];
 
+  rpcDebug(`[${logModule} RPC] ${getTaskLogLabel(base, test)} - Reporting "${updateEvent}" task update...`
+    + ` | state: "${test.result?.state}"`
+    + `${updateEvent === 'test-prepare' ? '' : ` | duration: ${test.result?.duration?.toFixed(2) ?? '--'} ms`}`
+  );
   await rpc.onTaskUpdate([taskPack], [eventPack]);
   rpcDebug(`[${logModule} RPC] ${getTaskLogLabel(base, test)} - Reported "${updateEvent}" task update`
     + ` | state: "${test.result?.state}"`

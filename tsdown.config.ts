@@ -1,47 +1,128 @@
 import { defineConfig } from 'tsdown';
 
-export default defineConfig({
+const MINIFY = false;
+const SOUCE_MAP = true;
+
+export default defineConfig([{
   entry: [
+    // v4
     'src/index.ts',
-    'src/pool-thread/worker-thread.ts',
-    'src/pool-thread/v3/tinypool-thread.ts',
     'src/config/index.ts',
+    
+     // v3
+    'src/index-v3.ts',
+    'src/config/index-v3.ts',
+    
+    // shared
     'src/coverage-provider/index.ts',
     'src/compiler/transforms/strip-inline.mts',
+    
+    // internal testing
+    'src/index-internal.ts',
   ],
   format: 'es',
-  outDir: 'dist',
+  outDir: './dist',
+  target: 'node20',
+  platform: 'node',
   dts: true,
   clean: true,
-  sourcemap: true,
-  external: [
-    // prod/runtime deps
-    'birpc',
-    'node-addon-api',
-    'semver',
-    'source-map',
-    'test-exclude',
-    'tinypool',
-    'tinyrainbow',
 
-    // peer deps
-    '@vitest/coverage-v8',
-    '@vitest/runner',
-    '@vitest/utils',
-    'assemblyscript',
-    'istanbul-lib-coverage',
-    'vitest',
+  inputOptions: {
+    optimization: {
+      inlineConst: true,
+      pifeForModuleWrappers: true
+    }
+  },
+  
+  sourcemap: SOUCE_MAP,
+  minify: MINIFY,
+  outputOptions: {
+    minifyInternalExports: MINIFY,
+    minify: MINIFY,
+    sourcemap: SOUCE_MAP,
+  },
+}, 
 
-    // peer dep sub-exports that get bundled otherwise
-    '@vitest/runner/utils',
-    '@vitest/utils/diff',
-    '@vitest/utils/highlight',
+{
+  entry: 'src/pool-thread/v3-tinypool-thread.ts',
+  
+  inputOptions: {
+    optimization: {
+      inlineConst: true,
+      pifeForModuleWrappers: true
+    }
+  },
 
-    // these aren't needed apparently, but be cautious and keep
-    'assemblyscript/asc',
-    'assemblyscript/transform',
-    'vitest/config',
-    'vitest/node',
-    'vitest/worker',
-  ]
-});
+  minify: MINIFY,
+  outputOptions: {
+    inlineDynamicImports: true,
+    minifyInternalExports: MINIFY,
+    minify: MINIFY,
+    sourcemap: SOUCE_MAP,
+  },
+
+  format: 'es',
+  outDir: './dist/pool-thread',
+  target: 'node20',
+  platform: 'node',
+  dts: true,
+  clean: true,
+  sourcemap: SOUCE_MAP,
+},
+
+{
+  entry: 'src/pool-thread/compile-worker-thread.ts',
+  
+  inputOptions: {
+    optimization: {
+      inlineConst: true,
+      pifeForModuleWrappers: true
+    }
+  },
+
+  minify: MINIFY,
+  outputOptions: {
+    inlineDynamicImports: true,
+    minifyInternalExports: MINIFY,
+    minify: MINIFY,
+    sourcemap: SOUCE_MAP,
+  },
+
+  format: 'es',
+  outDir: './dist/pool-thread',
+  target: 'node20',
+  platform: 'node',
+  dts: true,
+  clean: true,
+  sourcemap: SOUCE_MAP,
+},
+
+{
+  entry: 'src/pool-thread/test-worker-thread.ts',
+  
+  inputOptions: {
+    optimization: {
+      inlineConst: true,
+      pifeForModuleWrappers: true
+    }
+  },
+
+  minify: MINIFY,
+  outputOptions: {
+    inlineDynamicImports: true,
+    minifyInternalExports: MINIFY,
+    minify: MINIFY,
+    sourcemap: SOUCE_MAP,
+  },
+
+  format: 'es',
+  outDir: './dist/pool-thread',
+  target: 'node20',
+  platform: 'node',
+  dts: true,
+  clean: true,
+  sourcemap: SOUCE_MAP,
+}
+
+
+]);

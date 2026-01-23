@@ -7,9 +7,10 @@ import type {
   AssemblyScriptPoolError,
   AssemblyScriptTestError,
   AssemblyScriptTestTaskMeta,
-  BinaryDebugInfo,
   CoverageData,
+  HighlightFunc,
   ResolvedAssemblyScriptPoolOptions,
+  WASMCompilation,
   WASMExecutorPerfTimings,
 } from '../types/types.js';
 import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
@@ -54,6 +55,7 @@ export async function executeWASMDiscovery(
   handleLog: AssemblyScriptConsoleLogHandler,
   file: File,
   moduleLabel: string,
+  highlight: HighlightFunc,
   diffOptions?: SerializedDiffOptions,
 ): Promise<void> {
   const base = basename(file.filepath);
@@ -99,6 +101,7 @@ export async function executeWASMDiscovery(
           sourceMap,
           false,
           logPrefix,
+          highlight,
           thrownPoolErr.rawCallStack,
           diffOptions
         );
@@ -130,14 +133,13 @@ export async function executeWASMDiscovery(
  */
 export async function executeWASMTest(
   test: Test,
-  binary: Uint8Array,
-  sourceMap: string,
-  debugInfo: BinaryDebugInfo | undefined,
+  compilation: WASMCompilation,
   testFileBasename: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   collectCoverage: boolean,
   handleLog: AssemblyScriptConsoleLogHandler,
   moduleLabel: string,
+  highlight: HighlightFunc,
   diffOptions?: SerializedDiffOptions,
 ): Promise<{ test: Test, testTimings: WASMExecutorPerfTimings }> {
   const testTimings: WASMExecutorPerfTimings = {
@@ -152,7 +154,7 @@ export async function executeWASMTest(
   const logPrefix = `[${fullModuleLabel}] ${taskLabel}`;
 
   // Compile the binary to usable WASM module
-  const wasmModule = await WebAssembly.compile(binary as BufferSource);
+  const wasmModule = await WebAssembly.compile(compilation.binary as BufferSource);
 
   // Create fresh memory for this test instance
   const memory = createMemory();
@@ -246,9 +248,10 @@ export async function executeWASMTest(
     const enhancedError = await enhanceTestError(
       meta.lastError,
       test,
-      sourceMap,
+      compilation.sourceMap,
       meta.lastErrorValuesProvided ?? false,
       logPrefix,
+      highlight,
       meta.lastErrorRawCallStack,
       diffOptions
     );
@@ -276,7 +279,7 @@ export async function executeWASMTest(
       );
     }
 
-    if (!debugInfo) {
+    if (!compilation.debugInfo) {
       throw createExecutorPoolError(
         testFileBasename,
         'executeWASMTest',
@@ -289,12 +292,12 @@ export async function executeWASMTest(
     };
 
     // Read counters from coverage memory
-    const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, debugInfo.instrumentedFunctionCount);
-    covDebug(`${logPrefix} - Read coverage memory for ${debugInfo.instrumentedFunctionCount} instrumented functions`);
+    const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, compilation.debugInfo.instrumentedFunctionCount);
+    covDebug(`${logPrefix} - Read coverage memory for ${compilation.debugInfo.instrumentedFunctionCount} instrumented functions`);
 
     // Iterate all instrumented functions and build coverage data with hit counts extracted from coverage memory
     let functionsHit = 0;
-    for (const [filePath, debugFunctions] of Object.entries(debugInfo.functionsByFileAndPosition)) {
+    for (const [filePath, debugFunctions] of Object.entries(compilation.debugInfo.functionsByFileAndPosition)) {
       if (!coverage.hitCountsByFileAndPosition[filePath]) {
         coverage.hitCountsByFileAndPosition[filePath] = {};
         covDebug(`${logPrefix} - Extracting hits for source file "${filePath}"`);

@@ -1,37 +1,33 @@
 /**
  * Debug logging utility
- *
- * Controlled by pool configuration:
- *   poolOptions: { assemblyScript: { debug: true } }
- *
- * Thread-safe: Uses AsyncLocalStorage to isolate debug state per worker task
- * when isolateWorkers: false (concurrent tasks in same worker).
  */
 
-import { AsyncLocalStorage } from 'node:async_hooks';
-
-interface DebugState {
-  debug: boolean;
+declare global {
+  var AS_POOL_DEBUG: boolean | undefined;
 }
 
-// Store debug flag per async context (isolates concurrent tasks in same worker)
-const debugStorage = new AsyncLocalStorage<DebugState>();
+globalThis.AS_POOL_DEBUG = false;
+
+const DEBUG_ENV_ENABLED_VALUE = '1' as const;
+
+function isEnabled(): boolean {
+  return globalThis.AS_POOL_DEBUG === true || process.env.DEBUG === DEBUG_ENV_ENABLED_VALUE;
+}
 
 /**
  * Initialize debug mode for current async context (called by worker at task start)
  * @param {boolean} debugEnabled - Enable verbose debug logging
  */
-export function setDebugMode(debugEnabled: boolean): void {
-  debugStorage.enterWith({ debug: debugEnabled });
+export function setGlobalDebugMode(debugEnabled: boolean): void {
+  globalThis.AS_POOL_DEBUG = debugEnabled;
 }
 
 /**
- * Log debug message (only when debug enabled in current context)
+ * Log debug message (only when debug enabled in current global context)
  * or when environment has a truthy DEBUG variable set.
  */
 export function debug(...args: any): void {
-  const state = debugStorage.getStore();
-  if (state?.debug || process.env.DEBUG) {
+  if (isEnabled()) {
     // if first arg is a function, execute it and then print the result
     if (args?.length > 0 && typeof args[0] === 'function') {
       const result = args[0]();
@@ -44,11 +40,10 @@ export function debug(...args: any): void {
 }
 
 /**
- * Determine if debug mode is enabled for the current async context
+ * Determine if debug mode is enabled for the current global context
  */
 export function isDebugModeEnabled(): boolean {
-  const state = debugStorage.getStore();
-  return !!state?.debug || !!process.env.DEBUG;
+  return isEnabled();
 }
 
 export async function delay(ms: number = 5000): Promise<void> {

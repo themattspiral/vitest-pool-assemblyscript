@@ -11,9 +11,9 @@ import { diff, type SerializedDiffOptions } from '@vitest/utils/diff';
 import type { Test, Suite } from '@vitest/runner/types';
 import { type RawSourceMap, SourceMapConsumer } from 'source-map';
 
+import type { AssemblyScriptTestError, HighlightFunc, WebAssemblyCallSite } from '../types/types.js';
 import { debug } from '../util/debug.js';
 import { POOL_INTERNAL_PATHS, TEST_ERROR_NAMES } from '../types/constants.js';
-import type { AssemblyScriptTestError, WebAssemblyCallSite } from '../types/types.js';
 import { createWebAssemblyCallSite, parseSourceMap } from './source-maps.js';
 import { getShortFunctionName } from './wasm-names.js';
 import {
@@ -95,6 +95,7 @@ export async function enhanceTestError(
   sourceMap: string,
   valuesProvided: boolean,
   logPrefix: string,
+  highlight: HighlightFunc,
   rawCallStack?: NodeJS.CallSite[],
   diffOptions?: SerializedDiffOptions
 ): Promise<AssemblyScriptTestError> {
@@ -133,7 +134,7 @@ export async function enhanceTestError(
     error.stacks = parsedStack.slice(1);
 
     // get source code diff from source map source content
-    highlightedSourceCodeFrameString = getSourceCodeFrameString(parsedSourceMap, primaryStackFrame);
+    highlightedSourceCodeFrameString = getSourceCodeFrameString(parsedSourceMap, primaryStackFrame, highlight);
 
     debug(`${logPrefix} - Enhanced ${error.name} error with parsed source stack`);
   }

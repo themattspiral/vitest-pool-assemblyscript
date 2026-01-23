@@ -14,6 +14,14 @@
       "types": "./dist/config/index.d.mts",
       "default": "./dist/config/index.mjs"
     },
+    "./v3": {
+      "types": "./dist/index-v3.d.mts",
+      "default": "./dist/index-v3.mjs"
+    },
+    "./v3/config": {
+      "types": "./dist/config/index-v3.d.mts",
+      "default": "./dist/config/index-v3.mjs"
+    },
     "./coverage": {
       "types": "./dist/coverage-provider/index.d.mts",
       "default": "./dist/coverage-provider/index.mjs"
@@ -21,6 +29,10 @@
     "./assembly": {
       "types": "./assembly/index.mts",
       "default": "./assembly/index.mts"
+    },
+    "./__internal": {
+      "types": "./dist/internal-test-entry.d.mts",
+      "default": "./dist/internal-test-entry.mjs"
     }
   },
   "files": [
@@ -54,7 +66,6 @@
   "dependencies": {
     "birpc": "^2.4.0",
     "node-addon-api": "^8.5.0",
-    "semver": "^7.7.3",
     "source-map": "^0.7.6",
     "test-exclude": "^7.0.1",
     "tinypool": "^2.0.0",
