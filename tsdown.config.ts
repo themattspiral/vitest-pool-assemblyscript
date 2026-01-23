@@ -8,10 +8,13 @@ export default defineConfig([{
     // v4
     'src/index.ts',
     'src/config/index.ts',
+    'src/pool-thread/compile-worker-thread.ts',
+    'src/pool-thread/test-worker-thread.ts',
     
      // v3
     'src/index-v3.ts',
     'src/config/index-v3.ts',
+    'src/pool-thread/v3-tinypool-thread.ts',
     
     // shared
     'src/coverage-provider/index.ts',
@@ -41,88 +44,4 @@ export default defineConfig([{
     minify: MINIFY,
     sourcemap: SOUCE_MAP,
   },
-}, 
-
-{
-  entry: 'src/pool-thread/v3-tinypool-thread.ts',
-  
-  inputOptions: {
-    optimization: {
-      inlineConst: true,
-      pifeForModuleWrappers: true
-    }
-  },
-
-  minify: MINIFY,
-  outputOptions: {
-    inlineDynamicImports: true,
-    minifyInternalExports: MINIFY,
-    minify: MINIFY,
-    sourcemap: SOUCE_MAP,
-  },
-
-  format: 'es',
-  outDir: './dist/pool-thread',
-  target: 'node20',
-  platform: 'node',
-  dts: true,
-  clean: true,
-  sourcemap: SOUCE_MAP,
-},
-
-{
-  entry: 'src/pool-thread/compile-worker-thread.ts',
-  
-  inputOptions: {
-    optimization: {
-      inlineConst: true,
-      pifeForModuleWrappers: true
-    }
-  },
-
-  minify: MINIFY,
-  outputOptions: {
-    inlineDynamicImports: true,
-    minifyInternalExports: MINIFY,
-    minify: MINIFY,
-    sourcemap: SOUCE_MAP,
-  },
-
-  format: 'es',
-  outDir: './dist/pool-thread',
-  target: 'node20',
-  platform: 'node',
-  dts: true,
-  clean: true,
-  sourcemap: SOUCE_MAP,
-},
-
-{
-  entry: 'src/pool-thread/test-worker-thread.ts',
-  
-  inputOptions: {
-    optimization: {
-      inlineConst: true,
-      pifeForModuleWrappers: true
-    }
-  },
-
-  minify: MINIFY,
-  outputOptions: {
-    inlineDynamicImports: true,
-    minifyInternalExports: MINIFY,
-    minify: MINIFY,
-    sourcemap: SOUCE_MAP,
-  },
-
-  format: 'es',
-  outDir: './dist/pool-thread',
-  target: 'node20',
-  platform: 'node',
-  dts: true,
-  clean: true,
-  sourcemap: SOUCE_MAP,
-}
-
-
-]);
+}]);

@@ -19,8 +19,8 @@ import { createPoolError, throwPoolErrorIfAborted } from '../util/pool-errors.js
 const DEBUG_WRITE_FILES = false;
 
 // TODO - convert to passing via API options instead of separate module file
-// path assumes that we're running from dist/pool-thread/
-const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, '../compiler/transforms/strip-inline.mjs');
+// path assumes that we're running from dist/
+const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, './compiler/transforms/strip-inline.mjs');
 
 setImmediate(async () => {
   try {
