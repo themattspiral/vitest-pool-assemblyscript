@@ -7,7 +7,7 @@
 
 import type { ViteUserConfig, UserWorkspaceConfig, ConfigEnv } from 'vitest/config';
 
-import type { AssemblyScriptPoolOptions } from '../../types/types.js';
+import type { AssemblyScriptPoolOptions } from '../types/types.js';
 
 /**
  * Type for config that may be a value, Promise, or function

@@ -5,9 +5,9 @@
  * Manages compiler options, transforms, and in-memory compilation.
  */
 
-import asc from 'assemblyscript/asc';
+import { main as ascMain } from 'assemblyscript/asc';
 import { basename, resolve } from 'node:path';
-import { existsSync } from 'node:fs';
+import { access } from 'node:fs/promises';
 import { writeFile, mkdir } from 'node:fs/promises';
 
 import { AssemblyScriptCompilerResult, AssemblyScriptCompilerOptions } from '../types/types.js';
@@ -18,16 +18,20 @@ import { createPoolError, throwPoolErrorIfAborted } from '../util/pool-errors.js
 
 const DEBUG_WRITE_FILES = false;
 
-// Absolute paths to transform modules
-// TODO - convert to passing via API options instead of raw file!!
-const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, 'compiler/transforms/strip-inline.mjs');
+// TODO - convert to passing via API options instead of separate module file
+// path assumes that we're running from dist/
+const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, './compiler/transforms/strip-inline.mjs');
 
-if (!existsSync(STRIP_INLINE_TRANSFORM)) {
-  throw createPoolError(
-    `AS Compiler strip inline transform file not found at "${STRIP_INLINE_TRANSFORM}"`,
-    POOL_ERROR_NAMES.CompilationError
-  );
-}
+setImmediate(async () => {
+  try {
+    await access(STRIP_INLINE_TRANSFORM);
+  } catch {
+    throw createPoolError(
+      `AS Compiler strip inline transform file not found at "${STRIP_INLINE_TRANSFORM}"`,
+      POOL_ERROR_NAMES.CompilationError
+    );
+  }
+});
 
 /**
  * Compile AssemblyScript source code to WASM binary
@@ -117,7 +121,7 @@ export async function compileAssemblyScript(
 
   // Compile with AssemblyScript compiler
   const ascStart = performance.now();
-  const result = await asc.main(compilerFlags, {
+  const result = await ascMain(compilerFlags, {
     stdout,
     stderr,
     // Let AS read from filesystem for import resolution

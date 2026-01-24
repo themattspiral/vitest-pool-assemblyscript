@@ -6,8 +6,4 @@
  * Package entry point - exports the pool factory for Vitest configuration
  */
 
-export { default } from './pool/index.js';
-
-// Internal Pool Testing
-export type { AssemblyScriptCompilerResult, AssemblyScriptPoolOptions } from './types/types.js';
-export { compileAssemblyScript } from './compiler/index.js';
+export { createAssemblyScriptPool } from './pool/pool-runner-init.js';

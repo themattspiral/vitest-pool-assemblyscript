@@ -9,7 +9,7 @@
  * absolute paths, grouped by file and position).
  */
 
-import { existsSync } from 'node:fs';
+import { access } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,11 +47,15 @@ const addonPathFromSrc = resolve(rootFromSrc, ADDON_PATH);
 
 let rootPath = rootFromDist;
 let addonPath = addonPathFromDist;
-if (!existsSync(addonPath)) {
-  rootPath = rootFromSrc;
-  addonPath = addonPathFromSrc
 
-  if (!existsSync(addonPath)) {
+try {
+  await access(addonPath);
+} catch {
+  try {
+    rootPath = rootFromSrc;
+    addonPath = addonPathFromSrc
+    await access(addonPath);
+  } catch {
     throw createPoolError(
       `Native addon instrumentation file not found at ${addonPathFromDist} or ${addonPathFromSrc}`,
       POOL_ERROR_NAMES.WASMInstrumentationError

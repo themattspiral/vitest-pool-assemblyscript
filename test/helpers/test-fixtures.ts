@@ -18,8 +18,8 @@ import {
 // test with compiled version because asc strip-inline transform needs transpilation
 // (for now! TODO remove after switching to asc API)
 //@ts-ignore
-import { compileAssemblyScript as casDist } from '../../dist/index.mjs';
-import { compileAssemblyScript as casSrc } from '../../src/index.js';
+import { compileAssemblyScript as casDist } from '../../dist/index-internal.mjs';
+import { compileAssemblyScript as casSrc } from '../../src/index-internal.js';
 //@ts-ignore
 const compileAssemblyScript: typeof casSrc = casDist;
 

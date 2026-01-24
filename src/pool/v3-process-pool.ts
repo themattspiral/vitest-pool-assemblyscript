@@ -3,9 +3,10 @@
  */
 
 import { resolve, basename } from 'node:path';
-import { existsSync } from 'node:fs';
+import { access } from 'node:fs/promises';
 import { availableParallelism } from 'node:os';
 import Tinypool from 'tinypool';
+import type { SerializedConfig } from 'vitest';
 import type { Vitest, ProcessPool, TestSpecification } from 'vitest/node';
 import type { Test } from '@vitest/runner/types';
 
@@ -13,34 +14,37 @@ import {
   AS_POOL_WORKER_MSG_FLAG,
   ASSEMBLYSCRIPT_POOL_NAME,
   POOL_ERROR_NAMES,
-} from '../../types/constants.js';
+} from '../types/constants.js';
 import type {
   ResolvedHybridProviderOptions,
-  AssemblyScriptResolvedConfig,
-  RunFileTask,
+  ProcessPoolRunFileTask,
   WASMCompilation,
   TestRunRecord,
   AssemblyScriptPoolWorkerMessage,
-} from '../../types/types.js';
-import { setDebugMode, debug } from '../../util/debug.js';
-import { getResolvedAssemblyScriptConfig } from '../../util/resolve-config.js';
-import { createWorkerChannel } from './worker-channel.js';
+  WorkerThreadInitData,
+} from '../types/types.js';
+import { setGlobalDebugMode, debug } from '../util/debug.js';
+import { createWorkerRPCChannel } from './worker-rpc-channel.js';
 import {
   createPoolError,
   createPoolErrorFromAnyError,
   isAbortError,
-} from '../../util/pool-errors.js';
+} from '../util/pool-errors.js';
 import {
-  createInitialFileTask,
   failTestWithTimeoutError,
-  prepareForTermination,
-} from '../../util/vitest-tasks.js';
+  flagTestTerminated,
+} from '../util/vitest-tasks.js';
+import { createInitialFileTask } from '../util/vitest-file-tasks.js';
+import { getProjectSerializedOrGlobalConfig, resolvePoolOptions } from '../util/resolve-config.js';
 
-const WORKER_PATH = resolve(import.meta.dirname, 'pool-thread/v3/tinypool-thread.mjs');
+// path assumes that we're running from dist/
+const WORKER_PATH = resolve(import.meta.dirname, 'pool-thread/v3-tinypool-thread.mjs');
+
+const POOL_THREAD_IDLE_TIMEOUT_MS = 3_600_000;
 
 async function dispatchFullWorkerRun(
   spec: TestSpecification,
-  config: AssemblyScriptResolvedConfig,
+  config: SerializedConfig,
   isCollectTestsMode: boolean,
   pool: Tinypool,
   poolAbortSignal: AbortSignal,
@@ -52,9 +56,6 @@ async function dispatchFullWorkerRun(
   const testFilePath: string = spec.moduleId; // absolute path
   const base = basename(testFilePath);
 
-  // set debug mode within this async context
-  const poolOptions = config.poolOptions.assemblyScript;
-  setDebugMode(poolOptions.debug);
   debug(`[Pool] ${base} - Starting file worker run at ${fileRunStart} for "${testFilePath}"`);
 
   let fileCompilation: WASMCompilation | undefined = fileCache.get(spec.moduleId);
@@ -67,11 +68,8 @@ async function dispatchFullWorkerRun(
     const file = isTimeoutRedispatch
       ? previousTimedOutTest!.file
       : createInitialFileTask(spec.moduleId, spec.project.name, config.root, config.testTimeout, config.retry);
-    const diffOptions = typeof spec.project.serializedConfig.diff === 'object'
-      ? spec.project.serializedConfig.diff : undefined;
-    const covExclusions = (config.coverage as ResolvedHybridProviderOptions).globbedAssemblyScriptProjectRelativeExcludeOnly || [];
 
-    const { workerPort, poolPort } = createWorkerChannel(spec.project, isCollectTestsMode);
+    const { workerPort, poolPort } = createWorkerRPCChannel(spec.project, isCollectTestsMode);
 
     // Enforce test timeout using setTimeout() and worker messages.
     //   1. worker sends a start message to indicate when the test has started
@@ -113,7 +111,7 @@ async function dispatchFullWorkerRun(
 
             failTestWithTimeoutError(record.test, poolTimeoutTime, elapsedFromWorkerExecutionStart);
 
-            prepareForTermination(record.test);
+            flagTestTerminated(record.test);
 
             timedOutTestThisRun = test;
             fileAbortController.abort(POOL_ERROR_NAMES.WASMExecutionTimeoutError);
@@ -148,18 +146,12 @@ async function dispatchFullWorkerRun(
       }
     });
     
-    const workerTaskData: RunFileTask = {
-      file,
-      isCollectTestsMode,
-      poolOptions,
+    const workerTaskData: ProcessPoolRunFileTask = {
+      dispatchStart: Date.now(),
       port: workerPort,
-      projectRoot: config.root,
-      diffOptions,
-      collectCoverage: config.coverage.enabled,
-      relativeUserCoverageExclusions: covExclusions,
-      testNamePattern: config.testNamePattern,
-      allowOnly: config.allowOnly,
-      bail: config.bail,
+      file,
+      config,
+      isCollectTestsMode,
       timedOutTest: previousTimedOutTest,
       timedOutCompilation: fileCompilation
     };
@@ -200,15 +192,11 @@ async function dispatchFullWorkerRun(
  */
 async function runTests(
   specs: TestSpecification[],
-  config: AssemblyScriptResolvedConfig,
   isCollectTestsMode: boolean,
   pool: Tinypool,
   poolAbortController: AbortController,
   _invalidatedFiles?: string[]
 ): Promise<void> {
-  const poolOptions = config.poolOptions.assemblyScript;
-  setDebugMode(poolOptions.debug);
-
   const mode = isCollectTestsMode ? 'collectTests' : 'runTests';
   debug(`[Pool] -------- ${mode} called for ${specs.length} specs --------`);
 
@@ -228,10 +216,11 @@ async function runTests(
 
   // Create worker for each file
   const fileWorkers: Promise<void>[] = specs.map(async (spec: TestSpecification): Promise<void> => {
-    let timedOutTest = await dispatchFullWorkerRun(spec, config, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache);
+    const { serializedConfig } = spec.project;
+    let timedOutTest = await dispatchFullWorkerRun(spec, serializedConfig, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache);
     
     while (timedOutTest) {
-      timedOutTest = await dispatchFullWorkerRun(spec, config, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache, timedOutTest);
+      timedOutTest = await dispatchFullWorkerRun(spec, serializedConfig, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache, timedOutTest);
     }
   });
 
@@ -259,7 +248,7 @@ async function runTests(
       throw {
         name: POOL_ERROR_NAMES.PoolError,
         message: `Unexpected AssemblyScript Pool Error(s) Encountered during ${mode}`,
-        cause: unexpectedErrors
+        cause: unexpectedErrors[0]
       };
     }
   }
@@ -278,35 +267,25 @@ async function runTests(
 }
 
 export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
-  if (!existsSync(WORKER_PATH)) {
-    throw createPoolError(`Worker file not found at ${WORKER_PATH}`, POOL_ERROR_NAMES.PoolError,);
-  }
-
-  // In multi-project mode, ctx.config is the global config, not the project-specific config
-  // We need to find our project in ctx.projects to get project-specific poolOptions
-  let projectConfig = ctx.config;
-  let multiProjectName;
-  
-  if (ctx.projects && ctx.projects.length > 0) {
-    // Multi-project mode: find the first project using this pool.
-    // Use string.includes because project.config.pool resolves to the *path* of the dist file
-    const project = ctx.projects.find(p => p.config.pool.includes(ASSEMBLYSCRIPT_POOL_NAME));
-
-    if (project) {
-      projectConfig = project.config;
-      multiProjectName = project.name;
+  setImmediate(async () => {
+    try {
+      await access(WORKER_PATH);
+    } catch {
+      throw createPoolError(`Cannot access worker thread file at path: ${WORKER_PATH}`, POOL_ERROR_NAMES.PoolError);
     }
-  }
+  });
 
+  const { config, foundProjectSerializedConfig } = getProjectSerializedOrGlobalConfig(ctx);
+  
   // Resolve pool options and initialize debug mode
-  const resolvedConfig = getResolvedAssemblyScriptConfig(ctx.config, projectConfig);
-  const poolOptions = resolvedConfig.poolOptions.assemblyScript;
-  setDebugMode(poolOptions.debug);
+  // @ts-ignore - we build with v4, but this is correct for v3 (has Config.poolOptions)
+  const poolOptions = resolvePoolOptions(config?.poolOptions);
+  setGlobalDebugMode(poolOptions.debug);
 
   debug('[Pool] Initializing AssemblyScript Pool');
 
-  if (multiProjectName) {
-    debug(`[Pool] Multi-project mode: Using config from project: "${multiProjectName}"`);
+  if (foundProjectSerializedConfig) {
+    debug(`[Pool] Multi-project mode: Using config from project: "${config.name}"`);
   } else {
     debug('[Pool] Single-project mode: No project config found using vitest-pool-assemblyscript pool - Using global config with AssemblyScript pool defaults');
   }
@@ -321,9 +300,12 @@ export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
     filename: WORKER_PATH,
     minThreads: 1,
     maxThreads,
-
-    // Explicitly reuse worker threads - WASM instances are already isolated
+    idleTimeout: POOL_THREAD_IDLE_TIMEOUT_MS,
     isolateWorkers: false,
+    workerData: {
+      asPoolOptions: poolOptions,
+      asCoverageOptions: config.coverage as ResolvedHybridProviderOptions
+    } satisfies WorkerThreadInitData,
   });
 
   // For explicitly terminating all worker threads because of
@@ -341,12 +323,12 @@ export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
     // runs when executing vitest list
     async collectTests(specs: TestSpecification[]) {
       const isCollectTestsMode = true;
-      return runTests(specs, resolvedConfig, isCollectTestsMode, pool, poolAbortController);
+      return runTests(specs, isCollectTestsMode, pool, poolAbortController);
     },
 
     async runTests(specs: TestSpecification[], invalidates?: string[]) {
       const isCollectTestsMode = false;
-      return runTests(specs, resolvedConfig, isCollectTestsMode, pool, poolAbortController, invalidates);
+      return runTests(specs, isCollectTestsMode, pool, poolAbortController, invalidates);
     },
 
     // Cleanup when shutting down

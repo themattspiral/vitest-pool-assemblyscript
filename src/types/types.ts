@@ -1,17 +1,14 @@
-/**
+/*
  * Shared TypeScript types and interfaces
- *
- * This file contains all type definitions used across the vitest-pool-assemblyscript codebase.
- * Types are organized into logical sections for better maintainability.
  */
 
 import type { MessagePort } from 'node:worker_threads';
 import type { BirpcReturn } from 'birpc';
-import type { RunnerRPC, RuntimeRPC } from 'vitest';
+import type { RunnerRPC, RuntimeRPC, SerializedConfig, SerializedCoverageConfig } from 'vitest';
 import type { TestError } from '@vitest/utils';
-import type { ResolvedCoverageOptions, ResolvedConfig } from 'vitest/node';
-import type { SerializedDiffOptions } from '@vitest/utils/diff';
+import type { ResolvedConfig, ResolvedCoverageOptions } from 'vitest/node';
 import type { File, Test, TaskMeta, TestOptions } from '@vitest/runner/types';
+import type { Colors } from 'tinyrainbow';
 
 import {
   AS_POOL_WORKER_MSG_FLAG,
@@ -84,8 +81,7 @@ export interface AssemblyScriptPoolOptions {
 }
 
 /**
- * HybridCoverageProvider configurations options, applied to config's coverage section
- * with module augmentation. 
+ * HybridCoverageProvider configuration options.
  */
 export interface HybridProviderOptions {
   provider: 'custom',
@@ -93,7 +89,7 @@ export interface HybridProviderOptions {
 
   /**
    * Glob patterns for AssemblyScript source files to include in coverage.
-   * Used by pool's hybrid coverage provider to build the complete AS coverage map.
+   * Used to build the complete AS coverage map.
    *
    * The standard `include` patterns are used by the v8 provider for JS/TS files.
    *
@@ -119,9 +115,13 @@ export type ASPoolOptionsFieldsWithDefaultValues = typeof AS_POOL_FIELDS_WITH_DE
 /** Fields with optional values and NO defaults */
 export type ASPoolOptionsOptionalFields = typeof AS_POOL_OPTIONAL_FIELDS[number];
 
-export type AssemblyScriptResolvedConfig = ResolvedConfig & { poolOptions: { assemblyScript: ResolvedAssemblyScriptPoolOptions } };
+export type AssemblyScriptProjectConfig = (SerializedConfig & {
+  coverage: SerializedCoverageConfig & ResolvedHybridProviderOptions;
+}) | ResolvedConfig & {
+  coverage: ResolvedHybridProviderOptions;
+};
 
-/**
+  /**
  * Pool options resolved so that all fields are filled with user values preferentially, 
  * with required fields being guaranteed to be populated with defaults otherwise.
  */
@@ -132,6 +132,7 @@ export type ResolvedAssemblyScriptPoolOptions =
 
 export type ResolvedHybridProviderOptions = 
   Required<HybridProviderOptions>
+
   & Omit<ResolvedCoverageOptions<'v8'>, 'provider'>
   & {
     globbedAssemblyScriptInclude: GlobResult[],
@@ -145,6 +146,10 @@ export type AssemblyScriptTestOptions = Required<Pick<TestOptions, 'timeout' | '
 // Utility Types
 // ============================================================================
 
+export type VitestVersion = 'v3' | 'v4';
+
+export type HighlightFunc = (code: string, options: { colors: Colors }) => string;
+
 export interface GlobResult {
   absolute: string;
   projectRootRelative: string;
@@ -154,43 +159,18 @@ export interface GlobResult {
 // Compilation & Results
 // ============================================================================
 
-/**
- * Compilation options
- */
 export interface AssemblyScriptCompilerOptions {
-  /**
-   * Enable coverage instrumentation by generating a second binary
-   * - false: Clean binary only
-   * - true: Instrumented binary along with clean binary
-   */
   shouldInstrument: boolean;
-  /** Options for instrumentation. */
   instrumentationOptions?: InstrumentationOptions;
-  /**
-   * Strip @inline decorators during compilation
-   * Only applies when coverage is enabled
-   */
   stripInline?: boolean;
-  /**
-   * Path to vitest user project root. Used to resolve relative file paths
-   * for native instrumentation exclusions.
-   *  */
   projectRoot: string;
 }
 
-/**
- * Result of successfully compiling AssemblyScript source
- */
 export interface AssemblyScriptCompilerResult {
-  /** WASM binary */
   binary: Uint8Array;
-  /** Source map JSON */
   sourceMap: string;
-  /** Debug info for coverage reporting (if coverage enabled) */
   debugInfo?: BinaryDebugInfo;
-  /** True if binary has been instrumented */
   isInstrumented: boolean;
-  /** Compilation internal phase timing */
   compileTiming: number;
 }
 
@@ -247,7 +227,7 @@ export interface WebAssemblyCallSite {
  * Coverage data collected during test execution
  *
  * Simple hit count storage using position-based keys for stable merging.
- * Function metadata (names, ranges) comes from ParsedSourceInfo, not here.
+ * Note: Function source metadata (names, ranges) comes from ParsedSourceInfo.
  *
  * Outer Record: keyed by absolute file path
  * Inner Record: keyed by position ("line:column") → hit count
@@ -269,7 +249,7 @@ export interface AssemblyScriptCoveragePayload {
 
 
 // ============================================================================
-// Binary Debug Info (from Native Addon) - v1/v2 Coverage Architecture
+// Binary Debug Info (returned from native instrumentation addon)
 // ============================================================================
 //
 // These types represent debug information extracted from compiled WASM binaries
@@ -347,9 +327,6 @@ export interface BasicBlockDebugInfo {
 
 /**
  * Function debug info extracted from WASM binary via native addon
- *
- * Contains all debug information for a single WASM function including
- * expressions and basic blocks for v2 coverage support.
  */
 export interface FunctionDebugInfo {
   /** WASM function index */
@@ -425,22 +402,17 @@ export interface NativeInstrumentationOptions extends Omit<InstrumentationOption
 }
 
 // ============================================================================
-// Parsed Source Info (from AST Parser) - Coverage Provider
+// Parsed Source Info (from AST Parser)
 // ============================================================================
 //
 // These types represent information parsed from source files via AST.
-// Parsed source info has RANGES (start and end positions) for containment matching.
-//
-// Naming convention: ParsedSource* prefix indicates AST-parsed data.
+// Parsed source info has *ranges* (start and end positions) for containment matching.
 
 /**
  * Function info parsed from AssemblyScript source via AST
- *
- * Used for containment matching: binary function points are matched
- * to source function ranges to establish identity.
  */
 export interface ParsedSourceFunctionInfo {
-  /** Fully qualified name (e.g., "ClassName#methodName" or "moduleName/funcName") */
+  /** Fully "qualified" (WASM debug) name */
   qualifiedName: string;
   /** Short name for display */
   shortName: string;
@@ -570,12 +542,6 @@ export interface WorkerThreadInitData {
   asCoverageOptions: ResolvedHybridProviderOptions;
 }
 
-export interface WorkerThreadResumeContext {
-  timedOutTest: Test;
-  timedOutCompilation: WASMCompilation;
-  runResentTime: number;
-}
-
 export interface AssemblyScriptPoolWorkerMessageBase {
   readonly [AS_POOL_WORKER_MSG_FLAG]: true;
   readonly type: string;
@@ -614,34 +580,37 @@ export interface TestRunRecord {
   timeoutId: NodeJS.Timeout;
 }
 
-export interface RunFileTask {
-  /** vitest File task */
+export interface ThreadSpec {
   file: File;
+  compilation?: WASMCompilation;
+}
 
+export interface RunCompileAndDiscoverTask {
+  dispatchStart: number;
+  workerId: number;
+  port: MessagePort;
+  file: File;
+  config: SerializedConfig;
+  isCollectTestsMode: boolean;
+}
+
+export interface RunTestsTask {
+  dispatchStart: number;
+  workerId: number;
+  port: MessagePort;
+  file: File;
+  compilation: WASMCompilation;
+  config: SerializedConfig;
+  isCollectTestsMode: boolean;
+  timedOutTest?: Test;
+}
+
+export interface ProcessPoolRunFileTask {
+  dispatchStart: number;
+  port: MessagePort;
+  file: File;
+  config: SerializedConfig;
+  isCollectTestsMode: boolean;
   timedOutTest?: Test;
   timedOutCompilation?: WASMCompilation;
-
-  /** true when running a `collectTests()` operation only, false for `runTests()` */
-  isCollectTestsMode: boolean;  
-  /** Pool options */
-  poolOptions: ResolvedAssemblyScriptPoolOptions;
-  /** MessagePort for RPC communication */
-  port: MessagePort;
-  /** Project root directory */
-  projectRoot: string;
-  /** User-defined diff options, if any */
-  diffOptions?: SerializedDiffOptions;
-  
-  /** True if coverage should be collected during this test run */
-  collectCoverage: boolean;
-  /** User-configured coverage exclusions */
-  relativeUserCoverageExclusions: string[];
-  
-  /** Test name pattern for filtering (from -t flag) */
-  testNamePattern?: RegExp;
-  /** Allow .only modifier */
-  allowOnly?: boolean;
-  
-  /** Bail config (halt run after this many failures) */
-  bail?: number;
 }

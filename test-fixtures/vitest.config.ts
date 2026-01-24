@@ -1,6 +1,7 @@
 import { defineConfig, defineProject, ViteUserConfig } from 'vitest/config';
 
-import { createAssemblyScriptPool, defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/config';
+import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
+import { defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/v3/config';
 
 const config: ViteUserConfig = defineConfig({
   test: {
@@ -9,10 +10,10 @@ const config: ViteUserConfig = defineConfig({
     globals: false,
     environment: 'node',
 
-    reporters: ['tree'],
-    // reporters: ['verbose'],
+    // reporters: ['tree'],
+    reporters: ['verbose'],
 
-    retry: 2,
+    retry: 0,
     testTimeout: 500,
     isolate: false,
 
@@ -43,21 +44,21 @@ const config: ViteUserConfig = defineConfig({
 
     projects: [
       // JavaScript/TypeScript tests (built-in pool)
-      defineProject({
-        test: {
-          name: {
-            label: 'ts-fixtures',
-            color: 'blue'
-          },
+      // defineProject({
+      //   test: {
+      //     name: {
+      //       label: 'ts-fixtures',
+      //       color: 'blue'
+      //     },
 
-          include: [ 'test-fixtures/js/**/*.test.ts' ],
+      //     include: [ 'test-fixtures/js/**/*.test.ts' ],
 
-          retry: 1,
-          testTimeout: 500,
-        }
-      }),
+      //     retry: 1,
+      //     testTimeout: 500,
+      //   }
+      // }),
 
-      // v4
+      //v4
       defineProject({
         test: {
           name: {
@@ -68,9 +69,9 @@ const config: ViteUserConfig = defineConfig({
           include: ['test-fixtures/assembly/**/*.as.test.ts'],
           exclude: ['coverage-fixtures/**/*'],
 
-          // bail: 5,
-          retry: 2,
-          testTimeout: 20,
+          // bail: 2,
+          retry: 0,
+          testTimeout: 500,
           isolate: false,
 
           // v4
@@ -93,13 +94,13 @@ const config: ViteUserConfig = defineConfig({
       //     include: ['test-fixtures/assembly/**/*.as.test.ts'],
       //     exclude: ['coverage-fixtures/**/*'],
 
-      //     // bail: 5,
-      //     retry: 1,
+      //     // bail: 2,
+      //     retry: 0,
       //     testTimeout: 500,
       //     isolate: false,
 
       //     // v3
-      //     pool: 'vitest-pool-assemblyscript',
+      //     pool: 'vitest-pool-assemblyscript/v3',
       //     poolOptions: {
       //       assemblyScript: {
       //         debug: false,

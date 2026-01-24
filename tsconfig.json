@@ -24,7 +24,7 @@
     "noFallthroughCasesInSwitch": true,
 
     // Module compatibility
-    "esModuleInterop": true,
+    "esModuleInterop": false,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
