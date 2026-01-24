@@ -1,3 +1,4 @@
+import type { SerializedConfig } from 'vitest';
 import type { File, Task } from '@vitest/runner/types';
 import {
   calculateSuiteHash,
@@ -9,7 +10,6 @@ import {
 import { ASSEMBLYSCRIPT_POOL_NAME } from '../types/constants.js';
 import { DEFAULT_ASSEMBLYSCRIPT_TEST_OPTIONS } from '../types/typed-constants.js';
 import type {
-  AssemblyScriptResolvedConfig,
   AssemblyScriptSuiteTaskMeta,
   AssemblyScriptTestError,
   AssemblyScriptTestOptions,
@@ -53,7 +53,7 @@ export function createInitialFileTask(
 export function createFailedFileTask(
   testFile: string,
   projectName: string,
-  config: AssemblyScriptResolvedConfig,
+  config: SerializedConfig,
   error: AssemblyScriptTestError,
 ): File {
   const file: File = createFileTask(

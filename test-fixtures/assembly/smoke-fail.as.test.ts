@@ -7,7 +7,7 @@ test('as smoke fail [should fail]', () => {
   assert(x == 2);
 });
 
-test('as smoke fail long running [should fail]', TestOptions.retry(4), () => {
+test('as smoke fail long running [should fail]', TestOptions.timeout(50).retry(1), () => {
   const res = fibonacciRecursive(37);
   assertEqual(2, 3);
 });

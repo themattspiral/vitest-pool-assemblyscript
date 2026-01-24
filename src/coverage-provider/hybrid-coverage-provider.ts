@@ -14,8 +14,9 @@ import type {
   ReportContext,
   ResolvedCoverageOptions,
   CustomProviderOptions,
+  ResolvedConfig,
 } from 'vitest/node';
-import type { AfterSuiteRunMeta } from 'vitest';
+import type { AfterSuiteRunMeta, SerializedConfig } from 'vitest';
 import v8CoverageModule from '@vitest/coverage-v8';
 import { type CoverageMap, createCoverageMap } from 'istanbul-lib-coverage';
 
@@ -25,19 +26,17 @@ import '../config/custom-provider-options.js';
 import { convertToIstanbulFormat } from './istanbul-converter.js';
 import { parseFunctionsFromFile } from './ast-parser.js';
 import { globFiles } from './glob-utils.js';
+import { getProjectSerializedOrGlobalConfig } from '../util/resolve-config.js';
 import { mergeCoverageData } from './coverage-merge.js';
-import { debug, setGlobalDebugMode } from '../util/debug.js';
+import { debug } from '../util/debug.js';
 import { createPoolError } from '../util/pool-errors.js';
-import { getResolvedAssemblyScriptConfig } from '../util/resolve-config.js';
 import type {
   AssemblyScriptCoveragePayload,
-  AssemblyScriptResolvedConfig,
   CoverageData,
   GlobResult,
   ResolvedHybridProviderOptions,
 } from '../types/types.js';
 import {
-  ASSEMBLYSCRIPT_POOL_NAME,
   POOL_ERROR_NAMES,
   COVERAGE_PAYLOAD_FORMATS
 } from '../types/constants.js';
@@ -47,31 +46,14 @@ export class HybridCoverageProvider implements CoverageProvider {
 
   private v8Provider: CoverageProvider | undefined;
   private accumulatedCoverageData: CoverageData = { hitCountsByFileAndPosition: {} };
-  private resolvedProjectConfig: AssemblyScriptResolvedConfig = {} as AssemblyScriptResolvedConfig;
+  private projectConfig: SerializedConfig | ResolvedConfig = {} as SerializedConfig;
   private coverageOptions: ResolvedHybridProviderOptions = {} as ResolvedHybridProviderOptions;
 
   /**
    * Initialize the provider and get reference to v8 provider
    */
   async initialize(ctx: Vitest): Promise<void> {
-    let projectConfig = ctx.config;
-
-    // TODO - extract the multi-project config logic to helper, it's repeated here and pool
-    // although to be honest perhaps we shouldn't do this here at all - coverage config should 
-    // only be global. Add separate debug config for custom coverage options.
-    if (ctx.projects && ctx.projects.length > 0) {
-      // Multi-project mode: find the first project using this pool
-      // Use string.includes because project.config.pool resolves to the *path* of the dist file
-      const project = ctx.projects.find(p => p.config.pool.includes(ASSEMBLYSCRIPT_POOL_NAME));
-
-      if (project) {
-        projectConfig = project.config;
-      }
-    }
-
-    this.resolvedProjectConfig = getResolvedAssemblyScriptConfig(ctx.config, projectConfig);
-
-    setGlobalDebugMode(this.resolvedProjectConfig.poolOptions.assemblyScript.debug);
+    this.projectConfig = getProjectSerializedOrGlobalConfig(ctx).config;
 
     debug('[HybridCoverageProvider] Initializing Provider');
 
@@ -134,7 +116,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     }
 
     debug(() => {
-      const files = meta.testFiles.map(tf => relative(this.resolvedProjectConfig.root, tf)).join(',');
+      const files = meta.testFiles.map(tf => relative(this.projectConfig.root, tf)).join(',');
       return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun complete - TIMING ${(performance.now() - start).toFixed(2)} ms | testFiles: "${files}"`;
     });
   }
@@ -247,7 +229,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     
     debug(`[HybridCoverageProvider] Resolving Coverage Options`);
   
-    const definedCoverageOptions = this.resolvedProjectConfig.coverage as CustomProviderOptions;
+    const definedCoverageOptions = this.projectConfig.coverage as CustomProviderOptions;
     const resolvedV8Options = this.v8Provider.resolveOptions() as ResolvedCoverageOptions<'v8'>;
 
     // For some reason the v8 provider builds its `excludes` values to include a null byte.
@@ -267,14 +249,14 @@ export class HybridCoverageProvider implements CoverageProvider {
     const globbedAssemblyScriptInclude = globFiles(
       definedCoverageOptions.assemblyScriptInclude || [],
       definedCoverageOptions.assemblyScriptExclude || [],
-      this.resolvedProjectConfig.root
+      this.projectConfig.root
     );
     debug(`[HybridCoverageProvider] Including ${globbedAssemblyScriptInclude.length} AS files in coverage map`);
     
     const globbedAssemblyScriptExcludeOnly = globFiles(
       definedCoverageOptions.assemblyScriptExclude || [],
       [],
-      this.resolvedProjectConfig.root
+      this.projectConfig.root
     );
     debug(`[HybridCoverageProvider] Excluding ${globbedAssemblyScriptExcludeOnly.length} AS files from coverage map & instrumentation`);
     

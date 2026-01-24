@@ -149,7 +149,7 @@ export async function runCompileAndDiscover(
     };
   } catch (error) {
     const poolError = createPoolErrorFromAnyError(
-      `${fileLogLabel} - runFile failure in worker`,
+      `${fileLogLabel} - runCompileAndDiscover failure in worker`,
       POOL_ERROR_NAMES.PoolError,
       error
     );
@@ -163,7 +163,7 @@ export async function runCompileAndDiscover(
     debug(`${fileLogPrefix} - Reported file error`);
   } finally {
     await flushRpcUpdates(rpc);
-    debug(`${fileLogPrefix} - runFile Completed`);
+    debug(`${fileLogPrefix} - runCompileAndDiscover Completed`);
   }
 
   return compilation;

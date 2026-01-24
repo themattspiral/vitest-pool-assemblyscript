@@ -33,7 +33,8 @@ import { createWorkerRPCChannel } from './worker-rpc-channel.js';
 type GlobalThreadPools = { compilePool: Tinypool, runPool: Tinypool };
 type EventCallback = (arg: any) => void;
 
-const THREAD_RESOLVE_TIMEOUT_MS = 2000;
+const THREAD_RESOLVE_TIMEOUT_MS = 2000 as const;
+const POOL_THREAD_IDLE_TIMEOUT_MS = 3_600_000 as const;
 
 // path assumes that we're running from dist/
 const COMPILE_WORKER_PATH = resolve(import.meta.dirname, 'pool-thread/compile-worker-thread.mjs');
@@ -250,7 +251,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
         minThreads: actualThreadCount,
         maxThreads: actualThreadCount,
         isolateWorkers: false,
-        idleTimeout: Infinity,
+        idleTimeout: POOL_THREAD_IDLE_TIMEOUT_MS,
         env: this.poolOptions.env as Record<string, string>,
         execArgv: this.poolOptions.execArgv,
         workerData: {
@@ -264,7 +265,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
         minThreads: actualThreadCount,
         maxThreads: actualThreadCount,
         isolateWorkers: false,
-        idleTimeout: Infinity,
+        idleTimeout: POOL_THREAD_IDLE_TIMEOUT_MS,
         env: this.poolOptions.env as Record<string, string>,
         execArgv: this.poolOptions.execArgv,
         workerData: {

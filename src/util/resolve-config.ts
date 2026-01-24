@@ -1,14 +1,15 @@
-import type { ResolvedConfig } from 'vitest/node';
+import type { TestProject, Vitest } from 'vitest/node';
 
-import {
+import type {
   AssemblyScriptPoolOptions,
   ASPoolOptionsFieldsWithDefaultValues,
   ResolvedAssemblyScriptPoolOptions,
-  AS_POOL_FIELDS_WITH_DEFAULTS,
-  AssemblyScriptResolvedConfig
+  ResolvedHybridProviderOptions,
+  AssemblyScriptProjectConfig,
 } from '../types/types.js';
+import { AS_POOL_FIELDS_WITH_DEFAULTS } from '../types/types.js';
+import { ASSEMBLYSCRIPT_POOL_NAME, POOL_ERROR_NAMES } from '../types/constants.js';
 import { createPoolError } from '../util/pool-errors.js';
-import { POOL_ERROR_NAMES } from '../types/constants.js';
 
 /** Vitest config fields that have default values. Internally these will always be defined. */
 // type ConfigFieldsWithDefaultValues = 'pool';
@@ -29,10 +30,8 @@ const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOption
   coverageMemoryPagesMax: 4
 } as const;
 
-/**
- * Get AssemblyScript pool options from user-provided pool options
- */
-export function resolvePoolOptions(userPoolOptions?: AssemblyScriptPoolOptions): ResolvedAssemblyScriptPoolOptions {
+// v4: used in runner init to parse user-provided param
+export function resolvePoolOptions(userPoolOptions?: any): ResolvedAssemblyScriptPoolOptions {
   const poolOptions: AssemblyScriptPoolOptions = userPoolOptions ?? DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS;
 
   // resolve fields with defaults if user hasn't provided them
@@ -55,56 +54,41 @@ export function resolvePoolOptions(userPoolOptions?: AssemblyScriptPoolOptions):
   return resolved;
 }
 
-/**
- * Get AssemblyScript pool options from resolved config (vitest v3)
- *
- * Extracts and casts poolOptions.assemblyScript from config with proper typing.
- * Resolves to default values if not user-provided.
- */
-export function getResolvedPoolOptions(_config?: ResolvedConfig): ResolvedAssemblyScriptPoolOptions {
-  // const poolOptions: AssemblyScriptPoolOptions = config?.poolOptions?.assemblyScript ?? DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS;
-  const poolOptions: AssemblyScriptPoolOptions = DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS;
+// v3 & hybrid coverage provider: used to get project config & poolOptions, with global coverage on project config
+export function getProjectSerializedOrGlobalConfig(ctx: Vitest): {
+  config: AssemblyScriptProjectConfig;
+  foundProjectSerializedConfig: boolean;
+} {
+  let testProject: TestProject | undefined;
+  let foundProjectSerializedConfig: boolean = false;
 
-  // resolve fields with defaults if user hasn't provided them
-  for (const configKey of AS_POOL_FIELDS_WITH_DEFAULTS) {
-    if (poolOptions[configKey] === undefined) {
-      poolOptions[configKey] = DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS[configKey] as any;
+  // In multi-project mode, ctx.config is the global config, not the project-specific config
+  // We need to find our project in ctx.projects to get project-specific config at the "pool level" in v3,
+  // and in the hybrid coverage provider regardless of version (specifically the project root)
+  if (ctx.projects && ctx.projects.length > 0) {
+    // Multi-project mode: find the first project using this pool
+    // Use string.includes because project.config.pool resolves to the *path* of the dist file
+    const project = ctx.projects.find(p => p.config.pool.includes(ASSEMBLYSCRIPT_POOL_NAME));
+
+    if (project) {
+      testProject = project;
+      foundProjectSerializedConfig = true;
     }
   }
 
-  const resolved = {
-    ...poolOptions,
-    isResolved: true
-  } as ResolvedAssemblyScriptPoolOptions;
-
-  if (resolved.coverageMemoryPagesMin < 1 || resolved.coverageMemoryPagesMax < 1) {
-    throw createPoolError(
-      `Coverage memory page size options must be positive - coverageMemoryPagesMin: ${resolved.coverageMemoryPagesMin}`
-      + ` | coverageMemoryPagesMax: ${resolved.coverageMemoryPagesMax}`,
-      POOL_ERROR_NAMES.PoolConfigError
-    );
-  }
-
-  return resolved;
-}
-
-export function getResolvedAssemblyScriptConfig(globalConfig: ResolvedConfig, projectConfig: ResolvedConfig): AssemblyScriptResolvedConfig {
-  const mergedConfig: AssemblyScriptResolvedConfig = {
-    ...globalConfig,
-    poolOptions: {
-      assemblyScript: getResolvedPoolOptions(projectConfig)
+  const config = !!testProject ? {
+    ...testProject.serializedConfig,
+    coverage: {
+      ...testProject.serializedConfig.coverage,
+      ...(ctx.config.coverage as ResolvedHybridProviderOptions)
     }
+  } : {
+    ...ctx.config,
+    coverage: ctx.config.coverage as ResolvedHybridProviderOptions
   };
 
-  // merge defined project config options into global for a unified config
-  for (const [prop, projectVal] of Object.entries(projectConfig)) {
-    if (projectVal !== undefined && prop !== 'poolOptions') {
-      const key = prop as keyof AssemblyScriptResolvedConfig;
-      
-      // @ts-ignore
-      mergedConfig[key] = projectVal;
-    }
-  }
-
-  return mergedConfig;
+  return {
+    config,
+    foundProjectSerializedConfig
+  };
 }
