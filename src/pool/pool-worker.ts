@@ -1,3 +1,4 @@
+import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 import { access } from 'node:fs/promises';
 import type { MessagePort } from 'node:worker_threads';
@@ -33,6 +34,8 @@ import { createWorkerRPCChannel } from './worker-rpc-channel.js';
 type GlobalThreadPools = { compilePool: Tinypool, runPool: Tinypool };
 type EventCallback = (arg: any) => void;
 
+const IDLE_COMPILE_THREADS_FACTOR = 0.25 as const;
+const IDLE_RUN_THREADS_FACTOR = 1 as const;
 const THREAD_RESOLVE_TIMEOUT_MS = 2000 as const;
 const POOL_THREAD_IDLE_TIMEOUT_MS = 3_600_000 as const;
 
@@ -106,17 +109,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   }
 
   async start(): Promise<void> {
-    debug(`[${this.logModuleWithId}] start | running PoolWorker count: ${GLOBAL_RUNNING_POOLWORKER_COUNT}`);
-
-    const start = performance.now();
-    const { compilePool: computePool, runPool } = await this.getGlobalThreadPools();
-    
-    debug(`[${this.logModuleWithId}] start: fetched global thread pools in ${(performance.now() - start).toFixed(2)} ms`
-      + ` | computePool queueSize: ${computePool.queueSize} | runPool queueSize: ${runPool.queueSize}`
-    );
-  
-    this.isWorkerRunning = true;
-    GLOBAL_RUNNING_POOLWORKER_COUNT++;
+    // do all work in send() message intercept handler so we have access to the config
   }
 
   async stop(): Promise<void> {
@@ -128,8 +121,6 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
 
     debug(`[${this.logModuleWithId}] AssemblyScriptPoolWorker STOPPED | running PoolWorker count: ${GLOBAL_RUNNING_POOLWORKER_COUNT}`);
     this.currentWorkerId = undefined;
-
-    this.destroyGlobalPoolsIfNeeded();
   }
 
   send(message: WorkerRequest): void {
@@ -140,13 +131,23 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
         this.currentWorkerId = message.workerId;
         this.config = message.context.config;
         debug(`[${this.logModuleWithId}] send: vitest sent "start" message | Captured workerId and config`);
-        
-        if (this.isWorkerRunning) {
+
+        setImmediate(async () => {
+          const start = performance.now();
+          const { compilePool, runPool } = await this.getGlobalThreadPools(this.config?.maxWorkers);
+          
+          debug(`[${this.logModuleWithId}] start: fetched global thread pools in ${(performance.now() - start).toFixed(2)} ms`
+            + ` | compilePool queueSize: ${compilePool.queueSize} | runPool queueSize: ${runPool.queueSize}`
+          );
+          
+          this.isWorkerRunning = true;
+          GLOBAL_RUNNING_POOLWORKER_COUNT++;
+          debug(`[${this.logModuleWithId}] start | new running PoolWorker count: ${GLOBAL_RUNNING_POOLWORKER_COUNT}`);
+          
           this.notifyVitest('started');
           debug(`[${this.logModuleWithId}] send: responded "started" to vitest`);
-        } else {
-          debug(`[${this.logModuleWithId}] send: WARNING - PoolWorker not started yet!!`);
-        }
+        });
+        
         break;
       
       // this happens BEFORE stop() is called (stop() is for PoolWorker, "stop" is for thread)
@@ -233,23 +234,23 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   // Thread Pool Management
   // ─────────────────────────────────────────────────────────────────────────────
 
-  private async getGlobalThreadPools(threadCount: number = 7): Promise<GlobalThreadPools> {
+  private async getGlobalThreadPools(workerCount?: number): Promise<GlobalThreadPools> {
     if (GLOBAL_POOLS_PROMISE) {
       return GLOBAL_POOLS_PROMISE;
     }
 
     GLOBAL_POOLS_PROMISE = new Promise<GlobalThreadPools>(async (resolve, _reject) => {
-      const actualThreadCount = Math.max(threadCount, 1);
-      debug(`[${this.logModuleWithId}] Creating global thread pool | ${actualThreadCount} threads`);
+      const workers = workerCount ?? availableParallelism();
 
-      const start = performance.now();
+      const actualCompileThreadCount = Math.max(Math.ceil(workers * IDLE_COMPILE_THREADS_FACTOR), 1);
+      debug(`[${this.logModuleWithId}] Creating global compile thread pool | ${actualCompileThreadCount} threads`);
       
-      const controller = new AbortController();
+      const start = performance.now();
       
       const compilePool = new Tinypool({
         filename: COMPILE_WORKER_PATH,
-        minThreads: actualThreadCount,
-        maxThreads: actualThreadCount,
+        minThreads: 1,
+        maxThreads: actualCompileThreadCount,
         isolateWorkers: false,
         idleTimeout: POOL_THREAD_IDLE_TIMEOUT_MS,
         env: this.poolOptions.env as Record<string, string>,
@@ -260,10 +261,13 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
         } satisfies WorkerThreadInitData
       });
 
+      const actualRunThreadCount = Math.max(Math.ceil(workers * IDLE_RUN_THREADS_FACTOR), 1);
+      debug(`[${this.logModuleWithId}] Creating global run thread pool | ${actualRunThreadCount} threads`);
+
       const runPool = new Tinypool({
         filename: TEST_WORKER_PATH,
-        minThreads: actualThreadCount,
-        maxThreads: actualThreadCount,
+        minThreads: 1,
+        maxThreads: actualRunThreadCount,
         isolateWorkers: false,
         idleTimeout: POOL_THREAD_IDLE_TIMEOUT_MS,
         env: this.poolOptions.env as Record<string, string>,
@@ -276,21 +280,22 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
 
       debug(`[${this.logModuleWithId}] Created global thread pools in ${(performance.now() - start).toFixed(2)} ms`);
 
-      GLOBAL_POOL_ABORT_CONTROLLER = controller;
+      GLOBAL_POOL_ABORT_CONTROLLER = new AbortController();
       resolve({ compilePool, runPool });
     });
     
     return GLOBAL_POOLS_PROMISE;
   }
 
+  // @ts-ignore
   private async destroyGlobalPoolsIfNeeded(): Promise<void> {
     if (GLOBAL_RUNNING_POOLWORKER_COUNT === 0 && GLOBAL_POOLS_PROMISE) {
       const destroyStart = performance.now();
       debug(`[${this.logModuleWithId}] Destroying Tinypools...`);
 
       try {
-        const { compilePool: computePool, runPool } = await GLOBAL_POOLS_PROMISE;
-        await Promise.all([ computePool.destroy(), runPool.destroy() ]);
+        const { compilePool, runPool } = await GLOBAL_POOLS_PROMISE;
+        await Promise.all([ compilePool.destroy(), runPool.destroy() ]);
       } catch {}
 
       GLOBAL_POOLS_PROMISE = undefined;
@@ -410,7 +415,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       + ` | files: "${this.threadSpecs.map(s => s.file.filepath).join(',')}"`
     );
 
-    const { compilePool, runPool } = await this.getGlobalThreadPools();
+    const { compilePool, runPool } = await this.getGlobalThreadPools(this.config?.maxWorkers);
 
     // compile
     if (!isResume) {
