@@ -15,7 +15,6 @@ const config: ViteUserConfig = defineConfig({
 
     retry: 0,
     testTimeout: 500,
-    isolate: false,
 
     coverage: {
       enabled: true,
@@ -72,7 +71,6 @@ const config: ViteUserConfig = defineConfig({
           // bail: 2,
           retry: 0,
           testTimeout: 500,
-          isolate: false,
 
           // v4
           pool: createAssemblyScriptPool({
@@ -97,7 +95,6 @@ const config: ViteUserConfig = defineConfig({
       //     // bail: 2,
       //     retry: 0,
       //     testTimeout: 500,
-      //     isolate: false,
 
       //     // v3
       //     pool: 'vitest-pool-assemblyscript/v3',

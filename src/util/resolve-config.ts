@@ -11,18 +11,6 @@ import { AS_POOL_FIELDS_WITH_DEFAULTS } from '../types/types.js';
 import { ASSEMBLYSCRIPT_POOL_NAME, POOL_ERROR_NAMES } from '../types/constants.js';
 import { createPoolError } from '../util/pool-errors.js';
 
-/** Vitest config fields that have default values. Internally these will always be defined. */
-// type ConfigFieldsWithDefaultValues = 'pool';
-
-/**
- * Default values for built-in Vitest config options that are used by our pool
- *
- * Only includes fields we need to provide defaults for.
- */
-// export const DEFAULT_CONFIG: Required<Pick<ResolvedConfig, ConfigFieldsWithDefaultValues>> = {
-//   pool: 'vitest-pool-assemblyscript'
-// };
-
 const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOptions, ASPoolOptionsFieldsWithDefaultValues>> = {
   debug: false,
   stripInline: true,

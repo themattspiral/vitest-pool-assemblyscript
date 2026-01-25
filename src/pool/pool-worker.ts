@@ -34,10 +34,11 @@ import { createWorkerRPCChannel } from './worker-rpc-channel.js';
 type GlobalThreadPools = { compilePool: Tinypool, runPool: Tinypool };
 type EventCallback = (arg: any) => void;
 
-const IDLE_COMPILE_THREADS_FACTOR = 0.25 as const;
-const IDLE_RUN_THREADS_FACTOR = 1 as const;
 const THREAD_RESOLVE_TIMEOUT_MS = 2000 as const;
 const POOL_THREAD_IDLE_TIMEOUT_MS = 3_600_000 as const;
+const IDLE_RUN_THREADS_FACTOR = 1 as const;
+// @ts-ignore - see note in getGlobalThreadPools
+const IDLE_COMPILE_THREADS_FACTOR = 0.25 as const;
 
 // path assumes that we're running from dist/
 const COMPILE_WORKER_PATH = resolve(import.meta.dirname, 'pool-thread/compile-worker-thread.mjs');
@@ -242,7 +243,15 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     GLOBAL_POOLS_PROMISE = new Promise<GlobalThreadPools>(async (resolve, _reject) => {
       const workers = workerCount ?? availableParallelism();
 
-      const actualCompileThreadCount = Math.max(Math.ceil(workers * IDLE_COMPILE_THREADS_FACTOR), 1);
+      // TODO - decide which is better when scaling
+      // Empirical observations seem to show that minimum parallelization for compilation
+      // tends to *dramatically* improve compilation times because of v8 warmpup on repeated calls to asc.main,
+      // so much so that this time savings **almost always** outweighs the benefits of speading over many
+      // available threads. The **almost** is the key word here- this needs to be tested on platforms with
+      // higher available paralellism (> 8) to see if it holds true.
+      const actualCompileThreadCount = workers > 1 ? 2 : 1;
+      // const actualCompileThreadCount = Math.max(Math.ceil(workers * IDLE_COMPILE_THREADS_FACTOR), 1);
+
       debug(`[${this.logModuleWithId}] Creating global compile thread pool | ${actualCompileThreadCount} threads`);
       
       const start = performance.now();
