@@ -274,18 +274,16 @@ export class HybridCoverageProvider implements CoverageProvider {
     return resolvedCoverageOptions;
   }
 
-  /**
-   * Clean coverage data
-   */
-  async clean(clean?: boolean): Promise<void> {
+  async clean(clean: boolean = true): Promise<void> {
     debug('[HybridCoverageProvider] Clean coverage data - clean:', clean);
     if (clean) {
       this.accumulatedCoverageData = { hitCountsByFileAndPosition: {} };
-      debug('[HybridCoverageProvider] Cleaned all coverage data!');
+      debug('[HybridCoverageProvider] Cleaned all internal coverage data');
     }
 
     if (this.v8Provider) {
       await this.v8Provider.clean(clean);
+      debug(`[HybridCoverageProvider] V8 provider finished clean(${clean})`);
     }
   }
 }
