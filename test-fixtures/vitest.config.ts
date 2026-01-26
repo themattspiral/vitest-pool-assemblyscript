@@ -17,7 +17,7 @@ const config: ViteUserConfig = defineConfig({
     testTimeout: 500,
 
     coverage: {
-      enabled: true,
+      enabled: false,
       reportOnFailure: true,
       reportsDirectory: 'coverage-fixtures/',
       

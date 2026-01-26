@@ -30,6 +30,7 @@ export const ASSEMBLYSCRIPT_LIB_PREFIX = '~lib/' as const;
 export const POOL_INTERNAL_PATHS: string[] = [
   'assembly/index.ts',
   'assembly/assert.ts',
+  'assembly/compare.ts',
   'assembly/describe.ts',
   'assembly/expect.ts',
   'assembly/options.ts',

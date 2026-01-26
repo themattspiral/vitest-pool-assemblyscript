@@ -154,25 +154,21 @@ export function createTestExecutionImports(
         (test.meta as AssemblyScriptTestTaskMeta).assertionsPassedCount++;
       },
 
-      __assertion_fail(msgPtr: number, typeNamePtr: number, valuesProvided: boolean, expected?: any, actual?: any) {
+      __assertion_fail(msgPtr: number, typeNamePtr: number, valuesProvided: boolean, actualPtr?: number, expectedPtr?: number) {
         const errorMsg = liftString(memory, msgPtr);
         const assertionValueType = liftString(memory, typeNamePtr);
+        let actual: string | undefined;
+        let expected: string | undefined;
         
         const assertionFailure: FailedAssertion = {
           message: errorMsg,
           typeName: assertionValueType,
-          valuesProvided
+          valuesProvided: Boolean(valuesProvided)
         };
         
-        if (valuesProvided && test.result) {
-          // coerce to appropriate JS type based on AS type, for nicer diff formatting
-          if (assertionValueType === 'bool') {
-            assertionFailure.expected = Boolean(expected);
-            assertionFailure.actual = Boolean(actual);
-          } else {
-            assertionFailure.expected = expected;
-            assertionFailure.actual = actual;
-          }
+        if (valuesProvided && actualPtr && expectedPtr) {
+          assertionFailure.actual = liftString(memory, actualPtr);
+          assertionFailure.expected = liftString(memory, expectedPtr);
         }
         
         (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push(assertionFailure);

@@ -1,5 +1,7 @@
 // @external functions are imported to the WASM execution environment from pool code
 
+import { equals } from './compare';
+
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @external("env", "__assertion_pass")
 declare function __assertion_pass(): void;
@@ -10,8 +12,8 @@ declare function __assertion_fail<T>(
   msg: string,
   typeName: string,
   valuesProvided: bool,
-  expected?: T,
-  actual?: T
+  actual?: T,
+  expected?: T
 ): void;
 
 
@@ -45,16 +47,24 @@ export function assert<T>(condition: T, message: string = "Assertion failed"): v
 /**
  * Generic equality assertion. Assumes the same primitive type for both values.
  */
-export function assertEqual<T>(actual: T, expected: T, message: string = "Equality assertion failed"): void {
-  const condition = expected === actual;
+export function assertEqual<T>(actual: T, expected: T, message: string | null = null): void {
+  console.log("at assertEqual for " + nameof<T>());
+  
+  let msg = message;
+  if (msg == null) {
+    msg = "Equality assertion failed";
+  }
+
+
+  const condition = equals(actual, expected);
 
   if (condition) {
     __assertion_pass();
   } else {
-    __assertion_fail<T>(message, nameof<T>(), true, expected, actual);
+    __assertion_fail<T>(msg, nameof<T>(), true, actual, expected);
 
     // Abort on failure - terminates WASM execution - must be called from WASM.
     // Imported abort handler will handle this and mark the test as failed.
-    abort(message);
+    abort(msg + " abort str");
   }
 }
