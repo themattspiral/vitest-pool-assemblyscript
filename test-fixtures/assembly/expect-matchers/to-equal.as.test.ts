@@ -5,11 +5,13 @@ describe("arrays", () => {
     const a: i32[] = [1, 2, 3, 4, 5];
     const b: i32[] = [1, 2, 3, 4, 5];
     expect(a).toEqual(b);
+    expect(a).toStrictEqual(b);
   });
   
   test('arrays with different int types with same values are equal', () => {
     const a: u64[] = [1, 9, 37, 2];
     const b: i8[] = [1, 9, 37, 2];
+    // NOTE: This behavior differs from JS expect.toBeCloseTo
     expect(a).toEqual(b);
   });
   
@@ -34,6 +36,12 @@ describe("arrays", () => {
   test('arrays with different values are not equal', () => {
     const a: i32[] = [1, 5, 5, 9, 9];
     const b: i32[] = [1, 2, 3, 4, 5];
+    expect(a).not.toEqual(b);
+  });
+
+  test('arrays with different lengths are not equal', () => {
+    const a: u8[] = [1, 5, 5, 9, 9, 1];
+    const b: u8[] = [1, 5, 5, 9, 9];
     expect(a).not.toEqual(b);
   });
 });

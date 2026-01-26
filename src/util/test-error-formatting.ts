@@ -56,11 +56,11 @@ export function getSourceCodeFrameString(
 // Source code formatting functions borrowed from Vitest
 // ============================================================================
 
-/*
+/**
  * Vitest doesn't expose generateCodeFrame as a util, so we have
  * recreated it here with minimal changes.
  * 
- * See https://github.com/vitest-dev/vitest/blob/v3.2.4/packages/vitest/src/node/printError.ts#L424
+ * @see https://github.com/vitest-dev/vitest/blob/v3.2.4/packages/vitest/src/node/printError.ts#L424
  * 
  * Vitest is released under the MIT license, included in this project's root.
  * Copyright (c) 2021-Present Vitest Team

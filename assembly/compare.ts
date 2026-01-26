@@ -101,6 +101,27 @@ export function identical<T, U>(actual: T, expected: U): bool {
   }
 }
 
+export function closeTo<T, U>(actual: T, expected: U, precision: i32 = 2): bool {
+  const exactMatch = identical(actual, expected);
+  if (exactMatch) {
+    return true;
+  }
+
+  if ( (isInteger<T>(actual) && isInteger<U>(expected)) || (isString<T>(actual) && isString<U>(expected)) ) {
+    return exactMatch;
+  }
+  
+  if (isFloat<T>(actual) || isFloat<U>(expected)) {
+    const actualF64: f64 = f64(actual);
+    const expectedF64: f64 = f64(expected);
+    const expectedDiff: f64 = 10.0 ** -precision / 2.0;
+    const receivedDiff: f64 = Math.abs(expectedF64 - actualF64);
+    return receivedDiff < expectedDiff;
+  }
+
+  return false;
+}
+
 /**
  * Generic value equality comparison. Assumes comparable types for both values.
  * Does not yet support user-defined types.

@@ -14,7 +14,7 @@ describe("primitives", () => {
       expect(c).not.toBe(b);
     });
     
-    test("boolean values are identical when stored as integers", () => {
+    test("boolean values are identical when converted to integers", () => {
       const a: boolean = true;
       const b: u64 = u64(true);
       expect(a).toBe(a);
@@ -29,11 +29,27 @@ describe("primitives", () => {
       expect(c).not.toBe(b);
     });
     
-    test("boolean values are identical when stored as floats", () => {
+    test("boolean values are identical when converted to floats", () => {
       const a: boolean = true;
       const b: f32 = f32(true);
       expect(a).toBe(a);
       expect(a).toBe(b);
+    });
+
+    test("boolean values are identical to correct numerical equivalents", () => {
+      const a: boolean = true;
+      const b: u8 = 1;
+      const c: f64 = 1.0;
+      expect(a).toBe(b);
+      expect(a).toBe(c);
+      expect(b).toBe(c);
+      
+      const d: boolean = false;
+      const e: u8 = 0;
+      const f: f64 = 0.0;
+      expect(d).toBe(e);
+      expect(d).toBe(f);
+      expect(e).toBe(f);
     });
   });
 

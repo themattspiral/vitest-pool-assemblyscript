@@ -14,7 +14,11 @@ declare function __assertion_fail<T>(
   expected?: T
 ): void;
 
-import { equals, identical } from './compare';
+import {
+  closeTo,
+  equals,
+  identical
+} from './compare';
 
 
 function itemMessageString<T>(item: T): string {
@@ -53,6 +57,9 @@ function arrayMessageString<T extends ArrayLike<unknown>>(array: T): string {
 
 
 @final
+/**
+ * Expect matcher
+ */
 export class ExpectMatcher<T> {
   private isInverted: bool = false;
   private isSoft: bool = false;
@@ -62,14 +69,66 @@ export class ExpectMatcher<T> {
     this.actual = val;
   }
 
+  /**
+   * Checks that a value is what you expect. Primitives and strings are compared directly,
+   * and references are checked for reference equality only (including objects, arrays, etc).
+   * Don't use `toBe` with floating-point numbers - see `toBeCloseTo` instead.
+   *
+   * @example
+   * expect(result).toBe(42);
+   * expect(status).toBe(true);
+   */
   toBe<U>(val: U, message: string | null = null): void {
     this.assertComparison(identical(this.actual, val), this.actual, val, "to be", message);
   }
 
-  toBeCloseTo<U >(): void {}
+  /**
+   * Checks if a value is close to what you expect. Using exact equality with floating point
+   * numbers often doesn't work correctly, because small internal rounding occurs to be able
+   * to represent floats in binary. This rounding means intuitive comparisons will often fail.
+   * 
+   * Comparing strings, integers, or references will fall back to using a `toBe` comparison.
+   * 
+   * @param precisionOrMessage - Specify an integer representing the number of decimal places 
+   * that must match for values to be considered close. Defaults to 2 digits, meaning effectively
+   * that values must be within 0.005 of each other. If a string is provided, it will be used
+   * as the assertion failure message. If neither is provided, both use defaults.
+   */
+  toBeCloseTo<U, V = i32, W = string>(
+    val: U,
+    // @ts-ignore
+    precisionOrMessage: V = 2,
+    // @ts-ignore
+    messageOrNull: W = null
+  ): void {
+    let precision: i32 = 2;
+    let message: string | null = null;
+
+    if (isInteger<V>(precisionOrMessage)) {
+      precision = precisionOrMessage;
+
+      if (isString<W>(messageOrNull)) {
+        message = <string>messageOrNull;
+      }
+    } else if (isString<V>(precisionOrMessage)) {
+      message = <string>messageOrNull;
+    }
+
+    this.assertComparison(closeTo(this.actual, val, precision), this.actual, val, "to be close to", message);
+  }
   
+  /**
+   * Checks for equality!
+   */
   toEqual<U>(val: U, message: string | null = null): void {
-    this.assertComparison(equals(this.actual, val), this.actual, val, "to equal", message);
+    this.assertComparison(equals(this.actual, val), this.actual, val, "to deeply equal", message);
+  }
+  
+  /**
+   * Alias for `toEqual`. Currently no differences in AssemblyScript.
+   */
+  toStrictEqual<U>(val: U, message: string | null = null): void {
+    this.assertComparison(equals(this.actual, val), this.actual, val, "to strictly equal", message);
   }
 
   get not(): this {
@@ -99,7 +158,7 @@ export class ExpectMatcher<T> {
       const expectedStr = itemMessageString(expected);
 
       const msg = message == null
-        ? "Expected " + actualStr + " " + notStr + methodStr + " " + expectedStr
+        ? "expected " + actualStr + " " + notStr + methodStr + " " + expectedStr
         : message;
 
       __assertion_fail<string>(msg, nameof<T>() + " " + nameof<U>(), true, actualStr, expectedStr);
