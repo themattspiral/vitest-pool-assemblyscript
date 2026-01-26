@@ -59,11 +59,18 @@ function mapEquals<
  * (or same reference type) for provided values.
  */
 export function identical<T, U>(actual: T, expected: U): bool {
-  if (isNullable<T>() && actual == null && expected == null) {
-    return true;
-  }
-
   if (isReference<T>(actual) && isReference<U>(expected)) {
+    const actualIsNullable = isNullable<T>(actual);
+    const actualIsNull = actualIsNullable && actual == null;
+    const expectedIsNullable = isNullable<U>(expected);
+    const expectedIsNull = expectedIsNullable && expected == null;
+    
+    if (actualIsNull && expectedIsNull) {
+      return true;
+    } else if ( (actualIsNull && !expectedIsNull) || (!actualIsNull && expectedIsNull) ) {
+      return false;
+    }
+
     if (isString<T>(actual) && isString<U>(expected)) {
       return <string>actual == <string>expected;
     } else {
@@ -110,7 +117,7 @@ export function closeTo<T, U>(actual: T, expected: U, precision: i32 = 2): bool 
   if ( (isInteger<T>(actual) && isInteger<U>(expected)) || (isString<T>(actual) && isString<U>(expected)) ) {
     return exactMatch;
   }
-  
+
   if (isFloat<T>(actual) || isFloat<U>(expected)) {
     const actualF64: f64 = f64(actual);
     const expectedF64: f64 = f64(expected);
@@ -159,5 +166,9 @@ export function equals<T, U>(actual: T, expected: U): bool {
 
   // TODO value compare
   throw new Error("Comparison of user-defined object types not yet implemented");
+}
+
+export function truthyOrFalsey<T>(actual: T, expected: bool): bool {
+  return !!actual == expected;
 }
 

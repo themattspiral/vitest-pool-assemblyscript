@@ -17,17 +17,18 @@ declare function __assertion_fail<T>(
 import {
   closeTo,
   equals,
-  identical
+  identical,
+  truthyOrFalsey
 } from './compare';
 
 
 function itemMessageString<T>(item: T): string {
   let str = "";
 
-  if (isNullable<T>(item) && item == null) {
+  if (isReference<T>(item) && isNullable<T>(item) && item == null) {
     str += "<null>";
   } else if (isString<T>(item)) {
-    str += item;
+    str += `"${item}"`;
   } else if (isInteger<T>(item) || isFloat<T>(item) || item instanceof Set || item instanceof Map) {
     str += item.toString();
   } else if (item instanceof ArrayBuffer) {
@@ -42,6 +43,10 @@ function itemMessageString<T>(item: T): string {
 }
 
 function arrayMessageString<T extends ArrayLike<unknown>>(array: T): string {
+  if (isNullable<T>(array) && array == null) {
+    return "<null>";
+  }
+
   let str = "[";
   for (let i = 0; i < array.length; i++) {
     str += itemMessageString(array[i]);
@@ -69,17 +74,23 @@ export class ExpectMatcher<T> {
     this.actual = val;
   }
 
+  get not(): this {
+    this.isInverted = !this.isInverted;
+    return this;
+  }
+  
+  // get soft(): this {
+  //   this.isSoft = true;
+  //   return this;
+  // }
+
   /**
    * Checks that a value is what you expect. Primitives and strings are compared directly,
    * and references are checked for reference equality only (including objects, arrays, etc).
    * Don't use `toBe` with floating-point numbers - see `toBeCloseTo` instead.
-   *
-   * @example
-   * expect(result).toBe(42);
-   * expect(status).toBe(true);
    */
   toBe<U>(val: U, message: string | null = null): void {
-    this.assertComparison(identical(this.actual, val), this.actual, val, "to be", message);
+    this.assertComparison(identical(this.actual, val), this.actual, val, "to be", true, message);
   }
 
   /**
@@ -114,31 +125,30 @@ export class ExpectMatcher<T> {
       message = <string>messageOrNull;
     }
 
-    this.assertComparison(closeTo(this.actual, val, precision), this.actual, val, "to be close to", message);
+    this.assertComparison(closeTo(this.actual, val, precision), this.actual, val, "to be close to", true, message);
   }
   
   /**
-   * Checks for equality!
+   * Used when you want to check that two objects have the same value. Currently supports checking
+   * equality of Arrays, Sets, Maps, and nulls. Does not yet support user-defined object field checking.
    */
   toEqual<U>(val: U, message: string | null = null): void {
-    this.assertComparison(equals(this.actual, val), this.actual, val, "to deeply equal", message);
+    this.assertComparison(equals(this.actual, val), this.actual, val, "to deeply equal", true, message);
   }
   
   /**
    * Alias for `toEqual`. Currently no differences in AssemblyScript.
    */
   toStrictEqual<U>(val: U, message: string | null = null): void {
-    this.assertComparison(equals(this.actual, val), this.actual, val, "to strictly equal", message);
+    this.assertComparison(equals(this.actual, val), this.actual, val, "to strictly equal", true, message);
   }
 
-  get not(): this {
-    this.isInverted = !this.isInverted;
-    return this;
+  toBeTruthy(message: string | null = null): void {
+    this.assertComparison(truthyOrFalsey(this.actual, true), this.actual, true, "to be truthy", false, message);
   }
   
-  get soft(): this {
-    this.isSoft = true;
-    return this;
+  toBeFalsey(message: string | null = null): void {
+    this.assertComparison(truthyOrFalsey(this.actual, false), this.actual, false, "to be falsey", false, message);
   }
 
   private abortTest(message: string): void {
@@ -147,7 +157,7 @@ export class ExpectMatcher<T> {
     }
   }
 
-  private assertComparison<T, U>(rawCondition: bool, actual: T, expected: U, methodStr: string, message: string | null = null): void {
+  private assertComparison<T, U>(rawCondition: bool, actual: T, expected: U, methodStr: string, printExpected: boolean, message: string | null = null): void {
     const condition = this.isInverted ? !rawCondition : rawCondition;
 
     if (condition) {
@@ -158,7 +168,7 @@ export class ExpectMatcher<T> {
       const expectedStr = itemMessageString(expected);
 
       const msg = message == null
-        ? "expected " + actualStr + " " + notStr + methodStr + " " + expectedStr
+        ? `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}`
         : message;
 
       __assertion_fail<string>(msg, nameof<T>() + " " + nameof<U>(), true, actualStr, expectedStr);
