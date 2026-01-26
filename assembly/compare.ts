@@ -55,7 +55,8 @@ function mapEquals<
 }
 
 /**
- * Generic primitive / reference equality comparison. Assumes comparable primitive type (or same reference type) for values.
+ * Generic primitive / reference equality comparison. Assumes comparable primitive types
+ * (or same reference type) for provided values.
  */
 export function identical<T, U>(actual: T, expected: U): bool {
   if (isNullable<T>() && actual == null && expected == null) {
@@ -69,9 +70,28 @@ export function identical<T, U>(actual: T, expected: U): bool {
       return changetype<usize>(actual) == changetype<usize>(expected);
     }
   } else {
-    if (isInteger<T>(actual) && isInteger<U>(expected)) { 
-      return i64(actual) == i64(expected);
+    if (isInteger<T>(actual) && isInteger<U>(expected)) {
+      const actualSigned = isSigned<T>(actual);
+      const expectedSigned = isSigned<U>(expected);
+
+      if (actualSigned && expectedSigned) {
+        return i64(actual) == i64(expected);
+      } else if (!actualSigned && !expectedSigned) {
+        return u64(actual) == u64(expected);
+      } else if (actualSigned && !expectedSigned) {
+        if (actual < 0) {
+          return false;
+        }
+        return u64(actual) == u64(expected);
+      } else {
+        if (expected < 0) {
+          return false;
+        }
+        return u64(actual) == u64(expected);
+      }
     } else if (isFloat<T>(actual) && isFloat<U>(expected)) {
+      return f64(actual) === f64(expected);
+    } else if ( (isFloat<T>(actual) && isInteger<U>(expected)) || (isInteger<T>(actual) && isFloat<U>(expected)) ) {
       return f64(actual) === f64(expected);
     } else if (isVector<T>(actual) && isVector<U>(expected)) {
       return <v128>actual == <v128>expected;
@@ -92,7 +112,7 @@ export function equals<T, U>(actual: T, expected: U): bool {
     // primitive or string: return result of comparing
     return exactMatch;
   } else if (exactMatch) {
-    // reference comparison passed already
+    // primitive / reference comparison passed already
     return true;
   }
 

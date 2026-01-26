@@ -16,7 +16,7 @@ describe("fibonacci", () => {
     assert(result == 514229);
   });
   
-  test.only('fibonacci 30 [should fail]', TestOptions.retry(3), () => {
+  test('fibonacci 30 [should fail]', TestOptions.retry(3), () => {
     const result = fibonacciRecursive(30);
     expect(result).toBe(832041); // intentionally wrong
   });

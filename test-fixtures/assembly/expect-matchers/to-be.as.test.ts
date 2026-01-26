@@ -1,6 +1,42 @@
 import { test, expect, describe, TestOptions } from '../../../assembly';
 
 describe("primitives", () => {
+  describe("booleans", () => {
+    test("boolean values are identical", () => {
+      const a: boolean = true;
+      const b: boolean = true;
+      expect(a).toBe(a);
+      expect(a).toBe(b);
+      
+      const c: boolean = false;
+      expect(c).toBe(c);
+      expect(c).not.toBe(a);
+      expect(c).not.toBe(b);
+    });
+    
+    test("boolean values are identical when stored as integers", () => {
+      const a: boolean = true;
+      const b: u64 = u64(true);
+      expect(a).toBe(a);
+      expect(a).toBe(b);
+      
+      const c: u16 = u16(false);
+      const d: boolean = false;
+      expect(c).toBe(c);
+      expect(d).toBe(d);
+      expect(c).toBe(d);
+      expect(c).not.toBe(a);
+      expect(c).not.toBe(b);
+    });
+    
+    test("boolean values are identical when stored as floats", () => {
+      const a: boolean = true;
+      const b: f32 = f32(true);
+      expect(a).toBe(a);
+      expect(a).toBe(b);
+    });
+  });
+
   describe("integers", () => {
     test("same types and values are identical", () => {
       const a: i64 = -9_876_543_210;
@@ -45,6 +81,10 @@ describe("primitives", () => {
       const c: u32 = 29;
       const d: i8 = 29;
       expect(c).toBe(d);
+
+      const e: i64 = 3_123_456_789;
+      const f: u32 = 3_123_456_789;
+      expect(e).toBe(f);
     });
   });
   
@@ -77,6 +117,22 @@ describe("primitives", () => {
       const b: f32 = 9 / 7;
       expect(a).not.toBe(b);
     });
+  });
+});
+
+describe("floats and integers together", () => {
+  test("different types with same values are identical", () => {
+    const a: i64 = 654_321;
+    const b: f32 = 654_321.0;
+    expect(a).toBe(b);
+    
+    const c: f64 = 29.0;
+    const d: u8 = 29;
+    expect(c).toBe(d);
+
+    const e: f64 = -40096.0;
+    const f: i32 = -40096;
+    expect(e).toBe(f);
   });
 });
 
