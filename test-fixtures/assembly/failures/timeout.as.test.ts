@@ -18,7 +18,7 @@ describe("fibonacci", () => {
 
   test('fibonacci 30 [retry x3] [should fail]', TestOptions.retry(3), () => {
     const result = fibonacciRecursive(30);
-    expect(result).toBe(832041, "intentionally wrong to test timeout retries");
+    expect(result).toBe(832041); // intentionally wrong to test timeout retries
   });
 
   test('fibonacci 31', () => {
@@ -34,7 +34,7 @@ describe("fibonacci", () => {
   describe("long running fibs", TestOptions.retry(0), () => {
     test('fibonacci 33 [timeout - retry x2] [should fail]',  TestOptions.timeout(15).retry(2), () => {
       const result = fibonacciRecursive(33);
-      expect(result).not.toBe(3524578, "should timeout before getting to assertion");
+      expect(result).not.toBe(3524578); // should timeout before getting to assertion
     });
 
     test('fibonacci 34', () => {
@@ -54,7 +54,7 @@ describe("fibonacci", () => {
 
     test('fibonacci 38 [timeout - retry x0] [should fail]', TestOptions.timeout(200), () => {
       const result = fibonacciRecursive(38);
-      expect(result).not.toBe(39088169, "should timeout before getting to assertion");
+      expect(result).not.toBe(39088169); // should timeout before getting to assertion
     });
   });
 });

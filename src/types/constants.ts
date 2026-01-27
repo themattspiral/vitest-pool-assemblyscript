@@ -46,7 +46,7 @@ export const TEST_ERROR_NAMES = {
 
 /** Error names for internal AssemblyScript pool failures */
 export const POOL_ERROR_NAMES = {
-  /** AssemblyScript oompiler (asc) error */
+  /** AssemblyScript compiler (asc) error */
   CompilationError: 'CompilationError',
   /** Native instrumentation and debug info extraction error */
   WASMInstrumentationError: 'WASMInstrumentationError',
@@ -60,12 +60,14 @@ export const POOL_ERROR_NAMES = {
   PoolConfigError: 'PoolConfigError',
   /** Generic AssemblyScript pool error */
   PoolError: 'PoolError',
+  /** User syntax error in test/suite/expect */
+  PoolSyntaxError: 'PoolSyntaxError',
 
   /** Flow Control: Indicates intentional abort */
   PoolRunAbortedError: 'PoolRunAbortedError',
   /**
-   * Flow Control: Indicates WASM execution halt through provided abort() handler,
-   * any should be handled by reporting an AssemblyScriptTestError to vitest
+   * Flow Control: Indicates WASM execution halt through abort() handler,
+   * and should be handled by reporting an AssemblyScriptTestError to vitest
    */
   WASMExecutionAbortError: 'WASMExecutionAbortError',
   /** Flow Control: Indicates WASM execution halt because test timeout elapsed */

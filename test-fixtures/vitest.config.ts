@@ -43,19 +43,19 @@ const config: ViteUserConfig = defineConfig({
 
     projects: [
       // JavaScript/TypeScript tests (built-in pool)
-      // defineProject({
-      //   test: {
-      //     name: {
-      //       label: 'ts-fixtures',
-      //       color: 'blue'
-      //     },
+      defineProject({
+        test: {
+          name: {
+            label: 'ts-fixtures',
+            color: 'blue'
+          },
 
-      //     include: [ 'test-fixtures/js/**/*.test.ts' ],
+          include: [ 'test-fixtures/js/**/*.test.ts' ],
 
-      //     retry: 0,
-      //     testTimeout: 500,
-      //   }
-      // }),
+          retry: 0,
+          testTimeout: 500,
+        }
+      }),
 
       //v4
       defineProject({

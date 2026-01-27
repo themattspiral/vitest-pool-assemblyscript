@@ -7,7 +7,7 @@ describe("suite should pass when test within it uses `fails` option and passes",
   });
 
   test.fails("should pass with a failing assertion when `fails` option is set", () => {
-    expect(false).toBeTruthy("expected to fail");
+    expect(false).toBeTruthy();
   });
 });
 

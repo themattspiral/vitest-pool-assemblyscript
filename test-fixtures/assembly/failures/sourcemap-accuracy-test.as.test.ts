@@ -21,16 +21,16 @@ import { test, expect } from '../../../assembly';
 import { helperThatFails, nestedHelperThatFails, outerHelper } from '../../assembly-src/sourcemap-utils';
 
 
-// Test 1: Error at line 25, column 36
-test('test_line_25 [should fail]', (): void => { expect(false).toBeTruthy('ASSERT_ERROR@25:36'); });
+// Test 1: Error at line 25, column 36 - ASSERT_ERROR@25:36
+test('test_line_25 [should fail]', (): void => { expect(false).toBeTruthy(); });
 
 
 
 
 
 
-// Test 2: Error at line 33, column 39 (indented with 4 spaces)
-test('test_line_33 [should fail]', (): void => {    expect(false).toBeTruthy('ASSERT_ERROR@33:39'); });
+// Test 2: Error at line 33, column 39 (indented with 4 spaces) - ASSERT_ERROR@33:39
+test('test_line_33 [should fail]', (): void => {    expect(false).toBeTruthy(); });
 
 
 
@@ -46,9 +46,9 @@ test('test_nested_helper_error [should fail]', (): void => {
   outerHelper(); // RUNTIME_ERROR@46:3 STACK_DEPTH:4 EXPECT_IN:sourcemap-utils.ts:13:17 Out of bounds
 });
 
-// Test 5: Multi-line expect (expect on line 51, false argument on line 52)
+// Test 5: Multi-line expect (expect on line 51, false argument on line 52) ASSERT_ERROR@51:3
 test('test_line_51_multiline [should fail]', (): void => {
   expect(
     false
-  ).toBeTruthy('ASSERT_ERROR@51:3');
+  ).toBeTruthy();
 });

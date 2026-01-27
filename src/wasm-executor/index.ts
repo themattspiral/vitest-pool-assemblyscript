@@ -20,8 +20,13 @@ import { createDiscoveryImports, createTestExecutionImports } from './wasm-impor
 import { enhanceTestError } from './wasm-errors.js';
 import { createPoolError, createPoolErrorFromAnyError } from '../util/pool-errors.js';
 import { getTaskLogLabel } from '../util/vitest-tasks.js';
+import { extractCallStack } from './source-maps.js';
 
 const DEBUG_COVERAGE_EXTRACT = false;
+const SIG_MISMATCH_ERROR_MSG = `WASM RuntimeError indicates function signature type mismatch during test suite collection.`
+  + ` This is likely caused by passing a non-void callback to expect().`
+  + ` Use braces to ensure it returns void  e.g. \`expect(() => { failingFunction(); }).toThrowError()\`.`
+  + ` Look for the failing expect() within the describe() block indicated in the stack trace.`
 
 function covDebug(...args: any[]): void {
   if (DEBUG_COVERAGE_EXTRACT) {
@@ -85,6 +90,33 @@ export async function executeWASMDiscovery(
       exports._start();
     } catch (error) {
       const thrownErrAny: any = error as any;
+
+      const isFunctionSignatureMismatch: boolean = error instanceof WebAssembly.RuntimeError
+        && thrownErrAny?.message.includes('null function or function signature mismatch');
+      if (isFunctionSignatureMismatch) {
+        const runtimeError = error as WebAssembly.RuntimeError;
+        const stack = extractCallStack(runtimeError);
+        const testError = await enhanceTestError(
+          {
+            name: TEST_ERROR_NAMES.WASMRuntimeError,
+            message: runtimeError.message
+          } satisfies AssemblyScriptTestError,
+          file,
+          sourceMap,
+          false,
+          logPrefix,
+          highlight,
+          stack,
+          diffOptions
+        );
+
+        throw createPoolError(
+          `${SIG_MISMATCH_ERROR_MSG}\n Caused by: ${runtimeError.name}: ${runtimeError.message}`,
+          POOL_ERROR_NAMES.PoolSyntaxError,
+          undefined,
+          testError
+        );
+      }
 
       // Check to see if error came from the discovery abort() handler
       // For discovery abort, test error is set on PoolError's `cause`,
@@ -168,11 +200,19 @@ export async function executeWASMTest(
     : undefined;
 
   // Create import object with pool-side functions for capturing test execution results
-  const importObject = createTestExecutionImports(memory, test, handleLog, logPrefix, coverageMemory);
+  const { imports, provideFunctionTable } = createTestExecutionImports(memory, test, handleLog, logPrefix, coverageMemory);
 
   // Instantiate fresh WASM instance for this test
-  const instance = new WebAssembly.Instance(wasmModule, importObject);
+  const instance = new WebAssembly.Instance(wasmModule, imports);
   const exports = instance.exports as Record<string, unknown>;
+
+  // Func table accessable because we're using the AS compiler --exportTable flag
+  const table = exports.table as WebAssembly.Table | undefined;
+  
+  // allow imports to access table
+  if (table && typeof table.get === 'function') {
+    provideFunctionTable(table);
+  }
 
   // Call _start to run top-level code. Test registration is stubbed/noop duing execution,
   // but this call is still needed to initialize any user-defined globals / other top level code.
@@ -185,10 +225,6 @@ export async function executeWASMTest(
   }
 
   let testFn: (() => void) | null | undefined;
-
-  // Get the test function to execute via function table
-  // (accessable because we're using the AS compiler --exportTable flag)
-  const table = exports.table as WebAssembly.Table | undefined;
   
   if (table && typeof table.get === 'function') {
     const idx = (test.meta as AssemblyScriptTestTaskMeta).fnIndex;

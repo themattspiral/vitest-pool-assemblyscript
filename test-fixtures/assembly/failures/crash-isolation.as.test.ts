@@ -10,8 +10,9 @@ it("first test passes", () => {
   expect(true).toBeTruthy();
 }, TestOptions.timeout(300).retry(5));
 
+// ASSERT_ERROR@14:3
 it("second test crashes [should fail]", TestOptions.retry(2), () => {
-  expect(false).toBeTruthy("ASSERT_ERROR@14:3 this assertion should cause abort");
+  expect(false).toBeTruthy();
 });
 
 it("third test should still run", () => {

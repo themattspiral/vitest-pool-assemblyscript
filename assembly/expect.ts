@@ -14,13 +14,20 @@ declare function __assertion_fail<T>(
   expected?: T
 ): void;
 
+// @ts-ignore: top level decorators are supported in AssemblyScript
+@external("env", "__expect_throw")
+declare function __expect_throw(fnPtr: usize, errorMsg?: string): void;
+
+// @ts-ignore: top level decorators are supported in AssemblyScript
+@external("env", "__end_expect_throw")
+declare function __end_expect_throw(): void;
+
 import {
   closeTo,
   equals,
   identical,
   truthyOrFalsey
 } from './compare';
-
 
 function itemMessageString<T>(item: T): string {
   let str = "";
@@ -61,10 +68,10 @@ function arrayMessageString<T extends ArrayLike<unknown>>(array: T): string {
 }
 
 
-@final
 /**
  * Expect matcher
- */
+*/
+@final
 export class ExpectMatcher<T> {
   private isInverted: bool = false;
   private isSoft: bool = false;
@@ -89,8 +96,8 @@ export class ExpectMatcher<T> {
    * and references are checked for reference equality only (including objects, arrays, etc).
    * Don't use `toBe` with floating-point numbers - see `toBeCloseTo` instead.
    */
-  toBe<U>(val: U, message: string | null = null): void {
-    this.assertComparison(identical(this.actual, val), this.actual, val, "to be", true, message);
+  toBe<U>(val: U): void {
+    this.assertComparison(identical(this.actual, val), this.actual, val, "to be", true);
   }
 
   /**
@@ -100,63 +107,70 @@ export class ExpectMatcher<T> {
    * 
    * Comparing strings, integers, or references will fall back to using a `toBe` comparison.
    * 
-   * @param precisionOrMessage - Specify an integer representing the number of decimal places 
+   * @param precision - Specify an integer representing the number of decimal places 
    * that must match for values to be considered close. Defaults to 2 digits, meaning effectively
-   * that values must be within 0.005 of each other. If a string is provided, it will be used
-   * as the assertion failure message. If neither is provided, both use defaults.
+   * that values must be within 0.005 of each other.
    */
-  toBeCloseTo<U, V = i32, W = string>(
-    val: U,
-    // @ts-ignore
-    precisionOrMessage: V = 2,
-    // @ts-ignore
-    messageOrNull: W = null
-  ): void {
-    let precision: i32 = 2;
-    let message: string | null = null;
-
-    if (isInteger<V>(precisionOrMessage)) {
-      precision = precisionOrMessage;
-
-      if (isString<W>(messageOrNull)) {
-        message = <string>messageOrNull;
-      }
-    } else if (isString<V>(precisionOrMessage)) {
-      message = <string>messageOrNull;
-    }
-
-    this.assertComparison(closeTo(this.actual, val, precision), this.actual, val, "to be close to", true, message);
+  toBeCloseTo<U>(val: U, precision: i32 = 2): void {
+    this.assertComparison(closeTo(this.actual, val, precision), this.actual, val, "to be close to", true);
   }
   
   /**
    * Used when you want to check that two objects have the same value. Currently supports checking
    * equality of Arrays, Sets, Maps, and nulls. Does not yet support user-defined object field checking.
    */
-  toEqual<U>(val: U, message: string | null = null): void {
-    this.assertComparison(equals(this.actual, val), this.actual, val, "to deeply equal", true, message);
+  toEqual<U>(val: U): void {
+    this.assertComparison(equals(this.actual, val), this.actual, val, "to deeply equal", true);
   }
   
   /** Alias for `toEqual`. Currently no differences in AssemblyScript. */
-  toStrictEqual<U>(val: U, message: string | null = null): void {
-    this.assertComparison(equals(this.actual, val), this.actual, val, "to strictly equal", true, message);
+  toStrictEqual<U>(val: U): void {
+    this.assertComparison(equals(this.actual, val), this.actual, val, "to strictly equal", true);
   }
 
-  toBeTruthy(message: string | null = null): void {
-    this.assertComparison(truthyOrFalsey(this.actual, true), this.actual, true, "to be truthy", false, message);
+  toBeTruthy(): void {
+    this.assertComparison(truthyOrFalsey(this.actual, true), this.actual, true, "to be truthy", false);
   }
   
-  toBeFalsey(message: string | null = null): void {
-    this.assertComparison(truthyOrFalsey(this.actual, false), this.actual, false, "to be falsey", false, message);
+  toBeFalsey(): void {
+    this.assertComparison(truthyOrFalsey(this.actual, false), this.actual, false, "to be falsey", false);
   }
 
-  toBeNull(message: string | null = null): void {
+  toBeNull(): void {
     const isNull: bool = isReference<T>(this.actual) && isNullable<T>(this.actual) && this.actual == null;
-    this.assertComparison(isNull, this.actual, null, "to be null", false, message);
+    this.assertComparison(isNull, this.actual, null, "to be null", false);
   }
   
-  toBeNullable(message: string | null = null): void {
+  toBeNullable(): void {
     const nullable: bool = isReference<T>(this.actual) && isNullable<T>(this.actual);
-    this.assertComparison(nullable, this.actual, null, "to be nullable", false, message);
+    this.assertComparison(nullable, this.actual, null, "to be nullable", false);
+  }
+
+  toThrowError(errorMsg: string | null = null): void {
+    if (this.isInverted) {
+      throw new Error("expect.not operator is not supported with the toThrowError() matcher");
+    }
+
+    if (isFunction<T>()) {
+      // @ts-ignore
+      const fnIndex = this.actual.index;
+
+      if (errorMsg == null) {
+        __expect_throw(fnIndex);
+      } else {
+        __expect_throw(fnIndex, errorMsg);
+      }
+
+      // if we get here it didn't throw, so this handles the missing error
+      __end_expect_throw();
+    } else {
+      throw new Error("expect() requires a callback function when used with toThrowError() matcher");
+    }
+  }
+
+  /** Alias for `toThrowError` */
+  toThrow(errorMsg: string | null = null): void {
+    this.toThrowError(errorMsg);
   }
 
   private abortTest(message: string): void {
@@ -165,7 +179,7 @@ export class ExpectMatcher<T> {
     }
   }
 
-  private assertComparison<T, U>(rawCondition: bool, actual: T, expected: U, methodStr: string, printExpected: boolean, message: string | null = null): void {
+  private assertComparison<T, U>(rawCondition: bool, actual: T, expected: U, methodStr: string, printExpected: boolean): void {
     const condition = this.isInverted ? !rawCondition : rawCondition;
 
     if (condition) {
@@ -174,10 +188,7 @@ export class ExpectMatcher<T> {
       const notStr = this.isInverted ? "not " : "";
       const actualStr = itemMessageString(actual);
       const expectedStr = itemMessageString(expected);
-
-      const msg = message == null
-        ? `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}`
-        : message;
+      const msg = `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}`;
 
       __assertion_fail<string>(msg, nameof<T>() + " " + nameof<U>(), true, actualStr, expectedStr);
   

@@ -7,7 +7,7 @@ describe("suite should pass when test within it uses `fails` option and passes",
   });
 
   test.fails("should pass with failing assertion when `fails` option is set", () => {
-    expect(false).toBeTruthy("this failing assertion causes the test to pass");
+    expect(false).toBeTruthy();
   });
 });
 
@@ -22,7 +22,7 @@ describe("another suite that should pass", () => {
     });
 
     test.fails("should pass with failing assertion when `fails` option is set", () => {
-      expect(false).toBeTruthy("this failing assertion causes the test to pass");
+      expect(false).toBeTruthy();
     });
   });
 });

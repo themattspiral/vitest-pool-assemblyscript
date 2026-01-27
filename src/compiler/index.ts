@@ -148,7 +148,7 @@ export async function compileAssemblyScript(
       ? `${result.error.message}\n\n${stderrLines.join('')}`
       : result.error.message;
 
-    throw createPoolError(errorMessage, POOL_ERROR_NAMES.CompilationError, result.error.stack);
+    throw createPoolError(errorMessage, POOL_ERROR_NAMES.CompilationError, errorMessage);
   }
 
   if (!binary) {
