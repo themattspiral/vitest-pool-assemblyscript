@@ -136,9 +136,7 @@ export class ExpectMatcher<T> {
     this.assertComparison(equals(this.actual, val), this.actual, val, "to deeply equal", true, message);
   }
   
-  /**
-   * Alias for `toEqual`. Currently no differences in AssemblyScript.
-   */
+  /** Alias for `toEqual`. Currently no differences in AssemblyScript. */
   toStrictEqual<U>(val: U, message: string | null = null): void {
     this.assertComparison(equals(this.actual, val), this.actual, val, "to strictly equal", true, message);
   }
@@ -149,6 +147,16 @@ export class ExpectMatcher<T> {
   
   toBeFalsey(message: string | null = null): void {
     this.assertComparison(truthyOrFalsey(this.actual, false), this.actual, false, "to be falsey", false, message);
+  }
+
+  toBeNull(message: string | null = null): void {
+    const isNull: bool = isReference<T>(this.actual) && isNullable<T>(this.actual) && this.actual == null;
+    this.assertComparison(isNull, this.actual, null, "to be null", false, message);
+  }
+  
+  toBeNullable(message: string | null = null): void {
+    const nullable: bool = isReference<T>(this.actual) && isNullable<T>(this.actual);
+    this.assertComparison(nullable, this.actual, null, "to be nullable", false, message);
   }
 
   private abortTest(message: string): void {
