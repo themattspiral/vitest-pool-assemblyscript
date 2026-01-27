@@ -11,26 +11,26 @@
  * - WITH stripping: @inline functions appear in coverage
  */
 
-import { test, assert } from '../../../assembly';
+import { test, expect } from '../../../assembly';
 import { addInlined, addNormal, multiplyWithInternalInlining, multiplyNormal, throwsError, callsInlinedAdd } from '../../assembly-src/inline-utils';
 
 test('inline functions are called', (): void => {
   const sum1: i32 = addInlined(2, 3);
-  assert(sum1 == 5, 'inlined addition works');
+  expect(sum1).toBe(5);
 
   const sum2: i32 = addNormal(2, 3);
-  assert(sum2 == 5, 'normal addition works');
+  expect(sum2).toBe(5);
 
   const prod1: i32 = multiplyWithInternalInlining(4, 5);
-  assert(prod1 == 20, 'internally inlined multiplication works');
+  expect(prod1).toBe(20);
 
   const prod2: i32 = multiplyNormal(4, 5);
-  assert(prod2 == 20, 'normal multiplication works');
+  expect(prod2).toBe(20);
 });
 
 test('externally inlined function callsInlinedAdd', () => {
   const res: i32 = callsInlinedAdd(1, 2);
-  assert(res == 3, 'externally inlined add works');
+  expect(res).toBe(3);
 });
 
 test('inline function error source mapped to correct line [should fail]', (): void => {

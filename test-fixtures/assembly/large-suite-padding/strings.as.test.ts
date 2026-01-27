@@ -3,25 +3,25 @@
  * Tests string operations from imported module
  */
 
-import { test, assert } from '../../../assembly';
+import { test, expect } from '../../../assembly';
 import { getLength, isEmpty, concat, repeat } from '../../assembly-src/string-utils';
 
 test("getLength returns string length", () => {
-  assert(getLength("hello") == 5, "hello has 5 characters");
-  assert(getLength("") == 0, "empty string has 0 characters");
+  expect(getLength("hello")).toBe(5);
+  expect(getLength("")).toBe(0);
 });
 
 test("isEmpty checks for empty strings", () => {
-  assert(isEmpty(""), "empty string is empty");
-  assert(!isEmpty("test"), "test is not empty");
+  expect(isEmpty("")).toBeTruthy();
+  expect(isEmpty("test")).toBeFalsey();
 });
 
 test("concat concatenates strings", () => {
   const result = concat("hello", "world");
-  assert(result == "helloworld", "should concatenate strings");
+  expect(result).toBe("helloworld");
 });
 
 test("repeat repeats strings", () => {
   const result = repeat("ab", 3);
-  assert(result == "ababab", "should repeat string 3 times");
+  expect(result).toBe("ababab");
 });

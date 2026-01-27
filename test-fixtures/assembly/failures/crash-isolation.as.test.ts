@@ -3,22 +3,22 @@
  * Verifies that one test crashing doesn't kill subsequent tests
  */
 
-import { test, assert, TestOptions, it } from '../../../assembly';
+import { test, expect, TestOptions, it } from '../../../assembly';
 import { safeAdd } from '../../assembly-src/crash-test-utils';
 
 it("first test passes", () => {
-  assert(true, "first test should pass");
+  expect(true).toBeTruthy();
 }, TestOptions.timeout(300).retry(5));
 
 it("second test crashes [should fail]", TestOptions.retry(2), () => {
-  assert(false, "ASSERT_ERROR@14:3 this assertion should cause abort");
+  expect(false).toBeTruthy("ASSERT_ERROR@14:3 this assertion should cause abort");
 });
 
 it("third test should still run", () => {
   const sum = safeAdd(1, 1);
-  assert(sum == 2, "third test should execute despite second test crashing");
+  expect(sum).toBe(2);
 });
 
 test("fourth test should also run", () => {
-  assert(true, "fourth test should execute");
+  expect(true).toBeTruthy();
 });

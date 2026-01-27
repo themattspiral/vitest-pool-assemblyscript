@@ -28,11 +28,10 @@ export const ASSEMBLYSCRIPT_LIB_PREFIX = '~lib/' as const;
 
 /** Paths instrumentation exclusions and assetion error stack frame filtering */
 export const POOL_INTERNAL_PATHS: string[] = [
-  'assembly/index.ts',
-  'assembly/assert.ts',
   'assembly/compare.ts',
   'assembly/describe.ts',
   'assembly/expect.ts',
+  'assembly/index.ts',
   'assembly/options.ts',
   'assembly/test.ts',
 ] as const;

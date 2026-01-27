@@ -2,28 +2,28 @@
  * Utility function tests
  */
 
-import { test, assert } from '../../../assembly';
+import { test, expect } from '../../../assembly';
 import { clamp, lerp, isEven, isOdd } from '../../assembly-src/utility-funcs';
 
 test('clamp value', () => {
-  assert(clamp(5, 0, 10) == 5);
-  assert(clamp(-5, 0, 10) == 0);
-  assert(clamp(15, 0, 10) == 10);
+  expect(clamp(5, 0, 10)).toBe(5);
+  expect(clamp(-5, 0, 10)).toBe(0);
+  expect(clamp(15, 0, 10)).toBe(10);
 });
 
 test('lerp interpolation', () => {
-  assert(lerp(0.0, 10.0, 0.5) == 5.0);
-  assert(lerp(0.0, 100.0, 0.25) == 25.0);
+  expect(lerp(0.0, 10.0, 0.5)).toBe(5.0);
+  expect(lerp(0.0, 100.0, 0.25)).toBe(25.0);
 });
 
 test('isEven check', () => {
-  assert(isEven(2));
-  assert(isEven(100));
-  assert(!isEven(3));
+  expect(isEven(2)).toBeTruthy();
+  expect(isEven(100)).toBeTruthy();
+  expect(isEven(3)).toBeFalsey();
 });
 
 test('isOdd check', () => {
-  assert(isOdd(1));
-  assert(isOdd(99));
-  assert(!isOdd(4));
+  expect(isOdd(1)).toBeTruthy();
+  expect(isOdd(99)).toBeTruthy();
+  expect(isOdd(4)).toBeFalsey();
 });

@@ -1,4 +1,4 @@
-import { test, assert } from '../../../assembly';
+import { test, expect } from '../../../assembly';
 import { computeSum } from '../../assembly-src/const-fold-utils';
 
 /**
@@ -18,10 +18,10 @@ import { computeSum } from '../../assembly-src/const-fold-utils';
  */
 
 // test('direct const fold', () => {
-//   assert(1 + 1 == 2, 'direct expression');
+//   expect(1 + 1).toBe(2);
 // });
 
 test('variable const fold', () => {
   const result = computeSum();
-  assert(result == 2, 'via variable');
+  expect(result).toBe(2);
 });

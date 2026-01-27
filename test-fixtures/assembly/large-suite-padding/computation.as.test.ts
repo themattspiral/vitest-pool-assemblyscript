@@ -3,7 +3,7 @@
  * Each test does significant work to make timing observable
  */
 
-import { test, assert } from '../../../assembly';
+import { test, expect } from '../../../assembly';
 import { factorial, fibonacci, isPrime, sumOfPrimes, countPrimes } from '../../assembly-src/computation-utils';
 
 test('compute factorial of 20', () => {
@@ -14,7 +14,7 @@ test('compute factorial of 20', () => {
   }
 
   // factorial(20) = 2432902008176640000
-  assert(result == 2432902008176640000, 'factorial(20) should be 2432902008176640000');
+  expect(result).toBe(2432902008176640000);
 });
 
 test('compute fibonacci of 50', () => {
@@ -25,7 +25,7 @@ test('compute fibonacci of 50', () => {
   }
 
   // fibonacci(50) = 12586269025
-  assert(result == 12586269025, 'fibonacci(50) should be 12586269025');
+  expect(result).toBe(12586269025);
 });
 
 test('find primes up to 10000', () => {
@@ -36,7 +36,7 @@ test('find primes up to 10000', () => {
   }
 
   // There are 1229 primes up to 10000
-  assert(count == 1229, 'there should be 1229 primes up to 10000');
+  expect(count).toBe(1229);
 });
 
 test('sum of primes up to 5000', () => {
@@ -47,7 +47,7 @@ test('sum of primes up to 5000', () => {
   }
 
   // Sum of primes up to 5000 = 1548136
-  assert(sum == 1548136, 'sum of primes up to 5000 should be 1548136');
+  expect(sum).toBe(1548136);
 });
 
 test('matrix multiplication stress test', () => {
@@ -67,7 +67,7 @@ test('matrix multiplication stress test', () => {
     }
   }
 
-  assert(sum > 0, 'matrix multiplication should produce positive sum');
+  expect(sum > 0).toBeTruthy();
 });
 
 test('nested loop computation', () => {
@@ -82,5 +82,5 @@ test('nested loop computation', () => {
     }
   }
 
-  assert(total > 0, 'nested loop computation should produce positive result');
+  expect(total > 0).toBeTruthy();
 });

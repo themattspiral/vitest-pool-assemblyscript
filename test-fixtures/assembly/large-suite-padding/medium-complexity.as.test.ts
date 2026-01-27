@@ -3,7 +3,7 @@
  * Represents typical test workload
  */
 
-import { test, assert } from '../../../assembly';
+import { test, expect } from '../../../assembly';
 import { bubbleSort, binarySearch } from '../../assembly-src/sorting-utils';
 
 test('bubble sort 100 elements', () => {
@@ -12,21 +12,21 @@ test('bubble sort 100 elements', () => {
     arr.push(100 - i);
   }
   bubbleSort(arr);
-  assert(arr[0] == 1);
-  assert(arr[99] == 100);
+  expect(arr[0]).toBe(1);
+  expect(arr[99]).toBe(100);
 });
 
 test('binary search finds element', () => {
   const arr: i32[] = [1, 3, 5, 7, 9, 11, 13, 15];
-  assert(binarySearch(arr, 7) == 3);
-  assert(binarySearch(arr, 15) == 7);
-  assert(binarySearch(arr, 1) == 0);
+  expect(binarySearch(arr, 7)).toBe(3);
+  expect(binarySearch(arr, 15)).toBe(7);
+  expect(binarySearch(arr, 1)).toBe(0);
 });
 
 test('binary search returns -1 for missing', () => {
   const arr: i32[] = [1, 3, 5, 7, 9];
-  assert(binarySearch(arr, 4) == -1);
-  assert(binarySearch(arr, 10) == -1);
+  expect(binarySearch(arr, 4)).toBe(-1);
+  expect(binarySearch(arr, 10)).toBe(-1);
 });
 
 test('bubble sort 500 elements', () => {
@@ -35,9 +35,9 @@ test('bubble sort 500 elements', () => {
     arr.push(500 - i);
   }
   bubbleSort(arr);
-  assert(arr[0] == 1);
-  assert(arr[250] == 251);
-  assert(arr[499] == 500);
+  expect(arr[0]).toBe(1);
+  expect(arr[250]).toBe(251);
+  expect(arr[499]).toBe(500);
 });
 
 test('bubble sort 1000 elements', () => {
@@ -46,7 +46,7 @@ test('bubble sort 1000 elements', () => {
     arr.push(1000 - i);
   }
   bubbleSort(arr);
-  assert(arr[0] == 1);
-  assert(arr[500] == 501);
-  assert(arr[999] == 1000);
+  expect(arr[0]).toBe(1);
+  expect(arr[500]).toBe(501);
+  expect(arr[999]).toBe(1000);
 });
