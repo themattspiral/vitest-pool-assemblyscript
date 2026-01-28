@@ -13,6 +13,16 @@ describe("basic throw matching", () => {
   });
 });
 
+describe("toThrow alias", () => {
+  test("any error received", () => {
+    expect(() => { fails(); }).toThrow();
+  });
+  
+  test("specific error message received", () => {
+    expect(() => { fails(); }).toThrow("Index out of range");
+  });
+});
+
 describe("alternating conditions to ensure internal state is reset", () => {
   test("any error received", () => {
     expect(() => { fails(); }).toThrowError();

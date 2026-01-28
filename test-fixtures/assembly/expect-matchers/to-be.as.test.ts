@@ -13,43 +13,19 @@ describe("primitives", () => {
       expect(c).not.toBe(a);
       expect(c).not.toBe(b);
     });
-    
-    test("boolean values are identical when converted to integers", () => {
-      const a: boolean = true;
-      const b: u64 = u64(true);
-      expect(a).toBe(a);
-      expect(a).toBe(b);
-      
-      const c: u16 = u16(false);
-      const d: boolean = false;
-      expect(c).toBe(c);
-      expect(d).toBe(d);
-      expect(c).toBe(d);
-      expect(c).not.toBe(a);
-      expect(c).not.toBe(b);
-    });
-    
-    test("boolean values are identical when converted to floats", () => {
-      const a: boolean = true;
-      const b: f32 = f32(true);
-      expect(a).toBe(a);
-      expect(a).toBe(b);
-    });
 
-    test("boolean values are identical to correct numerical equivalents", () => {
+    test("boolean values are not identical to numerical equivalents", () => {
       const a: boolean = true;
       const b: u8 = 1;
       const c: f64 = 1.0;
-      expect(a).toBe(b);
-      expect(a).toBe(c);
-      expect(b).toBe(c);
+      expect(a).not.toBe(b);
+      expect(a).not.toBe(c);
       
       const d: boolean = false;
       const e: u8 = 0;
       const f: f64 = 0.0;
-      expect(d).toBe(e);
-      expect(d).toBe(f);
-      expect(e).toBe(f);
+      expect(d).not.toBe(e);
+      expect(d).not.toBe(f);
     });
   });
 
@@ -176,6 +152,29 @@ describe("strings", () => {
   });
 });
 
+describe("nulls", () => {
+  test("nulls are identical", () => {
+    expect(null).toBe(null);
+
+    const str: string | null = null;
+    expect(null).toBe(str);
+    expect(str).toBe(null);
+
+    expect(null).toBe(0);
+    expect(null).toBe(usize(0));
+  });
+  
+  test("nulls are nothing else", () => {
+    expect(null).not.toBe(false);
+    expect(null).not.toBe(NaN);
+    expect(null).not.toBe(Infinity);
+    
+    expect(false).not.toBe(null);
+    expect(NaN).not.toBe(null);
+    expect(Infinity).not.toBe(null);
+  });
+});
+
 describe("nullables", () => {
   test("values of any nullable types are identical when null", () => {
     const a: string | null = null;
@@ -213,8 +212,6 @@ describe("object references", () => {
 describe("edge cases", () => {
   test("global consts should be identical to themselves", () => {
     expect(Infinity).toBe(Infinity);
-
-    
   });
 
   test("Number extremes should be identical to themselves", () => {

@@ -1,6 +1,6 @@
 import { test, expect, describe, TestOptions } from '../../../assembly';
 
-describe("toBeNaN", () => {
+describe("success", () => {
   test("global NaN is NaN", () => {
     expect(NaN).toBeNaN();
   });
@@ -45,11 +45,29 @@ describe("toBeNaN", () => {
     expect(false).not.toBeNaN();
   });
 
+  test("strings are not NaN", () => {
+    let str: string | null = "something";
+    expect(str).not.toBeNaN();
+
+    str = null;
+    expect(str).not.toBeNaN();
+  });
+
   test("nullable references are not NaN", () => {
     let opts: TestOptions | null = TestOptions.retry(9);
     expect(opts).not.toBeNaN();
     
     opts = null;
     expect(opts).not.toBeNaN();
+  });
+  
+  test("bare null is not NaN", () => {
+    expect(null).not.toBeNaN();
+  });
+});
+
+describe("failure", () => {
+  test("should print 'expected <value> to be NaN' [should fail]", () => {
+    expect(77).toBeNaN();
   });
 });

@@ -53,13 +53,21 @@ describe("primitives", () => {
     expect("").not.toBeTruthy();
   });
 
-  test("nulls", () => {
+  test("null references", () => {
     const a: string | null = null;
     const b: TestOptions | null = null;
     expect(a).toBeFalsey();
     expect(a).not.toBeTruthy();
     expect(b).toBeFalsey();
     expect(b).not.toBeTruthy();
+  });
+
+  test("bare null", () => {
+    expect(null).toBeFalsey();
+  });
+
+  test("NaN", () => {
+    expect(NaN).toBeFalsey();
   });
 
   test("arrays", () => {

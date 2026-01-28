@@ -26,28 +26,28 @@ import {
   closeTo,
   equals,
   identical,
+  isNull,
   nan,
   truthyOrFalsey
 } from './compare';
 
 function itemMessageString<T>(item: T): string {
-  let str = "";
+  if (isNull(item)) return "<null>";
+  if (nan(item)) return "NaN";
 
-  if (isReference<T>(item) && isNullable<T>(item) && item == null) {
-    str += "<null>";
-  } else if (isString<T>(item)) {
-    str += `"${item}"`;
-  } else if (isInteger<T>(item) || isFloat<T>(item) || item instanceof Set || item instanceof Map) {
-    str += item.toString();
-  } else if (item instanceof ArrayBuffer) {
-    str = "ArrayBuffer[" + item.byteLength + "]";
-  } else if (isArrayLike<T>(item)) {
-    str += arrayMessageString(item);
+  if (isReference<T>()) {
+    if (isString<T>()) return `"${item}"`;
+    else if (item instanceof ArrayBuffer) return `ArrayBuffer[${item.byteLength}]`;
+    else if (isArrayLike<T>(item)) return arrayMessageString(item);
+    else if (item instanceof Set || item instanceof Map) return item.toString();
+    else return nameof<T>(item);
+  } else if (isBoolean<T>()){
+    return bool(item).toString();
+  } else if (isInteger<T>(item) || isFloat<T>(item)) {
+    return item.toString();
   } else {
-    str += nameof<T>(item);
+    return nameof<T>(item);
   }
-
-  return str;
 }
 
 function arrayMessageString<T extends ArrayLike<unknown>>(array: T): string {
@@ -135,17 +135,47 @@ abstract class BaseExpectMatcher<T> {
   }
 
   toBeNull(): void {
-    const isNull: bool = isReference<T>(this.actual) && isNullable<T>(this.actual) && this.actual == null;
-    this.assertComparison(isNull, this.actual, null, "to be null", false);
+    this.assertComparison(isNull(this.actual), this.actual, null, "to be null", false);
   }
   
   toBeNullable(): void {
-    const nullable: bool = isReference<T>(this.actual) && isNullable<T>(this.actual);
-    this.assertComparison(nullable, this.actual, null, "to be nullable", false);
+    const actualIsNull = isNull(this.actual);
+
+    if (actualIsNull) {
+      this.assertComparison(true, this.actual, null, "to be nullable", false, false);
+    } else if (isReference<T>()) {
+      this.assertComparison(isNullable<T>(), this.actual, null, "to be nullable", false, false);
+    } else {
+      this.assertComparison(false, this.actual, null, "to be nullable", false, false);
+    }
   }
 
   toBeNaN(): void {
-    this.assertComparison(nan(this.actual), this.actual, null, "to be NaN", false);
+    this.assertComparison(nan(this.actual), this.actual, NaN, "to be NaN", false);
+  }
+
+  toHaveLength<U extends number>(length: U): void {
+    const actualIsNull = isNull(this.actual);
+
+    if (actualIsNull) {
+      this.assertComparison(false, null, length, "to have length", true);
+    } else if (isReference<T>()) {
+      if (isArray<T>() || isArrayLike<T>()) {
+        const nonNullActual = <NonNullable<T>>this.actual;
+
+        if (isFloat<U>()) {
+          // @ts-ignore
+          this.assertComparison<number, U>(closeTo<number, U>(nonNullActual.length, length), nonNullActual.length, length, "to have length", true);
+        } else {
+          // @ts-ignore
+          this.assertComparison<number, U>(identical<number, U>(nonNullActual.length, length), nonNullActual.length, length, "to have length", true);
+        }
+      } else {
+        this.assertComparison(false, this.actual, length, "to have length", true);
+      }
+    } else {
+      this.assertComparison(false, this.actual, length, "to have length", true);
+    }
   }
 
   protected abortTest(message: string): void {
@@ -154,7 +184,7 @@ abstract class BaseExpectMatcher<T> {
     }
   }
 
-  protected assertComparison<T, U>(rawCondition: bool, actual: T, expected: U, methodStr: string, printExpected: boolean): void {
+  protected assertComparison<U, V>(rawCondition: bool, actual: U, expected: V, methodStr: string, printExpected: bool, provideDiff: bool = true): void {
     const condition = this.isInverted ? !rawCondition : rawCondition;
 
     if (condition) {
@@ -165,7 +195,7 @@ abstract class BaseExpectMatcher<T> {
       const expectedStr = itemMessageString(expected);
       const msg = `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}`;
 
-      __assertion_fail<string>(msg, nameof<T>() + " " + nameof<U>(), true, actualStr, expectedStr);
+      __assertion_fail<string>(msg, nameof<U>() + " " + nameof<V>(), provideDiff, actualStr, expectedStr);
   
       // Abort on failure - terminates WASM execution - must be called from WASM.
       // Imported abort handler will handle this and mark the test as failed.
