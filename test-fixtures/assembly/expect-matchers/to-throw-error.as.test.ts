@@ -57,7 +57,7 @@ describe("matching failures", () => {
   });
   
   test("expect specific error, but different error received [should fail]", () => {
-    expect(() => { fails(); }).toThrowError("Nonexistant");
+    expect(() => { fails(); }).toThrowError("will not match");
   });
 });
 
@@ -68,10 +68,6 @@ describe("runtime syntax errors", () => {
   
   test("fails with another error indicating function is required with toThrowError matcher [should fail]", () => {
     expect(true).toThrowError();
-  });
-
-  test("expect NOT received should throw syntax error [should fail]", () => {
-    expect(() => { expect(true).toBeTruthy(); }).not.toThrowError();
   });
 
   test("fails with error indicating a void callback is required [should fail]", () => {

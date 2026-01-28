@@ -68,23 +68,20 @@ function arrayMessageString<T extends ArrayLike<unknown>>(array: T): string {
   return str;
 }
 
-
 /**
  * Expect matcher
 */
-@final
-export class ExpectMatcher<T> {
-  private isInverted: bool = false;
-  private isSoft: bool = false;
-  private actual: T;
+abstract class BaseExpectMatcher<T> {
+  protected isInverted: bool = false;
+  protected isSoft: bool = false;
+  protected actual: T;
 
   constructor(val: T) {
     this.actual = val;
   }
 
-  get not(): this {
-    this.isInverted = !this.isInverted;
-    return this;
+  get not(): InvertedExpectMatcher<T> {
+    return new InvertedExpectMatcher(this.actual, !this.isInverted);
   }
   
   // get soft(): this {
@@ -151,11 +148,38 @@ export class ExpectMatcher<T> {
     this.assertComparison(nan(this.actual), this.actual, null, "to be NaN", false);
   }
 
-  toThrowError(errorMsg: string | null = null): void {
-    if (this.isInverted) {
-      throw new Error("expect.not operator is not supported with the toThrowError() matcher");
+  protected abortTest(message: string): void {
+    if (!this.isSoft) {
+      abort(message);
     }
+  }
 
+  protected assertComparison<T, U>(rawCondition: bool, actual: T, expected: U, methodStr: string, printExpected: boolean): void {
+    const condition = this.isInverted ? !rawCondition : rawCondition;
+
+    if (condition) {
+      __assertion_pass();
+    } else {
+      const notStr = this.isInverted ? "not " : "";
+      const actualStr = itemMessageString(actual);
+      const expectedStr = itemMessageString(expected);
+      const msg = `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}`;
+
+      __assertion_fail<string>(msg, nameof<T>() + " " + nameof<U>(), true, actualStr, expectedStr);
+  
+      // Abort on failure - terminates WASM execution - must be called from WASM.
+      // Imported abort handler will handle this and mark the test as failed.
+      this.abortTest(msg);
+    }
+  }
+}
+
+class StandardExpectMatcher<T> extends BaseExpectMatcher<T> {
+  constructor(val: T) {
+    super(val);
+  }
+
+  toThrowError(errorMsg: string | null = null): void {
     if (isFunction<T>()) {
       // @ts-ignore
       const fnIndex = this.actual.index;
@@ -177,33 +201,17 @@ export class ExpectMatcher<T> {
   toThrow(errorMsg: string | null = null): void {
     this.toThrowError(errorMsg);
   }
+}
 
-  private abortTest(message: string): void {
-    if (!this.isSoft) {
-      abort(message);
-    }
-  }
+class InvertedExpectMatcher<T> extends BaseExpectMatcher<T> {
+  constructor(val: T, isInverted: bool) {
+    super(val);
 
-  private assertComparison<T, U>(rawCondition: bool, actual: T, expected: U, methodStr: string, printExpected: boolean): void {
-    const condition = this.isInverted ? !rawCondition : rawCondition;
-
-    if (condition) {
-      __assertion_pass();
-    } else {
-      const notStr = this.isInverted ? "not " : "";
-      const actualStr = itemMessageString(actual);
-      const expectedStr = itemMessageString(expected);
-      const msg = `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}`;
-
-      __assertion_fail<string>(msg, nameof<T>() + " " + nameof<U>(), true, actualStr, expectedStr);
-  
-      // Abort on failure - terminates WASM execution - must be called from WASM.
-      // Imported abort handler will handle this and mark the test as failed.
-      this.abortTest(msg);
-    }
+    // allow chaining multiple nots if desired
+    this.isInverted = isInverted;
   }
 }
 
-export function expect<T>(value: T): ExpectMatcher<T> {
-  return new ExpectMatcher<T>(value);
+export function expect<T>(value: T): StandardExpectMatcher<T> {
+  return new StandardExpectMatcher<T>(value);
 }
