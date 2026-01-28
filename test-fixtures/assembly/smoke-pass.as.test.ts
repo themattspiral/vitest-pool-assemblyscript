@@ -1,7 +1,9 @@
-import { test, assert, TestOptions } from '../../assembly';
+import { test, expect, describe } from '../../assembly';
 import { increment } from '../assembly-src/smoke-utils';
 
-test('as smoke pass', () => {
-  const x: i32 = increment(1);
-  assert(x == 2);
+describe("Basic passing smoke tests", () => {
+  test('simple add using expect.toBe matcher', () => {
+    const x: i32 = increment(1);
+    expect(x).toBe(2);
+  });
 });

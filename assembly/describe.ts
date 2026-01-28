@@ -58,7 +58,6 @@ export function describe<T = TestCallback, U = TestOptions>(
   __end_register_suite(name);
 }
 
-
 function describeWithMergedOption<T = TestCallback, U = TestOptions>(
   name: string,
   optionToMerge: TestOptions,

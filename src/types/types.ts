@@ -484,8 +484,8 @@ export interface AssemblyScriptConsoleLog {
 export type AssemblyScriptConsoleLogHandler = (msg: string, isError?: boolean) => void;
 
 export interface FailedAssertion {
-  expected?: any;
-  actual?: any;
+  expected?: string;
+  actual?: string;
   valuesProvided?: boolean;
   typeName?: string;
   message?: string;
