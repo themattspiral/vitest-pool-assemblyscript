@@ -172,3 +172,11 @@ export function truthyOrFalsey<T>(actual: T, expected: bool): bool {
   return !!actual == expected;
 }
 
+export function nan<T>(value: T): bool {
+  if (isFloat<T>()) {
+    // @ts-ignore
+    return isNaN<T>(value);
+  } else {
+    return false;
+  }
+}

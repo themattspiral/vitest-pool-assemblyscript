@@ -26,6 +26,7 @@ import {
   closeTo,
   equals,
   identical,
+  nan,
   truthyOrFalsey
 } from './compare';
 
@@ -144,6 +145,10 @@ export class ExpectMatcher<T> {
   toBeNullable(): void {
     const nullable: bool = isReference<T>(this.actual) && isNullable<T>(this.actual);
     this.assertComparison(nullable, this.actual, null, "to be nullable", false);
+  }
+
+  toBeNaN(): void {
+    this.assertComparison(nan(this.actual), this.actual, null, "to be NaN", false);
   }
 
   toThrowError(errorMsg: string | null = null): void {

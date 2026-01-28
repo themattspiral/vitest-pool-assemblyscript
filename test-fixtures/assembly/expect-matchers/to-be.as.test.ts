@@ -1,4 +1,4 @@
-import { test, expect, describe, TestOptions } from '../../../assembly';
+import { test, expect, describe, TestOptions } from "../../../assembly";
 
 describe("primitives", () => {
   describe("booleans", () => {
@@ -185,12 +185,12 @@ describe("nullables", () => {
 });
 
 describe("arrays", () => {
-  test('same array is identical to itself', () => {
+  test("same array is identical to itself", () => {
     const x: i32[] = [1, 2, 3];
     expect(x).toBe(x);
   });
   
-  test('different arrays with same values are not identical', () => {
+  test("different arrays with same values are not identical", () => {
     const x: i32[] = [1, 2, 3];
     const y: i32[] = [1, 2, 3];
     expect(x).not.toBe(y);
@@ -198,14 +198,39 @@ describe("arrays", () => {
 });
 
 describe("object references", () => {
-  test('same reference is identical to itself', () => {
+  test("same reference is identical to itself", () => {
     const a = TestOptions.retry(7).timeout(299);
     expect(a).toBe(a);
   });
   
-  test('different objects with same values are not identical', () => {
+  test("different objects with same values are not identical", () => {
     const a = TestOptions.retry(7).timeout(299);
     const b = TestOptions.retry(7).timeout(299);
     expect(a).not.toBe(b);
+  });
+});
+
+describe("edge cases", () => {
+  test("global consts should be identical to themselves", () => {
+    expect(Infinity).toBe(Infinity);
+
+    
+  });
+
+  test("Number extremes should be identical to themselves", () => {
+    expect(F64.POSITIVE_INFINITY).toBe(F64.POSITIVE_INFINITY);
+    expect(F64.NEGATIVE_INFINITY).toBe(F64.NEGATIVE_INFINITY);
+    expect(F64.POSITIVE_INFINITY).not.toBe(F64.NEGATIVE_INFINITY);
+  });
+
+  test("NaN should not be identical to itself", () => {
+    // this may seem counterintuitive, but is IEEE 754 standard NaN behavior
+    // use toBeNaN() instead!
+    expect(NaN).not.toBe(NaN);
+    expect(F64.NaN).not.toBe(F64.NaN);
+    expect(F32.NaN).not.toBe(F32.NaN);
+    expect(NaN).not.toBe(F64.NaN);
+    expect(NaN).not.toBe(F32.NaN);
+    expect(F32.NaN).not.toBe(F64.NaN);
   });
 });
