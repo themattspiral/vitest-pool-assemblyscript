@@ -4,7 +4,6 @@
 
 import { resolve, basename } from 'node:path';
 import { access } from 'node:fs/promises';
-import { availableParallelism } from 'node:os';
 import Tinypool from 'tinypool';
 import type { SerializedConfig } from 'vitest';
 import type { Vitest, ProcessPool, TestSpecification } from 'vitest/node';
@@ -290,16 +289,14 @@ export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
     debug('[Pool] Single-project mode: No project config found using vitest-pool-assemblyscript pool - Using global config with AssemblyScript pool defaults');
   }
 
-  const maxThreads = poolOptions.maxThreads ?? availableParallelism() - 1;
-
-  debug(`[Pool] Worker path: "${WORKER_PATH}"`);
-  debug(`[Pool] Worker configuration - maxThreads: ${maxThreads}`);
+  debug(`[Pool] Worker thread path: "${WORKER_PATH}"`);
+  debug(`[Pool] Worker thread configuration - maxThreads: ${poolOptions.maxThreadsV3}`);
 
   // Initialize Tinypool for worker management
   const pool = new Tinypool({
     filename: WORKER_PATH,
     minThreads: 1,
-    maxThreads,
+    maxThreads: poolOptions.maxThreadsV3,
     idleTimeout: POOL_THREAD_IDLE_TIMEOUT_MS,
     isolateWorkers: false,
     workerData: {

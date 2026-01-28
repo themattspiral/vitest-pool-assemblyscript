@@ -65,7 +65,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   // cached data for possible timeout resume
   private currentTestRun: TestRunRecord | undefined;
   
-  // for this particular PoolWorker instance (1 per `maxThreads`)
+  // for this particular PoolWorker instance (1 per `maxWorkers`)
   private currentWorkerId: number | undefined;
   private isWorkerRunning: boolean = false;
   private config: SerializedConfig | undefined; // provided with "start" message

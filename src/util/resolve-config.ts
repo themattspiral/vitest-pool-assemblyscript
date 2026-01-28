@@ -1,4 +1,5 @@
 import type { TestProject, Vitest } from 'vitest/node';
+import { availableParallelism } from 'node:os';
 
 import type {
   AssemblyScriptPoolOptions,
@@ -14,6 +15,7 @@ import { createPoolError } from '../util/pool-errors.js';
 const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOptions, ASPoolOptionsFieldsWithDefaultValues>> = {
   debug: false,
   stripInline: true,
+  maxThreadsV3: availableParallelism() - 1,
   coverageMemoryPagesMin: 1,
   coverageMemoryPagesMax: 4
 } as const;

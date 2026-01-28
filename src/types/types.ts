@@ -70,11 +70,12 @@ export interface AssemblyScriptPoolOptions {
    */
   stripInline?: boolean;
   /**
-   * Maximum number of worker threads
-   *
+   * Maximum number of worker threads to spawn in vitest 3.x.
    * Defaults to os.availableParallelism() - 1
+   * 
+   * Use project config `test.maxWorkers` in vitest 4.x
    */
-  maxThreads?: number;
+  maxThreadsV3?: number;
 
   coverageMemoryPagesMin?: number;
   coverageMemoryPagesMax?: number;
@@ -106,8 +107,8 @@ export interface HybridProviderOptions {
 }
 
 // define these constants here so they make sense in context
-export const AS_POOL_FIELDS_WITH_DEFAULTS = ['debug', 'stripInline', 'coverageMemoryPagesMin', 'coverageMemoryPagesMax'] as const;
-export const AS_POOL_OPTIONAL_FIELDS = ['maxThreads'] as const;
+export const AS_POOL_FIELDS_WITH_DEFAULTS = ['debug', 'stripInline', 'coverageMemoryPagesMin', 'coverageMemoryPagesMax', 'maxThreadsV3'] as const;
+export const AS_POOL_OPTIONAL_FIELDS = [] as const;
 
 /** Fields that have default values. Internally these will always be defined. */
 export type ASPoolOptionsFieldsWithDefaultValues = typeof AS_POOL_FIELDS_WITH_DEFAULTS[number];
