@@ -8,8 +8,8 @@ import type {
   AssemblyScriptTestError,
   AssemblyScriptTestTaskMeta,
   CoverageData,
-  HighlightFunc,
   ResolvedAssemblyScriptPoolOptions,
+  ThreadImports,
   WASMCompilation,
   WASMExecutorPerfTimings,
 } from '../types/types.js';
@@ -60,7 +60,7 @@ export async function executeWASMDiscovery(
   handleLog: AssemblyScriptConsoleLogHandler,
   file: File,
   moduleLabel: string,
-  highlight: HighlightFunc,
+  threadImports: ThreadImports,
   diffOptions?: SerializedDiffOptions,
 ): Promise<void> {
   const base = basename(file.filepath);
@@ -75,7 +75,15 @@ export async function executeWASMDiscovery(
     createMemory(poolOptions.coverageMemoryPagesInitial, poolOptions.coverageMemoryPagesMax)
     : undefined;
 
-  const importObject = createDiscoveryImports(memory, file, handleLog, logPrefix, coverageMemory);
+  const importObject = createDiscoveryImports(
+    memory,
+    wasmModule,
+    file,
+    handleLog,
+    logPrefix,
+    coverageMemory,
+    threadImports.createWasmImports
+  );
 
   // Instantiate WASM module
   const instance = new WebAssembly.Instance(wasmModule, importObject);
@@ -102,7 +110,7 @@ export async function executeWASMDiscovery(
           sourceMap,
           false,
           logPrefix,
-          highlight,
+          threadImports.highlight,
           stack,
           diffOptions
         );
@@ -130,7 +138,7 @@ export async function executeWASMDiscovery(
           sourceMap,
           false,
           logPrefix,
-          highlight,
+          threadImports.highlight,
           thrownPoolErr.rawCallStack,
           diffOptions
         );
@@ -168,7 +176,7 @@ export async function executeWASMTest(
   collectCoverage: boolean,
   handleLog: AssemblyScriptConsoleLogHandler,
   moduleLabel: string,
-  highlight: HighlightFunc,
+  threadImports: ThreadImports,
   diffOptions?: SerializedDiffOptions,
 ): Promise<{ test: Test, testTimings: WASMExecutorPerfTimings }> {
   const testTimings: WASMExecutorPerfTimings = {
@@ -194,7 +202,15 @@ export async function executeWASMTest(
     : undefined;
 
   // Create import object with pool-side functions for capturing test execution results
-  const { imports, provideFunctionTable } = createTestExecutionImports(memory, test, handleLog, logPrefix, coverageMemory);
+  const { imports, provideFunctionTable } = createTestExecutionImports(
+    memory,
+    wasmModule,
+    test,
+    handleLog,
+    logPrefix,
+    coverageMemory,
+    threadImports.createWasmImports
+  );
 
   // Instantiate fresh WASM instance for this test
   const instance = new WebAssembly.Instance(wasmModule, imports);
@@ -281,7 +297,7 @@ export async function executeWASMTest(
       compilation.sourceMap,
       meta.lastErrorValuesProvided ?? false,
       logPrefix,
-      highlight,
+      threadImports.highlight,
       meta.lastErrorRawCallStack,
       diffOptions
     );

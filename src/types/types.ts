@@ -86,6 +86,8 @@ export interface AssemblyScriptPoolOptions {
   testMemoryPagesMax?: number;
 
   extraCompilerFlags?: string[];
+
+  wasmImportsFactory?: string;
 }
 
 /**
@@ -113,6 +115,16 @@ export interface HybridProviderOptions {
   assemblyScriptExclude?: string[];
 }
 
+export interface WasmImportsFactoryInfo {
+  module: WebAssembly.Module;
+  memory: WebAssembly.Memory;
+  utils: {
+    liftString: (stringPtr: number) => string | undefined;
+  }
+}
+
+export type WasmImportsFactory = (moduleInfo: WasmImportsFactoryInfo) => WebAssembly.Imports;
+
 // define these constants here so they make sense in context
 export const AS_POOL_FIELDS_WITH_DEFAULTS = [
   'debug',
@@ -123,7 +135,7 @@ export const AS_POOL_FIELDS_WITH_DEFAULTS = [
   'testMemoryPagesInitial',
   'extraCompilerFlags'
 ] as const;
-export const AS_POOL_OPTIONAL_FIELDS = ['testMemoryPagesMax'] as const;
+export const AS_POOL_OPTIONAL_FIELDS = ['testMemoryPagesMax', 'wasmImportsFactory'] as const;
 
 /** Fields that have default values. Internally these will always be defined. */
 export type ASPoolOptionsFieldsWithDefaultValues = typeof AS_POOL_FIELDS_WITH_DEFAULTS[number];
@@ -163,6 +175,11 @@ export type AssemblyScriptTestOptions = Required<Pick<TestOptions, 'timeout' | '
 // ============================================================================
 
 export type VitestVersion = 'v3' | 'v4';
+
+export interface ThreadImports {
+  highlight: HighlightFunc;
+  createWasmImports?: WasmImportsFactory;
+}
 
 export type HighlightFunc = (code: string, options: { colors: Colors }) => string;
 
@@ -555,6 +572,7 @@ export interface WorkerChannel {
 }
 
 export interface WorkerThreadInitData {
+  projectRoot: string,
   asPoolOptions: ResolvedAssemblyScriptPoolOptions;
   asCoverageOptions: ResolvedHybridProviderOptions;
 }

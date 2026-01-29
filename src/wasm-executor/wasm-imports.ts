@@ -6,10 +6,11 @@ import type {
   AssemblyScriptTestError,
   AssemblyScriptTestTaskMeta,
   FailedAssertion,
+  WasmImportsFactory,
 } from '../types/types.js';
-import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
+import { AS_POOL_WASM_IMPORTS_ENV, POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
-import { createPoolError } from '../util/pool-errors.js';
+import { createPoolError, createPoolErrorFromAnyError } from '../util/pool-errors.js';
 import { liftString } from '../util/assemblyscript/binding-helpers.js';
 import { extractCallStack } from './source-maps.js';
 import { decodeAbortInfo } from './wasm-memory.js';
@@ -17,21 +18,104 @@ import { createWasmConsole } from './wasm-console.js';
 import { mergeAssemblyScriptTestOptions } from './collect-options.js';
 import { createSuiteTask, createTestTask, failTest } from '../util/vitest-tasks.js';
 
+function createUserWasmImports(
+  createWasmImports: WasmImportsFactory | undefined,
+  memory: WebAssembly.Memory,
+  module: WebAssembly.Module,
+  logPrefix: string
+) {
+  let userEnvImports: WebAssembly.ModuleImports | undefined;
+  let userCustomEnvImports: WebAssembly.Imports | undefined;
+
+  if (createWasmImports) {
+    try {
+      const start = performance.now();
+      const userImports: WebAssembly.Imports = createWasmImports({
+        memory,
+        module,
+        utils: {
+          liftString: (stringPtr: number) => liftString(memory, stringPtr)
+        }
+      });
+      debug(`${logPrefix} Created user WASM imports for test execution in ${(performance.now() - start).toFixed(2)} ms`);
+
+      userEnvImports = userImports?.env;
+      
+      if (userEnvImports) {
+        userCustomEnvImports = { ...userImports };
+        delete userCustomEnvImports.env;
+      }
+    } catch (error) {
+      throw createPoolErrorFromAnyError(
+        `Error creating user WASM Imports`,
+        POOL_ERROR_NAMES.PoolConfigError,
+        error
+      );
+    }
+  }
+
+  return { userEnvImports, userCustomEnvImports };
+}
+
 /**
  * Create import object for test discovery
  */
 export function createDiscoveryImports(
   memory: WebAssembly.Memory,
+  module: WebAssembly.Module,
   file: File,
   handleLog: AssemblyScriptConsoleLogHandler,
   logPrefix: string,
-  coverageMemory?: WebAssembly.Memory
+  coverageMemory?: WebAssembly.Memory,
+  createWasmImports?: WasmImportsFactory,
 ): WebAssembly.Imports {
   const suiteStack: Suite[] = [file];
+
+  const {
+    userEnvImports,
+    userCustomEnvImports
+  } = createUserWasmImports(createWasmImports, memory, module, logPrefix);
   
   return {
     env: {
+      // users can choose to hide these with their own
+      ...createWasmConsole(memory, handleLog),
+
+      // user imports for "env"
+      ...(userEnvImports ?? {}),
+
       memory,
+
+      // handle runtime aborts, which are always unexpected during discovery
+      abort(msgPtr: number, filePtr: number, line: number, column: number) {
+        const { message, location } = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
+        const msgAtLoc = `${message}${location ? ` at ${location}` : ''}`;
+        
+        debug(`${logPrefix} - Unexpected abort during test discovery: ${msgAtLoc}`);
+
+        // Create error to capture V8 stack trace and extract V8 call stack before throwing.
+        // This gives us WAT line:column positions that can be mapped to AS source
+        const rawCallStack = extractCallStack(new Error());
+
+        // Send the test error that we will report to vitest in the PoolError's `cause` field.
+        // The rawCallStack will be enahnced and deleted by the executor, with the parsed result
+        // added to the reported test error.
+        const testError: AssemblyScriptTestError = {
+          message,
+          name: TEST_ERROR_NAMES.WASMRuntimeError,
+        };
+
+        throw createPoolError(
+          msgAtLoc,
+          POOL_ERROR_NAMES.WASMExecutionAbortError,
+          undefined,  // stack
+          testError,  // cause
+          rawCallStack
+        );
+      },
+    },
+
+    [AS_POOL_WASM_IMPORTS_ENV]: {
 
       ...(coverageMemory ? { __coverage_memory: coverageMemory } : {}),
 
@@ -94,37 +178,10 @@ export function createDiscoveryImports(
           + ` (parent idx: ${(test.meta as AssemblyScriptTestTaskMeta).idxInParentTasks})`
         );
       },
-
-      // handle runtime aborts, which are always unexpected during discovery
-      abort(msgPtr: number, filePtr: number, line: number, column: number) {
-        const { message, location } = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
-        const msgAtLoc = `${message}${location ? ` at ${location}` : ''}`;
-        
-        debug(`${logPrefix} - Unexpected abort during test discovery: ${msgAtLoc}`);
-
-        // Create error to capture V8 stack trace and extract V8 call stack before throwing.
-        // This gives us WAT line:column positions that can be mapped to AS source
-        const rawCallStack = extractCallStack(new Error());
-
-        // Send the test error that we will report to vitest in the PoolError's `cause` field.
-        // The rawCallStack will be enahnced and deleted by the executor, with the parsed result
-        // added to the reported test error.
-        const testError: AssemblyScriptTestError = {
-          message,
-          name: TEST_ERROR_NAMES.WASMRuntimeError,
-        };
-
-        throw createPoolError(
-          msgAtLoc,
-          POOL_ERROR_NAMES.WASMExecutionAbortError,
-          undefined,  // stack
-          testError,  // cause
-          rawCallStack
-        );
-      },
-
-      ...createWasmConsole(memory, handleLog),
     },
+
+    // user imports for any other environments they defined
+    ...(userCustomEnvImports ?? {}),
   };
 }
 
@@ -136,19 +193,85 @@ export function createDiscoveryImports(
  */
 export function createTestExecutionImports(
   memory: WebAssembly.Memory,
+  module: WebAssembly.Module,
   test: Test,
   handleLog: AssemblyScriptConsoleLogHandler,
   logPrefix: string,
-  coverageMemory?: WebAssembly.Memory
+  coverageMemory?: WebAssembly.Memory,
+  createWasmImports?: WasmImportsFactory,
 ): { imports: WebAssembly.Imports; provideFunctionTable: (table: WebAssembly.Table) => void; } {
   // execution imports are created per-test, so these represent per-test state
   let isExpectingError: boolean = false;
   let expectedErrorMsgStr: string | undefined;
   let wasmFunctionTable: WebAssembly.Table | undefined;
 
+  const {
+    userEnvImports,
+    userCustomEnvImports
+  } = createUserWasmImports(createWasmImports, memory, module, logPrefix);
+
   const imports = {
     env: {
+      // users can choose to hide these with their own
+      ...createWasmConsole(memory, handleLog),
+
+      // user imports for "env"
+      ...(userEnvImports ?? {}),
+
       memory,
+
+      abort(msgPtr: number, filePtr: number, line: number, column: number) {
+        const { message, location } = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
+        const msgAtLoc = `${message}${location ? ` at ${location}` : ''}`;
+        
+        debug(`${logPrefix} - Handling test execution abort: ${msgAtLoc}`);
+
+        let failureMessage = message;
+
+        if (isExpectingError) {
+          if (!expectedErrorMsgStr || message.includes(expectedErrorMsgStr)) {
+            (test.meta as AssemblyScriptTestTaskMeta).assertionsPassedCount++;
+            
+            debug(`${logPrefix} - Thrown error matches expected - assertion passes`);
+
+            throw createPoolError(
+              `AssemblyScript abort() import called for expected error throw in test "${test.name}"`,
+              POOL_ERROR_NAMES.WASMExecutionAbortError
+            );
+          } else {
+            failureMessage = `expected function to throw "${expectedErrorMsgStr}" error but received "${message}"`;
+
+            (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push({
+              message: failureMessage,
+              typeName: 'Error',
+              valuesProvided: true,
+              actual: message,
+              expected: expectedErrorMsgStr
+            } satisfies FailedAssertion);
+
+            const errStr = `Thrown error does not match expected | Expected: "${expectedErrorMsgStr}" | Actual: "${message}"`
+            debug(`${logPrefix} - Assertion failed: ${errStr}`);
+          }
+        }
+
+        // Create error to capture V8 stack trace and extract V8 call stack before throwing.
+        // This gives us WAT line:column positions that can be mapped to AS source
+        const capturedError = new Error();
+
+        failTest(test, failureMessage, capturedError, logPrefix);
+
+        // Must throw here to halt WASM execution on an assertion or runtime failure for this test.
+        // This will be caught by the executor and reported as an appropriate test error
+        // using test.meta.lastError value set in failTest()
+        throw createPoolError(
+          `AssemblyScript abort() import called during test execution for ${test.name}`,
+          POOL_ERROR_NAMES.WASMExecutionAbortError,
+        );
+      },
+    },
+
+    [AS_POOL_WASM_IMPORTS_ENV]: {
+      
       ...(coverageMemory ? { __coverage_memory: coverageMemory } : {}),
 
       // stubs during execution
@@ -258,58 +381,10 @@ export function createTestExecutionImports(
           );
         }
       },
-
-      abort(msgPtr: number, filePtr: number, line: number, column: number) {
-        const { message, location } = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
-        const msgAtLoc = `${message}${location ? ` at ${location}` : ''}`;
-        
-        debug(`${logPrefix} - Handling test execution abort: ${msgAtLoc}`);
-
-        let failureMessage = message;
-
-        if (isExpectingError) {
-          if (!expectedErrorMsgStr || message.includes(expectedErrorMsgStr)) {
-            (test.meta as AssemblyScriptTestTaskMeta).assertionsPassedCount++;
-            
-            debug(`${logPrefix} - Thrown error matches expected - assertion passes`);
-
-            throw createPoolError(
-              `AssemblyScript abort() import called for expected error throw in test "${test.name}"`,
-              POOL_ERROR_NAMES.WASMExecutionAbortError
-            );
-          } else {
-            failureMessage = `expected function to throw "${expectedErrorMsgStr}" error but received "${message}"`;
-
-            (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push({
-              message: failureMessage,
-              typeName: 'Error',
-              valuesProvided: true,
-              actual: message,
-              expected: expectedErrorMsgStr
-            } satisfies FailedAssertion);
-
-            const errStr = `Thrown error does not match expected | Expected: "${expectedErrorMsgStr}" | Actual: "${message}"`
-            debug(`${logPrefix} - Assertion failed: ${errStr}`);
-          }
-        }
-
-        // Create error to capture V8 stack trace and extract V8 call stack before throwing.
-        // This gives us WAT line:column positions that can be mapped to AS source
-        const capturedError = new Error();
-
-        failTest(test, failureMessage, capturedError, logPrefix);
-
-        // Must throw here to halt WASM execution on an assertion or runtime failure for this test.
-        // This will be caught by the executor and reported as an appropriate test error
-        // using test.meta.lastError value set in failTest()
-        throw createPoolError(
-          `AssemblyScript abort() import called during test execution for ${test.name}`,
-          POOL_ERROR_NAMES.WASMExecutionAbortError,
-        );
-      },
-
-      ...createWasmConsole(memory, handleLog),
     },
+
+    // user imports for any other environments they defined
+    ...(userCustomEnvImports ?? {}),
   };
 
   return {

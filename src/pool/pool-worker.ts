@@ -86,15 +86,29 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     this.listenerRegistry = new Map<string, Set<EventCallback>>();
 
     setImmediate(async () => {
-      try {
-        await access(COMPILE_WORKER_PATH);
-      } catch {
-        throw new Error(`Cannot access compile worker thread file at path: "${COMPILE_WORKER_PATH}"`);
+      const userImportsFactoryPath = resolve(
+        this.poolOptions.project.config.root,
+        this.asPoolOptions.wasmImportsFactory ?? ''
+      );
+
+      const results = await Promise.allSettled([
+        access(COMPILE_WORKER_PATH),
+        access(TEST_WORKER_PATH),
+        this.asPoolOptions.wasmImportsFactory ? access(userImportsFactoryPath) : Promise.resolve()
+      ]);
+
+      const failedThreadAccess: string[] = [];
+      if (results[0].status === 'rejected') failedThreadAccess.push(COMPILE_WORKER_PATH);
+      if (results[1].status === 'rejected') failedThreadAccess.push(TEST_WORKER_PATH);
+
+      if (failedThreadAccess.length) {
+        throw new Error(`Cannot access worker thread file(s) at path(s): ${failedThreadAccess}`);
       }
-      try {
-        await access(TEST_WORKER_PATH);
-      } catch {
-        throw new Error(`Cannot access test worker thread file at path: "${TEST_WORKER_PATH}"`);
+      if (results[2].status === 'rejected') {
+        throw new Error(`Cannot access user WasmImportsFactory at path: "${userImportsFactoryPath}".`
+          + ` Ensure that your module path is relative to the project root (location of shallowest vitest config),`
+          + ` and that it has a default export matching () => WebAssembly.Imports`
+        );
       }
     });
     
@@ -267,6 +281,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
         workerData: {
           asPoolOptions: this.asPoolOptions,
           asCoverageOptions: this.asCoverageOptions,
+          projectRoot: this.poolOptions.project.config.root,
         } satisfies WorkerThreadInitData
       });
 
@@ -284,6 +299,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
         workerData: {
           asPoolOptions: this.asPoolOptions,
           asCoverageOptions: this.asCoverageOptions,
+          projectRoot: this.poolOptions.project.config.root
         } satisfies WorkerThreadInitData
       });
 

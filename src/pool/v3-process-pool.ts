@@ -25,7 +25,6 @@ import type {
 import { setGlobalDebugMode, debug } from '../util/debug.js';
 import { createWorkerRPCChannel } from './worker-rpc-channel.js';
 import {
-  createPoolError,
   createPoolErrorFromAnyError,
   isAbortError,
 } from '../util/pool-errors.js';
@@ -266,14 +265,6 @@ async function runTests(
 }
 
 export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
-  setImmediate(async () => {
-    try {
-      await access(WORKER_PATH);
-    } catch {
-      throw createPoolError(`Cannot access worker thread file at path: ${WORKER_PATH}`, POOL_ERROR_NAMES.PoolError);
-    }
-  });
-
   const { config, foundProjectSerializedConfig } = getProjectSerializedOrGlobalConfig(ctx);
   
   // Resolve pool options and initialize debug mode
@@ -292,6 +283,24 @@ export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
   debug(`[Pool] Worker thread path: "${WORKER_PATH}"`);
   debug(`[Pool] Worker thread configuration - maxThreads: ${poolOptions.maxThreadsV3}`);
 
+  setImmediate(async () => {
+    const userImportsFactoryPath = resolve(config.root, poolOptions.wasmImportsFactory ?? '');
+    const results = await Promise.allSettled([
+      access(WORKER_PATH),
+      poolOptions.wasmImportsFactory ? access(userImportsFactoryPath) : Promise.resolve()
+    ]);
+
+    if (results[0].status === 'rejected') {
+      throw new Error(`Cannot access worker thread file at path: "${WORKER_PATH}"`);
+    }
+    if (results[1].status === 'rejected') {
+      throw new Error(`Cannot access user WasmImportsFactory at path: "${userImportsFactoryPath}".`
+        + ` Ensure that your module path is relative to the project root (location of shallowest vitest config),`
+        + ` and that it has a default export matching () => WebAssembly.Imports`
+      );
+    }
+  });
+
   // Initialize Tinypool for worker management
   const pool = new Tinypool({
     filename: WORKER_PATH,
@@ -301,7 +310,8 @@ export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
     isolateWorkers: false,
     workerData: {
       asPoolOptions: poolOptions,
-      asCoverageOptions: config.coverage as ResolvedHybridProviderOptions
+      asCoverageOptions: config.coverage as ResolvedHybridProviderOptions,
+      projectRoot: config.root,
     } satisfies WorkerThreadInitData,
   });
 

@@ -8,17 +8,26 @@ import type {
   WorkerThreadInitData,
   RunCompileAndDiscoverTask,
   ThreadSpec,
+  ThreadImports,
+  WasmImportsFactory,
 } from '../types/types.js';
 import { runCompileAndDiscover } from './runner/compile-runner.js';
 import { debug, setGlobalDebugMode } from '../util/debug.js';
 import { createRpcClient } from './rpc-reporter.js';
+import { loadUserWasmImportsFactory } from './load-user-imports.js';
 
 const logModule = `WorkerThread` as const;
 const [_unused, initData] = workerData;
-const { asPoolOptions, asCoverageOptions } = initData as WorkerThreadInitData;
+const { projectRoot, asPoolOptions, asCoverageOptions } = initData as WorkerThreadInitData;
 
 setGlobalDebugMode(asPoolOptions.debug);
 debug(`[${logModule}] New compile pool thread created`);
+
+const createWasmImports: WasmImportsFactory | undefined = await loadUserWasmImportsFactory(
+  asPoolOptions.wasmImportsFactory,
+  projectRoot,
+  logModule
+);
 
 export async function runCompileAndDisoverSpec(data: RunCompileAndDiscoverTask): Promise<ThreadSpec> {
   const { dispatchStart, workerId, file, port, config } = data;
@@ -40,7 +49,7 @@ export async function runCompileAndDisoverSpec(data: RunCompileAndDiscoverTask):
     config.root,
     config.coverage.enabled,
     asCoverageOptions.globbedAssemblyScriptProjectRelativeExcludeOnly ?? [],
-    highlight,
+    { highlight, createWasmImports } satisfies ThreadImports,
     typeof config.diff === 'object' ? config.diff : undefined,
     config.testNamePattern,
     config.allowOnly,

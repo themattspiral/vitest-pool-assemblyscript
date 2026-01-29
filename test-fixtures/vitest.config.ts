@@ -10,8 +10,8 @@ const config: ViteUserConfig = defineConfig({
     globals: false,
     environment: 'node',
 
-    // reporters: ['tree'],
-    reporters: ['verbose'],
+    reporters: ['tree'],
+    // reporters: ['verbose'],
     // reporters: ['dot'],
 
     retry: 0,
@@ -75,6 +75,8 @@ const config: ViteUserConfig = defineConfig({
 
           // v4
           pool: createAssemblyScriptPool({
+            wasmImportsFactory: 'test-fixtures/create-imports.js',
+            
             debug: false,
             stripInline: true,
             coverageMemoryPagesInitial: 1,

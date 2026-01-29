@@ -523,7 +523,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     // This is a secondary memory used to store coverage counters
     Name coverageMemoryName("__coverage_memory");
     auto coverageMemory = Builder::makeMemory(coverageMemoryName);
-    coverageMemory->module = "env";
+    coverageMemory->module = "__as_pool_env__";
     coverageMemory->base = "__coverage_memory";
     coverageMemory->initial = coverageMemoryPagesMin;
     coverageMemory->max = coverageMemoryPagesMax;

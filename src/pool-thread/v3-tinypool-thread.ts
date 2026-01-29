@@ -7,19 +7,26 @@ import { workerId } from 'tinypool';
 // @ts-ignore - we build with v4, but this is correct for v3 runtime
 import { highlight } from '@vitest/utils';
 
-import type { ProcessPoolRunFileTask, TestFileCompiled, WorkerThreadInitData } from '../types/types.js';
+import type { ProcessPoolRunFileTask, TestFileCompiled, ThreadImports, WasmImportsFactory, WorkerThreadInitData } from '../types/types.js';
 import { AS_POOL_WORKER_MSG_FLAG } from '../types/constants.js';
 import { debug, setGlobalDebugMode } from '../util/debug.js';
 import { createRpcClient } from './rpc-reporter.js';
 import { runCompileAndDiscover } from './runner/compile-runner.js';
 import { runSuite } from './runner/test-runner.js';
+import { loadUserWasmImportsFactory } from './load-user-imports.js';
 
 const logModule = `WorkerThread` as const;
 const [_unused, initData] = workerData;
-const { asPoolOptions, asCoverageOptions } = initData as WorkerThreadInitData;
+const { asPoolOptions, asCoverageOptions, projectRoot } = initData as WorkerThreadInitData;
 
 setGlobalDebugMode(asPoolOptions.debug);
 debug(`[${logModule}] New pool thread created`);
+
+const createWasmImports: WasmImportsFactory | undefined = await loadUserWasmImportsFactory(
+  asPoolOptions.wasmImportsFactory,
+  projectRoot,
+  logModule
+);
 
 export async function runTestFile(taskData: ProcessPoolRunFileTask): Promise<void> {
   const {
@@ -44,7 +51,7 @@ export async function runTestFile(taskData: ProcessPoolRunFileTask): Promise<voi
     config.root,
     config.coverage.enabled,
     asCoverageOptions.globbedAssemblyScriptProjectRelativeExcludeOnly ?? [],
-    highlight,
+    { highlight, createWasmImports } satisfies ThreadImports,
     typeof config.diff === 'object' ? config.diff : undefined,
     config.testNamePattern,
     config.allowOnly,
@@ -70,7 +77,7 @@ export async function runTestFile(taskData: ProcessPoolRunFileTask): Promise<voi
       file,
       logModuleWithId,
       asPoolOptions,
-      highlight,
+      { highlight, createWasmImports } satisfies ThreadImports,
       'v3',
       config.bail,
       typeof config.diff === 'object' ? config.diff : undefined,

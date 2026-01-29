@@ -6,7 +6,7 @@ import { TestOptions, DEFAULT_TEST_OPTIONS } from './options';
  */
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
-@external("env", "__register_test")
+@external("__as_pool_env__", "__register_test")
 declare function __register_test(
   name: string,
   fnIndex: u32,

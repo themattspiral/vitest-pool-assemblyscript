@@ -38,12 +38,14 @@ If you use [Vitest](https://vitest.dev) for JavaScript/TypeScript testing and wa
 - Each AssemblyScript test file is compiled to a WASM binary once
 - Each test case runs in a fresh WASM instance, reusing the compiled binary
 - One crashing test doesn't kill the rest within the same suite
+- `toThrowError()` matcher to catch and expect specific thrown errors (which trap and abort)
 
 ### 3. Familiar Developer Experience
 - Familiar suite and test definition using `describe()` and `test()` directly in AssemblyScript
 - Familiar inline test/suite option configuration for common options: `timeout`, `retry`, `skip`, `only`, `fails`
 - Familiar assertion matching API based on vitest/jest `expect()` API
 - Source-mapped WASM errors with accurate stack traces
+- Console output captured and provided to vitest for display
 - No boilerplate patterns for: `run()`, `endTest()`, `fs.readFile`, `WebAssembly.Instance`, etc
 
 ### 4. Performance & Customization
@@ -90,6 +92,7 @@ Vitest 3.x: Uses [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) f
 - Test discovery supporting tests and suites with arbitrary nesting and merged options
 - WASM execution with function table-based invocation
 - Per-test WASM instance isolation
+- User-provided WASM imports
 - Test timeout via thread termination, with intelligent resume
 - Source-mapped error stacks (accurate file:line:column)
 - Highlighted diffs for assertion failures and code frames
@@ -110,7 +113,7 @@ Vitest 3.x: Uses [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) f
 **⚠️ Known Limitations - Coming Soon:**
 - **Function-level coverage only**: No statement, branch, or line coverage yet
 - **No lifecycle hooks**: No setup/teardown hooks yet
-- **Watch mode specs only**: Re-runs tests when they change themselves, but not yet based on changed related source files
+- **Watch mode specs only**: Re-runs test files when they are directly changed, but not yet based on changed source files
 - **`toEqual` doesn't reflect**: Doesn't yet support deep inspection of user-defined objects
 
 ### Near Future Roadmap
@@ -124,7 +127,9 @@ Vitest 3.x: Uses [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) f
 - Lifecycle hooks (`beforeEach`, `afterEach`, `beforeAll`, `afterAll`)
 - Watch mode optimization
 - `toEqual` reflection
+- expect.soft
 - Allow delegating JS/TS to istanbul coverage provider
+- Per-file compilation setting override?
 
 **Epic: Expand expect matcher API**
 - Planned: `toBeDefined`, `toBeUndefined`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toContain`, `toContainEqual`
@@ -216,7 +221,8 @@ export default defineConfig({
             stripInline: true,          // true to remove @inline decorators for coverage (default: true)
             testMemoryPagesInitial: 2,  // initial WASM memory size in pages (default: 1)
             testMemoryPagesMax: 4,      // maximum WASM memory size in pages (default: undefined)
-            extraCompilerFlags: ['--runtime', 'incremental']  // additional asc flags to customize AS compilation
+            extraCompilerFlags: ['--runtime', 'incremental']       // additional asc flags to customize AS compilation
+            wasmImportsFactory: 'test-helpers/create-imports.js',  // factory function to create your own WASM imports
           }),
         }
       }),
@@ -308,6 +314,64 @@ export default defineAssemblyScriptConfig({
   },
 });
 ```
+
+**WasmImportsFactory:**
+To provide your own WebAssembly imports, configure `wsmImportsFactory` to point to a module which exports a factory function to create your imports:
+```typescript
+  // v4
+  pool: createAssemblyScriptPool({
+    wasmImportsFactory: 'test-helpers/create-imports.js',
+  })
+
+  // v3
+  poolOptions: {
+    assemblyScript: {
+      wasmImportsFactory: 'test-helpers/create-imports.js',
+    }
+  }
+```
+
+The type signature for this function is a [WasmImportsFactory](), which looks like this:
+```typescript
+type WasmImportsFactory = (moduleInfo: WasmImportsFactoryInfo) => WebAssembly.Imports;
+```
+
+And the `moduleInfo` argument that it is provided with looks like this:
+```typescript
+interface WasmImportsFactoryInfo {
+  module: WebAssembly.Module;
+  memory: WebAssembly.Memory;
+  utils: {
+    // convenience function for extracting returned strings from WASM memory
+    liftString: (stringPtr: number) => string | undefined;
+  }
+}
+```
+
+You may provide imports for any environment name you wish. Here is an example imports factory which uses the "env" environment:
+```js
+export default function createWasmImports({ _memory, _module, utils }) {
+  return {
+    env: {
+      parseIntStringFunction: (inputStrPtr) => {
+        return parseInt(utils.liftString(inputStrPtr));
+      }
+    }
+  };
+}
+```
+
+Example AssemblyScript source code which uses this imported function:
+```typescript
+// @ts-ignore: top level decorators are supported in AssemblyScript
+@external("env", "parseIntStringFunction")
+declare function parseIntStringFunction(input: string): i32;
+
+export function runParseIntStringFunction(input: string): i32 {
+  return parseIntStringFunction(input);
+}
+```
+
 
 7. **Write your tests**
 ```typescript

@@ -2,3 +2,8 @@
 import './custom-provider-options.js';
 
 export * from './config-helpers-v3.js';
+export type {
+  AssemblyScriptPoolOptions,
+  WasmImportsFactory,
+  WasmImportsFactoryInfo,
+} from '../types/types.js';

@@ -10,9 +10,9 @@ import type {
   AssemblyScriptCompilerOptions,
   AssemblyScriptConsoleLog,
   AssemblyScriptConsoleLogHandler,
-  HighlightFunc,
   InstrumentationOptions,
   ResolvedAssemblyScriptPoolOptions,
+  ThreadImports,
   WASMCompilation,
   WorkerRPC,
 } from '../../types/types.js';
@@ -52,7 +52,7 @@ export async function runCompileAndDiscover(
   projectRoot: string,
   collectCoverage: boolean,
   relativeUserCoverageExclusions: string[],
-  highlight: HighlightFunc,
+  threadImports: ThreadImports,
   diffOptions?: SerializedDiffOptions,
   testNamePattern?: RegExp,
   allowOnly?: boolean,
@@ -118,7 +118,7 @@ export async function runCompileAndDiscover(
       handleLog,
       file,
       logModule,
-      highlight,
+      threadImports,
       diffOptions
     );
 
@@ -151,7 +151,7 @@ export async function runCompileAndDiscover(
   } catch (error) {
     const poolError = createPoolErrorFromAnyError(
       `${fileLogLabel} - runCompileAndDiscover failure in worker`,
-      POOL_ERROR_NAMES.PoolError,
+      POOL_ERROR_NAMES.WASMExecutionHarnessError,
       error
     );
     const testError = getTestErrorFromPoolError(poolError);

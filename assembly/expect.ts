@@ -1,11 +1,20 @@
+import {
+  closeTo,
+  equals,
+  identical,
+  isNull,
+  nan,
+  truthyOrFalsey
+} from './compare';
+
 // @external functions are imported to the WASM execution environment from pool code
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
-@external("env", "__assertion_pass")
+@external("__as_pool_env__", "__assertion_pass")
 declare function __assertion_pass(): void;
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
-@external("env", "__assertion_fail")
+@external("__as_pool_env__", "__assertion_fail")
 declare function __assertion_fail<T>(
   msg: string,
   typeName: string,
@@ -15,21 +24,13 @@ declare function __assertion_fail<T>(
 ): void;
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
-@external("env", "__expect_throw")
+@external("__as_pool_env__", "__expect_throw")
 declare function __expect_throw(fnPtr: usize, errorMsg?: string): void;
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
-@external("env", "__end_expect_throw")
+@external("__as_pool_env__", "__end_expect_throw")
 declare function __end_expect_throw(): void;
 
-import {
-  closeTo,
-  equals,
-  identical,
-  isNull,
-  nan,
-  truthyOrFalsey
-} from './compare';
 
 function itemMessageString<T>(item: T): string {
   if (isNull(item)) return "<null>";

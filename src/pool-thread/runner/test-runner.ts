@@ -11,10 +11,10 @@ import type {
   AssemblyScriptConsoleLogHandler,
   AssemblyScriptSuiteTaskMeta,
   AssemblyScriptTestTaskMeta,
-  HighlightFunc,
   ResolvedAssemblyScriptPoolOptions,
   TestExecutionEnd,
   TestExecutionStart,
+  ThreadImports,
   VitestVersion,
   WASMCompilation,
   WorkerRPC,
@@ -106,7 +106,7 @@ async function runTest(
   test: Test,
   logModule: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
-  highlight: HighlightFunc,
+  threadImports: ThreadImports,
   bail?: number,
   diffOptions?: SerializedDiffOptions,
 ): Promise<void> {
@@ -148,7 +148,7 @@ async function runTest(
       collectCoverage,
       handleLog,
       logModule,
-      highlight,
+      threadImports,
       diffOptions
     )
   ]);
@@ -184,7 +184,7 @@ async function runTest(
 
     await runTest(
       rpc, port, base, collectCoverage, compilation,
-      test, logModule, poolOptions, highlight, bail, diffOptions
+      test, logModule, poolOptions, threadImports, bail, diffOptions
     );
 
     willRetry = shouldRetryTask(test);
@@ -219,7 +219,7 @@ export async function runSuite(
   suite: Suite | File,
   logModule: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
-  highlight: HighlightFunc,
+  threadImports: ThreadImports,
   vitestVersion: VitestVersion,
   bail?: number,
   diffOptions?: SerializedDiffOptions,
@@ -273,7 +273,7 @@ export async function runSuite(
 
       await runSuite(
         rpc, port, base, collectCoverage, compilation, task, logModule,
-        poolOptions, highlight, vitestVersion, bail, diffOptions, timedOutTest
+        poolOptions, threadImports, vitestVersion, bail, diffOptions, timedOutTest
       );
 
       // merge suite task coverage into parent suite coverage
@@ -313,7 +313,7 @@ export async function runSuite(
           //  - if it fails again, it will end up in the else block below
           await runTest(
             rpc, port, base, collectCoverage, compilation,
-            task, logModule, poolOptions, highlight, bail, diffOptions
+            task, logModule, poolOptions, threadImports, bail, diffOptions
           );
         } else {
           debug(`${testLogPrefix} - Timed-out test has no retries left`
@@ -339,7 +339,7 @@ export async function runSuite(
         debug(`${testLogPrefix} - Running test task | state: "${task.result?.state}"`);
         await runTest(
           rpc, port, base, collectCoverage, compilation,
-          task, logModule, poolOptions, highlight, bail, diffOptions
+          task, logModule, poolOptions, threadImports, bail, diffOptions
         );
       }
 
