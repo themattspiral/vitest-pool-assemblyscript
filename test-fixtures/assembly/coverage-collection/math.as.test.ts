@@ -8,9 +8,10 @@ import { add, subtract, multiply, divide, addOneLiner, subtractOneLiner } from '
 
 test("addition works [should fail]", () => {
   const sum: i32 = add(1, 1);
+  expect(sum).toBe(2);
 
   console.assert(false, "this is a console assertion from a test before it fails");
-  expect(sum).toBe(3);
+  expect(1 + 1).toBe(3);
 });
 
 test("subtraction works", () => {

@@ -3,7 +3,7 @@
 AssemblyScript unit testing for your Vitest workflow: Simple, fast, familiar, AS-native.
 
 - [Motivation](#motivation)
-- [What Makes This Different](#what-makes-this-different)
+- [Features](#features)
 - [Architecture](#architecture)
 - [Project Status & Expectations](#project-status--expectations)
 - [Installation Guide (Development Preview)](#installation-guide-development-preview)
@@ -15,54 +15,47 @@ AssemblyScript unit testing for your Vitest workflow: Simple, fast, familiar, AS
 
 ## Motivation
 
-If you use [Vitest](https://vitest.dev) for JavaScript/TypeScript testing and want to adopt [AssemblyScript](https://www.assemblyscript.org/) as your compile-to-WASM solution for performance-critical code, you face a choice:
+If you use [Vitest](https://vitest.dev) for JavaScript/TypeScript testing and want to adopt [AssemblyScript](https://www.assemblyscript.org/) as your compile-to-WASM solution for performance-critical code, you have a few choices:
 
-- **Generic WASM test patterns:**
-  - Boilerplate (instantiation, cleanup), Maintenance burden (assertions) , No test discovery, Manual error source mapping, Limited/no coverage
+- **This Custom Pool:**
+  - `vitest` for JS & AS tests; Jest-style matchers; Unified coverage reporting; Crash isolation; Detailed errors and diffs; Adopt incrementally
 - **Standalone AS test tools:**
-  - Separate workflows and reports, Different coverage formats, Limited test parallelism
-- **Custom Pool:**
-  - Keep using `vitest`, Familiar matchers, Unified test runs/reporting, Unified coverage + more
-
-### The Pool Approach
-- This custom pool gives Vitest support for on-demand AssemblyScript-to-WASM compilation and test execution
-- It aims to bridge the gap between AssemblyScript and the modern JavaScript testing ecosystem
-- It's designed to work for incremental adoption: Add AS modules to your existing codebase without changing your testing infrastructure
+  - Separate workflows and reports; Inconsistent coverage formats; Limited test parallelism
+- **Generic WASM test patterns:**
+  - Boilerplate (instantiation, cleanup); Maintenance burden (internal assertions); No test discovery; Manual error source mapping; Limited/no coverage reporting
 
 ---
 
-## What Makes This Different
+## Features
 
-### 1. Vitest Ecosystem Integration
+### 1. Vitest Integration
 - Use familiar `vitest` commands, CLI spec and test filtering, watch mode
 - Works with Vitest UI, reporters, and coverage tools
 - Project (workspace) config allows coexisting AssemblyScript pools and JavaScript pools
-- Hybrid Coverage Provider allows unified JS/AS test reports from multiple pools (vitest's global `coverage` config isn't a blocker)
+- Hybrid Coverage Provider unifies JS/AS test reports from multiple pools (delegating to v8 for JS coverage)
 
 ### 2. Per-Test WASM Isolation
 - Each AssemblyScript test file is compiled to a WASM binary once
-- Each individual test case runs in a fresh WASM instance, reusing the compiled binary
+- Each test case runs in a fresh WASM instance, reusing the compiled binary
 - One crashing test doesn't kill the rest within the same suite
 
 ### 3. Familiar Developer Experience
 - Familiar suite and test definition using `describe()` and `test()` directly in AssemblyScript
-- Familiar inline test/suite option confirguration for common options: `timeout`, `retry`, `skip`, `only`, `fails`
-- Familiar assertion matching API based on vitest/Jest (future! dev preview implements simple `assert()` API currently)
-- Less Boilerplate: Patterns like `run()`, `endTest()`, `fs.readFile`, `WebAssembly.Instance`, etc are not needed
+- Familiar inline test/suite option configuration for common options: `timeout`, `retry`, `skip`, `only`, `fails`
+- Familiar assertion matching API based on vitest/jest `expect()` API
 - Source-mapped WASM errors with accurate stack traces
+- No boilerplate patterns for: `run()`, `endTest()`, `fs.readFile`, `WebAssembly.Instance`, etc
 
 ### 4. Performance & Customization
 - Lightweight coverage instrumentation
-- Remove `@inline` decorators to ensure coverage for normally inlined code (handles `@inline`)
+- Remove `@inline` decorators to ensure coverage for normally inlined code
 - Parallel execution thread pool
-- Enforced timeout limits for long-running WASM code, even if blocking
+- Enforced hard timeouts for long-running synchronous WASM
 - In-memory binaries and source maps for minimal file I/O
 - Configurable AssemblyScript compiler options
-- Optional user-provided `WebAssembly.Memory`
+- Configurable test memory size
 
 ### Why This Over [Alternative]?
-
-By providing functionality that JS developers have come to expect, this project brings a more mature JS-like developer experience to AssemblyScript testing. We believe the features above make our vitest custom pool a stand-out choice.
 
 There are other standalone testing frameworks for AssemblyScript testing, including:
 - [assemblyscript-unittest-framework](https://github.com/wasm-ecosystem/assemblyscript-unittest-framework): A full-featured AS test framework
@@ -76,9 +69,9 @@ There are other standalone testing frameworks for AssemblyScript testing, includ
 
 **⚠️ This section needs updating to reflect recent changes**
 
-Vitest 4.0.0: Uses [`PoolWorker` API](https://vitest.dev/guide/advanced/pool.html)
+Vitest 4.x: Uses [`PoolWorker` API](https://vitest.dev/guide/advanced/pool.html)
 
-Vitest 3.2.0: Uses [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) for alternative runtime execution
+Vitest 3.x: Uses [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html) for alternative runtime execution
 - **[Pool Architecture](docs/pool-architecture.md)** - Internal pool architecture and vitest integration points
 - **[Coverage Architecture](docs/coverage-architecture.md)** - Coverage instrumentation, collection, and report generation architecture
 
@@ -86,44 +79,59 @@ Vitest 3.2.0: Uses [`ProcessPool` API](https://v3.vitest.dev/advanced/pool.html)
 
 ## Project Status & Expectations
 
-**This is a pre-v1 project** being developed as a hobby-project in the open. Core functionality is working, with a long list of planned features and polish to be added as time allows.
+**This is a pre-v1 project** being developed in the open by an interested individual. Most core functionality is working, with a long list of planned features and polish to be added as time allows.
 
 *(Note: Not yet published to npm - currently development only)*
 
 ### Current State (Pre-v1)
 
 **✅ What Works Now:**
-- Vitest custom PoolWorker and Worker thread
+- Dual vitest 3.x / 4.x support
 - Test discovery supporting tests and suites with arbitrary nesting and merged options
 - WASM execution with function table-based invocation
 - Per-test WASM instance isolation
 - Test timeout via thread termination, with intelligent resume
-- Basic `assert()` for boolean and equality assertions
 - Source-mapped error stacks (accurate file:line:column)
 - Highlighted diffs for assertion failures and code frames
 - Hybrid Coverage Provider for unified reporting between JS/AS in mixed projects
 - Function-level coverage reporting
+- Initial set of `expect()` matchers:
+  - `toBe`
+  - `toBeCloseTo`
+  - `toBeTruthy`
+  - `toBeFalsey`
+  - `toBeNull`
+  - `toBeNullable`
+  - `toBeNaN`
+  - `toEqual`
+  - `toHaveLength`
+  - `toThrowError`
 
-**⚠️ Known Limitations:**
+**⚠️ Known Limitations - Coming Soon:**
 - **Function-level coverage only**: No statement, branch, or line coverage yet
-- **Basic assertions only**: No setup/teardown hooks, or rich matchers yet
-- **Watch mode**: Doesn't yet re-run tests based on updated source files
+- **No lifecycle hooks**: No setup/teardown hooks yet
+- **Watch mode specs only**: Re-runs tests when they change themselves, but not yet based on changed related source files
+- **`toEqual` doesn't reflect**: Doesn't yet support deep inspection of user-defined objects
 
 ### Near Future Roadmap
 
-**Epic**: Enhanced block-level coverage
+**Epic: Enhanced block-level coverage**
 - Block-level statement coverage (line granularity)
 - Branch coverage using CFG analysis
 - All 4 coverage types (function, statement, branch, line)
 
-**Epic**: Testing DX
+**Epic: Testing DX**
 - Lifecycle hooks (`beforeEach`, `afterEach`, `beforeAll`, `afterAll`)
-- Expanded compiler options support
 - Watch mode optimization
+- `toEqual` reflection
+- Allow delegating JS/TS to istanbul coverage provider
 
-**Epic**: Rich matcher API
-- AssemblyScript `expect()` style matchers (`toBe`, `toEqual`, `toBeCloseTo`, etc)
-- Evaluate DX, maintainability, and value case by case
+**Epic: Expand expect matcher API**
+- Planned: `toBeDefined`, `toBeUndefined`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toContain`, `toContainEqual`
+- Probably: `toBeOneOf`, `toBeTypeOf`, `toBeInstanceOf`, `toHaveProperty`, `toMatch`
+
+**Epic: Spy and Mock**
+- TBD
 
 **✖️ Out of Scope (Currently):**
 - Compiler integration with other compile-to-WASM languages (Rust, C++)
@@ -155,10 +163,10 @@ git clone https://github.com/themattspiral/vitest-pool-assemblyscript.git
 cd vitest-pool-assemblyscript
 ```
 
-2. **Install npm deps, then Binaryen C++ dependencies**
+2. **Install Binaryen C++ dependencies, then npm deps**
 ```bash
-npm install
 npm run setup-binaryen
+npm install
 ```
 The `setup-binaryen` script downloads prebuilt Binaryen libraries and C++ headers to `third_party/binaryen/`. These are used to build the native addon that extracts debug info from WASM binaries.
 
@@ -182,26 +190,50 @@ npm link vitest-pool-assemblyscript
 ```
 
 6. **Configure Vitest** in your project's `vitest.config.ts`:
+- The `test` project configuration helper(s) needed depend on which version of vitest you're using.
+- The `coverage` configuration is the same across versions (shown on the first example below).
 
-**vitest 3.2.x Single-Project Config:**
+**vitest 4.x.x Multiple-Project Config:**
 ```typescript
-import { defineAssemblyScriptConfig } from 'vitest-pool-assemblyscript/config';
+import { defineConfig, defineProject } from 'vitest/config';
+import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
 
-export default defineAssemblyScriptConfig({
+export default defineConfig({
   test: {
-    include: ['test/assembly/**/*.as.test.ts'],
-    exclude: ['**/node_modules/**'],
+    projects: [
+      defineProject({
+        test: {
+          name: {
+            label: 'assemblyscript-tests',
+            color: 'yellow'
+          },
+          include: ['test/assembly/**/*.as.{test,spec}.ts'],
 
-    pool: 'vitest-pool-assemblyscript',
+          // maxWorkers: 8,   // concurrent file execution threads (default: available parallelism)
 
-    poolOptions: {
-      assemblyScript: {
-        stripInline: true,      // strip @inline decorator for coverage visibility
-        maxThreads: undefined,  // max tinypool threads (#CPUs-1 default when undefined)
-        debug: false,
-      }
-    }
+          // tell vitest to use this custom pool for files in `include`
+          pool: createAssemblyScriptPool({
+            stripInline: true,          // true to remove @inline decorators for coverage (default: true)
+            testMemoryPagesInitial: 2,  // initial WASM memory size in pages (default: 1)
+            testMemoryPagesMax: 4,      // maximum WASM memory size in pages (default: undefined)
+            extraCompilerFlags: ['--runtime', 'incremental']  // additional asc flags to customize AS compilation
+          }),
+        }
+      }),
+
+      defineProject({
+        test: {
+          name: {
+            label: 'javascript-typescript-tests',
+            color: 'blue'
+          },
+          include: ['test/js/*.{test,spec}.{ts,js}'],
+        }
+      }),
+    ]
   },
+  // Coverage config must be at root level (applies to all projects).
+  // The "hybrid" provider delegates JS to v8, and merges AS coverage into the final report
   coverage: {
     provider: 'custom',
     customProviderModule: 'vitest-pool-assemblyscript/coverage',
@@ -212,6 +244,23 @@ export default defineAssemblyScriptConfig({
     assemblyScriptInclude: ['assembly/**/*.ts'],      // example, include AS sources
     assemblyScriptExclude: ['assembly/helpers/*.ts'], // example, exclude AS sources
   },
+});
+```
+
+**vitest 4.x.x Single-Project Config:**
+```typescript
+import { defineConfig } from 'vitest/config';
+import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
+
+export default defineConfig({
+  test: {
+    pool: createAssemblyScriptPool({
+      // no change to available options (stripInline, testMemoryPagesInitial, etc)
+    }),
+  },
+  coverage: {
+    // no change to available options
+  }
 });
 ```
 
@@ -225,136 +274,69 @@ export default defineConfig({
     projects: [
       defineProject({
         test: {
-          name: {
-            label: 'javascript-typescript-tests',
-            color: 'blue'
-          },
-          include: ['test/js/*.{test,spec}.{ts,js}'],
-          // remaining JS/TS config...
+          // JS/TS project config...
         }
       }),
       defineAssemblyScriptProject({
         test: {
-          name: {
-            label: 'assemblyscript',
-            color: 'yellow'
-          },
-          include: ['test/assembly/**/*.as.{test,spec}.ts'],
+          // AS project config... (standard name/label, include, etc)
 
           pool: 'vitest-pool-assemblyscript',
           poolOptions: {
             assemblyScript: {
-              // debug, maxThreads, stripInline, etc
+              // same available options as v4 createAssemblyScriptPool, PLUS...
+              // number of concurrent test file threads to execute in v3 only (v4 uses maxWorkers) 
+              // (default: availableParallelism - 1)
+              // maxThreadsV3: 8
             }
           }
         }
       })
     ]
   },
-  // Coverage config must be at root level (Vitest requirement - applies to all projects)
-  coverage: {
-    provider: 'custom',
-    customProviderModule: 'vitest-pool-assemblyscript/coverage',
-    enabled: true,
-    reportsDirectory: './coverage',
-    reporter: ['text', 'lcov', 'html'],
-    include: ['src/**/*.ts'],                         // example, include JS/TS sources
-    assemblyScriptInclude: ['assembly/**/*.ts'],      // example, include AS sources
-    assemblyScriptExclude: ['assembly/helpers/*.ts'], // example, exclude AS sources
-  },
+  
 });
 ```
 
-
-**vitest 4.x.x Multiple-Project Config:**
+**vitest 3.2.x Single-Project Config:**
 ```typescript
-import { defineConfig, defineProject } from 'vitest/config';
-import { defineConfig } from 'vitest-pool-assemblyscript/config';
+import { defineAssemblyScriptConfig } from 'vitest-pool-assemblyscript/config';
 
-// standard vitest defineConfig now
-export default defineConfig({
+export default defineAssemblyScriptConfig({
   test: {
-    // everything here is the same
-
-    // NEW for v4
-    pool: createAssemblyScriptPool({
-      debug: false,
-      stripInline: true,
-      coverageMemoryPagesMax: 2,
-    }),
-  },
-  coverage: {
-    // no change
-  },
-});
-```
-
-**vitest 4.x.x Multiple-Project Config:**
-```typescript
-import { defineConfig, defineProject } from 'vitest/config';
-import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
-
-export default defineConfig({
-  test: {
-    projects: [
-      defineProject({
-          // no change
-        }
-      }),
-
-      // standard vitest defineProject now
-      defineProject({
-        test: {
-          // everything here is the same
-
-          // NEW for v4
-          pool: createAssemblyScriptPool({
-            debug: false,
-            stripInline: true,
-            coverageMemoryPagesMax: 2,
-          }),
-        }
-      })
-    ]
-  },
-  coverage: {
-    // no change
+    // same as multi-project AS config here
   },
 });
 ```
 
 7. **Write your tests**
 ```typescript
-import { test, describe, assertEqual, TestOptions } from 'vitest-pool-assemblyscript/assembly';
+import { test, describe, expect, TestOptions } from "vitest-pool-assemblyscript/assembly";
+import { fibonacciRecursive } from "assembly/math.ts";
 
-import { fibonacciRecursive } from 'assembly/math.ts';
-
-test('addition works', () => {
-  const result: i32 = 1 + 1;
-  assertEqual(result, 2, 'one plus one should equal two');
+test("addition works", () => {
+  expect(1 + 1).toBe(2);
+  expect(0.1 + 0.2).toBeCloseTo(0.3);
 });
 
 test('string concatenation', () => {
-  const greeting: string = 'Hello' + ' ' + 'World';
-  assertEqual(greeting, 'Hello World');
+  const greeting: string = "Hello" + " " + "World";
+  expect(greeting).toBe("Hello World");
 });
 
 describe("potential long running tests", TestOptions.timeout(500), () => {
   test('fibonacci 35', TestOptions.retry(2), () => {
-    assert(fibonacciRecursive(35) == 9227465);
+    expect(fibonacciRecursive(35)).toBe(9227465);
   });
 
-  test("fibonacci 38", TestOptions.timeout(200).retry(0) () => {
-    assertEqual(fibonacciRecursive(38), 39088169);
-  });
+  // TestOptions can go after the test callback also
+  test("fibonacci 38", () => {
+    expect(fibonacciRecursive(38)).toBe(39088169);
+  }, TestOptions.timeout(200).retry(0));
 });
 
 describe.skip("a skipped suite", () => {
-  // all tests are skipped
-});
-
-describe("another skipped suite", TestOptions.skip(), () => {
-  // all tests are skipped
+  // all tests in suite are skipped
 });
 ```
 
