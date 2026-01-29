@@ -78,7 +78,7 @@ export async function runCompileAndDiscover(
         ...relativeUserCoverageExclusions,
       ],
       excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
-      coverageMemoryPagesMin: poolOptions.coverageMemoryPagesMin,
+      coverageMemoryPagesMin: poolOptions.coverageMemoryPagesInitial,
       coverageMemoryPagesMax: poolOptions.coverageMemoryPagesMax,
     };
     const compilerOptions: AssemblyScriptCompilerOptions = {

@@ -16,10 +16,9 @@ const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOption
   debug: false,
   stripInline: true,
   maxThreadsV3: availableParallelism() - 1,
-  coverageMemoryPagesMin: 1,
+  coverageMemoryPagesInitial: 1,
   coverageMemoryPagesMax: 4,
-  testMemoryPagesMin: 1,
-  testMemoryPagesMax: 4,
+  testMemoryPagesInitial: 1,
   extraCompilerFlags: [],
 } as const;
 
@@ -36,17 +35,17 @@ export function resolvePoolOptions(userPoolOptions?: any): ResolvedAssemblyScrip
 
   const resolved = { ...poolOptions, isResolved: true } as ResolvedAssemblyScriptPoolOptions;
 
-  if (resolved.coverageMemoryPagesMin < 1 || resolved.coverageMemoryPagesMax < 1) {
+  if (resolved.coverageMemoryPagesInitial < 1 || resolved.coverageMemoryPagesMax < 1) {
     throw createPoolError(
-      `Coverage memory page size options must be positive - coverageMemoryPagesMin: ${resolved.coverageMemoryPagesMin}`
+      `Coverage memory page size options must be positive - coverageMemoryPagesMin: ${resolved.coverageMemoryPagesInitial}`
       + ` | coverageMemoryPagesMax: ${resolved.coverageMemoryPagesMax}`,
       POOL_ERROR_NAMES.PoolConfigError
     );
   }
   
-  if (resolved.testMemoryPagesMin < 1 || resolved.testMemoryPagesMax < 1) {
+  if (resolved.testMemoryPagesInitial < 1 || (resolved.testMemoryPagesMax !== undefined && resolved.testMemoryPagesMax < 1)) {
     throw createPoolError(
-      `Test memory page size options must be positive - testMemoryPagesMin: ${resolved.testMemoryPagesMin}`
+      `Test memory page size options must be positive - testMemoryPagesMin: ${resolved.testMemoryPagesInitial}`
       + ` | testMemoryPagesMax: ${resolved.testMemoryPagesMax}`,
       POOL_ERROR_NAMES.PoolConfigError
     );

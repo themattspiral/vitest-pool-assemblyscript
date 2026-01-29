@@ -77,7 +77,10 @@ const config: ViteUserConfig = defineConfig({
           pool: createAssemblyScriptPool({
             debug: false,
             stripInline: true,
-            coverageMemoryPagesMax: 2,
+            coverageMemoryPagesInitial: 1,
+            coverageMemoryPagesMax: 1,
+            testMemoryPagesInitial: 2,
+            // testMemoryPagesMax: 4,
 
             // extraCompilerFlags: ['--runtime', 'incremental']
             // extraCompilerFlags: ['--optimizeLevel', '2']
@@ -106,7 +109,11 @@ const config: ViteUserConfig = defineConfig({
       //       assemblyScript: {
       //         debug: false,
       //         stripInline: true,
-      //         coverageMemoryPagesMax: 2
+      //         coverageMemoryPagesInitial: 1,
+      //         coverageMemoryPagesMax: 1,
+      //         testMemoryPagesInitial: 2,
+      //         testMemoryPagesMax: 4,
+      //         extraCompilerFlags: ['--runtime', 'incremental'],
       //       },
       //     },
       //   }

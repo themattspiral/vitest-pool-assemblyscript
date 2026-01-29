@@ -79,10 +79,10 @@ export interface AssemblyScriptPoolOptions {
    */
   maxThreadsV3?: number;
 
-  coverageMemoryPagesMin?: number;
+  coverageMemoryPagesInitial?: number;
   coverageMemoryPagesMax?: number;
 
-  testMemoryPagesMin?: number;
+  testMemoryPagesInitial?: number;
   testMemoryPagesMax?: number;
 
   extraCompilerFlags?: string[];
@@ -118,13 +118,12 @@ export const AS_POOL_FIELDS_WITH_DEFAULTS = [
   'debug',
   'stripInline',
   'maxThreadsV3',
-  'coverageMemoryPagesMin',
+  'coverageMemoryPagesInitial',
   'coverageMemoryPagesMax',
-  'testMemoryPagesMin',
-  'testMemoryPagesMax',
+  'testMemoryPagesInitial',
   'extraCompilerFlags'
 ] as const;
-export const AS_POOL_OPTIONAL_FIELDS = [] as const;
+export const AS_POOL_OPTIONAL_FIELDS = ['testMemoryPagesMax'] as const;
 
 /** Fields that have default values. Internally these will always be defined. */
 export type ASPoolOptionsFieldsWithDefaultValues = typeof AS_POOL_FIELDS_WITH_DEFAULTS[number];

@@ -4,8 +4,8 @@ import { liftString } from '../util/assemblyscript/binding-helpers.js';
  * Create a WebAssembly memory instance
  * Used for imported memory pattern (matches --importMemory flag)
  */
-export function createMemory(initialPages = 1): WebAssembly.Memory {
-  return new WebAssembly.Memory({ initial: initialPages });
+export function createMemory(initialPages: number, maximumPages?: number): WebAssembly.Memory {
+  return new WebAssembly.Memory({ initial: initialPages, maximum: maximumPages });
 }
 
 /**

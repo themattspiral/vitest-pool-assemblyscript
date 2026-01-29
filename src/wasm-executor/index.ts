@@ -66,16 +66,13 @@ export async function executeWASMDiscovery(
   const base = basename(file.filepath);
   const logPrefix = `[${moduleLabel} Exec] ${getTaskLogLabel(base, file)}`;
   const wasmModule = await WebAssembly.compile(binary as BufferSource);
-  const memory = createMemory();
+  const memory = createMemory(poolOptions.testMemoryPagesInitial, poolOptions.testMemoryPagesMax);
 
   // Create coverage memory matching instrumentation expections (from user config).
   // While this memory will not be used, discovery instantiates the same binary,
   // and WebAssembly.Instance will throw if the expected memory sizes don't match
   const coverageMemory = isBinaryInstrumented ?
-    new WebAssembly.Memory({
-      initial: poolOptions.coverageMemoryPagesMin,
-      maximum: poolOptions.coverageMemoryPagesMax
-    })
+    createMemory(poolOptions.coverageMemoryPagesInitial, poolOptions.coverageMemoryPagesMax)
     : undefined;
 
   const importObject = createDiscoveryImports(memory, file, handleLog, logPrefix, coverageMemory);
@@ -189,14 +186,11 @@ export async function executeWASMTest(
   const wasmModule = await WebAssembly.compile(compilation.binary as BufferSource);
 
   // Create fresh memory for this test instance
-  const memory = createMemory();
+  const memory = createMemory(poolOptions.testMemoryPagesInitial, poolOptions.testMemoryPagesMax);
 
   // Create coverage memory if collecting coverage (instrumented binary)
   const coverageMemory = collectCoverage ?
-    new WebAssembly.Memory({
-      initial: poolOptions.coverageMemoryPagesMin,
-      maximum: poolOptions.coverageMemoryPagesMax
-    })
+    createMemory(poolOptions.coverageMemoryPagesInitial, poolOptions.coverageMemoryPagesMax)
     : undefined;
 
   // Create import object with pool-side functions for capturing test execution results
