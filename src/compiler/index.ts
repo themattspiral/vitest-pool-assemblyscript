@@ -60,7 +60,9 @@ export async function compileAssemblyScript(
   const compileStart = performance.now();
   const logPrefix = `[${logModule} ASC] ${logLabel}`;
 
-  if (options.shouldInstrument && !options.instrumentationOptions) {
+  const { shouldInstrument, instrumentationOptions, extraFlags } = options;
+
+  if (shouldInstrument && !instrumentationOptions) {
     throw createPoolError(
       'Instrumentation options are required for coverage instrumentation',
       POOL_ERROR_NAMES.CompilationError
@@ -97,14 +99,21 @@ export async function compileAssemblyScript(
   // Build compiler flags
   const compilerFlags = [
     entryFile,
-    '--outFile', outputFile,
+
+    // overrideable, though not recommended
     '--optimizeLevel', '0',           // No optimization for easier debugging
-    '--runtime', 'stub',              // Minimal runtime (no GC)
+    '--shrinkLevel', '0',             // No shrink
+    '--runtime', 'stub',              // stub runtime (no GC)
+
+    ...(extraFlags || []),
+
+    // non-overrideable
+    '--outFile', outputFile,
     '--importMemory',                 // Import memory from JS (enables imports during WASM start)
     '--debug',                        // Include debug info
     '--sourceMap',                    // Generate source maps for error reporting
     '--exportStart', '_start',        // Export start function for explicit initialization control
-    '--exportTable',                  // Export function table for direct test execution
+    '--exportTable'                   // Export function table for direct test execution
   ];
 
   // Add transform to strip @inline decorators if requested

@@ -6,10 +6,10 @@
 import { test, describe, expect } from '../../../assembly';
 import { add, subtract, multiply, divide, addOneLiner, subtractOneLiner } from '../../assembly-src/math';
 
-test("addition works [should fail]", () => {
+test.only("addition works [should fail]", () => {
   const sum: i32 = add(1, 1);
 
-  console.assert(false, "this is a failed console assertion");
+  console.assert(false, "this is a console assertion from a test before it fails");
   expect(sum).toBe(3);
 });
 

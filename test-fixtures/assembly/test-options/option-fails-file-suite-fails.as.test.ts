@@ -11,12 +11,12 @@ describe("suite should pass when test within it uses `fails` option and passes",
   });
 });
 
-describe("suite that fails and will cause file suite to fail [should fail]", () => {
+describe("suite that fails and will cause file suite to fail", () => {
   test("should pass normally within this failing suite", () => {
     expect(add(1, 2)).toBe(3);
   });
 
-  describe("nested suite [should fail]", () => {
+  describe("nested suite", () => {
     test("should pass normally within this nested suite", () => {
       expect(add(1, 2)).toBe(3);
     });

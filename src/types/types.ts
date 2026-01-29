@@ -69,16 +69,23 @@ export interface AssemblyScriptPoolOptions {
    * @default true
    */
   stripInline?: boolean;
+
   /**
-   * Maximum number of worker threads to spawn in vitest 3.x.
+   * Maximum number of worker threads to spawn with vitest 3.x.
    * Defaults to os.availableParallelism() - 1
    * 
-   * Use project config `test.maxWorkers` in vitest 4.x
+   * Use project config `test.maxWorkers` with vitest 4.x to control
+   * the number of cuncurrently executing tests. 
    */
   maxThreadsV3?: number;
 
   coverageMemoryPagesMin?: number;
   coverageMemoryPagesMax?: number;
+
+  testMemoryPagesMin?: number;
+  testMemoryPagesMax?: number;
+
+  extraCompilerFlags?: string[];
 }
 
 /**
@@ -107,7 +114,16 @@ export interface HybridProviderOptions {
 }
 
 // define these constants here so they make sense in context
-export const AS_POOL_FIELDS_WITH_DEFAULTS = ['debug', 'stripInline', 'coverageMemoryPagesMin', 'coverageMemoryPagesMax', 'maxThreadsV3'] as const;
+export const AS_POOL_FIELDS_WITH_DEFAULTS = [
+  'debug',
+  'stripInline',
+  'maxThreadsV3',
+  'coverageMemoryPagesMin',
+  'coverageMemoryPagesMax',
+  'testMemoryPagesMin',
+  'testMemoryPagesMax',
+  'extraCompilerFlags'
+] as const;
 export const AS_POOL_OPTIONAL_FIELDS = [] as const;
 
 /** Fields that have default values. Internally these will always be defined. */
@@ -162,9 +178,10 @@ export interface GlobResult {
 
 export interface AssemblyScriptCompilerOptions {
   shouldInstrument: boolean;
+  projectRoot: string;
   instrumentationOptions?: InstrumentationOptions;
   stripInline?: boolean;
-  projectRoot: string;
+  extraFlags?: string[];
 }
 
 export interface AssemblyScriptCompilerResult {

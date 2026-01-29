@@ -17,7 +17,10 @@ const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOption
   stripInline: true,
   maxThreadsV3: availableParallelism() - 1,
   coverageMemoryPagesMin: 1,
-  coverageMemoryPagesMax: 4
+  coverageMemoryPagesMax: 4,
+  testMemoryPagesMin: 1,
+  testMemoryPagesMax: 4,
+  extraCompilerFlags: [],
 } as const;
 
 // v4: used in runner init to parse user-provided param
@@ -37,6 +40,14 @@ export function resolvePoolOptions(userPoolOptions?: any): ResolvedAssemblyScrip
     throw createPoolError(
       `Coverage memory page size options must be positive - coverageMemoryPagesMin: ${resolved.coverageMemoryPagesMin}`
       + ` | coverageMemoryPagesMax: ${resolved.coverageMemoryPagesMax}`,
+      POOL_ERROR_NAMES.PoolConfigError
+    );
+  }
+  
+  if (resolved.testMemoryPagesMin < 1 || resolved.testMemoryPagesMax < 1) {
+    throw createPoolError(
+      `Test memory page size options must be positive - testMemoryPagesMin: ${resolved.testMemoryPagesMin}`
+      + ` | testMemoryPagesMax: ${resolved.testMemoryPagesMax}`,
       POOL_ERROR_NAMES.PoolConfigError
     );
   }

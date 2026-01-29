@@ -1,7 +1,7 @@
 import { it, expect, TestOptions, describe } from '../../../assembly';
 import { add } from '../../assembly-src/math';
 
-describe("various test cases using the `fails` option, [should fail]", ()=> {
+describe("various test cases using the `fails` option", ()=> {
   it("should pass normally", () => {
     expect(add(1, 2)).toBe(3);
   });

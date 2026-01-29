@@ -85,7 +85,8 @@ export async function runCompileAndDiscover(
       stripInline: poolOptions.stripInline,
       projectRoot: projectRoot,
       shouldInstrument: collectCoverage,
-      instrumentationOptions
+      instrumentationOptions,
+      extraFlags: poolOptions.extraCompilerFlags
     };
 
     const { binary, sourceMap, debugInfo, compileTiming } = await compileAssemblyScript(

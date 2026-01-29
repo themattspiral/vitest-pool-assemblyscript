@@ -9,7 +9,7 @@ test("failing test with project config defaults [should fail]", () => {
   expect(add(1, 2)).toBe(4);
 });
 
-describe("suite with retry different than default [should fail]", TestOptions.retry(5), () => {
+describe("suite with retry different than default", TestOptions.retry(5), () => {
   test("nested passing test", () => {
     expect(add(1, 2)).toBe(3);
   });
@@ -22,7 +22,7 @@ describe("suite with retry different than default [should fail]", TestOptions.re
     expect(true).toBe(false);
   });
 
-  describe("nested suite with `fails` set [should fail]", TestOptions.fails(), () => {
+  describe("nested suite with `fails` set", TestOptions.fails(), () => {
     test("should get inherited retry and fail with it, then pass because inherited `fails` is true", () => {
       expect(true).toBe(false);
     });

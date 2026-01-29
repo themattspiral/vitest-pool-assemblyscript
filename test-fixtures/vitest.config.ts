@@ -12,6 +12,7 @@ const config: ViteUserConfig = defineConfig({
 
     // reporters: ['tree'],
     reporters: ['verbose'],
+    // reporters: ['dot'],
 
     retry: 0,
     testTimeout: 500,
@@ -43,19 +44,19 @@ const config: ViteUserConfig = defineConfig({
 
     projects: [
       // JavaScript/TypeScript tests (built-in pool)
-      defineProject({
-        test: {
-          name: {
-            label: 'ts-fixtures',
-            color: 'blue'
-          },
+      // defineProject({
+      //   test: {
+      //     name: {
+      //       label: 'ts-fixtures',
+      //       color: 'blue'
+      //     },
 
-          include: [ 'test-fixtures/js/**/*.test.ts' ],
+      //     include: [ 'test-fixtures/js/**/*.test.ts' ],
 
-          retry: 0,
-          testTimeout: 500,
-        }
-      }),
+      //     retry: 0,
+      //     testTimeout: 500,
+      //   }
+      // }),
 
       //v4
       defineProject({
@@ -77,6 +78,9 @@ const config: ViteUserConfig = defineConfig({
             debug: false,
             stripInline: true,
             coverageMemoryPagesMax: 2,
+
+            // extraCompilerFlags: ['--runtime', 'incremental']
+            // extraCompilerFlags: ['--optimizeLevel', '2']
           }),
         }
       }),
