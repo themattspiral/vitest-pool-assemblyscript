@@ -67,7 +67,7 @@
     "//------------ Native Addon ------------": "",
     "setup-binaryen": "node scripts/setup-binaryen.js",
     "build:native": "node-gyp rebuild",
-    "prebuild": "prebuildify --napi --strip",
+    "prebuild": "prebuildify --napi --strip --tag-libc",
     "install": "node scripts/install.js"
   },
   "dependencies": {
