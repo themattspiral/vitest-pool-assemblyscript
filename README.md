@@ -7,6 +7,7 @@ This is a [Vitest](https://vitest.dev) ["custom pool"](https://vitest.dev/guide/
 - [Quickstart](#quickstart)
 - [Features](#features)
 - [Configuration](#configuration)
+- [Writing Tests](#writing-tests)
 - [Matcher API](#matcher-api)
 - [Project Status & Expectations](#project-status--expectations)
 - [Installation Guide (Development Preview)](#installation-guide-development-preview)
@@ -91,10 +92,11 @@ export default defineConfig({
           include: ['test/assembly/**/*.as.{test,spec}.ts'],
           
           // supported vitest options
-          bail: 2,           // stop execution after this many failures
-          retry: 0,          // number of retries to attempt after initial failure
-          testTimeout: 500,  // ms to wait before terminating test
-          // maxWorkers: 8,  // concurrent file execution threads (default: available parallelism)
+          bail: 2,            // stop test run after this many failures
+          retry: 0,           // number of retries to attempt after initial failure
+          testTimeout: 500,   // ms to wait before terminating test
+          // allowOnly: true, // whether or not to respect test.only and describe.only
+          // maxWorkers: 8,   // concurrent file execution threads (default: available parallelism)
 
           // configure vitest to use this custom pool for test files in `include`
           pool: createAssemblyScriptPool({
@@ -263,6 +265,80 @@ declare function parseIntStringFunction(input: string): i32;
 export function runParseIntStringFunction(input: string): i32 {
   return parseIntStringFunction(input);
 }
+```
+
+---
+
+## Writing Tests
+
+Import `test`, `describe`, `expect` (and `TestOptions` if needed) from `vitest-pool-assemblyscript/assembly`.
+
+`it` is available as an alias for `test`.
+
+```typescript
+import { test, it, describe, expect, TestOptions } from "vitest-pool-assemblyscript/assembly";
+import { add } from "../assembly/math.ts";
+
+test("a test", () => {
+  expect(1 + 1).toBe(2);
+  expect(add(3, 2)).toBe(5);
+});
+
+describe("a suite of math operations", () => {
+  test("another test", () => {
+    expect(3 - 1).toBe(2);
+  });
+
+  describe("a nested suite of float operations", () => {
+    it("tests something else", () => {
+      expect(0.1 + 0.2).toBeCloseTo(0.3);
+    });
+  });
+});
+```
+
+### Modifiers: `.skip`, `.only`, `.fails`
+
+```typescript
+test.skip("not ready yet", () => { /* ... */ });
+
+test.only("run only this test", () => { /* ... */ });
+
+test.fails("expected to fail, so will actually pass", () => {
+  expect(false).toBeTruthy();
+});
+
+describe.skip("entire suite skipped", () => { /* ... */ });
+
+describe.only("only this suite runs", () => { /* ... */ });
+```
+
+### Inline Test Options
+
+`TestOptions` provides chainable configuration for `timeout`, `retry`, `skip`, `only`, and `fails`. Options can be placed before or after the callback, and suite options are inherited by nested tests and suites.
+
+```typescript
+// options before callback
+test("with timeout", TestOptions.timeout(500), () => { /* ... */ });
+
+// options after callback
+test("with retry", () => { /* ... */ }, TestOptions.retry(3));
+
+// chained options
+test("with both", TestOptions.timeout(500).retry(2), () => { /* ... */ });
+
+// suite-level options are inherited by nested tests
+describe("slow tests", TestOptions.timeout(1000), () => {
+  test("inherits suite timeout", () => { /* ... */ });
+
+  // test-level options override suite options
+  test("custom retry", TestOptions.retry(5), () => { /* ... */ });
+});
+
+// modifiers and options can be combined
+test.fails("expected failure with retry", TestOptions.retry(3), () => {
+  expect(false).toBeTruthy();
+});
 ```
 
 ---
@@ -476,38 +552,10 @@ npm link vitest-pool-assemblyscript
 
 6. **Configure Vitest** 
 
-Follow the [Configuration](#configuration) section.
+See the [Configuration](#configuration) section.
 
 7. **Write your tests**
-```typescript
-import { test, describe, expect, TestOptions } from "vitest-pool-assemblyscript/assembly";
-import { fibonacciRecursive } from "assembly/math.ts";
-
-test("addition works", () => {
-  expect(1 + 1).toBe(2);
-  expect(0.1 + 0.2).toBeCloseTo(0.3);
-});
-
-test('string concatenation', () => {
-  const greeting: string = "Hello" + " " + "World";
-  expect(greeting).toBe("Hello World");
-});
-
-describe("potential long running tests", TestOptions.timeout(500), () => {
-  test('fibonacci 35', TestOptions.retry(2), () => {
-    expect(fibonacciRecursive(35)).toBe(9227465);
-  });
-
-  // TestOptions can go after the test callback also
-  test("fibonacci 38", () => {
-    expect(fibonacciRecursive(38)).toBe(39088169);
-  }, TestOptions.timeout(200).retry(0));
-});
-
-describe.skip("a skipped suite", () => {
-  // all tests in suite are skipped
-});
-```
+See the [Writing Tests](#writing-tests) section.
 
 8. **Run your tests:**
 ```bash
