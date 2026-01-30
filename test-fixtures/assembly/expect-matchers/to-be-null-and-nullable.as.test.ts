@@ -1,8 +1,9 @@
 import { test, expect, describe, TestOptions } from '../../../assembly';
 
 describe("primitives", () => {
-  test("bare nulls should be null", () => {
+  test("bare nulls should be null but not nullable", () => {
     expect(null).toBeNull();
+    expect(null).not.toBeNullable();
   });
 
   test("other primitives should always be non-nullable and non-null", () => {
@@ -21,7 +22,7 @@ describe("primitives", () => {
     expect(NaN).not.toBeNullable();
   });
 
-  test("0-equivalent values should also be non-nullable and non-null", () => {
+  test("0-equivalent values of other types should also be non-nullable and non-null", () => {
     // these will pass a loose toEqual(null), but not strict toBeNull()
     expect(false).not.toBeNull();
     expect(false).not.toBeNullable();
