@@ -16,12 +16,16 @@ function detectPlatform() {
 
   if (platform === 'linux' && arch === 'x64') {
     return 'x86_64-linux';
+  } else if (platform === 'linux' && arch === 'arm64') {
+    return 'aarch64-linux';
   } else if (platform === 'darwin' && arch === 'x64') {
     return 'x86_64-macos';
   } else if (platform === 'darwin' && arch === 'arm64') {
     return 'arm64-macos';
   } else if (platform === 'win32' && arch === 'x64') {
     return 'x86_64-windows';
+  } else if (platform === 'win32' && arch === 'arm64') {
+    return 'arm64-windows';
   } else {
     throw new Error(`Unsupported platform: ${platform}-${arch}`);
   }

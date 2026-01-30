@@ -435,6 +435,18 @@ export interface NativeInstrumentationOptions extends Omit<InstrumentationOption
   logPrefix?: string;
 }
 
+/**
+ * Typed interface for the native addon's exported methods.
+ * The addon is loaded via node-gyp-build at runtime (CJS .node binary).
+ */
+export interface NativeAddon {
+  instrumentForCoverage(
+    wasmBuffer: Buffer,
+    sourceMapBuffer: Buffer,
+    options: NativeInstrumentationOptions,
+  ): NativeInstrumentationResult;
+}
+
 // ============================================================================
 // Parsed Source Info (from AST Parser)
 // ============================================================================

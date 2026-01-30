@@ -9,12 +9,12 @@
  * absolute paths, grouped by file and position).
  */
 
-import { access } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { debug } from '../util/debug.js';
 import {
+  NativeAddon,
   NativeInstrumentationResult,
   NativeDebugInfoOutput,
   NativeFunctionDebugInfo,
@@ -33,38 +33,33 @@ import { createPoolError } from '../util/pool-errors.js';
 
 const DEBUG_NATIVE_ADDON = false;
 
-// Load the native addon
-// The .node file is built by node-gyp into build/Release/ (see binding.gyp)
-// We are usually running from dist/ but when executing directly from unit tests
-// the meta.import.dirname is still the src path, so we handle fallback to that
-const ADDON_PATH = 'build/Release/wasm_binaryen_debug.node';
+// Load the native addon via node-gyp-build
+// node-gyp-build checks: prebuilds/ first, then build/Release/
+// It searches from the given directory for a package.json to find the package root.
+// We run from dist/ (published) or src/ (dev/tests), so we try both root paths.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const rootFromDist = resolve(__dirname, '..');
 const rootFromSrc = resolve(__dirname, '../..');
-const addonPathFromDist = resolve(rootFromDist, ADDON_PATH);
-const addonPathFromSrc = resolve(rootFromSrc, ADDON_PATH);
 
-let rootPath = rootFromDist;
-let addonPath = addonPathFromDist;
+const require = createRequire(import.meta.url);
+const nodeGypBuild: (dir: string) => NativeAddon = require('node-gyp-build');
 
+let addon: NativeAddon;
 try {
-  await access(addonPath);
+  addon = nodeGypBuild(rootFromDist);
 } catch {
   try {
-    rootPath = rootFromSrc;
-    addonPath = addonPathFromSrc
-    await access(addonPath);
-  } catch {
+    addon = nodeGypBuild(rootFromSrc);
+  } catch (err) {
     throw createPoolError(
-      `Native addon instrumentation file not found at ${addonPathFromDist} or ${addonPathFromSrc}`,
+      `Native addon not found. Searched from ${rootFromDist} and ${rootFromSrc}. ` +
+      `Ensure prebuilds are available or run 'npm run build:native' to compile from source. ` +
+      `Original error: ${err instanceof Error ? err.message : String(err)}`,
       POOL_ERROR_NAMES.WASMInstrumentationError
     );
   }
 }
-
-const req = createRequire(rootPath);
-const addon = req(addonPath);
 
 /**
  * Convert a raw location (0-indexed columns, path indexes) to 
