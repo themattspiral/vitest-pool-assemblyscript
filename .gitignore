@@ -13,6 +13,7 @@ vitest-pool-assemblyscript-*.tgz
 # build artifacts
 build/
 dist/
+prebuilds/
 
 # Binaryen (downloaded via setup script)
 third_party/

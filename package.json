@@ -37,7 +37,12 @@
   },
   "files": [
     "dist",
-    "build/Release/wasm_binaryen_debug.node",
+    "prebuilds",
+    "binding.gyp",
+    "src/native-instrumentation/addon.cpp",
+    "scripts/setup-binaryen.js",
+    "scripts/install.js",
+    "BINARYEN_VERSION",
     "assembly"
   ],
   "engines": {
@@ -61,11 +66,14 @@
     "testf": "vitest run -c test-fixtures/vitest.config.ts",
     "//------------ Native Addon ------------": "",
     "setup-binaryen": "node scripts/setup-binaryen.js",
-    "build:native": "node-gyp rebuild"
+    "build:native": "node-gyp rebuild",
+    "prebuild": "prebuildify --napi --strip",
+    "install": "node scripts/install.js"
   },
   "dependencies": {
     "birpc": "^2.4.0",
     "node-addon-api": "^8.5.0",
+    "node-gyp-build": "^4.8.0",
     "source-map": "^0.7.6",
     "test-exclude": "^7.0.1",
     "tinypool": "^2.0.0",
@@ -91,6 +99,7 @@
     "assemblyscript": "^0.28.9",
     "istanbul-lib-coverage": "^3.2.2",
     "node-gyp": "^12.1.0",
+    "prebuildify": "^6.0.1",
     "tsdown": "^0.18.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
