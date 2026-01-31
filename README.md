@@ -396,6 +396,8 @@ expect(1 + 1).toBe(2);
 expect("hello").toBe("hello");
 ```
 
+> ⚠️ IMPORTANT: this matcher is currently too permissive with type comparison - it deems some numeric values of different types to be the same when they shouldn't actually be. The `toEqual()` matcher is more appropriate for these permissive sementics. Fix coming soon!
+
 ### `toBeCloseTo()`
 Checks if a floating point value is close to what you expect. Using exact equality with floating point numbers often doesn't work correctly, because small internal rounding occurs to be able to represent floats in binary. This rounding means intuitive comparisons will often fail.
 
@@ -412,7 +414,8 @@ Checks that two values have the same value (deep equality). Currently supports c
 
 Primitives, strings, and other object references are compared with `toBe()` rules.
 
-> ⚠️ Warning: Does not yet support user-defined object deep equality checking
+> ⚠️ IMPORTANT: Does not yet support user-defined object deep equality checking. Coming soon!
+
 ```typescript
 expect([1, 2, 3]).toEqual([1, 2, 3]);
 expect(["one", "two", "three"]).toEqual(["one", "two", "three"]);
@@ -428,15 +431,22 @@ Alias for `toEqual()`. Currently no differences in AssemblyScript.
 
 ### `toBeTruthy()` & `toBeFalsey()`
 Check that a value is truthy or falsey. Falsey values are `0`, `false`, `""`, and `null`.
+
 ```typescript
 expect(1).toBeTruthy();
-expect(0).toBeFalsey();
 expect("hello").toBeTruthy();
-expect("").toBeFalsey();
+expect("").toBeTruthy();  // <-- Empty String is TRUTHY in AS!
+
+expect(0).toBeFalsey();
+expect(NaN).toBeFalsey();
+expect(null).toBeFalsey();
 ```
+
+>⚠️ AS Quirk: Unlike in JavaScript, empty string is truthy in AssemblyScript because it is an object reference, not a primitive. An empty string is still an allocated object with a non-zero address, so it evaluates as truthy!
 
 ### `toBeNull()`
 Checks that a value is null (`usize(0)` in AssemblyScript).
+
 ```typescript
 const val: string | null = null;
 expect(val).toBeNull();
@@ -447,6 +457,7 @@ expect(false).not.toBeNull();
 
 ### `toBeNullable()`
 Checks that the type of the value is nullable (can hold `null`). This is a type-level check, not a value check — use `toBeNull()` to check if a value *is* null.
+
 ```typescript
 const val: string | null = null;
 expect(val).toBeNullable();
@@ -455,6 +466,7 @@ expect("hello").not.toBeNullable();
 
 ### `toBeNaN()`
 Checks that a floating point value is `NaN`.
+
 ```typescript
 expect(NaN).toBeNaN();
 expect(1.0).not.toBeNaN();
@@ -462,6 +474,7 @@ expect(1.0).not.toBeNaN();
 
 ### `toHaveLength()`
 Checks that an array or array-like value has the expected length.
+
 ```typescript
 expect([1, 2, 3]).toHaveLength(3);
 expect([]).toHaveLength(0);
@@ -471,13 +484,14 @@ expect("hello world").toHaveLength(11);
 ### `toThrowError()`
 Checks that a function throws an error when called. Optionally checks that the error message matches the provided string. Also available as `toThrow()`.
 
->⚠️ Important: You must provide a void callback to expect() when using `toThrowError()`
-
->ℹ️ Note: `toThrowError()` does not accept inversion using `expect().not.toThrowError()`
 ```typescript
 expect(() => { throw new Error("boom"); }).toThrowError();
 expect(() => { throw new Error("boom"); }).toThrowError("boom");
 ```
+
+>⚠️ AS Quirk: You must provide a callback with a non-inferred type to expect() when using `toThrowError()`, e.g. `expect(() => { returnsNumber(); })` (definitely void) or `expect((): i32 => returnsNumber())` (explicit type)
+
+>ℹ️ Note: `toThrowError()` does not accept inversion using `expect().not.toThrowError()`
 
 ### Planned Matchers
 `toBeDefined`, `toBeUndefined`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toContain`, `toContainEqual`

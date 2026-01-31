@@ -45,12 +45,40 @@ describe("primitives", () => {
     expect(c).not.toBeTruthy();
   });
 
-  test("strings", () => {
+  test("NaN", () => {
+    expect(NaN).toBeFalsey();
+  });
+});
+
+describe("references", () => {
+  test("Non-0-length strings should be truthy", () => {
     expect("hello").toBeTruthy();
     expect("hello").not.toBeFalsey();
+  });
+
+  test("0-length strings are ALSO TRUTHY in AssemblyScript!", () => {
+    let isStringTruthy: bool = false;
+    // @ts-ignore
+    if ("") isStringTruthy = true;
+    expect(isStringTruthy).toBeTruthy();
+    expect(isStringTruthy).not.toBeFalsey();
     
-    expect("").toBeFalsey();
-    expect("").not.toBeTruthy();
+    // @ts-ignore
+    const isStringTruthyConditional: bool = "" ? true : false;
+    expect(isStringTruthyConditional).toBeTruthy();
+    expect(isStringTruthyConditional).not.toBeFalsey();
+
+    expect("").toBeTruthy();
+    expect("").not.toBeFalsey();
+  });
+  
+  test("0-length strings are falsey when type-coerced", () => {
+    // @ts-ignore
+    // unclear why this is different from the explicit conditional,
+    // so just documenting it here for now
+    const isCoercedStringTruthy: bool = (!!"") == true;
+    expect(isCoercedStringTruthy).toBeFalsey();
+    expect(isCoercedStringTruthy).not.toBeTruthy();
   });
 
   test("null references", () => {
@@ -66,10 +94,6 @@ describe("primitives", () => {
     expect(null).toBeFalsey();
   });
 
-  test("NaN", () => {
-    expect(NaN).toBeFalsey();
-  });
-
   test("arrays", () => {
     const a: i32[] = [];
     const b: i32[] = [1, 2, 3];
@@ -83,7 +107,7 @@ describe("primitives", () => {
     expect(c).not.toBeTruthy();
   });
 
-  test("object references", () => {
+  test("other object references", () => {
     expect(TestOptions.retry(7).timeout(299)).toBeTruthy();
     expect(TestOptions.retry(7).timeout(299)).not.toBeFalsey();
   });
