@@ -139,6 +139,9 @@ function extractAndBuildFromSource() {
       ...generatorArgs,
       '-DCMAKE_BUILD_TYPE=Release',
       '-DBUILD_STATIC_LIB=ON',
+      '-DBUILD_TESTS=OFF',
+      '-DBUILD_TOOLS=OFF',
+      '-DENABLE_WERROR=OFF',
       `-DCMAKE_OSX_ARCHITECTURES=${osxArch}`,
     ];
     execSync(configureArgs.join(' '), { stdio: 'pipe' });
