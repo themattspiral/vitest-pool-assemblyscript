@@ -4,22 +4,94 @@ AssemblyScript unit testing for your Vitest workflow: Simple, fast, familiar, AS
 
 This is a [Vitest](https://vitest.dev) ["custom pool"](https://vitest.dev/guide/advanced/pool.html) which knows how to compile AssemblyScript to WASM, harness WASM to run tests, and report those results to vitest. It co-exists with existing JavaScript/TypeScript tests, and is designed for incremental adoption.
 
-- [Quickstart](#quickstart)
+- [Quick Start](#quick-start)
 - [Features](#features)
-- [Configuration](#configuration)
-- [Writing Tests](#writing-tests)
+- [Configuration Guide](#configuration-guide)
+- [Providing WASM Imports](#providing-wasm-imports)
+- [Writing Tests Guide](#writing-tests-guide)
 - [Matcher API](#matcher-api)
 - [Project Status & Expectations](#project-status--expectations)
 - [Installation Guide (Development Preview)](#installation-guide-development-preview)
+- [License](#license)
 
-**Note: 🚧 This project is currently *Pre-Release, Pre-v1, Under Active Development* 🚧**
-- See [Project Status & Expectations](#project-status--expectations) for what's working now, and to see what's planned!
+**Note: 🚧 This project is still early-stage and currently *Under Active Development* 🚧**
+- All features listed in the [Features](#features) section are stable and assumed to be bug-free
+- Native instrumentation prebuilds are available cross-platform
+- Expect matchers are stable (except where noted below), with more coming soon
+- See [Project Status & Expectations](#project-status--expectations) to see what's still planned!
+
+Please [report a bug / request a feature](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new) if you encounter something you'd like to share!
 
 ---
 
-## Quickstart
+## Quick Start
 
-Coming Soon!
+### 1. Install
+
+```bash
+npm install -D vitest vitest-pool-assemblyscript assemblyscript
+```
+
+### 2. Configure Vitest
+
+Create or update `vitest.config.ts`. See [Configuration Guide](#configuration-guide) for all supported vitest options, pool options, coverage configuration, and multi-project setups.
+
+**vitest 4.x:**
+```typescript
+import { defineConfig } from 'vitest/config';
+import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
+
+export default defineConfig({
+  test: {
+    include: ['test/assembly/**/*.as.test.ts'],
+    pool: createAssemblyScriptPool(),
+  },
+  coverage: {
+    provider: 'custom',
+    customProviderModule: 'vitest-pool-assemblyscript/coverage',
+    assemblyScriptInclude: ['assembly/**/*.ts'],
+    enabled: true,
+  },
+});
+```
+
+**vitest 3.x:**
+```typescript
+import { defineAssemblyScriptConfig } from 'vitest-pool-assemblyscript/v3/config';
+
+export default defineAssemblyScriptConfig({
+  test: {
+    include: ['test/assembly/**/*.as.test.ts'],
+    pool: 'vitest-pool-assemblyscript/v3',
+  },
+  // coverage configuration mirrors v4
+});
+```
+
+### 3. Write a Test
+
+Create a test file (e.g. `test/assembly/example-file.as.test.ts`):
+
+```typescript
+import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
+
+test("basic math", () => {
+  expect(2 + 2).toBe(4);
+});
+
+describe("an example suite", () => {
+  test("string equality", () => {
+    expect("hello").toBe("hello");
+    expect("hello").not.toBe("world");
+  });
+});
+```
+
+### 4. Run
+
+```bash
+npx vitest run
+```
 
 ---
 
@@ -58,23 +130,15 @@ Coming Soon!
 - Configurable test memory size
 - Configurable WASM imports with access to memory
 
-### Why This Over [Alternative]?
-
-There are other standalone testing frameworks for AssemblyScript testing, including:
-- [assemblyscript-unittest-framework](https://github.com/wasm-ecosystem/assemblyscript-unittest-framework): A full-featured AS test framework
-  - Many thanks owed to this project for inspiring parts of our discovery and instrumentation approach
-- [as-test](https://github.com/JairusSW/as-test): A minimal and fast AssemblyScript test framework and runner
-- [Built with AssemblyScript - Testing & Benchmarking](https://www.assemblyscript.org/built-with-assemblyscript.html#testing-benchmarking) may track more
-
 ---
 
-## Configuration
+## Configuration Guide
 
 In your project's `vitest.config.ts`:
 - The `test` project configuration helpers needed depend on which version of vitest you're using.
 - The `coverage` configuration is the same across versions (shown in the first example below).
 
-### vitest 4.x.x Multiple-Project Config:
+### vitest 4.x.x Multiple-Project Config Template:
 ```typescript
 import { defineConfig, defineProject } from 'vitest/config';
 import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
@@ -140,7 +204,7 @@ export default defineConfig({
 });
 ```
 
-### vitest 4.x.x Single-Project Config:
+### vitest 4.x.x Single-Project Config Template:
 ```typescript
 import { defineConfig } from 'vitest/config';
 import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
@@ -157,7 +221,7 @@ export default defineConfig({
 });
 ```
 
-### vitest 3.2.x Multiple-Project Config:
+### vitest 3.2.x Multiple-Project Config Template:
 ```typescript
 import { defineConfig, defineProject } from 'vitest/config';
 import { defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/v3/config';
@@ -191,7 +255,7 @@ export default defineConfig({
 });
 ```
 
-### vitest 3.2.x Single-Project Config:
+### vitest 3.2.x Single-Project Config Template:
 ```typescript
 import { defineAssemblyScriptConfig } from 'vitest-pool-assemblyscript/v3/config';
 
@@ -207,19 +271,22 @@ export default defineAssemblyScriptConfig({
 });
 ```
 
+---
+
+## Providing WASM Imports
+
 ### Framework-Provided Imports
 
-**`console`**
+#### `console`
 The pool provides the full implementation of the [AssemblyScript `console` interface](https://www.assemblyscript.org/stdlib/console.html). This means you can transparently use `console.log("some string")` in your tests, and the output will be fed to vitest and displayed with the test results.
 
 If you prefer to do something else with your test console output, you may provide your own versions of these functions to the "env" module - See the next section for details on how to do this.
 
-**`trace`**
+#### `trace`
 The pool also provides an implementation for `trace`, which passes through to Node `console.trace()` immediately for debugging.
 
-**`abort`**
+#### `abort`
 The pool handles assertion errors, runtime errors, and expected throws by providing an abort handler. This cannot be user-overridden.
-
 
 ### User-Provided Imports with `WasmImportsFactory`
 To provide your own WebAssembly imports, configure `wasmImportsFactory` to point to an ES module which exports a factory function to create your imports:
@@ -281,7 +348,7 @@ export function runParseIntStringFunction(input: string): i32 {
 }
 ```
 
-#### Module Names
+### Module Names
 If you omit the module name in `@external` (e.g. `@external("parseIntStringFunction")`) or omit `@external` entirely, AssemblyScript uses the source file's own name (without the last file extension) as the module name, making it impractical to provide matching imports to every source file independently if you use imported functions across multiple places in your source. It is recommended to always specify a shared module name (such as "env") for this reason.
 
 Conversely, if you need to provide imports targeted to a specific source file, this behavior provides a way to do that as well. For example, if you have a source AS file called `my-file.as.ts` with `declare function myFunc(input: string): i32;` in it and omit the `@external` decorator, then you can import the function *only to this file* with:
@@ -300,7 +367,7 @@ export default function createWasmImports({ utils }) {
 
 ---
 
-## Writing Tests
+## Writing Tests Guide
 
 Import `test`, `describe`, `expect` (and `TestOptions` if needed) from `vitest-pool-assemblyscript/assembly`.
 
@@ -371,6 +438,10 @@ test.fails("expected failure with retry", TestOptions.retry(3), () => {
   expect(false).toBeTruthy();
 });
 ```
+
+### Lifecycle Hooks (Setup & Teardown)
+
+Coming Soon!
 
 ---
 
@@ -503,13 +574,12 @@ expect(() => { throw new Error("boom"); }).toThrowError("boom");
 
 ## Project Status & Expectations
 
-**This is a pre-v1 project** being developed in the open by an interested individual. Most core functionality is working, with a long list of planned features and polish to be added as time allows.
+**This is an early-stage project** being developed in the open by an interested individual with a career of experience shipping production code.
+- All features listed in the [Features](#features) section are stable and assumed to be bug-free
+- Native instrumentation prebuilds are available cross-platform
+- Expect matchers are stable (except where noted above), with more coming soon
 
-*(Note: Not yet published to npm - currently development only)*
-
-### Current State
-
-All features listed in the [Features](#features) section are working and assumed to be bug-free. Please [report a bug](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new) if you encounter one.
+Please [report a bug / request a feature](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new) if you encounter something you'd like to share!
 
 **⚠️ Known Limitations - Coming Soon:**
 - **Function-level coverage only**: No statement, branch, or line coverage yet
@@ -540,82 +610,24 @@ All features listed in the [Features](#features) section are working and assumed
 - TBD
 
 **✖️ Out of Scope (Currently):**
-- Compiler integration with other compile-to-WASM languages (Rust, C++)
-  - I would LOVE to expand this project to a more generic wasm pool, supporting pluggable compilers and ast parsing for different WASM ecosystems and toolchains
-  - Not in scope now because of time and effort. If you want to pay me to work on this [get in touch](https://github.com/themattspiral)!
 - Generic JS-harness testing of any precompiled WASM binary
+- Compiler & matcher integration with other compile-to-WASM languages (e.g. Rust and C++ with Emscripten)
+  - I would LOVE to expand this project to cover additional cases, supporting pluggable compilers, ast parsing, and matchers for different WASM ecosystems and toolchains
+  - Not in scope now because of time and effort
+  - If you want to pay me to work on this, please [get in touch](https://github.com/themattspiral)!
 
 ---
 
-## Installation Guide (Development Preview)
+## Prior Work
 
-**⚠️ Important:** This project is under active development. Features and APIs may change without notice. No guarantees are made about stability or functionality.
+There are other (standalone) testing frameworks for AssemblyScript testing which have inspired this project. In particular, many thanks are owed to [assemblyscript-unittest-framework](https://github.com/wasm-ecosystem/assemblyscript-unittest-framework) for inspiring parts of our test discovery and instrumentation walking approaches.
 
-**Feedback Welcome:** If you try this out, please open an issue on GitHub with your experience, bugs, or suggestions!
-
-### Prerequisites
-- Node.js 20.0.0+ (required due to our multi-memory coverage approach)
-- Vitest 3.2.0+ or 4.0.0+
-- AssemblyScript 0.28+
-- C++ build tools (dev only - distributed package will include prebuilds):
-  - GCC 7+ or Clang 5+ (C++17 support required)
-  - Python 3.x (required by node-gyp)
-
-### Setup
-
-1. **Clone the repository:**
-```bash
-git clone https://github.com/themattspiral/vitest-pool-assemblyscript.git
-cd vitest-pool-assemblyscript
-```
-
-2. **Install Binaryen C++ dependencies, then npm deps**
-```bash
-npm run setup-binaryen
-npm install
-```
-The `setup-binaryen` script downloads prebuilt Binaryen libraries and C++ headers to `third_party/binaryen/`. These are used to build the native addon that extracts debug info from WASM binaries.
-
-3. **Build Native Addon**
-```bash
-npm run build:native
-```
-
-4. **Build Pool**
-```bash
-npm run build
-```
-
-5. **Link the pool to your project:**
-```bash
-# In vitest-pool-assemblyscript:
-npm link
-
-# In your project directory:
-npm link vitest-pool-assemblyscript
-```
-
-6. **Configure Vitest** 
-
-See the [Configuration](#configuration) section.
-
-7. **Write your tests**
-See the [Writing Tests](#writing-tests) section.
-
-8. **Run your tests:**
-```bash
-# Run all tests once
-npx vitest run
-
-# Run specific test file
-npx vitest run example.as.test.ts
-
-# Run specific test in specific file
-npx vitest run example.as.test.ts -t "my test name"
-```
+See [Built with AssemblyScript - Testing & Benchmarking](https://www.assemblyscript.org/built-with-assemblyscript.html#testing-benchmarking) for other related work.
 
 ---
 
 ## License
 
 [MIT](LICENSE)
+ - Portions of this software have been derived from third-party works which are licenced under different terms. Individual code contributions have been noted where applicable and are accompanied by their respective licenses.
+ - See the license file and source code for details
