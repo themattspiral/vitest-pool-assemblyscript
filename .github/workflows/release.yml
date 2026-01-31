@@ -111,11 +111,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, macos-latest]
         node-version: ['20', '22', '24']
         include:
           - os: ubuntu-latest
             prebuild-artifact: prebuild-linux-x64
+          - os: ubuntu-24.04-arm
+            prebuild-artifact: prebuild-linux-arm64
           - os: macos-15
             prebuild-artifact: prebuild-darwin-x64
           - os: macos-latest
