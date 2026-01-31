@@ -1,15 +1,5 @@
 /**
- * Structural validation tests across ALL fixtures
- *
- * Verifies that extracted debug info has valid internal structure:
- * - Function indices are unique
- * - Expression/block references are valid
- * - Branch targets point to valid blocks
- * - Source map matches extracted data
- *
- * Runs on all test fixtures in test-fixtures/assembly/
- *
- * NOTE: Tests for the validator functions themselves are in test/internal/validators.test.ts
+ * Structural validation tests across all fixtures
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';

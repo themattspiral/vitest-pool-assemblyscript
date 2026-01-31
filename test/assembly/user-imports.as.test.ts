@@ -1,9 +1,9 @@
-import { describe, expect, test } from '../../../assembly';
+import { describe, expect, test } from '../../assembly';
 import {
   runUserFunction,
   runOtherUserFunction,
   runParseIntStringFunction,
-} from '../../assembly-src/user-import-wrapper';
+} from './helpers/user-import-wrapper';
 
 describe("default \"env\" environment", () => {
   test("user imported function is executed", () => {

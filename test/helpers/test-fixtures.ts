@@ -57,9 +57,10 @@ function discoverFixtures(): Record<string, TestFixture> {
   const fixtures: Record<string, TestFixture> = {};
 
   try {
-    const files = readdirSync(ASSEMBLY_DIR);
+    const files = readdirSync(ASSEMBLY_DIR, { recursive: true });
 
     for (const file of files) {
+      if (typeof file !== 'string' ) continue;
       if (!file.endsWith('.ts')) continue;
 
       const name = basename(file, '.ts');

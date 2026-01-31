@@ -67,7 +67,5 @@ describe("success", () => {
 });
 
 describe("failure", () => {
-  test("should print 'expected <value> to be NaN' [should fail]", () => {
-    expect(77).toBeNaN();
-  });
+  
 });

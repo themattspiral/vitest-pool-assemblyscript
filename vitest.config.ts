@@ -46,17 +46,12 @@ export default defineConfig({
           },
 
           include: ['test/assembly/**/*.as.test.ts'],
+          exclude: ['test/assembly/**/failures/**/*.as.test.ts'],
 
           // Use AssemblyScript pool to execute tests in this project
-          pool: createAssemblyScriptPool(),
-
-          // pool: 'vitest-pool-assemblyscript',
-          // poolOptions: {
-          //   assemblyScript: {
-          //     debug: false,
-          //     stripInline: true,
-          //   },
-          // },
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: 'test/helpers/create-user-imports.js'
+          }),
         }
       })
     ]

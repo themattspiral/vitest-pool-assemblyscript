@@ -1,4 +1,4 @@
-import { test, expect, describe } from '../../../assembly';
+import { test, expect, describe } from "../../../assembly";
 
 describe("primitives", () => {
   describe("booleans", () => {
@@ -210,61 +210,3 @@ describe("floats and integers together", () => {
     expect(c).not.toBeCloseTo(d, 7);
   });
 });
-
-// describe("SIMD vectors", () => {
-//   // TODO
-// });
-
-// describe("strings", () => {
-//   test("empty strings are identical", () => {
-//     expect("").toBe("");
-//   });
-  
-//   test("same strings are identical", () => {
-//     expect("hello world!").toBe("hello world!");
-//   });
-  
-//   test("different strings are not identical", () => {
-//     expect("hello world!").not.toBe("something else");
-//   });
-
-//   test("nullable strings are identical when null", () => {
-//     const a: string | null = null;
-//     const b: string | null = null;
-//     expect(a).toBe(b);
-//   });
-// });
-
-// describe("nullables", () => {
-//   test("values of any nullable types are identical when null", () => {
-//     const a: string | null = null;
-//     const b: TestOptions | null = null;
-//     expect(a).toBe(b);
-//   });
-// });
-
-// describe("arrays", () => {
-//   test('same array is identical to itself', () => {
-//     const x: i32[] = [1, 2, 3];
-//     expect(x).toBe(x);
-//   });
-  
-//   test('different arrays with same values are not identical', () => {
-//     const x: i32[] = [1, 2, 3];
-//     const y: i32[] = [1, 2, 3];
-//     expect(x).not.toBe(y);
-//   });
-// });
-
-// describe("object references", () => {
-//   test('same reference is identical to itself', () => {
-//     const a = TestOptions.retry(7).timeout(299);
-//     expect(a).toBe(a);
-//   });
-  
-//   test('different objects with same values are not identical', () => {
-//     const a = TestOptions.retry(7).timeout(299);
-//     const b = TestOptions.retry(7).timeout(299);
-//     expect(a).not.toBe(b);
-//   });
-// });
