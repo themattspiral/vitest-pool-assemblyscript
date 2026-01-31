@@ -28,14 +28,25 @@ export const COVERAGE_PAYLOAD_FORMATS = {
 /** Prefix for AssemblyScript compiler strip-inline exclusions and instrumentation exclusions */
 export const ASSEMBLYSCRIPT_LIB_PREFIX = '~lib/' as const;
 
+const INTERNAL_PATH_LIB_PREFIX = `${ASSEMBLYSCRIPT_LIB_PREFIX}vitest-pool-assemblyscript/`
+
 /** Paths instrumentation exclusions and assetion error stack frame filtering */
 export const POOL_INTERNAL_PATHS: string[] = [
+  // AS compiler source maps these as relative paths when running locally
   'assembly/compare.ts',
   'assembly/describe.ts',
   'assembly/expect.ts',
   'assembly/index.ts',
   'assembly/options.ts',
   'assembly/test.ts',
+
+  // AS compiler source maps these as library paths when running published version
+  `${INTERNAL_PATH_LIB_PREFIX}assembly/compare.ts`,
+  `${INTERNAL_PATH_LIB_PREFIX}assembly/describe.ts`,
+  `${INTERNAL_PATH_LIB_PREFIX}assembly/expect.ts`,
+  `${INTERNAL_PATH_LIB_PREFIX}assembly/index.ts`,
+  `${INTERNAL_PATH_LIB_PREFIX}assembly/options.ts`,
+  `${INTERNAL_PATH_LIB_PREFIX}assembly/test.ts`,
 ] as const;
 
 /** Error names for AssemblyScript test failures reported to vitest */
