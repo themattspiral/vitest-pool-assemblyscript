@@ -160,7 +160,7 @@ export default defineConfig({
 ### vitest 3.2.x Multiple-Project Config:
 ```typescript
 import { defineConfig, defineProject } from 'vitest/config';
-import { defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/config';
+import { defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/v3/config';
 
 export default defineConfig({
   test: {
@@ -193,7 +193,7 @@ export default defineConfig({
 
 ### vitest 3.2.x Single-Project Config:
 ```typescript
-import { defineAssemblyScriptConfig } from 'vitest-pool-assemblyscript/config';
+import { defineAssemblyScriptConfig } from 'vitest-pool-assemblyscript/v3/config';
 
 export default defineAssemblyScriptConfig({
   test: {
