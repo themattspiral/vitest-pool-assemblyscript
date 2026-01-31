@@ -435,7 +435,8 @@ Check that a value is truthy or falsey. Falsey values are `0`, `false`, `""`, an
 ```typescript
 expect(1).toBeTruthy();
 expect("hello").toBeTruthy();
-expect("").toBeFalsey();  // <-- Empty String is TRUTHY in AS!
+expect("").toBeTruthy();  // <-- Empty String is TRUTHY in AS!
+
 expect(0).toBeFalsey();
 expect(NaN).toBeFalsey();
 expect(null).toBeFalsey();
