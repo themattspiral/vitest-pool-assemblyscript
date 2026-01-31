@@ -62,11 +62,10 @@ jobs:
             platform: darwin-x64
           - os: macos-latest
             platform: darwin-arm64
-          # temporarily disabled while figuring out compilation issues
-          # - os: windows-latest
-          #   platform: win32-x64
-          # - os: windows-11-arm
-          #   platform: win32-arm64
+          - os: windows-latest
+            platform: win32-x64
+          - os: windows-11-arm
+            platform: win32-arm64
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container || '' }}
     steps:
@@ -111,7 +110,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, macos-latest, windows-latest, windows-11-arm]
         node-version: ['20', '22', '24']
         include:
           - os: ubuntu-latest
@@ -122,14 +121,15 @@ jobs:
             prebuild-artifact: prebuild-darwin-x64
           - os: macos-latest
             prebuild-artifact: prebuild-darwin-arm64
+          - os: windows-latest
+            prebuild-artifact: prebuild-win32-x64
+          - os: windows-11-arm
+            prebuild-artifact: prebuild-win32-arm64
           # Alpine/musl: test on Node 20 (minimum supported version)
           - os: ubuntu-latest
             node-version: '20'
             prebuild-artifact: prebuild-linux-x64-musl
             container: node:20-alpine
-          # temporarily disabled while figuring out prebuild compilation issues
-          # - os: windows-latest
-          #   prebuild-artifact: prebuild-win32-x64
     steps:
       - name: Install test tools (Alpine)
         if: matrix.container != ''
