@@ -79,7 +79,7 @@ jobs:
         run: npm ci
 
       - name: Create prebuild
-        run: npm run build:prebuilds
+        run: npm run build:prebuild
 
       - name: Upload prebuild
         uses: actions/upload-artifact@v4

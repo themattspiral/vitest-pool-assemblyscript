@@ -2,6 +2,22 @@
   "name": "vitest-pool-assemblyscript",
   "version": "0.0.0-semantically-released",
   "description": "AssemblyScript testing with Vitest - Simple, fast, familiar, AS-native, with full coverage output",
+  "author": "Matt Ritter <matthew.d.ritter@gmail.com>",
+  "license": "MIT",
+  "keywords": [
+    "assemblyscript",
+    "vitest",
+    "unit test",
+    "unit testing",
+    "webassembly",
+    "wasm",
+    "testing",
+    "testing framework",
+    "test runner",
+    "compile-to-wasm",
+    "custom pool",
+    "vitest plugin"
+  ],
   "type": "module",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
@@ -67,7 +83,7 @@
     "//------------ Native Addon ------------": "",
     "setup-binaryen": "node scripts/setup-binaryen.js",
     "build:native": "node-gyp rebuild",
-    "build:prebuilds": "prebuildify --napi --strip --tag-libc",
+    "build:prebuild": "prebuildify --napi --strip --tag-libc",
     "install": "node scripts/install.js"
   },
   "dependencies": {
