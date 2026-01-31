@@ -31,6 +31,5 @@ jobs:
       - name: Build
         run: npm run build
 
-      # TODO - uncomment when intentionally failed tests have been converted to all-passing
-      # - name: Test
-      #   run: npm test
+      - name: Test
+        run: npm test
