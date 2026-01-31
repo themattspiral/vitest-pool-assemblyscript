@@ -114,8 +114,9 @@ const config: ViteUserConfig = defineConfig({
       //         coverageMemoryPagesInitial: 1,
       //         coverageMemoryPagesMax: 1,
       //         testMemoryPagesInitial: 2,
-      //         testMemoryPagesMax: 4,
-      //         extraCompilerFlags: ['--runtime', 'incremental'],
+      //         // testMemoryPagesMax: 4,
+      //         // extraCompilerFlags: ['--runtime', 'incremental'],
+      //         wasmImportsFactory: 'test-fixtures/create-imports.js',
       //       },
       //     },
       //   }

@@ -74,7 +74,7 @@ In your project's `vitest.config.ts`:
 - The `test` project configuration helpers needed depend on which version of vitest you're using.
 - The `coverage` configuration is the same across versions (shown in the first example below).
 
-**vitest 4.x.x Multiple-Project Config:**
+### vitest 4.x.x Multiple-Project Config:
 ```typescript
 import { defineConfig, defineProject } from 'vitest/config';
 import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
@@ -140,7 +140,7 @@ export default defineConfig({
 });
 ```
 
-**vitest 4.x.x Single-Project Config:**
+### vitest 4.x.x Single-Project Config:
 ```typescript
 import { defineConfig } from 'vitest/config';
 import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
@@ -157,7 +157,7 @@ export default defineConfig({
 });
 ```
 
-**vitest 3.2.x Multiple-Project Config:**
+### vitest 3.2.x Multiple-Project Config:
 ```typescript
 import { defineConfig, defineProject } from 'vitest/config';
 import { defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/config';
@@ -191,7 +191,7 @@ export default defineConfig({
 });
 ```
 
-**vitest 3.2.x Single-Project Config:**
+### vitest 3.2.x Single-Project Config:
 ```typescript
 import { defineAssemblyScriptConfig } from 'vitest-pool-assemblyscript/config';
 
@@ -207,8 +207,22 @@ export default defineAssemblyScriptConfig({
 });
 ```
 
-**WasmImportsFactory:**
-To provide your own WebAssembly imports, configure `wasmImportsFactory` to point to a module which exports a factory function to create your imports:
+### Framework-Provided Imports
+
+**`console`**
+The pool provides the full implementation of the [AssemblyScript `console` interface](https://www.assemblyscript.org/stdlib/console.html). This means you can transparently use `console.log("some string")` in your tests, and the output will be fed to vitest and displayed with the test results.
+
+If you prefer to do something else with your test console output, you may provide your own versions of these functions to the "env" module - See the next section for details on how to do this.
+
+**`trace`**
+The pool also provides an implementation for `trace`, which passes through to Node `console.trace()` immediately for debugging.
+
+**`abort`**
+The pool handles assertion errors, runtime errors, and expected throws by providing an abort handler. This cannot be user-overridden.
+
+
+### User-Provided Imports with `WasmImportsFactory`
+To provide your own WebAssembly imports, configure `wasmImportsFactory` to point to an ES module which exports a factory function to create your imports:
 ```typescript
   // v4
   // ...
@@ -244,7 +258,7 @@ interface WasmImportsFactoryInfo {
 }
 ```
 
-You may provide imports for any environment name you wish. Here is an example imports factory which uses the "env" environment:
+You may provide imports for any module name you wish. Here is an example factory function which uses the "env" module:
 ```js
 export default function createWasmImports({ memory, module, utils }) {
   return {
@@ -257,13 +271,30 @@ export default function createWasmImports({ memory, module, utils }) {
 }
 ```
 
-Example AssemblyScript source code which uses this imported function:
+Example AssemblyScript source code which uses this imported function (the "env" module name is specified):
 ```typescript
 @external("env", "parseIntStringFunction")
 declare function parseIntStringFunction(input: string): i32;
 
 export function runParseIntStringFunction(input: string): i32 {
   return parseIntStringFunction(input);
+}
+```
+
+#### Module Names
+If you omit the module name in `@external` (e.g. `@external("parseIntStringFunction")`) or omit `@external` entirely, AssemblyScript uses the source file's own name (without the last file extension) as the module name, making it impractical to provide matching imports to every source file independently if you use imported functions across multiple places in your source. It is recommended to always specify a shared module name (such as "env") for this reason.
+
+Conversely, if you need to provide imports targeted to a specific source file, this behavior provides a way to do that as well. For example, if you have a source AS file called `my-file.as.ts` with `declare function myFunc(input: string): i32;` in it and omit the `@external` decorator, then you can import the function *only to this file* with:
+```js
+export default function createWasmImports({ utils }) {
+  return {
+    // default source file module name (omits the .ts extension)
+    'my-file.as': {
+      myFunc: (inputStrPtr) => {
+        return parseInt(utils.liftString(inputStrPtr));
+      }
+    }
+  };
 }
 ```
 

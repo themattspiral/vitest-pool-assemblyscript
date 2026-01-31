@@ -9,6 +9,7 @@
     "moduleResolution": "NodeNext",
 
     // Output configuration (for reference - tsup handles actual builds)
+    "rootDir": "./",
     "outDir": "./dist",
     "declaration": true,
     "declarationMap": true,
@@ -45,6 +46,7 @@
     "dist",
     "build",
     "assembly",
+    "test/assembly/**/*",
     "test-fixtures/assembly/**/*",
     "test-fixtures/assembly-src/**/*"
   ]

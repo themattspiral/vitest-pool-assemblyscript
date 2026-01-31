@@ -6,11 +6,10 @@
 declare function myUserFunction(input: i32): i32;
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
-@external("customUserEnv", "otherFunction")
+@external("customUserModule", "otherFunction")
 declare function otherFunction(input: i32): i32;
 
-// @ts-ignore: top level decorators are supported in AssemblyScript
-@external("customUserEnv", "parseIntStringFunction")
+// this one will use the default module name for this file ("user-import-wrapper")
 declare function parseIntStringFunction(input: string): i32;
 
 
