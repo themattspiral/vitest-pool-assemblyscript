@@ -41,6 +41,19 @@ function getCmakeOsxArch() {
   throw new Error(`Unsupported macOS architecture: ${process.arch}`);
 }
 
+// Run a command quietly, but print its output if it fails
+function execQuiet(command) {
+  try {
+    execSync(command, { stdio: 'pipe' });
+  } catch (err) {
+    const output = err.stderr?.toString() || err.stdout?.toString() || '';
+    if (output) {
+      console.error(output);
+    }
+    throw err;
+  }
+}
+
 // Check if a command is available on PATH
 function isCommandAvailable(command) {
   try {
@@ -144,12 +157,12 @@ function extractAndBuildFromSource() {
       '-DENABLE_WERROR=OFF',
       `-DCMAKE_OSX_ARCHITECTURES=${osxArch}`,
     ];
-    execSync(configureArgs.join(' '), { stdio: 'pipe' });
+    execQuiet(configureArgs.join(' '));
     console.log('  ✓ Configure complete');
 
     // Build (only the binaryen library target, not CLI tools)
     console.log('  Building (this may take several minutes)...');
-    execSync(`cmake --build "${buildDir}" --target binaryen -j${cpuCount}`, { stdio: 'pipe' });
+    execQuiet(`cmake --build "${buildDir}" --target binaryen -j${cpuCount}`);
     console.log('  ✓ Build complete');
     console.log('');
 
