@@ -190,7 +190,7 @@ export function equals<T, U>(actual: T, expected: U): bool {
 }
 
 export function truthyOrFalsey<T>(actual: T, expected: bool): bool {
-  return !!actual == expected;
+  return actual ? expected == true : expected == false;
 }
 
 export function isNull<T>(value: T): bool {

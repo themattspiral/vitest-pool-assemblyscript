@@ -33,7 +33,7 @@ declare function __end_expect_throw(): void;
 
 
 function itemMessageString<T>(item: T): string {
-  if (isNull(item)) return "<null>";
+  if (isNull(item)) return "null";
   if (nan(item)) return "NaN";
 
   if (isReference<T>()) {
@@ -53,7 +53,7 @@ function itemMessageString<T>(item: T): string {
 
 function arrayMessageString<T extends ArrayLike<unknown>>(array: T): string {
   if (isNullable<T>(array) && array == null) {
-    return "<null>";
+    return "null";
   }
 
   let str = "[";
