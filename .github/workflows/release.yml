@@ -55,6 +55,9 @@ jobs:
             platform: linux-x64
           - os: ubuntu-24.04-arm
             platform: linux-arm64
+          - os: ubuntu-latest
+            platform: linux-x64-musl
+            container: node:20-alpine
           - os: macos-15
             platform: darwin-x64
           - os: macos-latest
@@ -65,7 +68,12 @@ jobs:
           # - os: windows-11-arm
           #   platform: win32-arm64
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container || '' }}
     steps:
+      - name: Install build tools (Alpine)
+        if: matrix.container != ''
+        run: apk add --no-cache python3 make g++ linux-headers
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -75,7 +83,9 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ninja
 
+      # Skip setup-node for container jobs (Node.js is provided by the container image)
       - name: Set up Node.js
+        if: matrix.container == ''
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -97,6 +107,7 @@ jobs:
   test:
     needs: [build, prebuild]
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -109,10 +120,19 @@ jobs:
             prebuild-artifact: prebuild-darwin-x64
           - os: macos-latest
             prebuild-artifact: prebuild-darwin-arm64
+          # Alpine/musl: test on Node 20 (minimum supported version)
+          - os: ubuntu-latest
+            node-version: '20'
+            prebuild-artifact: prebuild-linux-x64-musl
+            container: node:20-alpine
           # temporarily disabled while figuring out prebuild compilation issues
           # - os: windows-latest
           #   prebuild-artifact: prebuild-win32-x64
     steps:
+      - name: Install test tools (Alpine)
+        if: matrix.container != ''
+        run: apk add --no-cache python3 make g++
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -124,7 +144,9 @@ jobs:
           name: ${{ matrix.prebuild-artifact }}
           path: prebuilds/
 
+      # Skip setup-node for container jobs (Node.js is provided by the container image)
       - name: Set up Node.js ${{ matrix.node-version }}
+        if: matrix.container == ''
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
