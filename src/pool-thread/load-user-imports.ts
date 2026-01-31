@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import type { WasmImportsFactory } from '../types/types.js';
 import { debug } from '../util/debug.js';
@@ -14,10 +15,11 @@ export async function loadUserWasmImportsFactory(
   }
 
   const path = resolve(projectRoot, relativePath);
+  const safeUrl = pathToFileURL(path).href;
 
   try {
     const start = performance.now();
-    const createWasmImports = (await import(path)).default;
+    const createWasmImports = (await import(safeUrl)).default;
     debug(`[${logModule}] TIMING Imported user WasmImportsFactory in ${(performance.now() - start).toFixed(2)} ms`);
 
     if (typeof createWasmImports !== 'function') {
@@ -34,7 +36,7 @@ export async function loadUserWasmImportsFactory(
     }
     
     throw new Error(
-      `Could not load user WasmImportsFactory from "${path}".`
+      `Could not load user WasmImportsFactory from "${safeUrl}".`
       + ` Ensure that your module path is relative to the project root (location of shallowest vitest config),`
       + ` and that it has a default export matching () => WebAssembly.Imports`,
       { cause: error }
