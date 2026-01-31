@@ -5,6 +5,7 @@ AssemblyScript unit testing for your Vitest workflow: Simple, fast, familiar, AS
 This is a [Vitest](https://vitest.dev) [custom pool](https://vitest.dev/guide/advanced/pool.html) which can compile AssemblyScript to WASM, harness WASM to run tests, and report those results to vitest. It co-exists with existing JavaScript/TypeScript tests, and is designed for incremental adoption.
 
 - [Quick Start](#quick-start)
+- [Compatibility](#compatibility)
 - [Features](#features)
 - [Configuration Guide](docs/configuration-guide.md)
 - [Providing WASM Imports](docs/providing-wasm-imports.md)
@@ -91,6 +92,25 @@ describe("an example suite", () => {
 ```bash
 npx vitest run
 ```
+
+---
+
+## Compatibility
+
+| Dependency | Supported Versions |
+|---|---|
+| Node.js | 20, 22, 24+ |
+| Vitest | 3.2.x, 4.x |
+| AssemblyScript | 0.28+ |
+
+**Platforms with prebuilt native binaries:**
+
+| | x64 | arm64 |
+|---|---|---|
+| Linux (glibc) | ✓ | ✓ |
+| Linux (musl/Alpine) | ✓ | |
+| macOS | ✓ | ✓ |
+| Windows | ✓ | ✓ |
 
 ---
 
