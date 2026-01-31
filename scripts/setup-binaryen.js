@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import https from 'https';
 import { execSync } from 'child_process';
@@ -9,7 +10,9 @@ const BINARYEN_VERSION = fs.readFileSync(
   'utf8'
 ).trim();
 
-// Detect platform for prebuilt binaries
+const IS_MACOS = process.platform === 'darwin';
+
+// Detect platform for prebuilt binaries (non-macOS only)
 function detectPlatform() {
   const platform = process.platform;
   const arch = process.arch;
@@ -31,6 +34,36 @@ function detectPlatform() {
   }
 }
 
+// Map Node.js arch to CMake OSX architecture identifier
+function getCmakeOsxArch() {
+  if (process.arch === 'arm64') return 'arm64';
+  if (process.arch === 'x64') return 'x86_64';
+  throw new Error(`Unsupported macOS architecture: ${process.arch}`);
+}
+
+// Run a command quietly, but print its output if it fails
+function execQuiet(command) {
+  try {
+    execSync(command, { stdio: 'pipe' });
+  } catch (err) {
+    const output = err.stderr?.toString() || err.stdout?.toString() || '';
+    if (output) {
+      console.error(output);
+    }
+    throw err;
+  }
+}
+
+// Check if a command is available on PATH
+function isCommandAvailable(command) {
+  try {
+    execSync(`which ${command}`, { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const PLATFORM = detectPlatform();
 const PREBUILT_URL = `https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/binaryen-${BINARYEN_VERSION}-${PLATFORM}.tar.gz`;
 const SOURCE_URL = `https://github.com/WebAssembly/binaryen/archive/refs/tags/${BINARYEN_VERSION}.tar.gz`;
@@ -42,25 +75,235 @@ const TEMP_DIR = path.join(THIRD_PARTY_DIR, 'binaryen-temp');
 
 console.log(`Setting up Binaryen ${BINARYEN_VERSION}...`);
 console.log(`Platform: ${PLATFORM}`);
+
+if (IS_MACOS) {
+  console.log('macOS detected: will build static library from source');
+}
+
 console.log('');
 
-// Step 1: Download prebuilt binaries
-console.log('Step 1: Downloading prebuilt binaries...');
-console.log(`URL: ${PREBUILT_URL}`);
-downloadFile(PREBUILT_URL, PREBUILT_ARCHIVE, () => {
-  console.log('✓ Prebuilt binaries downloaded');
-  console.log('');
+if (IS_MACOS) {
+  // macOS: Build Binaryen from source to produce libbinaryen.a
+  // The official macOS prebuilt release only ships libbinaryen.dylib (shared),
+  // which cannot be statically linked into our .node addon. Building from source
+  // with BUILD_STATIC_LIB=ON produces the .a file our binding.gyp expects.
+  setupMacOS();
+} else {
+  // Linux/Windows: Download prebuilt static library + source headers
+  setupWithPrebuilt();
+}
 
-  // Step 2: Download source code (for C++ headers)
-  console.log('Step 2: Downloading source code for headers...');
+// ---------------------------------------------------------------------------
+// macOS: build from source
+// ---------------------------------------------------------------------------
+
+function setupMacOS() {
+  if (!isCommandAvailable('cmake')) {
+    console.error('Error: cmake is required to build Binaryen on macOS but was not found.');
+    console.error('Install it with: brew install cmake');
+    process.exit(1);
+  }
+
+  console.log('Step 1: Downloading source code...');
   console.log(`URL: ${SOURCE_URL}`);
   downloadFile(SOURCE_URL, SOURCE_ARCHIVE, () => {
     console.log('✓ Source code downloaded');
     console.log('');
-
-    extractAndCombine();
+    extractAndBuildFromSource();
   });
-});
+}
+
+function extractAndBuildFromSource() {
+  console.log('Step 2: Extracting source code...');
+
+  ensureCleanDirs();
+
+  try {
+    execSync(`tar -xzf "${SOURCE_ARCHIVE}" -C "${TEMP_DIR}"`, { stdio: 'pipe' });
+    const sourceDir = path.join(TEMP_DIR, `binaryen-${BINARYEN_VERSION}`);
+
+    if (!fs.existsSync(sourceDir)) {
+      throw new Error(`Expected source directory not found: ${sourceDir}`);
+    }
+
+    console.log('✓ Source code extracted');
+    console.log('');
+
+    // Build static library with cmake
+    console.log('Step 3: Building static library with cmake...');
+
+    const buildDir = path.join(sourceDir, 'build');
+    const osxArch = getCmakeOsxArch();
+    const cpuCount = os.cpus().length;
+    const useNinja = isCommandAvailable('ninja');
+    const generatorArgs = useNinja ? ['-G', 'Ninja'] : [];
+
+    console.log(`  Architecture: ${osxArch}`);
+    console.log(`  Generator: ${useNinja ? 'Ninja' : 'Unix Makefiles (default)'}`);
+    console.log(`  Parallel jobs: ${cpuCount}`);
+    console.log('');
+
+    // Configure
+    console.log('  Configuring...');
+    const configureArgs = [
+      'cmake',
+      '-S', sourceDir,
+      '-B', buildDir,
+      ...generatorArgs,
+      '-DCMAKE_BUILD_TYPE=Release',
+      '-DBUILD_STATIC_LIB=ON',
+      '-DBUILD_TESTS=OFF',
+      '-DBUILD_TOOLS=OFF',
+      '-DENABLE_WERROR=OFF',
+      `-DCMAKE_OSX_ARCHITECTURES=${osxArch}`,
+    ];
+    execQuiet(configureArgs.join(' '));
+    console.log('  ✓ Configure complete');
+
+    // Build (only the binaryen library target, not CLI tools)
+    console.log('  Building (this may take several minutes)...');
+    execQuiet(`cmake --build "${buildDir}" --target binaryen -j${cpuCount}`);
+    console.log('  ✓ Build complete');
+    console.log('');
+
+    // Assemble third_party/binaryen/ with lib/ and src/
+    console.log('Step 4: Installing to third_party/binaryen/...');
+
+    fs.mkdirSync(BINARYEN_DIR, { recursive: true });
+
+    // Copy static library
+    const builtLib = path.join(buildDir, 'lib', 'libbinaryen.a');
+    if (!fs.existsSync(builtLib)) {
+      throw new Error(`Built static library not found at ${builtLib}`);
+    }
+    const destLibDir = path.join(BINARYEN_DIR, 'lib');
+    fs.mkdirSync(destLibDir, { recursive: true });
+    fs.cpSync(builtLib, path.join(destLibDir, 'libbinaryen.a'));
+    console.log('  ✓ Copied libbinaryen.a');
+
+    // Copy C++ headers from source
+    const sourceSrcDir = path.join(sourceDir, 'src');
+    const destSrcDir = path.join(BINARYEN_DIR, 'src');
+    if (fs.existsSync(sourceSrcDir)) {
+      fs.cpSync(sourceSrcDir, destSrcDir, { recursive: true });
+      console.log('  ✓ Copied C++ headers');
+    } else {
+      throw new Error('Source src/ directory not found');
+    }
+
+    // Clean up
+    console.log('  Cleaning up...');
+    fs.rmSync(TEMP_DIR, { recursive: true, force: true });
+    fs.unlinkSync(SOURCE_ARCHIVE);
+
+    printResult();
+  } catch (err) {
+    console.error('macOS source build failed:', err.message);
+    console.error('Ensure cmake is installed: brew install cmake');
+    console.error('For faster builds, also install ninja: brew install ninja');
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Linux/Windows: download prebuilt static library + source headers
+// ---------------------------------------------------------------------------
+
+function setupWithPrebuilt() {
+  console.log('Step 1: Downloading prebuilt binaries...');
+  console.log(`URL: ${PREBUILT_URL}`);
+  downloadFile(PREBUILT_URL, PREBUILT_ARCHIVE, () => {
+    console.log('✓ Prebuilt binaries downloaded');
+    console.log('');
+
+    console.log('Step 2: Downloading source code for headers...');
+    console.log(`URL: ${SOURCE_URL}`);
+    downloadFile(SOURCE_URL, SOURCE_ARCHIVE, () => {
+      console.log('✓ Source code downloaded');
+      console.log('');
+
+      extractAndCombine();
+    });
+  });
+}
+
+function extractAndCombine() {
+  console.log('Step 3: Extracting and combining...');
+
+  ensureCleanDirs();
+
+  try {
+    // Extract prebuilt binaries
+    console.log('  Extracting prebuilt binaries...');
+    execSync(`tar -xzf "${PREBUILT_ARCHIVE}" -C "${THIRD_PARTY_DIR}"`, { stdio: 'pipe' });
+    const prebuiltDir = path.join(THIRD_PARTY_DIR, `binaryen-${BINARYEN_VERSION}`);
+    fs.renameSync(prebuiltDir, BINARYEN_DIR);
+
+    // Extract source code to temp
+    console.log('  Extracting source code...');
+    execSync(`tar -xzf "${SOURCE_ARCHIVE}" -C "${TEMP_DIR}"`, { stdio: 'pipe' });
+    const sourceDir = path.join(TEMP_DIR, `binaryen-${BINARYEN_VERSION}`);
+
+    // Copy src/ directory from source to our binaryen dir (for C++ headers)
+    console.log('  Copying C++ headers from source...');
+    const sourceSrcDir = path.join(sourceDir, 'src');
+    const destSrcDir = path.join(BINARYEN_DIR, 'src');
+
+    if (fs.existsSync(sourceSrcDir)) {
+      fs.cpSync(sourceSrcDir, destSrcDir, { recursive: true });
+    } else {
+      throw new Error('Source src/ directory not found');
+    }
+
+    // Clean up
+    console.log('  Cleaning up...');
+    fs.rmSync(TEMP_DIR, { recursive: true, force: true });
+    fs.unlinkSync(PREBUILT_ARCHIVE);
+    fs.unlinkSync(SOURCE_ARCHIVE);
+
+    printResult();
+  } catch (err) {
+    console.error('Extraction/combination failed:', err.message);
+    console.error('Make sure tar is available on your system.');
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+function ensureCleanDirs() {
+  if (!fs.existsSync(THIRD_PARTY_DIR)) {
+    fs.mkdirSync(THIRD_PARTY_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(TEMP_DIR)) {
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  }
+  if (fs.existsSync(BINARYEN_DIR)) {
+    fs.rmSync(BINARYEN_DIR, { recursive: true, force: true });
+  }
+}
+
+function printResult() {
+  console.log('');
+  console.log(`✓ Binaryen ${BINARYEN_VERSION} installed to third_party/binaryen`);
+  console.log('');
+  console.log('Contents:');
+  const contents = fs.readdirSync(BINARYEN_DIR);
+  console.log(contents.map(f => `  ${f}`).join('\n'));
+
+  const libDir = path.join(BINARYEN_DIR, 'lib');
+  if (fs.existsSync(libDir)) {
+    console.log('');
+    console.log('Library files:');
+    const libFiles = fs.readdirSync(libDir);
+    console.log(libFiles.map(f => `  ${f}`).join('\n'));
+  }
+
+  console.log('');
+  console.log('Setup complete!');
+}
 
 function downloadFile(url, dest, callback) {
   const file = fs.createWriteStream(dest);
@@ -107,73 +350,4 @@ function downloadFile(url, dest, callback) {
     console.error(`Download failed: ${err.message}`);
     process.exit(1);
   });
-}
-
-function extractAndCombine() {
-  console.log('Step 3: Extracting and combining...');
-
-  // Create directories
-  if (!fs.existsSync(THIRD_PARTY_DIR)) {
-    fs.mkdirSync(THIRD_PARTY_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(TEMP_DIR)) {
-    fs.mkdirSync(TEMP_DIR, { recursive: true });
-  }
-
-  // Remove existing binaryen directory if it exists
-  if (fs.existsSync(BINARYEN_DIR)) {
-    fs.rmSync(BINARYEN_DIR, { recursive: true, force: true });
-  }
-
-  try {
-    // Extract prebuilt binaries
-    console.log('  Extracting prebuilt binaries...');
-    execSync(`tar -xzf "${PREBUILT_ARCHIVE}" -C "${THIRD_PARTY_DIR}"`, { stdio: 'pipe' });
-    const prebuiltDir = path.join(THIRD_PARTY_DIR, `binaryen-${BINARYEN_VERSION}`);
-    fs.renameSync(prebuiltDir, BINARYEN_DIR);
-
-    // Extract source code to temp
-    console.log('  Extracting source code...');
-    execSync(`tar -xzf "${SOURCE_ARCHIVE}" -C "${TEMP_DIR}"`, { stdio: 'pipe' });
-    const sourceDir = path.join(TEMP_DIR, `binaryen-${BINARYEN_VERSION}`);
-
-    // Copy src/ directory from source to our binaryen dir (for C++ headers)
-    console.log('  Copying C++ headers from source...');
-    const sourceSrcDir = path.join(sourceDir, 'src');
-    const destSrcDir = path.join(BINARYEN_DIR, 'src');
-
-    if (fs.existsSync(sourceSrcDir)) {
-      fs.cpSync(sourceSrcDir, destSrcDir, { recursive: true });
-    } else {
-      throw new Error('Source src/ directory not found');
-    }
-
-    // Clean up
-    console.log('  Cleaning up...');
-    fs.rmSync(TEMP_DIR, { recursive: true, force: true });
-    fs.unlinkSync(PREBUILT_ARCHIVE);
-    fs.unlinkSync(SOURCE_ARCHIVE);
-
-    console.log('');
-    console.log(`✓ Binaryen ${BINARYEN_VERSION} installed to third_party/binaryen`);
-    console.log('');
-    console.log('Contents:');
-    const contents = fs.readdirSync(BINARYEN_DIR);
-    console.log(contents.map(f => `  ${f}`).join('\n'));
-
-    const libDir = path.join(BINARYEN_DIR, 'lib');
-    if (fs.existsSync(libDir)) {
-      console.log('');
-      console.log('Library files:');
-      const libFiles = fs.readdirSync(libDir);
-      console.log(libFiles.map(f => `  ${f}`).join('\n'));
-    }
-
-    console.log('');
-    console.log('Setup complete!');
-  } catch (err) {
-    console.error('Extraction/combination failed:', err.message);
-    console.error('Make sure tar is available on your system.');
-    process.exit(1);
-  }
 }

@@ -258,7 +258,7 @@ SourceDebugLocation getRepresentativeLocationInBlockBody(
   Block* blockBody,
   const std::unordered_map<wasm::Expression*, std::optional<wasm::Function::DebugLocation>> debugLocations
 ) {
-  SourceDebugLocation repLoc = { exists: false, fileIndex: 0, lineNumber: 0, columnNumber: 0 };
+  SourceDebugLocation repLoc = { .exists = false, .fileIndex = 0, .lineNumber = 0, .columnNumber = 0 };
 
   if (DEBUG) {
     std::cout << LOG_PREFIX << " -     Checking func Block body: " << blockBody->list.size() << " body expressions" << std::endl;
@@ -296,7 +296,7 @@ SourceDebugLocation getRepresentativeLocationInBlockBody(
 }
 
 SourceDebugLocation getRepresentativeLocation(Function* func) {
-  SourceDebugLocation repLoc = { exists: false, fileIndex: 0, lineNumber: 0, columnNumber: 0 };
+  SourceDebugLocation repLoc = { .exists = false, .fileIndex = 0, .lineNumber = 0, .columnNumber = 0 };
   
   // Get body expression debug location
   Expression* body = func->body;

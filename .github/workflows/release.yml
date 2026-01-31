@@ -22,7 +22,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -55,30 +55,56 @@ jobs:
             platform: linux-x64
           - os: ubuntu-24.04-arm
             platform: linux-arm64
-          # temporarily disabled while figuring out compilation issues
-          # - os: macos-15
-          #   platform: darwin-x64
-          # - os: macos-latest
-          #   platform: darwin-arm64
-          # - os: windows-latest
-          #   platform: win32-x64
-          # - os: windows-11-arm
-          #   platform: win32-arm64
+          - os: ubuntu-latest
+            platform: linux-x64-musl
+            container: node:20-alpine
+          - os: macos-15-intel
+            platform: darwin-x64
+          - os: macos-latest
+            platform: darwin-arm64
+          - os: windows-latest
+            platform: win32-x64
+          - os: windows-11-arm
+            platform: win32-arm64
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container || '' }}
     steps:
+      - name: Install build tools (Alpine)
+        if: matrix.container != ''
+        run: apk add --no-cache python3 make g++ linux-headers
+
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Cache prebuilds keyed on files that affect the native addon output.
+      # On cache hit, skip the entire build and just upload the cached artifact.
+      - name: Cache prebuild
+        id: prebuild-cache
+        uses: actions/cache@v4
+        with:
+          path: prebuilds/
+          key: prebuild-${{ matrix.platform }}-${{ github.ref_name }}-${{ hashFiles('src/native-instrumentation/**', 'binding.gyp', 'BINARYEN_VERSION', 'scripts/setup-binaryen.js', 'package.json') }}
+
+      # Install Ninja for faster Binaryen cmake builds on macOS.
+      # The setup script auto-detects Ninja and uses it if available.
+      - name: Install Ninja (macOS)
+        if: steps.prebuild-cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
+        run: brew install ninja
+
+      # Skip setup-node for container jobs (Node.js is provided by the container image)
       - name: Set up Node.js
+        if: steps.prebuild-cache.outputs.cache-hit != 'true' && matrix.container == ''
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
+        if: steps.prebuild-cache.outputs.cache-hit != 'true'
         run: npm ci
 
       - name: Create prebuild
+        if: steps.prebuild-cache.outputs.cache-hit != 'true'
         run: npm run build:prebuild
 
       - name: Upload prebuild
@@ -91,21 +117,35 @@ jobs:
   test:
     needs: [build, prebuild]
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container || '' }}
     strategy:
       fail-fast: false
       matrix:
-        # temporarily disabled while figuring out prebuild compilation issues
-        # os: [ubuntu-latest, macos-latest, windows-latest]
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-latest, windows-latest, windows-11-arm]
         node-version: ['20', '22', '24']
         include:
           - os: ubuntu-latest
             prebuild-artifact: prebuild-linux-x64
-          # - os: macos-latest
-          #   prebuild-artifact: prebuild-darwin-arm64
-          # - os: windows-latest
-          #   prebuild-artifact: prebuild-win32-x64
+          - os: ubuntu-24.04-arm
+            prebuild-artifact: prebuild-linux-arm64
+          - os: macos-15-intel
+            prebuild-artifact: prebuild-darwin-x64
+          - os: macos-latest
+            prebuild-artifact: prebuild-darwin-arm64
+          - os: windows-latest
+            prebuild-artifact: prebuild-win32-x64
+          - os: windows-11-arm
+            prebuild-artifact: prebuild-win32-arm64
+          # Alpine/musl: test on Node 20 (minimum supported version)
+          - os: ubuntu-latest
+            node-version: '20'
+            prebuild-artifact: prebuild-linux-x64-musl
+            container: node:20-alpine
     steps:
+      - name: Install test tools (Alpine)
+        if: matrix.container != ''
+        run: apk add --no-cache python3 make g++
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -117,7 +157,9 @@ jobs:
           name: ${{ matrix.prebuild-artifact }}
           path: prebuilds/
 
+      # Skip setup-node for container jobs (Node.js is provided by the container image)
       - name: Set up Node.js ${{ matrix.node-version }}
+        if: matrix.container == ''
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
