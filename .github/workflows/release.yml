@@ -71,7 +71,7 @@ jobs:
     steps:
       - name: Install build tools (Alpine)
         if: matrix.container != ''
-        run: apk add --no-cache python3 make g++ linux-headers
+        run: apk add --no-cache python3 make g++ linux-headers tar
 
       - name: Checkout code
         uses: actions/checkout@v4
