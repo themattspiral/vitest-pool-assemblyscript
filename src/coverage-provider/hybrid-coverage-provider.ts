@@ -18,7 +18,9 @@ import type {
 } from 'vitest/node';
 import type { AfterSuiteRunMeta, SerializedConfig } from 'vitest';
 import v8CoverageModule from '@vitest/coverage-v8';
-import { type CoverageMap, createCoverageMap } from 'istanbul-lib-coverage';
+import type { CoverageMap } from 'istanbul-lib-coverage';
+import istanbulCoverage from 'istanbul-lib-coverage';
+const { createCoverageMap } = istanbulCoverage;
 
 // pick up CustomProviderOptions module augmentation
 import '../config/custom-provider-options.js';
