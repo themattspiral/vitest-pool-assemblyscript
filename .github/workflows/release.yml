@@ -76,24 +76,35 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Cache prebuilds keyed on files that affect the native addon output.
+      # On cache hit, skip the entire build and just upload the cached artifact.
+      - name: Cache prebuild
+        id: prebuild-cache
+        uses: actions/cache@v4
+        with:
+          path: prebuilds/
+          key: prebuild-${{ matrix.platform }}-${{ github.ref_name }}-${{ hashFiles('src/native-instrumentation/**', 'binding.gyp', 'BINARYEN_VERSION', 'scripts/setup-binaryen.js', 'package.json') }}
+
       # Install Ninja for faster Binaryen cmake builds on macOS.
       # The setup script auto-detects Ninja and uses it if available.
       - name: Install Ninja (macOS)
-        if: runner.os == 'macOS'
+        if: steps.prebuild-cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
         run: brew install ninja
 
       # Skip setup-node for container jobs (Node.js is provided by the container image)
       - name: Set up Node.js
-        if: matrix.container == ''
+        if: steps.prebuild-cache.outputs.cache-hit != 'true' && matrix.container == ''
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
+        if: steps.prebuild-cache.outputs.cache-hit != 'true'
         run: npm ci
 
       - name: Create prebuild
+        if: steps.prebuild-cache.outputs.cache-hit != 'true'
         run: npm run build:prebuild
 
       - name: Upload prebuild
