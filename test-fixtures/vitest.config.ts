@@ -75,7 +75,7 @@ const config: ViteUserConfig = defineConfig({
 
           // v4
           pool: createAssemblyScriptPool({
-            wasmImportsFactory: 'test-fixtures/create-imports.js',
+            wasmImportsFactory: 'test/helpers/create-user-imports.js',
             
             debug: false,
             stripInline: true,
