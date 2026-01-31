@@ -106,7 +106,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       }
       if (results[2].status === 'rejected') {
         throw new Error(`Cannot access user WasmImportsFactory at path: "${userImportsFactoryPath}".`
-          + ` Ensure that your module path is relative to the project root (location of shallowest vitest config),`
+          + ` Ensure that your module path is relative to the vitest project root (location of shallowest vitest config),`
           + ` and that it has a default export matching () => WebAssembly.Imports`
         );
       }
