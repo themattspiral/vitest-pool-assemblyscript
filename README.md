@@ -141,7 +141,8 @@ npx vitest run
 - Suite and test definition using `describe()` and `test()` in AssemblyScript
 - Inline test option configuration for common vitest options: `timeout`, `retry`, `skip`, `only`, `fails`
 - Assertion matching API based on vitest/jest `expect()` API
-  - `.not`, `toBe`, `toBeCloseTo`, `toEqual` (with caveats*), `toStrictEqual`, `toHaveLength`, `toThrowError`, `toBeTruthy`, `toBeFalsy`, `toBeNull`, `toBeNullable`, `toBeNaN` - See [Matchers API](docs/matchers-api.md) for details and differences from JavaScript
+  - `.not`, `toBe`, `toBeCloseTo`, `toEqual` (with caveats*), `toStrictEqual`, `toHaveLength`, `toThrowError`, `toBeTruthy`, `toBeFalsy`, `toBeNull`, `toBeNullable`, `toBeNaN`
+  - See [Matchers API](docs/matchers-api.md) for details and differences from JavaScript
 - Highlighted diffs for assertion and runtime failures, which point to source code
 - Source-mapped WASM error stack traces (accurate AssemblyScript source `function file:line:column`)
 - AssemblyScript console output captured and provided to vitest for display

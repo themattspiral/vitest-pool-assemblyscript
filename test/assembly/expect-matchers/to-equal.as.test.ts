@@ -171,3 +171,39 @@ describe("nullables", () => {
     expect(a).toEqual(b);
   });
 });
+
+// toEqual follows the same float/integer type restrictions as toBe.
+// See to-be-mixed-numerical-types.as.test.ts for the full comparison matrix.
+const PRECISION_ERROR_SUBSTRING = "float precision is insufficient";
+
+describe("unsupported float/integer comparisons", () => {
+  test("f32 vs i32 throws", () => {
+    expect(() => { expect(f32(42.0)).toEqual(i32(42)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(i32(42)).toEqual(f32(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+  });
+
+  test("f32 vs i64 throws", () => {
+    expect(() => { expect(f32(42.0)).toEqual(i64(42)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(i64(42)).toEqual(f32(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+  });
+
+  test("f32 vs u32 throws", () => {
+    expect(() => { expect(f32(42.0)).toEqual(u32(42)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(u32(42)).toEqual(f32(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+  });
+
+  test("f32 vs u64 throws", () => {
+    expect(() => { expect(f32(42.0)).toEqual(u64(42)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(u64(42)).toEqual(f32(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+  });
+
+  test("f64 vs i64 throws", () => {
+    expect(() => { expect(f64(42.0)).toEqual(i64(42)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(i64(42)).toEqual(f64(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+  });
+
+  test("f64 vs u64 throws", () => {
+    expect(() => { expect(f64(42.0)).toEqual(u64(42)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(u64(42)).toEqual(f64(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+  });
+});
