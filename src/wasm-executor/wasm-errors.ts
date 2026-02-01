@@ -51,11 +51,11 @@ async function sourceMapRawCallStack(
 }
 
 // Parse source-mapped stack array to Vitest TestError reporting format
-function parseMappedStack(mappedStack: WebAssemblyCallSite[], isAssertionFailure: boolean): ParsedStack[] {
+function parseMappedStack(mappedStack: WebAssemblyCallSite[]): ParsedStack[] {
   return mappedStack
-    // if this is an assertion failure, filter out frames for internal assertion framework calls
+    // filter out frames for internal assertion framework calls
     // (e.g. assert(), assertEqual(), etc) by known location, for more concise/meaningful error stack report
-    .filter(frame => !(isAssertionFailure && POOL_INTERNAL_PATHS_SET.has(frame.location.filePath)))
+    .filter(frame => !(POOL_INTERNAL_PATHS_SET.has(frame.location.filePath)))
     
     // map to format that vitest reporter can display
     .map(frame => ({
@@ -69,7 +69,6 @@ function parseMappedStack(mappedStack: WebAssemblyCallSite[], isAssertionFailure
 export async function processWASMErrorStack(
   rawCallStack: NodeJS.CallSite[],
   sourceMap: string,
-  isAssertionFailure: boolean,
   loggingPrefix: string,
 ): Promise<{ parsedStack: ParsedStack[], parsedSourceMap: RawSourceMap }> {
   const sourceMapObj = parseSourceMap(sourceMap);
@@ -80,7 +79,7 @@ export async function processWASMErrorStack(
   debug(`${loggingPrefix} - Mapped ${rawCallStack.length} call sites to ${sourceMappedStack.length} source locations`);
 
   return {
-    parsedStack: parseMappedStack(sourceMappedStack, isAssertionFailure),
+    parsedStack: parseMappedStack(sourceMappedStack),
     parsedSourceMap: sourceMapObj,
   };
 }
@@ -118,7 +117,7 @@ export async function enhanceTestError(
   }
 
   // map stack call sites from WASM locations to source locations
-  const { parsedStack, parsedSourceMap } = await processWASMErrorStack(rawCallStack, sourceMap, isAssertionFailure, logPrefix);
+  const { parsedStack, parsedSourceMap } = await processWASMErrorStack(rawCallStack, sourceMap, logPrefix);
   
   // build additional strings to add to test error's `diff` field based on parsed stack contents
   let primaryStackFrameString: string | undefined;

@@ -117,34 +117,34 @@ const PRECISION_ERROR_SUBSTRING = "float precision is insufficient";
 
 describe("f32 vs 32-bit and 64-bit integers (unsupported)", () => {
   test("f32 vs i32 throws", () => {
-    expect(() => { expect(<f32>42.0).toBe(<i32>42); }).toThrowError(PRECISION_ERROR_SUBSTRING);
-    expect(() => { expect(<i32>42).toBe(<f32>42.0); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(f32(42.0)).toBe(i32(42)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(i32(42)).toBe(f32(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
   });
 
   test("f32 vs i64 throws", () => {
-    expect(() => { expect(<f32>42.0).toBe(<i64>42); }).toThrowError(PRECISION_ERROR_SUBSTRING);
-    expect(() => { expect(<i64>42).toBe(<f32>42.0); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(f32(42.0)).toBe(i64(42)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(i64(42)).toBe(f32(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
   });
 
   test("f32 vs u32 throws", () => {
-    expect(() => { expect(<f32>42.0).toBe(<u32>42); }).toThrowError(PRECISION_ERROR_SUBSTRING);
-    expect(() => { expect(<u32>42).toBe(<f32>42.0); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(f32(42.0)).toBe(u32(42)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(u32(42)).toBe(f32(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
   });
 
   test("f32 vs u64 throws", () => {
-    expect(() => { expect(<f32>42.0).toBe(<u64>42); }).toThrowError(PRECISION_ERROR_SUBSTRING);
-    expect(() => { expect(<u64>42).toBe(<f32>42.0); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(f32(42.0)).toBe(u64(42)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(u64(42)).toBe(f32(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
   });
 });
 
 describe("f64 vs 64-bit integers (unsupported)", () => {
   test("f64 vs i64 throws", () => {
-    expect(() => { expect(<f64>42.0).toBe(<i64>42); }).toThrowError(PRECISION_ERROR_SUBSTRING);
-    expect(() => { expect(<i64>42).toBe(<f64>42.0); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(f64(42.0)).toBe(i64(42)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(i64(42)).toBe(f64(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
   });
 
   test("f64 vs u64 throws", () => {
-    expect(() => { expect(<f64>42.0).toBe(<u64>42); }).toThrowError(PRECISION_ERROR_SUBSTRING);
-    expect(() => { expect(<u64>42).toBe(<f64>42.0); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(f64(42.0)).toBe(u64(42)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
+    expect(() => { expect(u64(42)).toBe(f64(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
   });
 });

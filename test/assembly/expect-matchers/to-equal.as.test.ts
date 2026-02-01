@@ -148,8 +148,14 @@ describe("ArrayBuffer", () => {
   // TODO
 });
 
-describe("user defined object", () => {
-  // TODO
+const OBJ_REF_ERROR = "Deep equality comparison of user-defined reference types is not yet implemented";
+
+describe("user defined objects", () => {  
+  test("object reference comparison throws for value-equal but different refs", () => {
+    expect(() => {
+      expect(TestOptions.retry(2)).toEqual(TestOptions.retry(2));
+    }).toThrowError(OBJ_REF_ERROR);
+  });
 });
 
 describe("nulls", () => {

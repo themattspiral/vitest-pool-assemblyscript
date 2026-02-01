@@ -213,7 +213,10 @@ export function equals<T, U>(actual: T, expected: U): bool {
   }
 
   // TODO value compare
-  throw new Error("Comparison of user-defined object types not yet implemented");
+  throw new Error("Deep equality comparison of user-defined reference types"
+    + " is not yet implemented, and these references are not identical."
+    + " Use toBe() for reference equality."
+  );
 }
 
 export function truthyOrFalsey<T>(actual: T, expected: bool): bool {
