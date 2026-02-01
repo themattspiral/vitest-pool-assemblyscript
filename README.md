@@ -286,6 +286,7 @@ These are known limitations which are currently being worked on.
 - Lifecycle hooks (`beforeEach`, `afterEach`, `beforeAll`, `afterAll`)
 - Watch mode: re-run applicable tests on source file changes
 - `toEqual` reflection for deep equality inspection of user objects
+- `describe.for/each` and `test.for/each`
 - expect.soft to prevent fail-fast behavior
 - Allow delegating JS/TS to istanbul coverage provider in addition to v8
 - Maybe: Per-file compilation setting override
@@ -309,7 +310,7 @@ These are known limitations which are currently being worked on.
 ## Performance
 
 Efforts have been made to compile and run tests as quickly as possible:
-- Separate compile and test execution threads for quicker startup and respawn
+- Separate compile and test execution thread pools, workers, and runners for quicker startup and respawn
 - Compile threads tuned to take advantage of significant Node V8 engine warmup time savings on consecutive AssemblyScript compilations
 - In-memory compiled files and source maps to eliminate intermediate disk I/O
 - Enforced hard timeouts for long-running WASM via thread termination, with intelligent resume
