@@ -19,7 +19,7 @@ The pool handles assertion errors, runtime errors, and expected throws by provid
 
 ## User-Provided Imports
 
-To provide your own WebAssembly imports, configure `wasmImportsFactory` to point to an ES module which exports a factory function to create your imports
+Configure `wasmImportsFactory` to point to an ES module that exports a factory function which returns `WebAssembly.Imports`.
 
 > ⚠️ The path should be **relative to your vitest project root** - that is, the  location of the shallowest vitest config file in your project.
 
@@ -41,12 +41,12 @@ To provide your own WebAssembly imports, configure `wasmImportsFactory` to point
   // ...
 ```
 
-The type signature for this function looks like this:
+**Imports Factory function type signature:**
 ```typescript
 type WasmImportsFactory = (moduleInfo: WasmImportsFactoryInfo) => WebAssembly.Imports;
 ```
 
-And the `moduleInfo` argument that it is provided with looks like this:
+A `WasmImportsFactoryInfo` object is provided to your function so you can do more useful things, like access memory:
 ```typescript
 interface WasmImportsFactoryInfo {
   module: WebAssembly.Module;
@@ -58,7 +58,9 @@ interface WasmImportsFactoryInfo {
 }
 ```
 
-You may provide imports for any module name you wish. Here is an example factory function which uses the "env" module:
+>ℹ️ Each individual `test()` runs in its own WASM instance, so the `WebAssembly.Memory` you're accessing here is only for one test's lifetime at a time.
+
+**Example User Imports Factory Function:**
 ```js
 export default function createWasmImports({ memory, module, utils }) {
   return {
@@ -71,7 +73,9 @@ export default function createWasmImports({ memory, module, utils }) {
 }
 ```
 
-Example AssemblyScript source code which uses this imported function (the "env" module name is specified):
+You can provide imports for any module name you wish. This example factory function uses the **"env"** module.
+
+**Example AssemblyScript source code:**
 ```typescript
 @external("env", "parseIntStringFunction")
 declare function parseIntStringFunction(input: string): i32;
@@ -81,19 +85,35 @@ export function runParseIntStringFunction(input: string): i32 {
 }
 ```
 
-## Module Names
-If you omit the module name in `@external` (e.g. `@external("parseIntStringFunction")`) or omit `@external` entirely, AssemblyScript uses the source file's own name (without the last file extension) as the module name, making it impractical to provide matching imports to every source file independently if you use imported functions across multiple places in your source. It is recommended to always specify a shared module name (such as "env") for this reason.
+In the example source, it `declare`s the existance of an external function (which you are providing via your imports). This example uses the `@external` decorator to indicate this function is available within the **"env"** module.
 
-Conversely, if you need to provide imports targeted to a specific source file, this behavior provides a way to do that as well. For example, if you have a source AS file called `my-file.as.ts` with `declare function myFunc(input: string): i32;` in it and omit the `@external` decorator, then you can import the function *only to this file* with:
+
+## Module Names
+If you omit the module name in `@external` e.g. `@external("parseIntStringFunction")`, or omit `@external` entirely, AssemblyScript uses the source file's own name (without the last file extension) as the module name, making it impractical to provide matching imports to every source file independently if you use imported functions across multiple places in your source. It is recommended to always specify a shared module name such as "env" (or your own unique module name) for this reason.
+
+Conversely, if you need to provide imports targeted to a specific source file, this behavior provides a way to do that as well. For example, if you have a source AS file called **`my-file.as.ts`**:
+```typescript
+declare function myFunc(input: string): i32;
+```
+
+In this case the `@external` decorator is omitted. Now the AssemblyScript compiler will be looking for it in a module with the name **"my-file.as"** (filename without `.ts` extension), and so you can effectively import the function *only* to this file:
 ```js
 export default function createWasmImports({ utils }) {
   return {
-    // default source file module name (omits the .ts extension)
+    // default source file module name
+    // (omits the .ts extension)
     'my-file.as': {
       myFunc: (inputStrPtr) => {
         return parseInt(utils.liftString(inputStrPtr));
       }
+    },
+
+    env: {
+      // you can still provide common/shared 
+      // module functions here too
     }
   };
 }
 ```
+
+>ℹ️ This assumes no declarations in other files are explicitly looking for the **"my-file.as"** module - If they were, they could also access it.
