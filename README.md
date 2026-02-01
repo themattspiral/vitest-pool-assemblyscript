@@ -313,7 +313,7 @@ Efforts have been made to compile and run tests as quickly as possible:
 - Separate compile and test execution thread pools, workers, and runners for quicker startup and respawn
 - Compile threads tuned to take advantage of significant Node V8 engine warmup time savings on consecutive AssemblyScript compilations
 - In-memory compiled files and source maps to eliminate intermediate disk I/O
-- Enforced hard timeouts for long-running WASM via thread termination, with intelligent resume
+- Enforced hard timeouts for long-running WASM tests via thread termination, with intelligent resume
 
 As such, it is capable of compiling dozens of test files comprising hundreds of tests in a few seconds.
 
