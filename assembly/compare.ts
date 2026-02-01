@@ -90,7 +90,6 @@ export function identical<T, U>(actual: T, expected: U): bool {
     if ( (isBoolean<T>() && !isBoolean<U>()) || (!isBoolean<T>() && isBoolean<U>())
     ) {
       // when one is boolean and the other is not, they are not identical
-      // use toEqual for this comparison
       return false;
     } else if (isInteger<T>() && isInteger<U>()) {
       if (isSigned<T>() && isSigned<U>()) {
@@ -111,6 +110,28 @@ export function identical<T, U>(actual: T, expected: U): bool {
     } else if (isFloat<T>() && isFloat<U>()) {
       return f64(actual) === f64(expected);
     } else if ( (isFloat<T>() && isInteger<U>()) || (isInteger<T>() && isFloat<U>()) ) {
+      // Reject combinations where the float's mantissa cannot losslessly represent
+      // the integer type's full range. This mirrors AssemblyScript's own == operator,
+      // which rejects these same combinations at compile time (e.g. f32 == i32, f64 == i64).
+      if (isFloat<T>() && isInteger<U>()) {
+        if (sizeof<U>() >= sizeof<T>()) {
+          throw new Error(
+            "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+            + ": float precision is insufficient for the integer type's range."
+            + " Cast both values to f64 before comparing, e.g. expect(f64(a)).toBe(f64(b))."
+            + " Note: large integer values may lose precision when cast to f64, which could cause false positives."
+          );
+        }
+      } else {
+        if (sizeof<T>() >= sizeof<U>()) {
+          throw new Error(
+            "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+            + ": float precision is insufficient for the integer type's range."
+            + " Cast both values to f64 before comparing, e.g. expect(f64(a)).toBe(f64(b))."
+            + " Note: large integer values may lose precision when cast to f64, which could cause false positives."
+          );
+        }
+      }
       return f64(actual) === f64(expected);
     } else if (isVector<T>() && isVector<U>()) {
       return <v128>actual == <v128>expected;
@@ -121,18 +142,24 @@ export function identical<T, U>(actual: T, expected: U): bool {
 }
 
 export function closeTo<T, U>(actual: T, expected: U, precision: i32 = 2): bool {
-  const match = equals(actual, expected);
-  if (match) {
-    return true;
-  }
+  // Note: closeTo intentionally does NOT delegate to equals()/identical() for its
+  // initial exact-match check, because identical() now throws for float/integer
+  // combinations the language rejects (e.g. f32 vs i32). closeTo handles these
+  // via its own f64 promotion, which is appropriate for approximate comparison.
 
   if (isString<T>() && isString<U>()) {
-    return match;
+    return <string>actual == <string>expected;
   }
 
   if ( (isFloat<T>() || isInteger<T>()) && (isFloat<U>() || isInteger<U>()) ) {
     const actualF64: f64 = f64(actual);
     const expectedF64: f64 = f64(expected);
+
+    // exact match shortcut (also handles ±Infinity)
+    if (actualF64 === expectedF64) {
+      return true;
+    }
+
     const expectedDiff: f64 = 10.0 ** -precision / 2.0;
     const receivedDiff: f64 = Math.abs(expectedF64 - actualF64);
     return receivedDiff < expectedDiff;

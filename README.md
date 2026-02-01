@@ -44,7 +44,7 @@ This project is relatively new to the scene, but is being improved every day. Pl
 - [`describe()` and `test()` definition APIs](#writing-tests) are stable and not expected to change
 - [`expect()` matchers API](docs/matchers-api.md) is stable and not expected to change. More are coming soon
 - Native instrumentation prebuilds are available [across many platforms](#compatibility)
-- See [Current Limitations & Roadmap](#current-limitations--roadmap) for limitations and to see what's still planned.
+- See [Current Limitations & Roadmap](#current-limitations--roadmap) for important limitations to be aware of, and to see what's still planned.
 
 Please [report a bug or request a feature](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new) if you have something you'd like to share.
 
@@ -141,7 +141,7 @@ npx vitest run
 - Suite and test definition using `describe()` and `test()` in AssemblyScript
 - Inline test option configuration for common vitest options: `timeout`, `retry`, `skip`, `only`, `fails`
 - Assertion matching API based on vitest/jest `expect()` API
-  - `.not`, `toBe`, `toBeCloseTo`, `toEqual`, `toStrictEqual`, `toHaveLength`, `toThrowError`, `toBeTruthy`, `toBeFalsey`, `toBeNull`, `toBeNullable`, `toBeNaN` - See [Matchers API](docs/matchers-api.md) for details and differences from JavaScript
+  - `.not`, `toBe`, `toBeCloseTo`, `toEqual` (with caveats*), `toStrictEqual`, `toHaveLength`, `toThrowError`, `toBeTruthy`, `toBeFalsy`, `toBeNull`, `toBeNullable`, `toBeNaN` - See [Matchers API](docs/matchers-api.md) for details and differences from JavaScript
 - Highlighted diffs for assertion and runtime failures, which point to source code
 - Source-mapped WASM error stack traces (accurate AssemblyScript source `function file:line:column`)
 - AssemblyScript console output captured and provided to vitest for display
@@ -284,18 +284,18 @@ These are known limitations which are currently being worked on.
 
 **Epic: Testing DX**
 - Lifecycle hooks (`beforeEach`, `afterEach`, `beforeAll`, `afterAll`)
-- Watch mode optimization
-- `toEqual` reflection
-- expect.soft
-- Allow delegating JS/TS to istanbul coverage provider
-- Per-file compilation setting override?
+- Watch mode: re-run applicable tests on source file changes
+- `toEqual` reflection for deep equality inspection of user objects
+- expect.soft to prevent fail-fast behavior
+- Allow delegating JS/TS to istanbul coverage provider in addition to v8
+- Maybe: Per-file compilation setting override
 
 **Epic: Expand expect matcher API**
 - Planned: `toBeDefined`, `toBeUndefined`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toContain`, `toContainEqual`
 - Likely: `toBeOneOf`, `toBeTypeOf`, `toBeInstanceOf`, `toHaveProperty`, `toMatch`
 
 **Epic: Spy and Mock**
-- TBD
+- Intend to support
 
 **✖️ Out of Scope (Currently):**
 - Generic JS-harness testing of any precompiled WASM binary

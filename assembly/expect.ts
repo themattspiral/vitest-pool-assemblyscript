@@ -92,13 +92,30 @@ abstract class BaseExpectMatcher<T> {
   // }
 
   /**
-   * Checks that a value is what you expect. Primitives and strings are compared directly,
-   * and references are checked for reference equality only (including objects, arrays, etc).
-   * Don't use `toBe` with floating-point numbers - see `toBeCloseTo` instead.
+   * Checks that a value is what you expect using identity comparison. Primitives and strings
+   * are compared by value, and references are checked for reference equality only (including
+   * objects, arrays, etc).
+   *
+   * Cross-type numeric comparisons are allowed where AssemblyScript's own `==` operator
+   * permits them (e.g. `f64` vs `i32`). Combinations where the float type lacks sufficient
+   * mantissa precision for the integer type's range are rejected with an error, mirroring
+   * the AS compiler's behavior (e.g. `f32` vs `i32`, `f64` vs `i64`).
+   *
+   * Don't use `toBe` to compare two floating-point numbers — see `toBeCloseTo` instead.
    *
    * @example
    * expect(1 + 1).toBe(2);
    * expect("hello").toBe("hello");
+   *
+   * // cross-type integer comparisons
+   * expect(i64(42)).toBe(u8(42));
+   *
+   * // supported float/integer comparisons (small integer types)
+   * expect(f64(42.0)).toBe(i32(42));
+   *
+   * // unsupported float/integer comparisons throw an error
+   * // expect(f32(42.0)).toBe(i32(42));  // Error: float precision insufficient
+   * // expect(f64(42.0)).toBe(i64(42));  // Error: float precision insufficient
    */
   toBe<U>(val: U): void {
     this.assertComparison(identical(this.actual, val), this.actual, val, "to be", true);
@@ -108,8 +125,8 @@ abstract class BaseExpectMatcher<T> {
    * Checks if a value is close to what you expect. Using exact equality with floating point
    * numbers often doesn't work correctly, because small internal rounding occurs to be able
    * to represent floats in binary. This rounding means intuitive comparisons will often fail.
-   * 
-   * Comparing strings, integers, or references will fall back to using a `toBe` comparison.
+   *
+   * Strings are compared by value equality. Non-numeric, non-string types return false.
    *
    * @param precision - Specify an integer representing the number of decimal places
    * that must match for values to be considered close. Defaults to 2 digits, meaning effectively
@@ -124,11 +141,16 @@ abstract class BaseExpectMatcher<T> {
   }
   
   /**
-   * Checks that two values have the same value (deep equality). Currently supports 
-   * checking equality of Arrays, Sets, Maps, and nulls. Values inside arrays are 
-   * compared using `toEqual()` also, while Maps and Sets use their respective rules 
-   * for membership. Primitives, strings, and other object references are compared with 
+   * Checks that two values have the same value (deep equality). Currently supports
+   * checking equality of Arrays, Sets, Maps, and nulls. Values inside arrays are
+   * compared using `toEqual()` also, while Maps and Sets use their respective rules
+   * for membership. Primitives, strings, and other object references are compared with
    * `toBe()` rules.
+   *
+   * Like `toBe`, cross-type numeric comparisons follow AssemblyScript's own `==` operator
+   * restrictions. Combinations where the float type lacks sufficient mantissa precision
+   * for the integer type's range are rejected with an error (e.g. `f32` vs `i32`,
+   * `f64` vs `i64`).
    *
    * Note: Does not yet support user-defined object deep equality checking.
    *
@@ -156,25 +178,41 @@ abstract class BaseExpectMatcher<T> {
   }
 
   /**
-   * Checks that a value is truthy (not `0`, `false`, `""`, or `null`).
+   * Checks that a value is truthy (not `0`, `false`, `NaN`, or `null`).
+   *
+   * Unlike in JavaScript, empty string (`""`) is truthy in AssemblyScript because it is
+   * an object reference, not a primitive. An empty string is still an allocated object
+   * with a non-zero address, so it evaluates as truthy.
    *
    * @example
    * expect(1).toBeTruthy();
    * expect("hello").toBeTruthy();
+   * expect("").toBeTruthy();  // truthy in AS (unlike JS)
    */
   toBeTruthy(): void {
     this.assertComparison(truthyOrFalsey(this.actual, true), this.actual, true, "to be truthy", false);
   }
 
   /**
-   * Checks that a value is falsey (`0`, `false`, `""`, or `null`).
+   * Checks that a value is falsy (`0`, `false`, `NaN`, or `null`).
+   *
+   * Unlike in JavaScript, empty string (`""`) is NOT falsy in AssemblyScript because it is
+   * an object reference, not a primitive. An empty string is still an allocated object
+   * with a non-zero address, so it evaluates as truthy.
    *
    * @example
-   * expect(0).toBeFalsey();
-   * expect("").toBeFalsey();
+   * expect(0).toBeFalsy();
+   * expect(NaN).toBeFalsy();
+   * expect(null).toBeFalsy();
+   * expect("").not.toBeFalsy();  // not falsy in AS (unlike JS)
    */
-  toBeFalsey(): void {
+  toBeFalsy(): void {
     this.assertComparison(truthyOrFalsey(this.actual, false), this.actual, false, "to be falsey", false);
+  }
+
+  /** @deprecated Use `toBeFalsy()` instead. */
+  toBeFalsey(): void {
+    this.toBeFalsy();
   }
 
   /**
@@ -239,11 +277,11 @@ abstract class BaseExpectMatcher<T> {
         const nonNullActual = <NonNullable<T>>this.actual;
 
         if (isFloat<U>()) {
-          // @ts-ignore
-          this.assertComparison<number, U>(closeTo<number, U>(nonNullActual.length, length), nonNullActual.length, length, "to have length", true);
+          // @ts-ignore: .length is i32; use closeTo for float comparison
+          this.assertComparison<i32, U>(closeTo<i32, U>(nonNullActual.length, length), nonNullActual.length, length, "to have length", true);
         } else {
-          // @ts-ignore
-          this.assertComparison<number, U>(identical<number, U>(nonNullActual.length, length), nonNullActual.length, length, "to have length", true);
+          // @ts-ignore: .length is i32; compare as integers
+          this.assertComparison<i32, U>(identical<i32, U>(nonNullActual.length, length), nonNullActual.length, length, "to have length", true);
         }
       } else {
         this.assertComparison(false, this.actual, length, "to have length", true);
