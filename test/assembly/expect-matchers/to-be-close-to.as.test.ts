@@ -193,7 +193,7 @@ describe("floats and integers together", () => {
     expect(a).toBeCloseTo(b);
 
     const c: f32 = -0.1 - 0.1 - 0.1 - 0.1 - 0.1 - 0.1 - 0.1 - 0.1 - 0.1 - 0.1;
-    const d: i32 = -1;
+    const d: i16 = -1;
     expect(c).not.toBe(d);
     expect(c).toBeCloseTo(d);
   });
