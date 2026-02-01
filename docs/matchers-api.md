@@ -1,7 +1,21 @@
 
 # Matchers API
 
-This project aims to follow the [vitest/jest `expect()` API](https://vitest.dev/api/expect.html) as closely as possible, with some necessary differences given AssemblyScript's static-typing. 
+This project aims to follow the [vitest/jest `expect()` API](https://vitest.dev/api/expect.html) as closely as possible, with some necessary differences given AssemblyScript's static-typing.
+
+- [`.not`](#not)
+- [`toBe()`](#tobe)
+- [`toBeCloseTo()`](#tobecloseto)
+- [`toEqual()`](#toequal)
+- [`toStrictEqual()`](#tostrictequal)
+- [`toBeTruthy()` & `toBeFalsey()`](#tobetruthy--tobefalsey)
+- [`toBeNull()`](#tobenull)
+- [`toBeNullable()`](#tobenullable)
+- [`toBeNaN()`](#tobenan)
+- [`toHaveLength()`](#tohavelength)
+- [`toThrowError()`](#tothrowerror)
+- [Planned Matchers](#planned-matchers)
+- [Likely Matchers](#likely-matchers)
 
 The following subset of vitest/jest expect matchers are currently supported:
 

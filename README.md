@@ -1,12 +1,10 @@
 # vitest-pool-assemblyscript
 
-<table align="center">
-  <tr>
-    <td><img src="docs/images/as-icon.svg" height="50"></td>
-    <td valign="middle">&#10133;</td>
-    <td><img src="docs/images/vitest-check-icon.svg" height="50"></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/images/as-icon.svg" height="50" align="middle">
+  &nbsp;&nbsp;&#10133;&nbsp;&nbsp;
+  <img src="docs/images/vitest-dark.svg" height="30" align="middle">
+</p>
 
 <p align="center">
   AssemblyScript unit testing for your Vitest workflow: Simple, fast, familiar, AS-native.
@@ -22,7 +20,7 @@
 <br/>
 
 <p align="center">
-  This <a href="https://vitest.dev/guide/advanced/pool.html">custom pool</a> plugs into <a href="https://vitest.dev">Vitest</a>. It gives Vitest the ability to compile AssemblyScript, run isolated WASM tests, and report with Vitest's reporters. It co-exists alongside your existing JavaScript/TypeScript tests and coverage reports, and is designed for simple incremental adoption.
+  This <a href="https://vitest.dev/guide/advanced/pool.html">custom pool</a> plugs into <a href="https://vitest.dev">Vitest</a>, giving it the ability to compile AssemblyScript, run isolated WASM tests, and report with Vitest's reporters. It co-exists alongside your existing JavaScript/TypeScript tests and coverage reports, and is designed for simple incremental adoption.
 </p>
 
 <p align="center">
@@ -142,7 +140,8 @@ npx vitest run
 ### Familiar Developer Experience
 - Suite and test definition using `describe()` and `test()` in AssemblyScript
 - Inline test option configuration for common vitest options: `timeout`, `retry`, `skip`, `only`, `fails`
-- Assertion matching API based on vitest/jest `expect()` API. See [Matchers API](docs/matchers-api.md) for the set of supported matchers and differences from JavaScript
+- Assertion matching API based on vitest/jest `expect()` API
+  - `.not`, `toBe`, `toBeCloseTo`, `toEqual`, `toStrictEqual`, `toHaveLength`, `toThrowError`, `toBeTruthy`, `toBeFalsey`, `toBeNull`, `toBeNullable`, `toBeNaN` - See [Matchers API](docs/matchers-api.md) for details and differences from JavaScript
 - Highlighted diffs for assertion and runtime failures, which point to source code
 - Source-mapped WASM error stack traces (accurate AssemblyScript source `function file:line:column`)
 - AssemblyScript console output captured and provided to vitest for display
@@ -293,7 +292,7 @@ These are known limitations which are currently being worked on.
 
 **Epic: Expand expect matcher API**
 - Planned: `toBeDefined`, `toBeUndefined`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toContain`, `toContainEqual`
-- Probably: `toBeOneOf`, `toBeTypeOf`, `toBeInstanceOf`, `toHaveProperty`, `toMatch`
+- Likely: `toBeOneOf`, `toBeTypeOf`, `toBeInstanceOf`, `toHaveProperty`, `toMatch`
 
 **Epic: Spy and Mock**
 - TBD
