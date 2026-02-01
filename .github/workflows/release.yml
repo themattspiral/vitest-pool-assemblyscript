@@ -211,8 +211,12 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
+      # we don't need to check for prebuilds or compile because we know we've downloaded
+      # them already, so `--ignore-scripts` stops install.js from running. This in turn
+      # prevents it from cleaning up our unused prebuilds on this runner before they can
+      # be packaged
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Run semantic-release
         run: npx semantic-release ${{ inputs.dry-run == true && '--dry-run' || '' }}
