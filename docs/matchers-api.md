@@ -36,7 +36,7 @@ Cross-type numeric comparisons are allowed where AssemblyScript's own `==` opera
 | **f32** | ✓ | ✗ | ✗ | ✓ | ✗ | ✗ |
 | **f64** | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ |
 
-Don't use `toBe` to compare two floating-point numbers — see `toBeCloseTo()` instead.
+`toBeCloseTo()` is safer for any comparison involving a float and allows all numeric types because it can still produce accurate results in precision loss casting edge cases.
 ```typescript
 expect(1 + 1).toBe(2);
 expect("hello").toBe("hello");
@@ -53,7 +53,7 @@ expect(f64(42.0)).toBe(i32(42));
 ```
 
 ### `toBeCloseTo()`
-Checks if a floating point value is close to what you expect. Using exact equality with floating point numbers often doesn't work correctly, because small internal rounding happens in order to be able to represent floating point numbers in binary. This rounding means intuitive comparisons will often fail, so this matcher checks if they are "close enough" to be considered equal.
+Checks if a floating point value is close to what you expect. Using exact equality with floating point numbers often doesn't work correctly, because of internal rounding to represent floats in binary. This rounding means intuitive comparisons will often fail, so this matcher checks if they are "close enough" to be considered equal.
 
 Accepts an additional `precision: i32` argument to tailor to your use case: Number of decimal places that must match for values to be considered close. Defaults to 2 digits, meaning effectively that values must be within 0.005 of each other.
 

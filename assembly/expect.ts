@@ -101,7 +101,8 @@ abstract class BaseExpectMatcher<T> {
    * mantissa precision for the integer type's range are rejected with an error, mirroring
    * the AS compiler's behavior (e.g. `f32` vs `i32`, `f64` vs `i64`).
    *
-   * Don't use `toBe` to compare two floating-point numbers — see `toBeCloseTo` instead.
+   * `toBeCloseTo()` is safer for any comparison involving a float and allows all numeric 
+   * types because it can still produce accurate results in precision loss casting edge cases.
    *
    * @example
    * expect(1 + 1).toBe(2);
@@ -122,15 +123,17 @@ abstract class BaseExpectMatcher<T> {
   }
 
   /**
-   * Checks if a value is close to what you expect. Using exact equality with floating point
-   * numbers often doesn't work correctly, because small internal rounding occurs to be able
-   * to represent floats in binary. This rounding means intuitive comparisons will often fail.
+   * Checks if a value is close to what you expect, most useful for comparing floating point 
+   * numbers to any other numbers. Using exact equality with floating point numbers often doesn't 
+   * work correctly, because of internal rounding to represent floats in binary. This rounding 
+   * means intuitive comparisons will often fail, so this matcher checks if they are "close enough"
+   * to be considered equal.
    *
-   * Strings are compared by value equality. Non-numeric, non-string types return false.
+   * Strings are compared by value equality as with `toBe`. Non-numeric, non-string types return false.
    *
-   * @param precision - Specify an integer representing the number of decimal places
-   * that must match for values to be considered close. Defaults to 2 digits, meaning effectively
-   * that values must be within 0.005 of each other.
+   * @param precision - Specify the number of decimal places that must match for values to be 
+   * considered close. Defaults to 2 digits, meaning effectively that values must be within 0.005 of 
+   * each other.
    *
    * @example
    * expect(0.1 + 0.2).toBeCloseTo(0.3);
@@ -150,9 +153,10 @@ abstract class BaseExpectMatcher<T> {
    * Like `toBe`, cross-type numeric comparisons follow AssemblyScript's own `==` operator
    * restrictions. Combinations where the float type lacks sufficient mantissa precision
    * for the integer type's range are rejected with an error (e.g. `f32` vs `i32`,
-   * `f64` vs `i64`).
+   * `f64` vs `i64`). `toBeCloseTo()` is safer for any comparison involving a float and
+   * accurately handles these edge cases.
    *
-   * Note: Does not yet support user-defined object deep equality checking.
+   * ⚠️ IMPORTANT: Does not yet support user-defined object deep equality checking.
    *
    * @example
    * expect([1, 2, 3]).toEqual([1, 2, 3]);

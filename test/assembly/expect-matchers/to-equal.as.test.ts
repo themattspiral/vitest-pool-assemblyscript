@@ -207,3 +207,23 @@ describe("unsupported float/integer comparisons", () => {
     expect(() => { expect(u64(42)).toEqual(f64(42.0)); }).toThrowError(PRECISION_ERROR_SUBSTRING);
   });
 });
+
+// Precision loss edge cases — demonstrates WHY the above combinations are rejected.
+// See to-be-mixed-numerical-types.as.test.ts for the full set of precision loss demos.
+describe("precision loss false positives", () => {
+  test("f64 cannot distinguish i64 values above 2^53", () => {
+    const a: i64 = 9007199254740992;  // 2^53
+    const b: i64 = 9007199254740993;  // 2^53 + 1
+
+    expect(a == b).toBeFalsy();
+    expect(f64(a)).toEqual(f64(b));
+  });
+
+  test("f32 cannot distinguish i32 values above 2^24", () => {
+    const a: i32 = 16777216;  // 2^24
+    const b: i32 = 16777217;  // 2^24 + 1
+
+    expect(a == b).toBeFalsy();
+    expect(f32(a)).toEqual(f32(b));
+  });
+});
