@@ -180,7 +180,7 @@ export default defineConfig({
             assemblyScript: {
               // same available options as v4 createAssemblyScriptPool are passed here
               
-              // Additonal - v3 Only
+              // Additional - v3 Only
               // maxThreadsV3: 8    // concurrent test file threads to execute (default: availableParallelism - 1)
             }
           }

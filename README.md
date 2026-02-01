@@ -1,26 +1,52 @@
 # vitest-pool-assemblyscript
 
-AssemblyScript unit testing for your Vitest workflow: Simple, fast, familiar, AS-native.
+<p align="center">
+  <img src="docs/images/as-icon.svg" height="50" align="middle">
+  &nbsp;&nbsp;&#10133;&nbsp;&nbsp;
+  <img src="docs/images/vitest-dark.svg" height="30" align="middle">
+</p>
 
-This is a [Vitest](https://vitest.dev) [custom pool](https://vitest.dev/guide/advanced/pool.html) which can compile AssemblyScript to WASM, harness WASM to run tests, and report those results to vitest. It co-exists with existing JavaScript/TypeScript tests, and is designed for incremental adoption.
+<p align="center">
+  AssemblyScript unit testing for your Vitest workflow: Simple, fast, familiar, AS-native.
+  <br/>
+  <br/>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat"/></a>
+  <a href="https://github.com/themattspiral/vitest-pool-assemblyscript/actions/workflows/release.yml"><img alt="Release Pipeline" src="https://github.com/themattspiral/vitest-pool-assemblyscript/actions/workflows/release.yml/badge.svg"/></a>
+  <a href="https://www.npmjs.com/package/vitest-pool-assemblyscript"><img alt="npm package version" src="https://img.shields.io/npm/v/vitest-pool-assemblyscript.svg?style=flat&logo=npm"/></a>
+</p>
 
-- [Quick Start](#quick-start)
-- [Compatibility](#compatibility)
-- [Features](#features)
-- [Configuration Guide](docs/configuration-guide.md)
-- [Providing WASM Imports](docs/providing-wasm-imports.md)
-- [Writing Tests Guide](#writing-tests-guide)
-- [Matcher API](#matcher-api)
-- [Project Status & Expectations](#project-status--expectations)
-- [License](#license)
+---
 
-**Note: 🚧 This project is still early-stage and currently *Under Active Development* 🚧**
-- All features listed in the [Features](#features) section are stable and assumed to be bug-free
-- Native instrumentation prebuilds are available cross-platform
-- Expect matchers are stable (except where noted below), with more coming soon
-- See [Project Status & Expectations](#project-status--expectations) to see what's still planned!
+<br/>
 
-Please [report a bug / request a feature](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new) if you encounter something you'd like to share!
+<p align="center">
+  This <a href="https://vitest.dev/guide/advanced/pool.html">custom pool</a> plugs into <a href="https://vitest.dev">Vitest</a>, giving it the ability to compile AssemblyScript, run isolated WASM tests, and report with Vitest's reporters. It co-exists alongside your existing JavaScript/TypeScript tests and coverage reports, and is designed for simple incremental adoption.
+</p>
+
+<p align="center">
+  <a href="#status">Status</a> | <a href="#quick-start">Quick Start</a> | <a href="#features">Features</a> | <a href="#compatibility">Compatibility</a> | <a href="#performance">Performance</a> | <a href="#prior-work">Prior Work</a> | <a href="#license">License</a>
+  <br/>
+  <a href="#writing-tests">Writing Tests</a> | <a href="docs/matchers-api.md">Matchers API</a> | <a href="docs/configuration-guide.md">Configuration Guide</a> | <a href="docs/providing-wasm-imports.md">Providing WASM Imports</a>
+</p>
+
+---
+
+<br/>
+<p align="center">
+  <img src="docs/images/example-small.gif" alt="vitest-pool-assemblyscript demo">
+</p>
+
+## Status
+
+This project is relatively new to the scene, but is being improved every day. Please give it a try!
+
+- All [listed features](#features) are working and assumed to be bug-free ([report](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new))
+- [`describe()` and `test()` definition APIs](#writing-tests) are stable and not expected to change
+- [`expect()` matchers API](docs/matchers-api.md) is stable and not expected to change. More are coming soon
+- Native instrumentation prebuilds are available [across many platforms](#compatibility)
+- See [Current Limitations & Roadmap](#current-limitations--roadmap) for limitations and to see what's still planned.
+
+Please [report a bug or request a feature](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new) if you have something you'd like to share.
 
 ---
 
@@ -95,25 +121,6 @@ npx vitest run
 
 ---
 
-## Compatibility
-
-| Dependency | Supported Versions |
-|---|---|
-| Node.js | 20, 22, 24+ |
-| Vitest | 3.2.x, 4.x |
-| AssemblyScript | 0.28+ |
-
-**Platforms with prebuilt native binaries:**
-
-| | x64 | arm64 |
-|---|---|---|
-| Linux (glibc) | ✓ | ✓ |
-| Linux (musl/Alpine) | ✓ | |
-| macOS | ✓ | ✓ |
-| Windows | ✓ | ✓ |
-
----
-
 ## Features
 
 ### Vitest Integration
@@ -133,33 +140,53 @@ npx vitest run
 ### Familiar Developer Experience
 - Suite and test definition using `describe()` and `test()` in AssemblyScript
 - Inline test option configuration for common vitest options: `timeout`, `retry`, `skip`, `only`, `fails`
-- Assertion matching API based on vitest/jest `expect()` API. See [Matcher API](#matcher-api) for the set of supported matchers and differences from JavaScript 
+- Assertion matching API based on vitest/jest `expect()` API
+  - `.not`, `toBe`, `toBeCloseTo`, `toEqual`, `toStrictEqual`, `toHaveLength`, `toThrowError`, `toBeTruthy`, `toBeFalsey`, `toBeNull`, `toBeNullable`, `toBeNaN` - See [Matchers API](docs/matchers-api.md) for details and differences from JavaScript
 - Highlighted diffs for assertion and runtime failures, which point to source code
-- Source-mapped WASM error stack traces (accurate source `function file:line:column`)
+- Source-mapped WASM error stack traces (accurate AssemblyScript source `function file:line:column`)
 - AssemblyScript console output captured and provided to vitest for display
-- No boilerplate patterns for: `run()`, `endTest()`, `fs.readFile`, `WebAssembly.Instance`, etc
+- AssemblyScript compiler errors output plainly to the console for debugging
+- AssemblyScript source code coverage based on WASM execution, including uncovered source
+- No AssemblyScript boilerplate patterns for: `run()`, `endTest()`, `fs.readFile`, `WebAssembly.Instance`, etc
 
 ### Performance & Customization
-- Parallel execution thread pool
-- Lightweight coverage instrumentation using separate memory
+- Parallel execution thread pools
 - In-memory binaries and source maps for minimal file I/O
+- Lightweight coverage instrumentation using separate WASM memory (no intermediate JS boundary crossing, no user memory conflicts)
 - Coverage for inlined (`@inline`) code
 - Enforced hard timeouts for long-running WASM via thread termination, with intelligent resume
 - Configurable AssemblyScript compiler options
 - Configurable test memory size
-- Configurable WASM imports with access to memory
+- User-provided WASM imports with access to test memory
 
 ---
 
-See also: **[Configuration Guide](docs/configuration-guide.md)** | **[Providing WASM Imports](docs/providing-wasm-imports.md)**
+## Compatibility
+
+| Dependency | Supported Versions |
+|---|---|
+| Node.js | 20, 22, 24+ |
+| Vitest | 3.2.x, 4.x |
+| AssemblyScript | 0.28+ |
+
+**Platforms with prebuilt native binaries:**
+
+| | x64 | arm64 |
+|---|---|---|
+| Linux (glibc) | ✓ | ✓ |
+| Linux (musl/Alpine) | ✓ | |
+| macOS | ✓ | ✓ |
+| Windows | ✓ | ✓ |
 
 ---
 
-## Writing Tests Guide
+## Writing Tests
 
-Import `test`, `describe`, `expect` (and `TestOptions` if needed) from `vitest-pool-assemblyscript/assembly`.
+Import `test`, `describe`, `expect` from `vitest-pool-assemblyscript/assembly`. These functions are designed to follow the vitest API as closely as possible, so that everything is familiar and easy to reason about.
 
-`it` is available as an alias for `test`.
+- `it` is available as an alias for `test`
+- `describe` and `test` have inline modifiers to quickly change their status (see below)
+- `TestOptions` allows per-test inline configuration of additional options
 
 ```typescript
 import { test, it, describe, expect, TestOptions } from "vitest-pool-assemblyscript/assembly";
@@ -183,7 +210,7 @@ describe("a suite of math operations", () => {
 });
 ```
 
-### Modifiers: `.skip`, `.only`, `.fails`
+### Inline Modifiers: `.skip`, `.only`, `.fails`
 
 ```typescript
 test.skip("not ready yet", () => { /* ... */ });
@@ -201,7 +228,9 @@ describe.only("only this suite runs", () => { /* ... */ });
 
 ### Inline Test Options
 
-`TestOptions` provides chainable configuration for `timeout`, `retry`, `skip`, `only`, and `fails`. Options can be placed before or after the callback, and suite options are inherited by nested tests and suites.
+`TestOptions` provides chainable configuration for `timeout`, `retry`, `skip`, `only`, and `fails`.
+- Options can be placed before or after the callback
+- Suite options are inherited by nested tests and suites
 
 ```typescript
 // options before callback
@@ -227,152 +256,23 @@ test.fails("expected failure with retry", TestOptions.retry(3), () => {
 });
 ```
 
+See the [Matchers API documentation](docs/matchers-api.md) for details on the available `expect()` methods you can use within your tests.
+
 ### Lifecycle Hooks (Setup & Teardown)
 
 Coming Soon!
 
 ---
 
-## Matcher API
+## Current Limitations & Roadmap
 
-This project aims to follow the [vitest/jest `expect()` API](https://vitest.dev/api/expect.html) as closely as possible, with some necessary differences given AssemblyScript's static-typing. 
+### Limitations
 
-The following subset of vitest/jest expect matchers are currently supported:
+These are known limitations which are currently being worked on.
 
-### `.not`
-Inverts the matcher that follows. Can be chained.
-```typescript
-expect(1).not.toBe(2);
-expect("hello").not.toBeNull();
-```
-
-### `toBe()`
-Checks that a value is what you expect. Primitives and strings are compared directly, and references are checked for reference equality only (including objects and arrays). These comparisons are done using `==`, although it is forgiving of numeric type differences.
-
-Don't use `toBe` with floating-point numbers - see `toBeCloseTo()` instead.
-```typescript
-expect(1 + 1).toBe(2);
-expect("hello").toBe("hello");
-```
-
-> ⚠️ IMPORTANT: this matcher is currently too permissive with type comparison - it deems some numeric values of different types to be the same when they shouldn't actually be. The `toEqual()` matcher is more appropriate for these permissive sementics. Fix coming soon!
-
-### `toBeCloseTo()`
-Checks if a floating point value is close to what you expect. Using exact equality with floating point numbers often doesn't work correctly, because small internal rounding occurs to be able to represent floats in binary. This rounding means intuitive comparisons will often fail.
-
-Comparing strings, integers, or references will fall back to using a `toBe` comparison.
-
-Accepts an additional `precision: i32` argument - Number of decimal places that must match for values to be considered close. Defaults to 2 digits, meaning effectively that values must be within 0.005 of each other.
-```typescript
-expect(0.1 + 0.2).toBeCloseTo(0.3);
-expect(1.005).toBeCloseTo(1.0, 1);
-```
-
-### `toEqual()`
-Checks that two values have the same value (deep equality). Currently supports checking equality of Arrays, Sets, Maps, and nulls. Values inside arrays are compared using `toEqual()` also, while Maps and Sets use their respective rules for membership.
-
-Primitives, strings, and other object references are compared with `toBe()` rules.
-
-> ⚠️ IMPORTANT: Does not yet support user-defined object deep equality checking. Coming soon!
-
-```typescript
-expect([1, 2, 3]).toEqual([1, 2, 3]);
-expect(["one", "two", "three"]).toEqual(["one", "two", "three"]);
-
-// objects use reference equality (deep equality not yet supported)
-const a: MyObject = new MyObject();
-const b: MyObject = new MyObject();
-expect([a, b]).toEqual([a, b]);
-```
-
-### `toStrictEqual()`
-Alias for `toEqual()`. Currently no differences in AssemblyScript.
-
-### `toBeTruthy()` & `toBeFalsey()`
-Check that a value is truthy or falsey. Falsey values are `0`, `false`, `""`, and `null`.
-
-```typescript
-expect(1).toBeTruthy();
-expect("hello").toBeTruthy();
-expect("").toBeTruthy();  // <-- Empty String is TRUTHY in AS!
-
-expect(0).toBeFalsey();
-expect(NaN).toBeFalsey();
-expect(null).toBeFalsey();
-```
-
->⚠️ AS Quirk: Unlike in JavaScript, empty string is truthy in AssemblyScript because it is an object reference, not a primitive. An empty string is still an allocated object with a non-zero address, so it evaluates as truthy!
-
-### `toBeNull()`
-Checks that a value is null (`usize(0)` in AssemblyScript).
-
-```typescript
-const val: string | null = null;
-expect(val).toBeNull();
-expect("hello").not.toBeNull();
-expect(0).not.toBeNull();
-expect(false).not.toBeNull();
-```
-
-### `toBeNullable()`
-Checks that the type of the value is nullable (can hold `null`). This is a type-level check, not a value check — use `toBeNull()` to check if a value *is* null.
-
-```typescript
-const val: string | null = null;
-expect(val).toBeNullable();
-expect("hello").not.toBeNullable();
-```
-
-### `toBeNaN()`
-Checks that a floating point value is `NaN`.
-
-```typescript
-expect(NaN).toBeNaN();
-expect(1.0).not.toBeNaN();
-```
-
-### `toHaveLength()`
-Checks that an array or array-like value has the expected length.
-
-```typescript
-expect([1, 2, 3]).toHaveLength(3);
-expect([]).toHaveLength(0);
-expect("hello world").toHaveLength(11);
-```
-
-### `toThrowError()`
-Checks that a function throws an error when called. Optionally checks that the error message matches the provided string. Also available as `toThrow()`.
-
-```typescript
-expect(() => { throw new Error("boom"); }).toThrowError();
-expect(() => { throw new Error("boom"); }).toThrowError("boom");
-```
-
->⚠️ AS Quirk: You must provide a callback with a non-inferred type to expect() when using `toThrowError()`, e.g. `expect(() => { returnsNumber(); })` (definitely void) or `expect((): i32 => returnsNumber())` (explicit type)
-
->ℹ️ Note: `toThrowError()` does not accept inversion using `expect().not.toThrowError()`
-
-### Planned Matchers
-`toBeDefined`, `toBeUndefined`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toContain`, `toContainEqual`
-
-### Likely Matchers
-`toBeOneOf`, `toBeTypeOf`, `toBeInstanceOf`, `toHaveProperty`, `toMatch`
-
----
-
-## Project Status & Expectations
-
-**This is an early-stage project** being developed in the open by an interested individual with a career of experience shipping production code.
-- All features listed in the [Features](#features) section are stable and assumed to be bug-free
-- Native instrumentation prebuilds are available cross-platform
-- Expect matchers are stable (except where noted above), with more coming soon
-
-Please [report a bug / request a feature](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new) if you encounter something you'd like to share!
-
-**⚠️ Known Limitations - Coming Soon:**
 - **Function-level coverage only**: No statement, branch, or line coverage yet
 - **No lifecycle hooks**: No setup/teardown hooks yet
-- **Watch mode specs only**: Re-runs test files when they are directly changed, but not yet based on changed source files
+- **Watch mode handles specs only**: Re-runs test files when they are directly changed, but not yet based on changed source files
 - **`toEqual` doesn't reflect**: Doesn't yet support deep inspection of user-defined objects
 
 ### Near Future Roadmap
@@ -392,7 +292,7 @@ Please [report a bug / request a feature](https://github.com/themattspiral/vites
 
 **Epic: Expand expect matcher API**
 - Planned: `toBeDefined`, `toBeUndefined`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toContain`, `toContainEqual`
-- Probably: `toBeOneOf`, `toBeTypeOf`, `toBeInstanceOf`, `toHaveProperty`, `toMatch`
+- Likely: `toBeOneOf`, `toBeTypeOf`, `toBeInstanceOf`, `toHaveProperty`, `toMatch`
 
 **Epic: Spy and Mock**
 - TBD
@@ -406,11 +306,30 @@ Please [report a bug / request a feature](https://github.com/themattspiral/vites
 
 ---
 
+## Performance
+
+Efforts have been made to compile and run tests as quickly as possible:
+- Separate compile and test execution threads for quicker startup and respawn
+- Compile threads tuned to take advantage of significant Node V8 engine warmup time savings on consecutive AssemblyScript compilations
+- In-memory compiled files and source maps to eliminate intermediate disk I/O
+- Enforced hard timeouts for long-running WASM via thread termination, with intelligent resume
+
+As such, it is capable of compiling dozens of test files comprising hundreds of tests in a few seconds.
+
+<p align="center">
+  <img src="docs/images/example-fixtures-suite.gif" alt="vitest-pool-assemblyscript demo">
+</p>
+
+---
+
 ## Prior Work
 
-There are other (standalone) testing frameworks for AssemblyScript testing which have inspired this project. In particular, many thanks are owed to [assemblyscript-unittest-framework](https://github.com/wasm-ecosystem/assemblyscript-unittest-framework) for inspiring parts of our test discovery and instrumentation walking approaches.
+There are several core pieces of software without which this project would not be possible.
 
-See [Built with AssemblyScript - Testing & Benchmarking](https://www.assemblyscript.org/built-with-assemblyscript.html#testing-benchmarking) for other related work.
+- This project makes direct use of the [AssemblyScript language](https://www.assemblyscript.org) and its fantastic [compiler](https://www.assemblyscript.org/compiler.html)
+- Thanks to the [Vitest team](https://github.com/vitest-dev) for creating the framework in the first place and making it pluggable for different runtimes. Their internal pools were used as extensive reference in early phase development.
+- The key component that allows us to perform WASM instrumentation is [Binaryen](https://github.com/WebAssembly/binaryen), a C++ toolchain infrastructure library for WebAssembly.
+- Particular gratitude is owed to [assemblyscript-unittest-framework](https://github.com/wasm-ecosystem/assemblyscript-unittest-framework) for inspiring parts of our test discovery and instrumentation walking approaches.
 
 ---
 
