@@ -14,6 +14,10 @@ This project aims to follow the [vitest/jest `expect()` API](https://vitest.dev/
 - [`toBeNaN()`](#tobenan)
 - [`toHaveLength()`](#tohavelength)
 - [`toThrowError()`](#tothrowerror)
+- [`toBeGreaterThan()`](#tobegreaterthan)
+- [`toBeGreaterThanOrEqual()`](#tobegreaterthanorequal)
+- [`toBeLessThan()`](#tobelessthan)
+- [`toBeLessThanOrEqual()`](#tobelessthanorequal)
 - [Planned Matchers](#planned-matchers)
 - [Likely Matchers](#likely-matchers)
 
@@ -29,7 +33,7 @@ expect("hello").not.toBeNull();
 ### `toBe()`
 Checks that a value is what you expect using identity comparison. Primitives and strings are compared by value, and references are checked for reference equality only (including objects and arrays).
 
-Cross-type numeric comparisons are allowed where AssemblyScript's own `==` operator permits them. Combinations where the float type lacks sufficient mantissa precision for the integer type's range are rejected with an error, mirroring the AS compiler's behavior.
+Cross-type numeric comparisons are allowed where AssemblyScript's own `==` operator permits them. Combinations where the float type lacks sufficient mantissa precision for the integer type's range will throw an error, matching the AS compiler's behavior.
 
 | | i8, i16 | i32 | i64 | u8, u16 | u32 | u64 |
 |---|---|---|---|---|---|---|
@@ -66,7 +70,7 @@ expect(1.005).toBeCloseTo(1.0, 1);
 ### `toEqual()`
 Checks that two values have the same value (deep equality). Currently supports checking equality of Arrays, Sets, Maps, and nulls. Values inside arrays are compared using `toEqual()` also, while Maps and Sets use their respective rules for membership.
 
-Primitives, strings, and other object references are compared with `toBe()` rules. Like `toBe`, cross-type numeric comparisons follow AssemblyScript's own `==` operator restrictions. Combinations where the float type lacks sufficient mantissa precision for the integer type's range are rejected with an error (e.g. `f32` vs `i32`, `f64` vs `i64`).
+Primitives, strings, and other object references are compared with `toBe()` rules. Like `toBe`, cross-type numeric comparisons follow AssemblyScript's own `==` operator restrictions. Combinations where the float type lacks sufficient mantissa precision for the integer type's range will throw an error (e.g. `f32` vs `i32`, `f64` vs `i64`).
 
 > ⚠️ IMPORTANT: Does not yet support user-defined object deep equality checking. Coming soon!
 
@@ -152,8 +156,59 @@ expect(() => { throw new Error("boom"); }).toThrowError("boom");
 
 >ℹ️ Note: `toThrowError()` does not accept inversion using `expect().not.toThrowError()`
 
+### `toBeGreaterThan()`
+Checks that a value is greater than the expected value. Supports numeric types (integers, floats, booleans) and strings (lexicographic comparison).
+
+Cross-type numeric comparisons are allowed where safe, including cross-sign integers (more permissive than AS's own `>` operator). Booleans are treated as numeric (true=1, false=0).
+
+| | i8, i16 | i32 | i64 | u8, u16 | u32 | u64 |
+|---|---|---|---|---|---|---|
+| **f32** | ✓ | ✗ | ✗ | ✓ | ✗ | ✗ |
+| **f64** | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ |
+
+```typescript
+expect(10).toBeGreaterThan(5);
+expect(3.14).toBeGreaterThan(3);
+expect("banana").toBeGreaterThan("apple");
+
+// cross-sign integers are supported (AS rejects these at the language level)
+expect(i32(42)).toBeGreaterThan(u32(10));
+
+// booleans behave as numeric
+expect(true).toBeGreaterThan(false);
+```
+
+>⚠️ Nullable strings where either value is null will throw an error. Use `toBeNull()` to check for null values.
+
+>⚠️ Non-string reference types (objects, arrays, etc) are not comparable and will throw an error.
+
+### `toBeGreaterThanOrEqual()`
+Checks that a value is greater than or equal to the expected value. Same type support, cross-type rules, and error conditions as [`toBeGreaterThan()`](#tobegreaterthan).
+
+```typescript
+expect(10).toBeGreaterThanOrEqual(10);
+expect(3.14).toBeGreaterThanOrEqual(3);
+```
+
+### `toBeLessThan()`
+Checks that a value is less than the expected value. Same type support, cross-type rules, and error conditions as [`toBeGreaterThan()`](#tobegreaterthan).
+
+```typescript
+expect(5).toBeLessThan(10);
+expect(3).toBeLessThan(3.14);
+expect("apple").toBeLessThan("banana");
+```
+
+### `toBeLessThanOrEqual()`
+Checks that a value is less than or equal to the expected value. Same type support, cross-type rules, and error conditions as [`toBeGreaterThan()`](#tobegreaterthan).
+
+```typescript
+expect(5).toBeLessThanOrEqual(5);
+expect(3).toBeLessThanOrEqual(3.14);
+```
+
 ### Planned Matchers
-`toBeDefined`, `toBeUndefined`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toContain`, `toContainEqual`
+`toBeDefined`, `toBeUndefined`, `toContain`, `toContainEqual`
 
 ### Likely Matchers
 `toBeOneOf`, `toBeTypeOf`, `toBeInstanceOf`, `toHaveProperty`, `toMatch`
