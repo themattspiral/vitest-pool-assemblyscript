@@ -1,4 +1,4 @@
-import { describe, expect, test } from '../../../../assembly';
+import { describe, expect, test } from 'vitest-pool-assemblyscript/assembly';
 
 function fails(): i32 {
   const arr: i32[] = [1, 2, 3];

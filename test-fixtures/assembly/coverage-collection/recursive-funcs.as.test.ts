@@ -2,7 +2,7 @@
  * Recursive function tests
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { factorial, gcd, power } from '../../assembly-src/recursive-funcs';
 
 test('factorial 5', () => {

@@ -1,4 +1,4 @@
-import { test, describe, expect, TestOptions } from '../../../assembly';
+import { test, describe, expect, TestOptions } from 'vitest-pool-assemblyscript/assembly';
 import { add } from '../../assembly-src/math';
 
 test("just some test with project config defaults", () => {

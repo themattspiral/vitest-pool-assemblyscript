@@ -1,4 +1,4 @@
-import { test, expect, TestOptions, describe } from '../../../assembly';
+import { test, expect, TestOptions, describe } from 'vitest-pool-assemblyscript/assembly';
 import { add } from '../../assembly-src/math';
 
 test("plain test should be skipped in file with only", () => {

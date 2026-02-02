@@ -3,7 +3,7 @@
  * Verifies that one test crashing doesn't kill subsequent tests
  */
 
-import { test, expect, TestOptions, it } from '../../../assembly';
+import { test, expect, TestOptions, it } from 'vitest-pool-assemblyscript/assembly';
 import { safeAdd } from '../../assembly-src/crash-test-utils';
 
 it("first test passes", () => {

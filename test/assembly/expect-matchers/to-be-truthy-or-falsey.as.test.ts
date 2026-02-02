@@ -1,4 +1,4 @@
-import { test, expect, describe, TestOptions } from '../../../assembly';
+import { test, expect, describe, TestOptions } from 'vitest-pool-assemblyscript/assembly';
 
 describe("primitives", () => {
   test("booleans", () => {

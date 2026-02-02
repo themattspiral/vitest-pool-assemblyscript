@@ -11,7 +11,7 @@
  * - WITH stripping: @inline functions appear in coverage
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { addInlined, addNormal, multiplyWithInternalInlining, multiplyNormal, throwsError, callsInlinedAdd } from '../../assembly-src/inline-utils';
 
 test('inline functions are called', (): void => {

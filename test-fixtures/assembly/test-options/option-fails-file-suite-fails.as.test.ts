@@ -1,4 +1,4 @@
-import { test, expect, describe } from '../../../assembly';
+import { test, expect, describe } from 'vitest-pool-assemblyscript/assembly';
 import { add } from '../../assembly-src/math';
 
 describe("suite should pass when test within it uses `fails` option and passes", () => {

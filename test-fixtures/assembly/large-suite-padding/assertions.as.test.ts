@@ -3,7 +3,7 @@
  * Tests comparison operators and boolean logic
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { lessThan, greaterThan, equals, notEquals, andOp, orOp, notOp } from '../../assembly-src/comparison-utils';
 
 test("comparisons work", () => {

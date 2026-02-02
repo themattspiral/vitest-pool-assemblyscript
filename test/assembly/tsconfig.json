@@ -4,6 +4,11 @@
     "./**/*.ts"
   ],
   "compilerOptions": {
-    "rootDir": "../.."
+    "rootDir": "../..",
+    "baseUrl": ".",
+    "paths": {
+      "vitest-pool-assemblyscript/assembly": ["../../assembly/index.ts"],
+      "*": ["../../node_modules/assemblyscript/std/assembly/*"]
+    }
   }
 }

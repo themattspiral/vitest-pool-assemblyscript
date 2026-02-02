@@ -2,7 +2,7 @@
  * Conditional logic tests
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { max, min, abs, categorize } from '../../assembly-src/conditional-utils';
 
 test('max function', () => {

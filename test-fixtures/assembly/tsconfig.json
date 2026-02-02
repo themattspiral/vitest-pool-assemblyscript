@@ -3,4 +3,11 @@
   "include": [
     "./**/*.ts"
   ],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "vitest-pool-assemblyscript/assembly": ["../../assembly/index.ts"],
+      "*": ["../../node_modules/assemblyscript/std/assembly/*"]
+    }
+  }
 }

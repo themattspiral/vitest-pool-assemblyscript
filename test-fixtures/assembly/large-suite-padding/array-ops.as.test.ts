@@ -2,7 +2,7 @@
  * Array operations tests
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { arraySum, filterEvens, reverseArray } from '../../assembly-src/array-utils';
 
 test('array sum', () => {

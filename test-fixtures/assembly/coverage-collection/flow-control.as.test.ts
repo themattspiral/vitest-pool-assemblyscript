@@ -3,7 +3,7 @@
  * Exercises various control flow patterns: switch, loops, breaks, etc.
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import {
   getCategory,
   classify,

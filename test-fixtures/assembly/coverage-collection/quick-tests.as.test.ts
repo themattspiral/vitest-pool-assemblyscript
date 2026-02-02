@@ -3,7 +3,7 @@
  * Used to measure overhead of per-test isolation
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { double } from '../../assembly-src/quick-math';
 
 // 20 trivial tests that should complete in <1ms each

@@ -1,4 +1,4 @@
-import { test, expect, TestOptions } from '../../../assembly';
+import { test, expect, TestOptions } from 'vitest-pool-assemblyscript/assembly';
 import { fails } from '../../assembly-src/smoke-fail-utils';
 import { fibonacciRecursive } from '../../assembly-src/heavy-computation-utils';
 

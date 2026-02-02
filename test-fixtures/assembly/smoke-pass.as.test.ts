@@ -1,4 +1,4 @@
-import { test, expect, describe } from '../../assembly';
+import { test, expect, describe } from 'vitest-pool-assemblyscript/assembly';
 import { increment } from '../assembly-src/smoke-utils';
 
 describe("Basic passing smoke tests", () => {

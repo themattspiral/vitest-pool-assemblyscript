@@ -1,4 +1,4 @@
-import { test, expect, TestOptions, describe } from '../../../assembly';
+import { test, expect, TestOptions, describe } from 'vitest-pool-assemblyscript/assembly';
 import { add } from '../../assembly-src/math';
 
 test.skip("should be skipped!!", () => {

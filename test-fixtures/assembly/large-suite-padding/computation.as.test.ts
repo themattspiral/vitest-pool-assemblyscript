@@ -3,7 +3,7 @@
  * Each test does significant work to make timing observable
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { factorial, fibonacci, isPrime, sumOfPrimes, countPrimes } from '../../assembly-src/computation-utils';
 
 test('compute factorial of 20', () => {

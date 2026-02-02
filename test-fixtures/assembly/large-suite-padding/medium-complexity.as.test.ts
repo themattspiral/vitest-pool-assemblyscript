@@ -3,7 +3,7 @@
  * Represents typical test workload
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { bubbleSort, binarySearch } from '../../assembly-src/sorting-utils';
 
 test('bubble sort 100 elements', () => {

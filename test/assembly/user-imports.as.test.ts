@@ -1,4 +1,4 @@
-import { describe, expect, test } from '../../assembly';
+import { describe, expect, test } from 'vitest-pool-assemblyscript/assembly';
 import {
   runUserFunction,
   runOtherUserFunction,

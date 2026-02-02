@@ -2,7 +2,7 @@
  * Memory operations tests
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { createAndFillArray, createLargeArray, createMultipleArrays } from '../../assembly-src/memory-utils';
 
 test('array allocation', () => {

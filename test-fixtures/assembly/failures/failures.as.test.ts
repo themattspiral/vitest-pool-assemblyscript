@@ -1,4 +1,4 @@
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import * as fail from '../../assembly-src/failure-utils';
 
 test('failNamedFunc [should fail]', () => {

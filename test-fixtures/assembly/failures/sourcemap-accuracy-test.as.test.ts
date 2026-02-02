@@ -17,7 +17,7 @@
  * - test_line_51_multiline: Line 51, Column 3 (expect call starts on 51, false argument on line 52)
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { helperThatFails, nestedHelperThatFails, outerHelper } from '../../assembly-src/sourcemap-utils';
 
 

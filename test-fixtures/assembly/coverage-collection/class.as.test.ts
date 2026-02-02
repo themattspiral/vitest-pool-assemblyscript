@@ -9,7 +9,7 @@
  * - Static methods
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { Counter } from '../../assembly-src/class-utils';
 import {
   useCounter,

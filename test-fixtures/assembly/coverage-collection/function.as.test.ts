@@ -9,7 +9,7 @@
  * - Callback passing patterns
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import {
   arrowMulti,
   namedFuncMultiSpanLines,

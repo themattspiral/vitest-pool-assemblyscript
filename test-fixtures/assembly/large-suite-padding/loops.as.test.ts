@@ -2,7 +2,7 @@
  * Loop tests
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { sumRange, countdown, nestedLoopSum } from '../../assembly-src/loop-utils';
 
 test('for loop sum', () => {

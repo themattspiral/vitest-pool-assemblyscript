@@ -1,4 +1,4 @@
-import { it, expect, TestOptions, describe } from '../../../assembly';
+import { it, expect, TestOptions, describe } from 'vitest-pool-assemblyscript/assembly';
 import { add } from '../../assembly-src/math';
 
 describe("various test cases using the `fails` option", ()=> {

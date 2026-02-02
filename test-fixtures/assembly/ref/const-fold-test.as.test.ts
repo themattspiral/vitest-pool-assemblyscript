@@ -1,4 +1,4 @@
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { computeSum } from '../../assembly-src/const-fold-utils';
 
 /**

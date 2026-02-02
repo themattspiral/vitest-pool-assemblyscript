@@ -2,7 +2,7 @@
  * Utility function tests
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { clamp, lerp, isEven, isOdd } from '../../assembly-src/utility-funcs';
 
 test('clamp value', () => {

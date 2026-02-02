@@ -3,7 +3,7 @@
  * Tests basic arithmetic operations
  */
 
-import { test, describe, expect } from '../../../assembly';
+import { test, describe, expect } from 'vitest-pool-assemblyscript/assembly';
 import { add, subtract, multiply, divide, addOneLiner, subtractOneLiner } from '../../assembly-src/math';
 
 test("addition works [should fail]", () => {

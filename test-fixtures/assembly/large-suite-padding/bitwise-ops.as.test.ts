@@ -2,7 +2,7 @@
  * Bitwise operations tests
  */
 
-import { test, expect } from '../../../assembly';
+import { test, expect } from 'vitest-pool-assemblyscript/assembly';
 import { bitwiseAnd, bitwiseOr, bitwiseXor, leftShift, rightShift } from '../../assembly-src/bitwise-utils';
 
 test('bitwise AND', () => {

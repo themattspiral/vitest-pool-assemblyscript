@@ -2,7 +2,7 @@
  * Heavy computation tests - CPU-intensive operations
  */
 
-import { test, expect, TestOptions, describe } from '../../../assembly';
+import { test, expect, TestOptions, describe } from 'vitest-pool-assemblyscript/assembly';
 import { fibonacciRecursive, countPrimes } from '../../assembly-src/heavy-computation-utils';
 
 describe("fibonacci", () => {
