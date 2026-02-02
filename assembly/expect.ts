@@ -1,7 +1,9 @@
 import {
   closeTo,
+  compareInequality,
   equals,
   identical,
+  InequalityOperation,
   isNull,
   nan,
   truthyOrFalsey
@@ -97,12 +99,12 @@ abstract class BaseExpectMatcher<T> {
    * objects, arrays, etc).
    *
    * Cross-type numeric comparisons are allowed where AssemblyScript's own `==` operator
-   * permits them (e.g. `f64` vs `i32`). Combinations where the float type lacks sufficient
-   * mantissa precision for the integer type's range are rejected with an error, mirroring
-   * the AS compiler's behavior (e.g. `f32` vs `i32`, `f64` vs `i64`).
+   * permits them (e.g. `f64` vs `i32`). `toBeCloseTo()` is safer for any comparison
+   * involving a float and allows all numeric types because it can still produce accurate
+   * results in precision-loss casting edge cases.
    *
-   * `toBeCloseTo()` is safer for any comparison involving a float and allows all numeric 
-   * types because it can still produce accurate results in precision loss casting edge cases.
+   * @throws When comparing float/integer types where the float's mantissa cannot losslessly
+   * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
    *
    * @example
    * expect(1 + 1).toBe(2);
@@ -132,7 +134,7 @@ abstract class BaseExpectMatcher<T> {
    * Strings are compared by value equality as with `toBe`. Non-numeric, non-string types return false.
    *
    * @param precision - Specify the number of decimal places that must match for values to be 
-   * considered close. Defaults to 2 digits, meaning effectively that values must be within 0.005 of 
+   * considered close. Defaults to 2 digits, meaning effectively that values must be within 0.005 of
    * each other.
    *
    * @example
@@ -142,7 +144,109 @@ abstract class BaseExpectMatcher<T> {
   toBeCloseTo<U>(val: U, precision: i32 = 2): void {
     this.assertComparison(closeTo(this.actual, val, precision), this.actual, val, "to be close to", true);
   }
-  
+
+  /**
+   * Checks that a value is greater than the expected value. Supports numeric types
+   * (integers, floats, booleans) and strings (lexicographic comparison).
+   *
+   * Cross-type numeric comparisons are allowed where safe, including cross-sign integers
+   * (more permissive than AS's own `>` operator). Booleans are treated as numeric
+   * (true=1, false=0).
+   *
+   * @throws When comparing float/integer types where the float's mantissa cannot losslessly
+   * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
+   * @throws When comparing nullable strings where either value is null. Use `toBeNull()`
+   * to check for null values.
+   * @throws When comparing non-string reference types (objects, arrays, etc).
+   *
+   * @example
+   * expect(10).toBeGreaterThan(5);
+   * expect(3.14).toBeGreaterThan(3);
+   * expect("banana").toBeGreaterThan("apple");
+   */
+  toBeGreaterThan<U>(val: U): void {
+    this.assertComparison(
+      compareInequality(this.actual, val, InequalityOperation.GreaterThan),
+      this.actual, val, "to be greater than", true
+    );
+  }
+
+  /**
+   * Checks that a value is greater than or equal to the expected value. Supports numeric
+   * types (integers, floats, booleans) and strings (lexicographic comparison).
+   *
+   * Cross-type numeric comparisons are allowed where safe, including cross-sign integers
+   * (more permissive than AS's own `>=` operator). Booleans are treated as numeric
+   * (true=1, false=0).
+   *
+   * @throws When comparing float/integer types where the float's mantissa cannot losslessly
+   * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
+   * @throws When comparing nullable strings where either value is null. Use `toBeNull()`
+   * to check for null values.
+   * @throws When comparing non-string reference types (objects, arrays, etc).
+   *
+   * @example
+   * expect(10).toBeGreaterThanOrEqual(10);
+   * expect(3.14).toBeGreaterThanOrEqual(3);
+   */
+  toBeGreaterThanOrEqual<U>(val: U): void {
+    this.assertComparison(
+      compareInequality(this.actual, val, InequalityOperation.GreaterThanOrEqual),
+      this.actual, val, "to be greater than or equal to", true
+    );
+  }
+
+  /**
+   * Checks that a value is less than the expected value. Supports numeric types
+   * (integers, floats, booleans) and strings (lexicographic comparison).
+   *
+   * Cross-type numeric comparisons are allowed where safe, including cross-sign integers
+   * (more permissive than AS's own `<` operator). Booleans are treated as numeric
+   * (true=1, false=0).
+   *
+   * @throws When comparing float/integer types where the float's mantissa cannot losslessly
+   * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
+   * @throws When comparing nullable strings where either value is null. Use `toBeNull()`
+   * to check for null values.
+   * @throws When comparing non-string reference types (objects, arrays, etc).
+   *
+   * @example
+   * expect(5).toBeLessThan(10);
+   * expect(3).toBeLessThan(3.14);
+   * expect("apple").toBeLessThan("banana");
+   */
+  toBeLessThan<U>(val: U): void {
+    this.assertComparison(
+      compareInequality(this.actual, val, InequalityOperation.LessThan),
+      this.actual, val, "to be less than", true
+    );
+  }
+
+  /**
+   * Checks that a value is less than or equal to the expected value. Supports numeric
+   * types (integers, floats, booleans) and strings (lexicographic comparison).
+   *
+   * Cross-type numeric comparisons are allowed where safe, including cross-sign integers
+   * (more permissive than AS's own `<=` operator). Booleans are treated as numeric
+   * (true=1, false=0).
+   *
+   * @throws When comparing float/integer types where the float's mantissa cannot losslessly
+   * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
+   * @throws When comparing nullable strings where either value is null. Use `toBeNull()`
+   * to check for null values.
+   * @throws When comparing non-string reference types (objects, arrays, etc).
+   *
+   * @example
+   * expect(5).toBeLessThanOrEqual(5);
+   * expect(3).toBeLessThanOrEqual(3.14);
+   */
+  toBeLessThanOrEqual<U>(val: U): void {
+    this.assertComparison(
+      compareInequality(this.actual, val, InequalityOperation.LessThanOrEqual),
+      this.actual, val, "to be less than or equal to", true
+    );
+  }
+
   /**
    * Checks that two values have the same value (deep equality). Currently supports
    * checking equality of Arrays, Sets, Maps, and nulls. Values inside arrays are
@@ -151,12 +255,13 @@ abstract class BaseExpectMatcher<T> {
    * `toBe()` rules.
    *
    * Like `toBe`, cross-type numeric comparisons follow AssemblyScript's own `==` operator
-   * restrictions. Combinations where the float type lacks sufficient mantissa precision
-   * for the integer type's range are rejected with an error (e.g. `f32` vs `i32`,
-   * `f64` vs `i64`). `toBeCloseTo()` is safer for any comparison involving a float and
-   * accurately handles these edge cases.
+   * restrictions. `toBeCloseTo()` is safer for any comparison involving a float and
+   * accurately handles precision-loss edge cases.
    *
    * ⚠️ IMPORTANT: Does not yet support user-defined object deep equality checking.
+   *
+   * @throws When comparing float/integer types where the float's mantissa cannot losslessly
+   * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
    *
    * @example
    * expect([1, 2, 3]).toEqual([1, 2, 3]);

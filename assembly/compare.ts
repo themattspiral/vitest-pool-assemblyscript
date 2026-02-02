@@ -219,6 +219,133 @@ export function equals<T, U>(actual: T, expected: U): bool {
   );
 }
 
+export enum InequalityOperation {
+  LessThan,
+  LessThanOrEqual,
+  GreaterThan,
+  GreaterThanOrEqual,
+}
+
+/**
+ * Applies an inequality operation to two values of the same promoted type.
+ * Handles <, <=, >, >= for any type that supports these operators (numbers, strings).
+ */
+function applyInequalityOp<T>(a: T, b: T, op: InequalityOperation): bool {
+  if (op == InequalityOperation.LessThan) return a < b;
+  if (op == InequalityOperation.LessThanOrEqual) return a <= b;
+  if (op == InequalityOperation.GreaterThan) return a > b;
+  return a >= b; // GreaterThanOrEqual
+}
+
+/**
+ * Generic inequality comparison. Promotes both values to a common type and applies
+ * the requested inequality operation.
+ *
+ * Strings are compared lexicographically. Booleans are treated as integers (true=1, false=0).
+ * Non-string references are not comparable and throw an error.
+ *
+ * Cross-sign integer comparisons are supported (more permissive than AS's own operators)
+ * via signed-negative early return + u64 promotion. Float/integer combinations where the
+ * float's mantissa cannot losslessly represent the integer type's range are rejected,
+ * matching AS compiler behavior. See docs/matcher-research.md for details.
+ */
+export function compareInequality<T, U>(actual: T, compareTo: U, expectedOperation: InequalityOperation): bool {
+  // --- Strings: lexicographic comparison ---
+  if (isString<T>() && isString<U>()) {
+    // Guard against null before casting, mirroring identical()'s pattern
+    const actualIsNull = isNullable<T>() && actual == null;
+    const compareToIsNull = isNullable<U>() && compareTo == null;
+    if (actualIsNull || compareToIsNull) {
+      throw new Error(
+        "Cannot compare null string with inequality operators: the result is undefined."
+        + " Use toBeNull() to check for null values."
+      );
+    }
+    return applyInequalityOp(<string>actual, <string>compareTo, expectedOperation);
+  }
+
+  // --- Reject non-string references (objects, arrays, etc.) ---
+  if (isReference<T>() || isReference<U>()) {
+    throw new Error(
+      "Inequality comparison is not supported for " + nameof<T>() + " and " + nameof<U>()
+      + ". Only numeric types and strings can be compared with inequality matchers."
+    );
+  }
+
+  // --- Float/integer precision-loss rejection ---
+  // Reject combinations where the float's mantissa cannot losslessly represent
+  // the integer type's full range (sizeof(integer) >= sizeof(float)).
+  // This mirrors AS's own operator rejection (e.g. f32 > i32, f64 > i64).
+  if (isFloat<T>() && isInteger<U>()) {
+    if (sizeof<U>() >= sizeof<T>()) {
+      throw new Error(
+        "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+        + ": float precision is insufficient for the integer type's range."
+        + " Cast both values to f64 before comparing, e.g. expect(f64(a)).toBeGreaterThan(f64(b))."
+        + " Note: large integer values may lose precision when cast to f64, which could cause false positives."
+      );
+    }
+  } else if (isInteger<T>() && isFloat<U>()) {
+    if (sizeof<T>() >= sizeof<U>()) {
+      throw new Error(
+        "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+        + ": float precision is insufficient for the integer type's range."
+        + " Cast both values to f64 before comparing, e.g. expect(f64(a)).toBeGreaterThan(f64(b))."
+        + " Note: large integer values may lose precision when cast to f64, which could cause false positives."
+      );
+    }
+  }
+
+  // --- Numeric comparisons ---
+  // Booleans flow through here naturally (isInteger<bool>() is true in AS).
+
+  if (isInteger<T>() && isInteger<U>()) {
+    // Both signed → promote to i64
+    if (isSigned<T>() && isSigned<U>()) {
+      return applyInequalityOp(i64(actual), i64(compareTo), expectedOperation);
+    }
+
+    // Both unsigned → promote to u64
+    if (!isSigned<T>() && !isSigned<U>()) {
+      return applyInequalityOp(u64(actual), u64(compareTo), expectedOperation);
+    }
+
+    // Mixed sign — more permissive than AS, which rejects these at compile time.
+    // If the signed value is negative, the result is deterministic: signed < unsigned.
+    if (isSigned<T>() && !isSigned<U>()) {
+      if (i64(actual) < 0) {
+        // actual (signed negative) is always less than compareTo (unsigned)
+        return expectedOperation == InequalityOperation.LessThan
+            || expectedOperation == InequalityOperation.LessThanOrEqual;
+      }
+      return applyInequalityOp(u64(actual), u64(compareTo), expectedOperation);
+    } else {
+      // !isSigned<T>() && isSigned<U>()
+      if (i64(compareTo) < 0) {
+        // compareTo (signed negative) is always less than actual (unsigned)
+        return expectedOperation == InequalityOperation.GreaterThan
+            || expectedOperation == InequalityOperation.GreaterThanOrEqual;
+      }
+      return applyInequalityOp(u64(actual), u64(compareTo), expectedOperation);
+    }
+  }
+
+  // Both floats → promote to f64
+  if (isFloat<T>() && isFloat<U>()) {
+    return applyInequalityOp(f64(actual), f64(compareTo), expectedOperation);
+  }
+
+  // Supported float/integer combo (passed precision-loss check above) → promote to f64
+  if ( (isFloat<T>() && isInteger<U>()) || (isInteger<T>() && isFloat<U>()) ) {
+    return applyInequalityOp(f64(actual), f64(compareTo), expectedOperation);
+  }
+
+  // Unsupported type combination (e.g. vectors)
+  throw new Error(
+    "Inequality comparison is not supported for " + nameof<T>() + " and " + nameof<U>() + "."
+  );
+}
+
 export function truthyOrFalsey<T>(actual: T, expected: bool): bool {
   return actual ? expected == true : expected == false;
 }
