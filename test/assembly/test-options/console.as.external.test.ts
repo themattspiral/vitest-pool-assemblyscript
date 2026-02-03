@@ -3,9 +3,9 @@
  * Tests basic arithmetic operations
  */
 
-import { test, describe, expect } from 'vitest-pool-assemblyscript/assembly';
-import { fails } from '../../assembly-src/failure-utils.external';
-import { fibonacciRecursive } from '../../assembly-src/computation-utils';
+import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
+import { fails } from "../../assembly-src/failure-utils.external";
+import { fibonacciRecursive } from "../../assembly-src/computation-utils";
 
 test("console log is still printed for failed test [should fail]", () => {
   console.log("this is a console log from a test before it fails");
@@ -17,17 +17,17 @@ test("console assert", () => {
 });
 
 test("console error", () => {
-  console.error('This is an error!!');
+  console.error("This is an error!!");
 });
 
 test("console debug", () => {
-  console.debug('This is a 🐛');
+  console.debug("This is a 🐛");
 });
 
 test("console log, info, warn", () => {
-  console.log('this is a log');
-  console.info('this is info');
-  console.warn('this is a warning');
+  console.log("this is a log");
+  console.info("this is info");
+  console.warn("this is a warning");
 });
 
 test("time functions", () => {

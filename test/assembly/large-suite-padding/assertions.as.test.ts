@@ -3,8 +3,8 @@
  * Tests comparison operators and boolean logic
  */
 
-import { test, expect } from 'vitest-pool-assemblyscript/assembly';
-import { lessThan, greaterThan, equals, notEquals, andOp, orOp, notOp } from '../../assembly-src/comparison-utils';
+import { test, expect } from "vitest-pool-assemblyscript/assembly";
+import { lessThan, greaterThan, equals, notEquals, andOp, orOp, notOp } from "../../assembly-src/comparison-utils";
 
 test("comparisons work", () => {
   expect(lessThan(1, 2)).toBeTruthy();

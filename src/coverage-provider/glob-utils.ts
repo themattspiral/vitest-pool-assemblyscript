@@ -1,48 +1,45 @@
 /**
  * Glob Utilities for Coverage
  *
- * Uses test-exclude (same as Vitest's v8 coverage provider) to glob
- * AssemblyScript files matching coverage.include patterns.
+ * Uses tinyglobby to glob AssemblyScript files matching coverage include/exclude patterns.
+ * Supports ../ path traversals for projects that import source from outside the project root.
+ *
+ * Note: tinyglobby docs warn of a performance cost when globbing outside cwd (e.g. ../ patterns)
+ * due to recalculating relative paths. Acceptable here since this runs once at startup.
  */
 
-import { resolve } from 'path';
-import TestExclude from 'test-exclude';
+import { relative } from 'path';
+import { globSync } from 'tinyglobby';
 
 import { GlobResult } from '../types/types.js';
+
+const NODE_MODULES_GLOB = '**/node_modules/**';
 
 /**
  * Glob files matching coverage include/exclude patterns
  *
- * Uses test-exclude for consistent behavior with Vitest's built-in
- * coverage providers.
- *
  * @param include - Include patterns (e.g., ['assembly/**\/*.ts'])
  * @param exclude - Exclude patterns (e.g., ['**\/*.test.ts'])
  * @param projectRoot - Project root directory
- * @returns Array of absolute file paths
+ * @returns Array of glob results with absolute and project-root-relative paths
  */
 export function globFiles(
   include: string[],
   exclude: string[],
   projectRoot: string
 ): GlobResult[] {
-  // avoid issues with default behavior being grabbing from cwd
   if (include.length === 0) {
     return [];
   }
 
-  const testExclude = new TestExclude({
+  const absolutePaths = globSync(include, {
     cwd: projectRoot,
-    include,
-    exclude,
-    excludeNodeModules: true,
+    ignore: [NODE_MODULES_GLOB, ...exclude],
+    absolute: true,
   });
 
-  const includedFiles = testExclude.globSync(projectRoot);
-  const results: GlobResult[] = includedFiles.map((file: string) => ({
-    absolute: resolve(projectRoot, file),
-    projectRootRelative: file
-  })) || [];
-
-  return results;
+  return absolutePaths.map((absolute) => ({
+    absolute,
+    projectRootRelative: relative(projectRoot, absolute),
+  }));
 }

@@ -1,5 +1,5 @@
-import { it, expect, TestOptions, describe } from 'vitest-pool-assemblyscript/assembly';
-import { add } from '../../assembly-src/quick-math';
+import { it, expect, TestOptions, describe } from "vitest-pool-assemblyscript/assembly";
+import { add } from "../../assembly-src/quick-math";
 
 describe("`fails` option used successfully", ()=> {
   it("should pass normally", () => {

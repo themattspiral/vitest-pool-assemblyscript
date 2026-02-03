@@ -1,9 +1,9 @@
-import { describe, expect, test } from 'vitest-pool-assemblyscript/assembly';
+import { describe, expect, test } from "vitest-pool-assemblyscript/assembly";
 import {
   runUserFunction,
   runOtherUserFunction,
   runParseIntStringFunction,
-} from './user-import-wrapper';
+} from "./user-import-wrapper";
 
 describe("default \"env\" module", () => {
   test("user imported function is executed", () => {

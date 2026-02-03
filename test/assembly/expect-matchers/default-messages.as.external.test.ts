@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest-pool-assemblyscript/assembly';
+import { describe, expect, test } from "vitest-pool-assemblyscript/assembly";
 
 function fails(): i32 {
   const arr: i32[] = [1, 2, 3];
@@ -8,7 +8,7 @@ function fails(): i32 {
 
 describe("toBeNan", () => {
   describe("matching failures", () => {
-    test("should print 'expected <value> to be NaN' [should fail]", () => {
+    test("should print "expected <value> to be NaN" [should fail]", () => {
       expect(77).toBeNaN();
     });
   });
@@ -42,7 +42,7 @@ describe("toThrowError", () => {
       // IMPORTANT: "global arrow function type inferrence lock-in" seems to occur with
       // all subsequent () => void functions compiled in a file when a nested (within void arrow)
       // callback arrow type is inferred. Either use an explicit non-void return type here, 
-      // or make sure it's comes after any () => voids, otherwise you'll get compilation errors.
+      // or make sure it's comes after any () => voids, otherwise you"ll get compilation errors.
       expect((): i32 => fails()).toThrowError();
     });
   });

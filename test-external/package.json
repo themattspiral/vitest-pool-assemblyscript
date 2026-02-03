@@ -2,7 +2,9 @@
   "name": "test-external",
   "private": true,
   "type": "module",
-  "dependencies": {
+  "devDependencies": {
+    "assemblyscript": "^0.28.9",
+    "vitest": "^4.0.18",
     "vitest-pool-assemblyscript": "file:../vitest-pool-assemblyscript-0.0.0-semantically-released.tgz"
   }
 }

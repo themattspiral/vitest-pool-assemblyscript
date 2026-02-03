@@ -14,13 +14,12 @@ export default defineConfig({
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       
-      // include: [ 'src/**/*.{ts,js,mts,mjs}' ],
       include: [ '!*' ],
       assemblyScriptInclude: [
-        '../assembly/**/*.ts',
-        '../test/assembly-src/**/*.ts'
+        // we're reporting on our crafted fixtures and fixture source for these external tests
+        '../vitest-pool-assemblyscript/test/assembly-src/**/*.ts'
       ],
-      assemblyScriptExclude: [ '../test/assembly-src/**/*.external.ts' ],
+      assemblyScriptExclude: [ '../vitest-pool-assemblyscript/test/assembly-src/**/*.external.ts' ],
 
       debugIstanbul: false,
     },
@@ -34,15 +33,18 @@ export default defineConfig({
           },
 
           include: [
-            '../test/assembly/**/*.as.test.ts',
+            '../vitest-pool-assemblyscript/test/assembly/**/*.as.test.ts',
           ],
 
           pool: createAssemblyScriptPool({
             debug: false,
             debugNative: false,
             debugCoverageExtract: false,
-            _instrumentPoolInternals: true,
-            wasmImportsFactory: '../test/helpers/create-user-imports.js',
+
+            // we don't do internal instrumentation when we're external - save reporting on that for the local run
+            _instrumentPoolInternals: false,
+
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
           }),
         }
       }),

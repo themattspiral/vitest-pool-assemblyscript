@@ -3,10 +3,10 @@
  * Each test does significant work to make timing observable
  */
 
-import { test, expect } from 'vitest-pool-assemblyscript/assembly';
-import { factorial, fibonacci, isPrime, sumOfPrimes, countPrimes, fibonacciRecursive } from '../../assembly-src/computation-utils';
+import { test, expect } from "vitest-pool-assemblyscript/assembly";
+import { factorial, fibonacci, isPrime, sumOfPrimes, countPrimes, fibonacciRecursive } from "../../assembly-src/computation-utils";
 
-test('compute factorial of 20', () => {
+test("compute factorial of 20", () => {
   // Do some computational work
   let result: i64 = 1;
   for (let iter = 0; iter < 10000; iter++) {
@@ -17,7 +17,7 @@ test('compute factorial of 20', () => {
   expect(result).toBe(2432902008176640000);
 });
 
-test('compute fibonacci of 50', () => {
+test("compute fibonacci of 50", () => {
   // Do some computational work
   let result: i64 = 0;
   for (let iter = 0; iter < 10000; iter++) {
@@ -28,13 +28,13 @@ test('compute fibonacci of 50', () => {
   expect(result).toBe(12586269025);
 });
 
-test('compute fibonacci of 35 (recursive)', () => {
+test("compute fibonacci of 35 (recursive)", () => {
   // Do some computational work
   const result = fibonacciRecursive(35);
   expect(result).toBe(9227465);
 });
 
-test('find primes up to 10000', () => {
+test("find primes up to 10000", () => {
   // Do some computational work
   let count: i32 = 0;
   for (let iter = 0; iter < 100; iter++) {
@@ -45,7 +45,7 @@ test('find primes up to 10000', () => {
   expect(count).toBe(1229);
 });
 
-test('sum of primes up to 5000', () => {
+test("sum of primes up to 5000", () => {
   // Do some computational work
   let sum: i64 = 0;
   for (let iter = 0; iter < 100; iter++) {
@@ -56,7 +56,7 @@ test('sum of primes up to 5000', () => {
   expect(sum).toBe(1548136);
 });
 
-test('matrix multiplication stress test', () => {
+test("matrix multiplication stress test", () => {
   // Simple 10x10 matrix multiplication repeated many times
   const size: i32 = 10;
   const iterations: i32 = 1000;
@@ -76,7 +76,7 @@ test('matrix multiplication stress test', () => {
   expect(sum > 0).toBeTruthy();
 });
 
-test('nested loop computation', () => {
+test("nested loop computation", () => {
   // Nested loops to burn CPU time
   let total: i64 = 0;
 

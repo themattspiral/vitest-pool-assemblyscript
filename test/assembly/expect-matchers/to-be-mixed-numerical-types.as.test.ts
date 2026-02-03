@@ -1,8 +1,8 @@
-import { test, expect, describe } from "../../../assembly";
+import { test, expect, describe } from "vitest-pool-assemblyscript/assembly";
 
 // Mixed float/integer toBe comparisons.
 //
-// AS rejects == when the float's mantissa can't losslessly represent the integer range:
+// AS rejects == when the float"s mantissa can"t losslessly represent the integer range:
 //   f32 (24-bit mantissa): rejects i32, i64, u32, u64
 //   f64 (53-bit mantissa): rejects i64, u64
 //
@@ -110,8 +110,8 @@ describe("f64 vs unsigned integers (supported)", () => {
 });
 
 // --- Unsupported combinations: toBe throws (matches AS == rejection) ---
-// AS rejects these because the float's mantissa cannot losslessly represent
-// the integer type's full range (sizeof(int) >= sizeof(float)).
+// AS rejects these because the float"s mantissa cannot losslessly represent
+// the integer type"s full range (sizeof(int) >= sizeof(float)).
 
 const PRECISION_ERROR_SUBSTRING = "float precision is insufficient";
 

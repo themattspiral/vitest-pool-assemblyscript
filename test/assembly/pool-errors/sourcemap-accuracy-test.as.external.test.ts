@@ -4,10 +4,10 @@
  * This file tests whether Binaryen coverage instrumentation breaks source map accuracy.
  *
  * Each test deliberately fails at a KNOWN, DOCUMENTED line and column.
- * We'll compare error locations across three modes:
+ * We"ll compare error locations across three modes:
  *   1. coverage: false (baseline - should be perfect)
  *   2. coverage: true (single instrumented - does Binaryen break it?)
- *   3. coverage: 'dual' (current mode - for comparison)
+ *   3. coverage: "dual" (current mode - for comparison)
  *
  * EXPECTED ERROR LOCATIONS (for verification):
  * - test_line_25: Line 25, Column 36 (expect call in test file)
@@ -17,12 +17,12 @@
  * - test_line_51_multiline: Line 51, Column 3 (expect call starts on 51, false argument on line 52)
  */
 
-import { test, expect } from 'vitest-pool-assemblyscript/assembly';
-import { helperThatFails, outerHelper } from '../../assembly-src/sourcemap-utils.external';
+import { test, expect } from "vitest-pool-assemblyscript/assembly";
+import { helperThatFails, outerHelper } from "../../assembly-src/sourcemap-utils.external";
 
 
 // Test 1: Error at line 25, column 36 - ASSERT_ERROR@25:36
-test('test_line_25 [should fail]', (): void => { expect(false).toBeTruthy(); });
+test("test_line_25 [should fail]", (): void => { expect(false).toBeTruthy(); });
 
 
 
@@ -30,24 +30,24 @@ test('test_line_25 [should fail]', (): void => { expect(false).toBeTruthy(); });
 
 
 // Test 2: Error at line 33, column 39 (indented with 4 spaces) - ASSERT_ERROR@33:39
-test('test_line_33 [should fail]', (): void => {    expect(false).toBeTruthy(); });
+test("test_line_33 [should fail]", (): void => {    expect(false).toBeTruthy(); });
 
 
 
 
 
 // Test 3: Error in imported helper function (validates cross-file source mapping)
-test('test_helper_function_error [should fail]', (): void => {
+test("test_helper_function_error [should fail]", (): void => {
   helperThatFails(); // RUNTIME_ERROR@41:3 STACK_DEPTH:3 EXPECT_IN:sourcemap-utils.ts:8:17 Out of bounds
 });
 
 // Test 4: Error in nested imported helper (validates nested call stack source mapping)
-test('test_nested_helper_error [should fail]', (): void => {
+test("test_nested_helper_error [should fail]", (): void => {
   outerHelper(); // RUNTIME_ERROR@46:3 STACK_DEPTH:4 EXPECT_IN:sourcemap-utils.ts:13:17 Out of bounds
 });
 
 // Test 5: Multi-line expect (expect on line 51, false argument on line 52) ASSERT_ERROR@51:3
-test('test_line_51_multiline [should fail]', (): void => {
+test("test_line_51_multiline [should fail]", (): void => {
   expect(
     false
   ).toBeTruthy();

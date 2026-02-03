@@ -11,10 +11,10 @@
  * - WITH stripping: @inline functions appear in coverage
  */
 
-import { test, expect } from 'vitest-pool-assemblyscript/assembly';
-import { addInlined, addNormal, multiplyWithInternalInlining, multiplyNormal, callsInlinedAdd } from '../../assembly-src/inline-utils';
+import { test, expect } from "vitest-pool-assemblyscript/assembly";
+import { addInlined, addNormal, multiplyWithInternalInlining, multiplyNormal, callsInlinedAdd } from "../../assembly-src/inline-utils";
 
-test('inline functions are called', (): void => {
+test("inline functions are called", (): void => {
   const sum1: i32 = addInlined(2, 3);
   expect(sum1).toBe(5);
 
@@ -28,7 +28,7 @@ test('inline functions are called', (): void => {
   expect(prod2).toBe(20);
 });
 
-test('externally inlined function callsInlinedAdd', () => {
+test("externally inlined function callsInlinedAdd", () => {
   const res: i32 = callsInlinedAdd(1, 2);
   expect(res).toBe(3);
 });

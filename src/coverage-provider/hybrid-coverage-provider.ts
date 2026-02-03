@@ -193,15 +193,13 @@ export class HybridCoverageProvider implements CoverageProvider {
     debug(`[HybridCoverageProvider] JS coverage has ${Object.keys(jsCoverage.data).length} files`);
     debug(`[HybridCoverageProvider] TIMING JS generateCoverage: ${(performance.now() - asGenerateEnd).toFixed(2)} ms`);
 
-    // Merge AS coverage into JS coverage
+    // Merge AS coverage into JS coverage.
+    // Use toJSON() to pass plain data instead of the CoverageMap instance. This avoids
+    // instanceof failures when istanbul-lib-coverage is loaded from different module paths
+    // (e.g. the pool workers resolve one copy while the coverage provider resolves another).
     if (asCoverageMap.files().length) {
       debug('[HybridCoverageProvider] Merging AS coverage into JS coverage');
-      // console.log(asCoverageMap);
-      // console.log(asCoverageMap.data['/home/matt/code/vitest-pool-assemblyscript/assembly/compare.ts']);
-      // console.log(asCoverageMap.data['assembly/compare.ts']);
-      // console.log(asCoverageMap.data['../assembly/compare.ts']);
-
-      jsCoverage.merge(asCoverageMap);
+      jsCoverage.merge(asCoverageMap.toJSON());
     } else {
       debug('[HybridCoverageProvider] AS coverage map empty, not merging into JS coverage');
     }

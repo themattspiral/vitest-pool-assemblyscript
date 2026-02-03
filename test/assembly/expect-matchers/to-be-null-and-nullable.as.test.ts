@@ -1,4 +1,4 @@
-import { test, expect, describe, TestOptions } from 'vitest-pool-assemblyscript/assembly';
+import { test, expect, describe, TestOptions } from "vitest-pool-assemblyscript/assembly";
 
 describe("primitives", () => {
   test("bare nulls should be null but not nullable", () => {

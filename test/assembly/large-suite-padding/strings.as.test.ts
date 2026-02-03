@@ -3,8 +3,8 @@
  * Tests string operations from imported module
  */
 
-import { test, expect } from 'vitest-pool-assemblyscript/assembly';
-import { getLength, isEmpty, concat, repeat } from '../../assembly-src/string-utils';
+import { test, expect } from "vitest-pool-assemblyscript/assembly";
+import { getLength, isEmpty, concat, repeat } from "../../assembly-src/string-utils";
 
 test("getLength returns string length", () => {
   expect(getLength("hello")).toBe(5);

@@ -24,7 +24,7 @@ import { compileAssemblyScript as casSrc } from '../../../src/index-internal.js'
 const compileAssemblyScript: typeof casSrc = casDist;
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
-const FIXTURE_PATH_PREFIX = 'test-fixtures/assembly/';
+const FIXTURE_PATH_PREFIX = 'test/assembly/';
 const ASSEMBLY_DIR = resolve(PROJECT_ROOT, FIXTURE_PATH_PREFIX);
 
 /**
