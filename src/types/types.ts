@@ -219,6 +219,8 @@ export interface AssemblyScriptCompilerResult {
 }
 
 export interface InstrumentationOptions {
+  /** Project root for resolving source map paths to absolute paths */
+  projectRoot: string;
   /** List of relative file paths to exclude from instrumentation */
   relativeExcludedFiles: string[];
   excludedLibraryFilePrefix: string;
@@ -251,7 +253,7 @@ export interface InstrumentationResult {
  * Conversion to 0-based columns happens at Istanbul output boundary.
  */
 export interface SourceLocation {
-  /** Relative file path */
+  /** Absolute file path (normalized from source map during debug info extraction) */
   filePath: string;
   line: number;
   column: number;
@@ -442,7 +444,7 @@ export interface NativeSourceLocation extends Omit<SourceLocation, 'filePath'> {
   fileIndex: number;
 }
 
-export interface NativeInstrumentationOptions extends Omit<InstrumentationOptions, 'relativeExcludedFiles'> {
+export interface NativeInstrumentationOptions extends Omit<InstrumentationOptions, 'relativeExcludedFiles' | 'projectRoot'> {
   excludedFiles?: string[];
   logPrefix?: string;
 }

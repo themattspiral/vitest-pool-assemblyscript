@@ -28,7 +28,7 @@ import {
   NativeInstrumentationOptions,
   InstrumentationOptions,
 } from '../types/types.js';
-import { POOL_ERROR_NAMES } from '../types/constants.js';
+import { POOL_ERROR_NAMES, INTERNAL_PATH_LIB_PREFIX } from '../types/constants.js';
 import { createPoolError } from '../util/pool-errors.js';
 import { getShortFunctionName } from '../wasm-executor/wasm-names.js';
 
@@ -61,14 +61,22 @@ try {
 }
 
 /**
- * Convert a raw location (0-indexed columns, path indexes) to 
- * processed location (1-indexed columns, path strings)
+ * Convert a raw location (0-indexed columns, path indexes) to
+ * processed location (1-indexed columns, absolute path strings)
+ *
+ * Source map paths vary by import style and project structure:
+ * - Relative imports: "assembly/compare.ts"
+ * - Bare package imports: "~lib/vitest-pool-assemblyscript/assembly/compare.ts"
+ * - Source outside project root: "../assembly/compare.ts" (e.g. test-external importing parent sources)
+ *
+ * All are normalized to absolute filesystem paths for consistent coverage key matching.
  */
 function convertLocation(
   rawLocation: NativeSourceLocation,
-  debugSourceFiles: string[]
+  debugSourceFiles: string[],
+  projectRoot: string
 ): SourceLocation {
-  const filePath = debugSourceFiles[rawLocation.fileIndex];
+  let filePath = debugSourceFiles[rawLocation.fileIndex];
 
   if (!filePath) {
     throw createPoolError(
@@ -76,9 +84,19 @@ function convertLocation(
       POOL_ERROR_NAMES.WASMInstrumentationError
     );
   }
-  
+
+  // Normalize to absolute path for consistent coverage key matching
+  if (filePath.startsWith(INTERNAL_PATH_LIB_PREFIX)) {
+    // ~lib/vitest-pool-assemblyscript/assembly/X.ts -> projectRoot/assembly/X.ts
+    const relativePart = filePath.slice(INTERNAL_PATH_LIB_PREFIX.length);
+    filePath = resolve(projectRoot, 'assembly', relativePart);
+  } else {
+    // Resolve relative path (handles both 'assembly/X.ts' and '../assembly/X.ts')
+    filePath = resolve(projectRoot, filePath);
+  }
+
   return {
-    filePath: filePath!,
+    filePath,
     line: rawLocation.line,
     column: rawLocation.column + 1,  // convert from 0-indexed to 1-indexed
   };
@@ -89,7 +107,8 @@ function convertLocation(
  */
 function convertExpression(
   rawExpr: NativeExpressionDebugInfo,
-  debugSourceFiles: string[]
+  debugSourceFiles: string[],
+  projectRoot: string
 ): ExpressionDebugInfo {
   const converted: ExpressionDebugInfo = {
     type: rawExpr.type,
@@ -101,7 +120,7 @@ function convertExpression(
   }
 
   if (rawExpr.location) {
-    const convertedLocation = convertLocation(rawExpr.location, debugSourceFiles);
+    const convertedLocation = convertLocation(rawExpr.location, debugSourceFiles, projectRoot);
     if (convertedLocation) {
       converted.location = convertedLocation;
     }
@@ -124,15 +143,16 @@ function getPositionKey(location: SourceLocation) {
  */
 function convertFunction(
   rawFunc: NativeFunctionDebugInfo,
-  debugSourceFiles: string[]
+  debugSourceFiles: string[],
+  projectRoot: string
 ): { func: FunctionDebugInfo; filePath: string; positionKey: string } | undefined {
-  const representativeLocation = convertLocation(rawFunc.representativeLocation, debugSourceFiles);
+  const representativeLocation = convertLocation(rawFunc.representativeLocation, debugSourceFiles, projectRoot);
 
   // Convert expressions
   const expressions: ExpressionDebugInfo[] = [];
   if (rawFunc.expressions) {
     for (const expr of rawFunc.expressions) {
-      expressions.push(convertExpression(expr, debugSourceFiles));
+      expressions.push(convertExpression(expr, debugSourceFiles, projectRoot));
     }
   }
 
@@ -190,6 +210,7 @@ function isGenericMonomorphizationMatch(nameA: string, nameB: string): boolean {
 function transformDebugInfo(
   raw: NativeDebugInfoOutput,
   logPrefix: string,
+  projectRoot: string,
 ): BinaryDebugInfo {
   const functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo[]>> = {};
 
@@ -200,7 +221,7 @@ function transformDebugInfo(
   let instrumentedFunctionCount = 0;
 
   for (const rawFunc of raw.functions) {
-    const result = convertFunction(rawFunc, raw.debugSourceFiles);
+    const result = convertFunction(rawFunc, raw.debugSourceFiles, projectRoot);
     if (!result) {
       debug(`${logPrefix} - WARNING: Skipped function (bad conversion): "${rawFunc.name}"`);
       skippedCount++;
@@ -316,9 +337,9 @@ export function instrumentForCoverage(
       `Errors encountered duriing native instrumentation: ${nativeResult.errors.join('\n')}`,
       POOL_ERROR_NAMES.WASMInstrumentationError,
     );
-  } 
+  }
 
-  const debugInfo = transformDebugInfo(nativeResult.debugInfo, interfaceLogPrefix);
+  const debugInfo = transformDebugInfo(nativeResult.debugInfo, interfaceLogPrefix, instrumentationOptions.projectRoot);
   
   const transformTime = performance.now();
   debug(`${interfaceLogPrefix} - TIMING DebugInfo Transform: ${(transformTime - addonTime).toFixed(2)} ms`);

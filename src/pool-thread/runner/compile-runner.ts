@@ -73,6 +73,7 @@ export async function runCompileAndDiscover(
     // TODO - move to options helpers
     const relativeTestFilePath = relative(projectRoot, file.filepath);
     const instrumentationOptions: InstrumentationOptions = {
+      projectRoot,
       relativeExcludedFiles: [
         relativeTestFilePath,
         ...(poolOptions._instrumentPoolInternals ? [] : POOL_INTERNAL_PATHS),

@@ -99,6 +99,7 @@ export async function compileAndExtract(
       stripInline: true,
       projectRoot: PROJECT_ROOT,
       instrumentationOptions: {
+        projectRoot: PROJECT_ROOT,
         relativeExcludedFiles: [fixture.relPath].concat(POOL_INTERNAL_PATHS),
         excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
         coverageMemoryPagesMin: 1,
