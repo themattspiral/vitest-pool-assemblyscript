@@ -9,6 +9,8 @@ coverage-fixtures/
 .vscode/
 tmp/
 vitest-pool-assemblyscript-*.tgz
+test-external/node_modules/
+test-external/package-lock.json
 
 # build artifacts
 build/

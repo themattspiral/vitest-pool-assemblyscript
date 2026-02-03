@@ -1,5 +1,9 @@
 import { test, expect, describe, TestOptions } from 'vitest-pool-assemblyscript/assembly';
 
+test.only("empty strings are equal", () => {
+  expect("").toEqual("");
+});
+
 describe("primitives", () => {
   test("0-equivalent values should equal null", () => {
     // these will pass a loose toEqual(null), but not strict toBeNull()

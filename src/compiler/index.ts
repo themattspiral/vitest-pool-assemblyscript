@@ -195,9 +195,10 @@ export async function compileAssemblyScript(
   debug(`${logPrefix} - Source map generated, size: ${wasmSourceMap.length * 2} bytes`);
   
   if (DEBUG_WRITE_FILES) {
-    // Write source map to project maps directory for debugging
+    // Write source map for debugging
     const dir = './debug';
-    const sourceMapFileName = `${basename(filename, '.ts')}.as.ts.map`;
+    // TODO - handle non-.ts extensions
+    const sourceMapFileName = `${basename(filename, '.ts')}.ts.map`;
     const sourceMapPath = `${dir}/${sourceMapFileName}`;
 
     // Create directory if it doesn't exist

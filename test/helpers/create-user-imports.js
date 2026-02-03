@@ -12,7 +12,7 @@ export default function createWasmImports({ memory, module, utils }) {
       },
     },
 
-    'user-import-wrapper.help': {
+    'user-import-wrapper': {
       parseIntStringFunction: (inputStrPtr) => {
         const str = utils.liftString(inputStrPtr);
         return parseInt(str);

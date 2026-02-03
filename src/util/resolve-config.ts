@@ -14,6 +14,9 @@ import { createPoolError } from '../util/pool-errors.js';
 
 const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOptions, ASPoolOptionsFieldsWithDefaultValues>> = {
   debug: false,
+  debugNative: false,
+  debugCoverageExtract: false,
+  _instrumentPoolInternals: false,
   stripInline: true,
   maxThreadsV3: availableParallelism() - 1,
   coverageMemoryPagesInitial: 1,

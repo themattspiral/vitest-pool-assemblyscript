@@ -8,7 +8,7 @@ declare global {
 
 globalThis.AS_POOL_DEBUG = false;
 
-const DEBUG_ENV_ENABLED_VALUE = '1' as const;
+const DEBUG_ENV_ENABLED_VALUE = 'vitest_as_pool' as const;
 
 function isEnabled(): boolean {
   return globalThis.AS_POOL_DEBUG === true || process.env.DEBUG === DEBUG_ENV_ENABLED_VALUE;
@@ -22,21 +22,32 @@ export function setGlobalDebugMode(debugEnabled: boolean): void {
   globalThis.AS_POOL_DEBUG = debugEnabled;
 }
 
+function debugLog(...args: any): void {
+  // if first arg is a function, execute it and then print the result
+  if (args?.length > 0 && typeof args[0] === 'function') {
+    const result = args[0]();
+    const rest = args.length > 1 ? args.slice(1) : [];
+    console.log(Date.now(), String(result), ...rest);
+  } else {
+    console.log(Date.now(), ...args);
+  }
+}
+
 /**
  * Log debug message (only when debug enabled in current global context)
- * or when environment has a truthy DEBUG variable set.
+ * or when environment has a given DEBUG variable set.
  */
 export function debug(...args: any): void {
   if (isEnabled()) {
-    // if first arg is a function, execute it and then print the result
-    if (args?.length > 0 && typeof args[0] === 'function') {
-      const result = args[0]();
-      const rest = args.length > 1 ? args.slice(1) : [];
-      console.log(Date.now(), String(result), ...rest);
-    } else {
-      console.log(Date.now(), ...args);
-    }
+    debugLog(...args);
   }
+}
+
+/**
+ * Log debug message (caller expected to determine if enabled)
+ */
+export function debugOverride(...args: any): void {
+  debugLog(...args);
 }
 
 /**

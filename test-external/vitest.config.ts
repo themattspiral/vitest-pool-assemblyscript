@@ -1,6 +1,5 @@
 import { defineConfig, defineProject } from 'vitest/config';
 import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
-import { defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/v3/config';
 
 export default defineConfig({
   test: {
@@ -18,10 +17,10 @@ export default defineConfig({
       // include: [ 'src/**/*.{ts,js,mts,mjs}' ],
       include: [ '!*' ],
       assemblyScriptInclude: [
-        'assembly/**/*.ts',
-        'test/assembly-src/**/*.ts'
+        '../assembly/**/*.ts',
+        '../test/assembly-src/**/*.ts'
       ],
-      assemblyScriptExclude: [ 'test/assembly-src/**/*.external.ts' ],
+      assemblyScriptExclude: [ '../test/assembly-src/**/*.external.ts' ],
 
       debugIstanbul: false,
     },
@@ -29,26 +28,24 @@ export default defineConfig({
     projects: [
       defineProject({
         test: {
-          name: { label: 'ts-pool', color: 'blue' },
-          include: [ 'test/**/*.test.ts' ],
-          exclude: [ 'test/assembly/**/*' ]
-        }
-      }),
+          name: {
+            label: 'as-built',
+            color: 'yellow'
+          },
 
-      defineAssemblyScriptProject({
-        test: {
-          name: { label: 'as-pool', color: 'yellow' },
-          include: ['test/assembly/**/*.test.ts'],
-          exclude: ['test/assembly/**/*.external.test.ts'],
+          include: [
+            '../test/assembly/**/*.as.test.ts',
+          ],
+
           pool: createAssemblyScriptPool({
             debug: false,
             debugNative: false,
             debugCoverageExtract: false,
             _instrumentPoolInternals: true,
-            wasmImportsFactory: 'test/helpers/create-user-imports.js',
+            wasmImportsFactory: '../test/helpers/create-user-imports.js',
           }),
         }
-      })
+      }),
     ]
   },
 });

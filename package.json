@@ -82,6 +82,8 @@
     "test:watch": "vitest",
     "test:fixtures": "npm run testf",
     "ftest": "vitest run -c test-fixtures/vitest.config.ts",
+    "test:external": "npm pack && cd test-external && npm i ../vitest-pool-assemblyscript-0.0.0-semantically-released.tgz && npx vitest run; cd ..",
+    "etest": "npm run test:external",
     "//------------ Native Addon ------------": "",
     "setup-binaryen": "node scripts/setup-binaryen.js",
     "build:native": "node-gyp rebuild",

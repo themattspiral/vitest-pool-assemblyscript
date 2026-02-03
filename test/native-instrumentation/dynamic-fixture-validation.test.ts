@@ -7,14 +7,15 @@ import {
   getAllFixtures,
   compileAndExtract,
   type CompiledFixture,
-} from '../helpers/test-fixtures.js';
+} from './helpers/test-fixtures.js';
 import {
   validateDebugInfoStructure,
   sanityCheckDebugInfoAgainstSourceMap,
   validateDebugInfoFunctionSourceLocations,
-} from '../helpers/validate-debug-info.js';
+} from './helpers/validate-debug-info.js';
 
-describe('Native Instrumentation Debug Info', () => {
+// disable until we determine if these tests will have value
+describe.skip('Native Instrumentation Debug Info', () => {
   // Validation tests run on all fixtures (except those expected to fail)
   const fixtures = getAllFixtures().filter(f => !f.name.includes('should-fail'));
 

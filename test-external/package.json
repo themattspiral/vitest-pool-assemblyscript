@@ -1,0 +1,8 @@
+{
+  "name": "test-external",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "vitest-pool-assemblyscript": "file:../vitest-pool-assemblyscript-0.0.0-semantically-released.tgz"
+  }
+}

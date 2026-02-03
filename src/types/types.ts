@@ -59,6 +59,12 @@ export type AssemblyScriptTestError = TestError & { name: TestErrorName | PoolEr
 export interface AssemblyScriptPoolOptions {
   /** Enable verbose debug logging */
   debug?: boolean;
+  debugNative?: boolean;
+  debugCoverageExtract?: boolean;
+
+  /** enable to collect coverage instrumentation on the pool's assembly/* files */
+  _instrumentPoolInternals?: boolean;
+
   /**
    * Strip `@inline` decorators during compilation to improve error message and coverage accuracy
    *
@@ -97,6 +103,8 @@ export interface HybridProviderOptions {
   provider: 'custom',
   customProviderModule: string;
 
+  debugIstanbul?: boolean;
+
   /**
    * Glob patterns for AssemblyScript source files to include in coverage.
    * Used to build the complete AS coverage map.
@@ -128,6 +136,9 @@ export type WasmImportsFactory = (moduleInfo: WasmImportsFactoryInfo) => WebAsse
 // define these constants here so they make sense in context
 export const AS_POOL_FIELDS_WITH_DEFAULTS = [
   'debug',
+  'debugNative',
+  'debugCoverageExtract',
+  '_instrumentPoolInternals',
   'stripInline',
   'maxThreadsV3',
   'coverageMemoryPagesInitial',
@@ -160,7 +171,6 @@ export type ResolvedAssemblyScriptPoolOptions =
 
 export type ResolvedHybridProviderOptions = 
   Required<HybridProviderOptions>
-
   & Omit<ResolvedCoverageOptions<'v8'>, 'provider'>
   & {
     globbedAssemblyScriptInclude: GlobResult[],
@@ -214,6 +224,8 @@ export interface InstrumentationOptions {
   excludedLibraryFilePrefix: string;
   coverageMemoryPagesMin: number;
   coverageMemoryPagesMax: number;
+  excludedLibraryFileOverridePrefix?: string;
+  debug?: boolean;
 }
 
 /**
@@ -390,10 +402,11 @@ export interface BinaryDebugInfo {
   /** All source files represented in extracted debug info (directly or inlined) */
   debugSourceFiles: string[];
   /**
-   * Functions grouped by file path, then keyed by position ("line:column")
-   * Position key enables stable identity across compilations
+   * Functions grouped by file path, then keyed by position ("line:column").
+   * Position key enables stable identity across compilations.
+   * Array value accommodates generic monomorphizations that share a source position.
    */
-  functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo>>;
+  functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo[]>>;
 
   instrumentedFunctionCount: number;
 }
@@ -431,7 +444,6 @@ export interface NativeSourceLocation extends Omit<SourceLocation, 'filePath'> {
 
 export interface NativeInstrumentationOptions extends Omit<InstrumentationOptions, 'relativeExcludedFiles'> {
   excludedFiles?: string[];
-  debug?: boolean;
   logPrefix?: string;
 }
 

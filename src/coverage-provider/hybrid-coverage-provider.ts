@@ -168,7 +168,7 @@ export class HybridCoverageProvider implements CoverageProvider {
         debug(`[HybridCoverageProvider] Accumulated AS coverage has ${Object.keys(fileHitCountsByPosition).length} positions for "${include.projectRootRelative}"`);
 
         // Containment matching (binary hit position → source) is performed during istanbul conversion
-        return convertToIstanbulFormat(functionsByStartLine, fileHitCountsByPosition, include.absolute);
+        return convertToIstanbulFormat(functionsByStartLine, fileHitCountsByPosition, include.absolute, this.coverageOptions.debugIstanbul);
       });
 
       // Wait for all files to complete
@@ -194,8 +194,17 @@ export class HybridCoverageProvider implements CoverageProvider {
     debug(`[HybridCoverageProvider] TIMING JS generateCoverage: ${(performance.now() - asGenerateEnd).toFixed(2)} ms`);
 
     // Merge AS coverage into JS coverage
-    debug('[HybridCoverageProvider] Merging AS coverage into JS coverage');
-    jsCoverage.merge(asCoverageMap);
+    if (asCoverageMap.files().length) {
+      debug('[HybridCoverageProvider] Merging AS coverage into JS coverage');
+      // console.log(asCoverageMap);
+      // console.log(asCoverageMap.data['/home/matt/code/vitest-pool-assemblyscript/assembly/compare.ts']);
+      // console.log(asCoverageMap.data['assembly/compare.ts']);
+      // console.log(asCoverageMap.data['../assembly/compare.ts']);
+
+      jsCoverage.merge(asCoverageMap);
+    } else {
+      debug('[HybridCoverageProvider] AS coverage map empty, not merging into JS coverage');
+    }
     debug(`[HybridCoverageProvider] Final merged coverage has ${Object.keys(jsCoverage.data).length} files`);
 
     debug(`[HybridCoverageProvider] TIMING Total generateCoverage: ${(performance.now() - start).toFixed(2)} ms`);
@@ -266,6 +275,7 @@ export class HybridCoverageProvider implements CoverageProvider {
       ...resolvedV8Options,
       provider: 'custom',
       customProviderModule: definedCoverageOptions.customProviderModule,
+      debugIstanbul: definedCoverageOptions.debugIstanbul ?? false,
       assemblyScriptInclude: definedCoverageOptions.assemblyScriptInclude ?? [],
       assemblyScriptExclude: definedCoverageOptions.assemblyScriptExclude ?? [],
       globbedAssemblyScriptInclude,

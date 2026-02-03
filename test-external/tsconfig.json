@@ -1,14 +1,11 @@
 {
   "compilerOptions": {
-    // Target Node.js 18+ (ES2022 features)
     "target": "ES2022",
-    "lib": ["ES2022", "DOM"],  // DOM needed for WebAssembly types (TS limitation)
+    "lib": ["ES2022", "DOM"],
 
-    // ESM module format for Node.js (matches package.json "type": "module")
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
 
-    // Output configuration (for reference - tsup handles actual builds)
     "rootDir": "./",
     "outDir": "./dist",
     "declaration": true,
@@ -36,18 +33,10 @@
     "forceConsistentCasingInFileNames": true
   },
 
-  "include": [
-    "src/**/*.ts",
-    "test/**/*.ts"
-  ],
+  "include": [""],
 
   "exclude": [
     "node_modules",
     "dist",
-    "build",
-    "assembly",
-    "test/assembly/**/*",
-    "test/assembly-src/**/*",
-    "test-external/**/*",
   ]
 }
