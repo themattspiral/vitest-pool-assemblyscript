@@ -30,8 +30,7 @@ import {
 } from '../types/types.js';
 import { POOL_ERROR_NAMES } from '../types/constants.js';
 import { createPoolError } from '../util/pool-errors.js';
-
-const DEBUG_NATIVE_ADDON = false;
+import { getShortFunctionName } from '../wasm-executor/wasm-names.js';
 
 // Load the native addon via node-gyp-build
 // node-gyp-build checks: prebuilds/ first, then build/Release/
@@ -153,20 +152,53 @@ function convertFunction(
 }
 
 /**
+ * Check if two WASM function names are monomorphizations of the same generic function.
+ * Generic monomorphizations share the same base name and suffix, differing only in
+ * the type parameters inside angle brackets.
+ *
+ * e.g. "assembly/compare/closeTo<bool\2cbool>" and "assembly/compare/closeTo<bool\2cu8>"
+ * e.g. "assembly/expect/BaseExpectMatcher<bool>#constructor" and "assembly/expect/BaseExpectMatcher<i8>#constructor"
+ */
+function isGenericMonomorphizationMatch(nameA: string, nameB: string): boolean {
+  const openA = nameA.indexOf('<');
+  const openB = nameB.indexOf('<');
+
+  // Both must contain generic type parameters
+  if (openA === -1 || openB === -1) return false;
+
+  const lastCloseA = nameA.lastIndexOf('>');
+  const lastCloseB = nameB.lastIndexOf('>');
+
+  if (lastCloseA === -1 || lastCloseB === -1) return false;
+
+  // Prefix before '<' must match (includes module path, class, function name)
+  const prefixA = nameA.substring(0, openA);
+  const prefixB = nameB.substring(0, openB);
+  if (prefixA !== prefixB) return false;
+
+  // Suffix after last '>' must match (e.g. "#constructor", or empty)
+  const suffixA = nameA.substring(lastCloseA + 1);
+  const suffixB = nameB.substring(lastCloseB + 1);
+  if (suffixA !== suffixB) return false;
+
+  return true;
+}
+
+/**
  * Transform raw native addon output to processed BinaryDebugInfo
  */
 function transformDebugInfo(
   raw: NativeDebugInfoOutput,
   logPrefix: string,
 ): BinaryDebugInfo {
-  const functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo>> = {};
+  const functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo[]>> = {};
 
   debug(`${logPrefix} - Converting ${raw.functions.length} functions`);
 
-  let positionCollisionCount = 0;
+  let genericCollisionCount = 0;
   let skippedCount = 0;
   let instrumentedFunctionCount = 0;
-  
+
   for (const rawFunc of raw.functions) {
     const result = convertFunction(rawFunc, raw.debugSourceFiles);
     if (!result) {
@@ -178,11 +210,26 @@ function transformDebugInfo(
     const { func, filePath, positionKey } = result;
 
     // Check for position collisions
-    if (functionsByFileAndPosition[filePath]?.[positionKey]) {
-      const existing = functionsByFileAndPosition[filePath][positionKey];
-      positionCollisionCount++;
+    const existingAtPosition = functionsByFileAndPosition[filePath]?.[positionKey];
+    if (existingAtPosition) {
+      const existingName = existingAtPosition[0]!.name;
+
+      // Only allow collision if both are monomorphizations of the same generic
+      if (isGenericMonomorphizationMatch(existingName, func.name)) {
+        existingAtPosition.push(func);
+        genericCollisionCount++;
+        instrumentedFunctionCount++;
+        debug(
+          `${logPrefix} - Generic monomorphization at ${filePath}:${positionKey}:`
+          + ` "${getShortFunctionName(func.name)}" grouped with "${getShortFunctionName(existingName)}"`
+        );
+        continue;
+      }
+
       throw createPoolError(
-        `ERROR - Function Debug Position Collision at ${filePath}:${positionKey}: "${existing.name}" will be replaced by "${func.name}"`,
+        `ERROR - Function Debug Position Collision at ${filePath}:${positionKey}: "${getShortFunctionName(existingName)}"`
+        + ` will be replaced by "${getShortFunctionName(func.name)}". This is a bug. Please report it at:`
+        + ` https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new`,
         POOL_ERROR_NAMES.WASMInstrumentationError
       );
     }
@@ -194,12 +241,12 @@ function transformDebugInfo(
       functionsByFileAndPosition[filePath] = {};
     }
 
-    functionsByFileAndPosition[filePath][positionKey] = func;
+    functionsByFileAndPosition[filePath][positionKey] = [func];
   }
 
   debug(
     `${logPrefix} - BinaryDebugInfo transform complete: ${instrumentedFunctionCount} instrumented functions`
-    +` (${positionCollisionCount} position collisions, ${skippedCount} skipped)`
+    + ` (${genericCollisionCount} generic collisions, ${skippedCount} skipped)`
   );
 
   return {
@@ -256,7 +303,8 @@ export function instrumentForCoverage(
     coverageMemoryPagesMax: instrumentationOptions.coverageMemoryPagesMax,
     excludedFiles: instrumentationOptions.relativeExcludedFiles,
     excludedLibraryFilePrefix: instrumentationOptions.excludedLibraryFilePrefix,
-    debug: DEBUG_NATIVE_ADDON,
+    excludedLibraryFileOverridePrefix: instrumentationOptions.excludedLibraryFileOverridePrefix,
+    debug: instrumentationOptions.debug,
     logPrefix: nativeLogPrefix
   };
   const nativeResult: NativeInstrumentationResult = addon.instrumentForCoverage(wasmBuffer, sourceMapBuffer, options);
