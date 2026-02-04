@@ -18,6 +18,7 @@ import type {
 } from '../../types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
+  INTERNAL_PATH_LIB_PREFIX,
   POOL_ERROR_NAMES,
   POOL_INTERNAL_PATHS,
 } from '../../types/constants.js';
@@ -72,14 +73,17 @@ export async function runCompileAndDiscover(
     // TODO - move to options helpers
     const relativeTestFilePath = relative(projectRoot, file.filepath);
     const instrumentationOptions: InstrumentationOptions = {
+      projectRoot,
       relativeExcludedFiles: [
         relativeTestFilePath,
-        ...POOL_INTERNAL_PATHS,
+        ...(poolOptions._instrumentPoolInternals ? [] : POOL_INTERNAL_PATHS),
         ...relativeUserCoverageExclusions,
       ],
       excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
+      excludedLibraryFileOverridePrefix: poolOptions._instrumentPoolInternals ? INTERNAL_PATH_LIB_PREFIX : undefined,
       coverageMemoryPagesMin: poolOptions.coverageMemoryPagesInitial,
       coverageMemoryPagesMax: poolOptions.coverageMemoryPagesMax,
+      debug: poolOptions.debugNative,
     };
     const compilerOptions: AssemblyScriptCompilerOptions = {
       stripInline: poolOptions.stripInline,

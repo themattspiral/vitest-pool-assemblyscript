@@ -9,48 +9,43 @@ export default defineConfig({
     reporters: ['verbose'],
 
     coverage: {
-      enabled: false,
+      enabled: true,
       reportOnFailure: true,
       reportsDirectory: 'coverage/',
-      
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
-
-      // JS/TS sources to report coverage for
-      include: [ 'src/**/*.{ts,js,mts,mjs}' ],
       
-      // AS sources to report coverage for
-      assemblyScriptInclude: [ 'assembly/**/*.ts' ]
+      // include: [ 'src/**/*.{ts,js,mts,mjs}' ],
+      include: [ '!*' ],
+      assemblyScriptInclude: [
+        'assembly/**/*.ts',
+        'test/assembly-src/**/*.ts'
+      ],
+      assemblyScriptExclude: [ 'test/assembly-src/**/*.external.ts' ],
+
+      debugIstanbul: false,
     },
 
     projects: [
-      // JavaScript/TypeScript tests (built-in pool)
       defineProject({
         test: {
-          name: {
-            label: 'ts-pool',
-            color: 'blue'
-          },
-
+          name: { label: 'ts-pool', color: 'blue' },
           include: [ 'test/**/*.test.ts' ],
           exclude: [ 'test/assembly/**/*' ]
         }
       }),
 
-      // AssemblyScript tests (custom pool)
       defineAssemblyScriptProject({
         test: {
-          name: {
-            label: 'as-pool',
-            color: 'yellow'
-          },
-
-          include: ['test/assembly/**/*.as.test.ts'],
-          exclude: ['test/assembly/**/failures/**/*.as.test.ts'],
-
-          // Use AssemblyScript pool to execute tests in this project
+          name: { label: 'as-pool', color: 'yellow' },
+          include: ['test/assembly/**/*.test.ts'],
+          exclude: ['test/assembly/**/*.external.test.ts'],
           pool: createAssemblyScriptPool({
-            wasmImportsFactory: 'test/helpers/create-user-imports.js'
+            debug: false,
+            debugNative: false,
+            debugCoverageExtract: false,
+            _instrumentPoolInternals: true,
+            wasmImportsFactory: 'test/helpers/create-user-imports.js',
           }),
         }
       })

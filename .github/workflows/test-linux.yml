@@ -12,12 +12,15 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
-        node-version: ['20', '22', '24']
+        node-version: ['22', '24']
         include:
-          # Alpine/musl: test on Node 20 (minimum supported version)
+          # Node 20 (linux-x64 only): verify tests run without coverage (multi-memory unavailable)
           - os: ubuntu-latest
             node-version: '20'
-            container: node:20-alpine
+          # Alpine/musl: test on Node 22 (minimum supported version with coverage)
+          - os: ubuntu-latest
+            node-version: '22'
+            container: node:22-alpine
     steps:
       - name: Install test tools (Alpine)
         if: matrix.container != ''
@@ -44,4 +47,9 @@ jobs:
         run: npm run build
 
       - name: Run tests
-        run: npm test
+        if: matrix.node-version != '20'
+        run: npm run test:external
+
+      - name: Run tests (no coverage)
+        if: matrix.node-version == '20'
+        run: npm run test:external:no-coverage

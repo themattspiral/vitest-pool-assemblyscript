@@ -1,4 +1,4 @@
-import { test, expect, describe } from "../../../assembly";
+import { test, expect, describe } from "vitest-pool-assemblyscript/assembly";
 
 // Inequality matcher tests across the AS type matrix.
 //
@@ -9,7 +9,7 @@ import { test, expect, describe } from "../../../assembly";
 //   - Cross-sign integers (e.g. i32 > u32) — all combinations
 //   - Float/integer where sizeof(int) >= sizeof(float) (e.g. f32 > i32, f64 > i64)
 // Our matchers are MORE PERMISSIVE than AS for cross-sign integers (safe promotion),
-// but mirror AS's rejection for float/integer precision-loss combinations.
+// but mirror AS"s rejection for float/integer precision-loss combinations.
 // See docs/matcher-research.md for details.
 
 // =============================================================================
@@ -232,19 +232,19 @@ describe("cross-size unsigned integers", () => {
 // safely with signed-negative early return + u64 promotion.
 // See docs/matcher-research.md for details.
 //
-// Language-level assertions are commented out because they don't compile:
-// TS2365: Operator '<' cannot be applied to types 'i8' and 'u8'  (etc.)
+// Language-level assertions are commented out because they don"t compile:
+// TS2365: Operator "<" cannot be applied to types "i8" and "u8"  (etc.)
 // =============================================================================
 
 describe("cross-sign integers (matcher-only, AS rejects language operators)", () => {
   test("i8 vs u8", () => {
-    // expect(i8(-10) < u8(200)).toBeTruthy();  // TS2365: Operator '<' cannot be applied to types 'i8' and 'u8'
+    // expect(i8(-10) < u8(200)).toBeTruthy();  // TS2365: Operator "<" cannot be applied to types "i8" and "u8"
     expect(i8(-10)).toBeLessThan(u8(200));
     expect(u8(200)).toBeGreaterThan(i8(-10));
   });
 
   test("i8 vs u64", () => {
-    // expect(i8(-10) < u64(100)).toBeTruthy();  // TS2365: Operator '<' cannot be applied to types 'i8' and 'u64'
+    // expect(i8(-10) < u64(100)).toBeTruthy();  // TS2365: Operator "<" cannot be applied to types "i8" and "u64"
     expect(i8(-10)).toBeLessThan(u64(100));
     expect(u64(100)).toBeGreaterThan(i8(-10));
   });
@@ -470,30 +470,30 @@ describe("f64 vs unsigned integers (supported)", () => {
 // =============================================================================
 // UNSUPPORTED FLOAT/INTEGER COMBOS (precision-loss rejection)
 // These are the combinations where sizeof(integer) >= sizeof(float),
-// meaning the float's mantissa cannot losslessly represent the integer range.
+// meaning the float"s mantissa cannot losslessly represent the integer range.
 // AS rejects these at compile time — uncomment to verify compiler errors.
 // Our matchers also reject these with a descriptive error.
 // =============================================================================
 
 // --- AS compiler errors (uncomment to verify) ---
 // const _f32: f32 = 42.0; const _i32: i32 = 10;
-// const _f32_gt_i32: bool = _f32 > _i32;   // TS2365: Operator '>' cannot be applied to types 'f32' and 'i32'
-// const _i32_gt_f32: bool = _i32 > _f32;   // TS2365: Operator '>' cannot be applied to types 'i32' and 'f32'
+// const _f32_gt_i32: bool = _f32 > _i32;   // TS2365: Operator ">" cannot be applied to types "f32" and "i32"
+// const _i32_gt_f32: bool = _i32 > _f32;   // TS2365: Operator ">" cannot be applied to types "i32" and "f32"
 // const _i64a: i64 = 10;
-// const _f32_gt_i64: bool = _f32 > _i64a;  // TS2365: Operator '>' cannot be applied to types 'f32' and 'i64'
-// const _i64_gt_f32: bool = _i64a > _f32;  // TS2365: Operator '>' cannot be applied to types 'i64' and 'f32'
+// const _f32_gt_i64: bool = _f32 > _i64a;  // TS2365: Operator ">" cannot be applied to types "f32" and "i64"
+// const _i64_gt_f32: bool = _i64a > _f32;  // TS2365: Operator ">" cannot be applied to types "i64" and "f32"
 // const _u32: u32 = 10;
-// const _f32_gt_u32: bool = _f32 > _u32;   // TS2365: Operator '>' cannot be applied to types 'f32' and 'u32'
-// const _u32_gt_f32: bool = _u32 > _f32;   // TS2365: Operator '>' cannot be applied to types 'u32' and 'f32'
+// const _f32_gt_u32: bool = _f32 > _u32;   // TS2365: Operator ">" cannot be applied to types "f32" and "u32"
+// const _u32_gt_f32: bool = _u32 > _f32;   // TS2365: Operator ">" cannot be applied to types "u32" and "f32"
 // const _u64a: u64 = 10;
-// const _f32_gt_u64: bool = _f32 > _u64a;  // TS2365: Operator '>' cannot be applied to types 'f32' and 'u64'
-// const _u64_gt_f32: bool = _u64a > _f32;  // TS2365: Operator '>' cannot be applied to types 'u64' and 'f32'
+// const _f32_gt_u64: bool = _f32 > _u64a;  // TS2365: Operator ">" cannot be applied to types "f32" and "u64"
+// const _u64_gt_f32: bool = _u64a > _f32;  // TS2365: Operator ">" cannot be applied to types "u64" and "f32"
 // const _f64: f64 = 42.0; const _i64b: i64 = 10;
-// const _f64_gt_i64: bool = _f64 > _i64b;  // TS2365: Operator '>' cannot be applied to types 'f64' and 'i64'
-// const _i64_gt_f64: bool = _i64b > _f64;  // TS2365: Operator '>' cannot be applied to types 'i64' and 'f64'
+// const _f64_gt_i64: bool = _f64 > _i64b;  // TS2365: Operator ">" cannot be applied to types "f64" and "i64"
+// const _i64_gt_f64: bool = _i64b > _f64;  // TS2365: Operator ">" cannot be applied to types "i64" and "f64"
 // const _u64b: u64 = 10;
-// const _f64_gt_u64: bool = _f64 > _u64b;  // TS2365: Operator '>' cannot be applied to types 'f64' and 'u64'
-// const _u64_gt_f64: bool = _u64b > _f64;  // TS2365: Operator '>' cannot be applied to types 'u64' and 'f64'
+// const _f64_gt_u64: bool = _f64 > _u64b;  // TS2365: Operator ">" cannot be applied to types "f64" and "u64"
+// const _u64_gt_f64: bool = _u64b > _f64;  // TS2365: Operator ">" cannot be applied to types "u64" and "f64"
 
 const PRECISION_ERROR_SUBSTRING = "float precision is insufficient";
 
@@ -654,7 +654,7 @@ describe("strings", () => {
   });
 
   test("numeric strings are lexicographic, not numeric", () => {
-    // "9" > "10" because '9' > '1'
+    // "9" > "10" because "9" > "1"
     expect("9" > "10").toBeTruthy();
     expect("9").toBeGreaterThan("10");
     expect("10" < "9").toBeTruthy();

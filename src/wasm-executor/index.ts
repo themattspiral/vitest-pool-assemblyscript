@@ -14,7 +14,7 @@ import type {
   WASMExecutorPerfTimings,
 } from '../types/types.js';
 import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
-import { debug } from '../util/debug.js';
+import { debug, debugOverride } from '../util/debug.js';
 import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
 import { enhanceTestError } from './wasm-errors.js';
@@ -22,17 +22,10 @@ import { createPoolError, createPoolErrorFromAnyError } from '../util/pool-error
 import { getTaskLogLabel } from '../util/vitest-tasks.js';
 import { extractCallStack } from './source-maps.js';
 
-const DEBUG_COVERAGE_EXTRACT = false;
 const SIG_MISMATCH_ERROR_MSG = `WASM RuntimeError indicates function signature type mismatch during test suite collection.`
   + ` This is likely caused by passing a non-void callback to expect().`
   + ` Use braces to ensure it returns void  e.g. \`expect(() => { failingFunction(); }).toThrowError()\`.`
-  + ` Look for the failing expect() within the describe() block indicated in the stack trace.`
-
-function covDebug(...args: any[]): void {
-  if (DEBUG_COVERAGE_EXTRACT) {
-    debug(...args);
-  }
-};
+  + ` Look for the failing expect() within the describe() block indicated in the stack trace.`;
 
 function createExecutorPoolError(
   testFileBasename: string,
@@ -82,7 +75,7 @@ export async function executeWASMDiscovery(
     handleLog,
     logPrefix,
     coverageMemory,
-    threadImports.createWasmImports
+    threadImports.createUserWasmImports
   );
 
   // Instantiate WASM module
@@ -190,6 +183,12 @@ export async function executeWASMTest(
   const taskLabel = getTaskLogLabel(base, test);
   const logPrefix = `[${fullModuleLabel}] ${taskLabel}`;
 
+  function covDebug(...args: any[]): void {
+    if (poolOptions.debugCoverageExtract) {
+      debugOverride(...args);
+    }
+  };
+
   // Compile the binary to usable WASM module
   const wasmModule = await WebAssembly.compile(compilation.binary as BufferSource);
 
@@ -209,7 +208,7 @@ export async function executeWASMTest(
     handleLog,
     logPrefix,
     coverageMemory,
-    threadImports.createWasmImports
+    threadImports.createUserWasmImports
   );
 
   // Instantiate fresh WASM instance for this test
@@ -349,28 +348,27 @@ export async function executeWASMTest(
         covDebug(`${logPrefix} - Extracting hits for source file "${filePath}"`);
       }
 
-      for (const [positionKey, funcInfo] of Object.entries(debugFunctions)) {
-        if (funcInfo.coverageMemoryIndex === undefined) {
-          debug(`${logPrefix} - WARNING: NO COVERAGE MEMORY INDEX`
-            + ` - func "${funcInfo.name}" (${positionKey}) Skipping hit extraction`
+      for (const [positionKey, funcInfos] of Object.entries(debugFunctions)) {
+        // Sum hit counts across all functions at this position (multiple for generic monomorphizations)
+        let positionHitCount = 0;
+        for (const funcInfo of funcInfos) {
+          if (funcInfo.coverageMemoryIndex === undefined) {
+            debug(`${logPrefix} - WARNING: NO COVERAGE MEMORY INDEX`
+              + ` - func "${funcInfo.name}" (${positionKey}) Skipping hit extraction`
+            );
+            continue;
+          }
+
+          const hitCount = extractedHitCounters[funcInfo.coverageMemoryIndex] ?? 0;
+          covDebug(`${logPrefix} - func "${funcInfo.name}" (${positionKey}) `
+            + `[idx: ${funcInfo.coverageMemoryIndex}]: ${hitCount} hits`
           );
-          continue;
+          positionHitCount += hitCount;
         }
 
-        const hitCount = extractedHitCounters[funcInfo.coverageMemoryIndex] ?? 0;
-        covDebug(`${logPrefix} - func "${funcInfo.name}" (${positionKey}) `
-          + `[idx: ${funcInfo.coverageMemoryIndex}]: ${hitCount} hits`
-        );
+        coverage.hitCountsByFileAndPosition[filePath][positionKey] = positionHitCount;
 
-        if (coverage.hitCountsByFileAndPosition[filePath][positionKey] !== undefined) {
-          debug(`${logPrefix} - WARNING: DUPLICATE POSITION`
-            + ` - func "${funcInfo.name}" (${positionKey}) already extracted to coverage for ${filePath}`
-          );
-        }
-        // Position key is already the position (line:column) from functionsByFileAndPosition
-        coverage.hitCountsByFileAndPosition[filePath][positionKey] = hitCount;
-
-        if (hitCount > 0) {
+        if (positionHitCount > 0) {
           functionsHit++;
         }
       }

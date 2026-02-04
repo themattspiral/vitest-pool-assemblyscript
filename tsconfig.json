@@ -47,7 +47,7 @@
     "build",
     "assembly",
     "test/assembly/**/*",
-    "test-fixtures/assembly/**/*",
-    "test-fixtures/assembly-src/**/*"
+    "test/assembly-src/**/*",
+    "test-external/**/*",
   ]
 }

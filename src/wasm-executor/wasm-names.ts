@@ -10,6 +10,10 @@ export function getShortFunctionName(fullName: string): string {
   let decoded: string;
   try {
     decoded = decodeURIComponent(fullName);
+    
+    // handle AS encoding quirk in generics
+    // e.g. "closeTo<bool\2cbool>" -> "closeTo<bool,bool>"
+    decoded = decoded.replace('\\2c', ',');
   } catch {
     decoded = fullName;
   }

@@ -1,4 +1,4 @@
-import { test, expect, describe, TestOptions } from '../../../assembly';
+import { test, expect, describe, TestOptions } from "vitest-pool-assemblyscript/assembly";
 
 describe("arrays", () => {
   test("empty arrays should have length 0", () => {

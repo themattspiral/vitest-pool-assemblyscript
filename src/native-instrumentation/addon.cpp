@@ -213,7 +213,7 @@ bool startsWith(const std::string& str, const std::string& prefix) {
 /**
  * Check if a function should be instrumented for coverage
  */
-bool shouldInstrumentFunction(Function* func, std::string& excludedLibraryFilePrefix) {
+bool shouldInstrumentFunction(Function* func, std::string& excludedLibraryFilePrefix, std::string& excludedLibraryFileOverridePrefix) {
   const std::string& name = func->name.toString();
 
   // Skip functions without a body
@@ -234,6 +234,20 @@ bool shouldInstrumentFunction(Function* func, std::string& excludedLibraryFilePr
 
   // Skip library functions
   if (excludedLibraryFilePrefix.length() > 0 && startsWith(name, excludedLibraryFilePrefix)) {
+    if (excludedLibraryFileOverridePrefix.length() != 0) {
+      if (startsWith(name, excludedLibraryFileOverridePrefix)) {
+        if (DEBUG) {
+          std::cout << LOG_PREFIX << " -   Library file but overriding skip to include" << std::endl;
+        }
+        return true;
+      } else {
+        if (DEBUG) {
+          std::cout << LOG_PREFIX << " -   Skip Reason: Library file" << std::endl;
+        }
+        return false;
+      };
+    }
+
     if (DEBUG) {
       std::cout << LOG_PREFIX << " -   Skip Reason: Library file" << std::endl;
     }
@@ -408,6 +422,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     // Extracted options
     std::unordered_set<std::string> excludedFiles;
     std::string excludedLibraryFilePrefix;
+    std::string excludedLibraryFileOverridePrefix = "";
     // 1 page = 64KB / 4bytes (32bits) each = 16384 counters
     uint32_t coverageMemoryPagesMin = 1;
     // 4 pages = 256KB / 4bytes (32bits) each = 65536 counters
@@ -464,6 +479,17 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         
         if (DEBUG) {
           std::cout << LOG_PREFIX << " - OPTIONS - Excluded Library File Prefix: \"" << excludedLibraryFilePrefix << "\"" << std::endl;
+        }
+      }
+    }
+    
+    if (options.Has("excludedLibraryFileOverridePrefix")) {
+      Napi::Value libraryFileOverridePrefixProperty = options.Get("excludedLibraryFileOverridePrefix");
+      if (libraryFileOverridePrefixProperty.IsString()) {
+        excludedLibraryFileOverridePrefix = libraryFileOverridePrefixProperty.As<Napi::String>().Utf8Value();
+        
+        if (DEBUG) {
+          std::cout << LOG_PREFIX << " - OPTIONS - Excluded Library File Override Prefix: \"" << excludedLibraryFileOverridePrefix << "\"" << std::endl;
         }
       }
     }
@@ -549,7 +575,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       }
 
       // Check if this function should be instrumented
-      if (!shouldInstrumentFunction(func, excludedLibraryFilePrefix)) {
+      if (!shouldInstrumentFunction(func, excludedLibraryFilePrefix, excludedLibraryFileOverridePrefix)) {
         if (DEBUG) {
           std::cout << LOG_PREFIX << " -   SKIP function (quick filtered): \"" << funcName << "\"" << std::endl;
         }

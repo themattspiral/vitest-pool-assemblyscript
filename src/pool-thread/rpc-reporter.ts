@@ -25,22 +25,13 @@ import type {
   VitestVersion,
   WorkerRPC
 } from '../types/types.js';
-import { debug, isDebugModeEnabled } from '../util/debug.js';
+import { debug } from '../util/debug.js';
 import { COVERAGE_PAYLOAD_FORMATS } from '../types/constants.js';
 import {
   createAfterSuiteRunMeta,
   getTaskLogLabel,
   isSuiteOwnFile
 } from '../util/vitest-tasks.js';
-
-// const DEBUG_RPC = false;
-const DEBUG_RPC = isDebugModeEnabled();
-
-function rpcDebug(...args: any[]): void {
-  if (DEBUG_RPC) {
-    debug(...args);
-  }
-};
 
 // ============================================================================
 // RPC Client Factory
@@ -71,7 +62,7 @@ export async function reportFileQueued(
   logLabel: string,
 ): Promise<void> {
   await rpc.onQueued(fileTask);
-  rpcDebug(`[${logModule} RPC] ${logLabel} - Reported onQueued for file "${fileTask.filepath}"`
+  debug(`[${logModule} RPC] ${logLabel} - Reported onQueued for file "${fileTask.filepath}"`
     + ` | mode: "${fileTask.mode}" | state: "${fileTask.result ? fileTask.result.state : '--'}"`
   );
 }
@@ -84,7 +75,7 @@ export async function reportFileCollected(
   logLabel: string,
 ): Promise<void> {
   await rpc.onCollected([fileTask]);
-  rpcDebug(`[${logModule} RPC] ${logLabel} - Reported onCollected for file "${fileTask.filepath}"`
+  debug(`[${logModule} RPC] ${logLabel} - Reported onCollected for file "${fileTask.filepath}"`
     + ` | ${fileTask.tasks.length} tasks | mode: "${fileTask.mode}" | state: "${fileTask.result?.state}"`
   );
 }
@@ -100,7 +91,7 @@ export async function reportFileError(
   const eventPack: TaskEventPack = [fileTask.id, "suite-failed-early", undefined];
   await rpc.onTaskUpdate([taskPack], [eventPack]);
 
-  rpcDebug(`[${logModule} RPC] ${logLabel} - Reported "suite-failed-early" task update for "${fileTask.filepath}"`);
+  debug(`[${logModule} RPC] ${logLabel} - Reported "suite-failed-early" task update for "${fileTask.filepath}"`);
 }
 
 // ============================================================================
@@ -120,7 +111,7 @@ export async function reportSuitePrepare(
 
   await rpc.onTaskUpdate([taskPack], [eventPack]);
 
-  rpcDebug(`[${logModule} RPC] ${getTaskLogLabel(base, suite)} - Reported "suite-prepare" task update`
+  debug(`[${logModule} RPC] ${getTaskLogLabel(base, suite)} - Reported "suite-prepare" task update`
     + ` | state: "${suite.result?.state}"`
   );
 }
@@ -169,7 +160,7 @@ export async function reportSuiteFinished(
     rpc.onTaskUpdate([taskPack], [eventPack])
   ]);
 
-  rpcDebug(`${rpcLogPrefix} - Reported "suite-finished" task update | state: "${suite.result?.state}"`
+  debug(`${rpcLogPrefix} - Reported "suite-finished" task update | state: "${suite.result?.state}"`
     + ` | duration: ${suite.result?.duration?.toFixed(2) ?? '--'} ms`
   );
 }
@@ -189,12 +180,12 @@ async function reportTestTaskUpdate(
   const taskPack: TaskResultPack = [test.id, test.result, {}];
   const eventPack: TaskEventPack = [test.id, updateEvent, undefined];
 
-  rpcDebug(`[${logModule} RPC] ${getTaskLogLabel(base, test)} - Reporting "${updateEvent}" task update...`
+  debug(`[${logModule} RPC] ${getTaskLogLabel(base, test)} - Reporting "${updateEvent}" task update...`
     + ` | state: "${test.result?.state}"`
     + `${updateEvent === 'test-prepare' ? '' : ` | duration: ${test.result?.duration?.toFixed(2) ?? '--'} ms`}`
   );
   await rpc.onTaskUpdate([taskPack], [eventPack]);
-  rpcDebug(`[${logModule} RPC] ${getTaskLogLabel(base, test)} - Reported "${updateEvent}" task update`
+  debug(`[${logModule} RPC] ${getTaskLogLabel(base, test)} - Reported "${updateEvent}" task update`
     + ` | state: "${test.result?.state}"`
     + `${updateEvent === 'test-prepare' ? '' : ` | duration: ${test.result?.duration?.toFixed(2) ?? '--'} ms`}`
   );
@@ -282,7 +273,7 @@ export async function reportUserConsoleLogs(
 
   await Promise.all(reportPromises);
 
-  rpcDebug(`[${logModule} RPC] ${getTaskLogLabel(base, task)} - Reported onUserConsoleLog | ${logs.length} messages`);
+  debug(`[${logModule} RPC] ${getTaskLogLabel(base, task)} - Reported onUserConsoleLog | ${logs.length} messages`);
 }
 
 // ============================================================================

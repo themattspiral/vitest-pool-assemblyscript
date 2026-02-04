@@ -18,15 +18,7 @@
 import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
 import type { ParsedSourceFunctionInfo } from '../types/types.js';
 import { findFunctionContainingPosition } from './containment-matcher.js';
-import { debug } from '../util/debug.js';
-
-const DEBUG_ISTANBUL = false;
-
-function istanbulDebug(...args: any[]): void {
-  if (DEBUG_ISTANBUL) {
-    debug(...args);
-  }
-};
+import { debugOverride } from '../util/debug.js';
 
 /**
  * Convert AssemblyScript coverage data to Istanbul format for a single file
@@ -49,9 +41,16 @@ function istanbulDebug(...args: any[]): void {
 export async function convertToIstanbulFormat(
   fileFunctionsByStartLine: Record<number, ParsedSourceFunctionInfo[]>,
   fileHitCountsByPosition: Record<string, number>,
-  absoluteFilePath: string
+  absoluteFilePath: string,
+  istanbulDebugEnabled: boolean
 ): Promise<FileCoverageData> {
   const startMatch = performance.now();
+
+  function istanbulDebug(...args: any[]): void {
+    if (istanbulDebugEnabled) {
+      debugOverride(...args);
+    }
+  };
 
   istanbulDebug(() => {
     const sourceFunctionCount = Object.values(fileFunctionsByStartLine).reduce((sum, funcs) => sum + funcs.length, 0);

@@ -155,7 +155,7 @@ async function dispatchFullWorkerRun(
     };
 
     try {
-        await pool.run(workerTaskData, {
+      await pool.run(workerTaskData, {
         name: 'runTestFile',
         transferList: [workerPort],
         signal: AbortSignal.any([poolAbortSignal, fileAbortController.signal]),

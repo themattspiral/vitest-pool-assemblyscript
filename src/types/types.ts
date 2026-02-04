@@ -59,6 +59,12 @@ export type AssemblyScriptTestError = TestError & { name: TestErrorName | PoolEr
 export interface AssemblyScriptPoolOptions {
   /** Enable verbose debug logging */
   debug?: boolean;
+  debugNative?: boolean;
+  debugCoverageExtract?: boolean;
+
+  /** enable to collect coverage instrumentation on the pool's assembly/* files */
+  _instrumentPoolInternals?: boolean;
+
   /**
    * Strip `@inline` decorators during compilation to improve error message and coverage accuracy
    *
@@ -97,6 +103,8 @@ export interface HybridProviderOptions {
   provider: 'custom',
   customProviderModule: string;
 
+  debugIstanbul?: boolean;
+
   /**
    * Glob patterns for AssemblyScript source files to include in coverage.
    * Used to build the complete AS coverage map.
@@ -128,6 +136,9 @@ export type WasmImportsFactory = (moduleInfo: WasmImportsFactoryInfo) => WebAsse
 // define these constants here so they make sense in context
 export const AS_POOL_FIELDS_WITH_DEFAULTS = [
   'debug',
+  'debugNative',
+  'debugCoverageExtract',
+  '_instrumentPoolInternals',
   'stripInline',
   'maxThreadsV3',
   'coverageMemoryPagesInitial',
@@ -160,7 +171,6 @@ export type ResolvedAssemblyScriptPoolOptions =
 
 export type ResolvedHybridProviderOptions = 
   Required<HybridProviderOptions>
-
   & Omit<ResolvedCoverageOptions<'v8'>, 'provider'>
   & {
     globbedAssemblyScriptInclude: GlobResult[],
@@ -178,7 +188,7 @@ export type VitestVersion = 'v3' | 'v4';
 
 export interface ThreadImports {
   highlight: HighlightFunc;
-  createWasmImports?: WasmImportsFactory;
+  createUserWasmImports?: WasmImportsFactory;
 }
 
 export type HighlightFunc = (code: string, options: { colors: Colors }) => string;
@@ -209,11 +219,15 @@ export interface AssemblyScriptCompilerResult {
 }
 
 export interface InstrumentationOptions {
+  /** Project root for resolving source map paths to absolute paths */
+  projectRoot: string;
   /** List of relative file paths to exclude from instrumentation */
   relativeExcludedFiles: string[];
   excludedLibraryFilePrefix: string;
   coverageMemoryPagesMin: number;
   coverageMemoryPagesMax: number;
+  excludedLibraryFileOverridePrefix?: string;
+  debug?: boolean;
 }
 
 /**
@@ -239,7 +253,7 @@ export interface InstrumentationResult {
  * Conversion to 0-based columns happens at Istanbul output boundary.
  */
 export interface SourceLocation {
-  /** Relative file path */
+  /** Absolute file path (normalized from source map during debug info extraction) */
   filePath: string;
   line: number;
   column: number;
@@ -390,10 +404,11 @@ export interface BinaryDebugInfo {
   /** All source files represented in extracted debug info (directly or inlined) */
   debugSourceFiles: string[];
   /**
-   * Functions grouped by file path, then keyed by position ("line:column")
-   * Position key enables stable identity across compilations
+   * Functions grouped by file path, then keyed by position ("line:column").
+   * Position key enables stable identity across compilations.
+   * Array value accommodates generic monomorphizations that share a source position.
    */
-  functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo>>;
+  functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo[]>>;
 
   instrumentedFunctionCount: number;
 }
@@ -429,9 +444,8 @@ export interface NativeSourceLocation extends Omit<SourceLocation, 'filePath'> {
   fileIndex: number;
 }
 
-export interface NativeInstrumentationOptions extends Omit<InstrumentationOptions, 'relativeExcludedFiles'> {
+export interface NativeInstrumentationOptions extends Omit<InstrumentationOptions, 'relativeExcludedFiles' | 'projectRoot'> {
   excludedFiles?: string[];
-  debug?: boolean;
   logPrefix?: string;
 }
 

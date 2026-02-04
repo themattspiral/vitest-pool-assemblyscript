@@ -7,8 +7,7 @@
 
 import { main as ascMain } from 'assemblyscript/asc';
 import { basename, resolve } from 'node:path';
-import { access } from 'node:fs/promises';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { access, readFile, writeFile, mkdir } from 'node:fs/promises';
 
 import { AssemblyScriptCompilerResult, AssemblyScriptCompilerOptions } from '../types/types.js';
 import { POOL_ERROR_NAMES } from '../types/constants.js';
@@ -17,6 +16,10 @@ import { instrumentForCoverage } from '../native-instrumentation/addon-interface
 import { createPoolError, throwPoolErrorIfAborted } from '../util/pool-errors.js';
 
 const DEBUG_WRITE_FILES = false;
+
+// Path prefix the AS compiler uses when resolving bare `vitest-pool-assemblyscript/assembly` imports
+// via node_modules. Used to detect self-imports and redirect to local assembly/ dir when running in-tree.
+const POOL_ASSEMBLY_NODE_MODULES_PREFIX = 'node_modules/vitest-pool-assemblyscript/assembly/';
 
 // path assumes that we're running from dist/
 const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, './compiler/transforms/strip-inline.mjs');
@@ -34,19 +37,6 @@ setImmediate(async () => {
 
 /**
  * Compile AssemblyScript source code to WASM binary
- *
- * Features:
- * - In-memory compilation (binary captured via writeFile callback)
- * - Filesystem reading enabled (for import resolution)
- * - Uses stub runtime and imported memory pattern
- * - Exports _start function for explicit initialization control
- * - Always returns clean binary
- * - Conditionally returns instrumented binary when coverage enabled
- *
- * @param filename - Full path to the source file (used as entry point)
- * @param options - Compilation options (coverage mode, etc.)
- * @returns Compilation result with clean binary and optional instrumented binary
- * @throws Error if compilation fails
  */
 export async function compileAssemblyScript(
   filename: string,
@@ -147,6 +137,33 @@ export async function compileAssemblyScript(
         debug(`${logPrefix} - WARNING - Captured Unexpected File: "${name}" at baseDir: "${_baseDir}"`);
       }
     },
+    
+    // Custom readFile enables in-tree resolution of bare pool assembly imports.
+    // When a test file imports 'vitest-pool-assemblyscript/assembly', the AS compiler
+    // resolves it to a node_modules path. This works when the package is installed,
+    // but fails in-tree (the package isn't in its own node_modules). The fallback
+    // redirects these to the local assembly/ directory when the normal path isn't found.
+    readFile: async (filename, baseDir): Promise<string | null> => {
+      const filePath = resolve(baseDir, filename);
+
+      try {
+        return await readFile(filePath, { encoding: 'utf-8' });
+      } catch {
+        // Fallback: when running in-tree, redirect pool assembly imports to local assembly/ dir
+        if (filename.startsWith(POOL_ASSEMBLY_NODE_MODULES_PREFIX)) {
+          const localSubpath = filename.substring(POOL_ASSEMBLY_NODE_MODULES_PREFIX.length);
+          const localPath = resolve(baseDir, 'assembly', localSubpath);
+
+          try {
+            return await readFile(localPath, { encoding: 'utf-8' });
+          } catch {
+            return null;
+          }
+        }
+
+        return null;
+      }
+    },
   });
 
   debug(`${logPrefix} - TIMING asc.main: ${(performance.now() - ascStart).toFixed(2)} ms`);
@@ -178,9 +195,10 @@ export async function compileAssemblyScript(
   debug(`${logPrefix} - Source map generated, size: ${wasmSourceMap.length * 2} bytes`);
   
   if (DEBUG_WRITE_FILES) {
-    // Write source map to project maps directory for debugging
+    // Write source map for debugging
     const dir = './debug';
-    const sourceMapFileName = `${basename(filename, '.ts')}.as.ts.map`;
+    // TODO - handle non-.ts extensions
+    const sourceMapFileName = `${basename(filename, '.ts')}.ts.map`;
     const sourceMapPath = `${dir}/${sourceMapFileName}`;
 
     // Create directory if it doesn't exist

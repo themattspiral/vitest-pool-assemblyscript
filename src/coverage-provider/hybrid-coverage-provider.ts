@@ -42,6 +42,7 @@ import {
   POOL_ERROR_NAMES,
   COVERAGE_PAYLOAD_FORMATS
 } from '../types/constants.js';
+import { warnIfASCoverageNotSupported } from '../util/node-check.js';
 
 export class HybridCoverageProvider implements CoverageProvider {
   name = 'hybrid-assemblyscript-v8' as const;
@@ -72,6 +73,8 @@ export class HybridCoverageProvider implements CoverageProvider {
     await this.v8Provider.initialize(ctx);
     this.v8Provider.name = 'hybrid-assemblyscript-v8 (delegated v8 reporter)' as const;
     debug('[HybridCoverageProvider] Initialized with delegated v8 provider');
+
+    warnIfASCoverageNotSupported();
   }
 
   /**
@@ -164,11 +167,11 @@ export class HybridCoverageProvider implements CoverageProvider {
         const functionsByStartLine = await parseFunctionsFromFile(include.absolute, include.projectRootRelative) || {};
         debug(`[HybridCoverageProvider] Parsed ${Object.keys(functionsByStartLine).length} AS source functions in "${include.projectRootRelative}"`);
 
-        const fileHitCountsByPosition = this.accumulatedCoverageData.hitCountsByFileAndPosition[include.projectRootRelative] ?? {};
-        debug(`[HybridCoverageProvider] Accumulated AS coverage has ${Object.keys(fileHitCountsByPosition).length} positions for "${include.projectRootRelative}"`);
+        const fileHitCountsByPosition = this.accumulatedCoverageData.hitCountsByFileAndPosition[include.absolute] ?? {};
+        debug(`[HybridCoverageProvider] Accumulated AS coverage has ${Object.keys(fileHitCountsByPosition).length} positions for "${include.absolute}"`);
 
         // Containment matching (binary hit position → source) is performed during istanbul conversion
-        return convertToIstanbulFormat(functionsByStartLine, fileHitCountsByPosition, include.absolute);
+        return convertToIstanbulFormat(functionsByStartLine, fileHitCountsByPosition, include.absolute, this.coverageOptions.debugIstanbul);
       });
 
       // Wait for all files to complete
@@ -193,9 +196,16 @@ export class HybridCoverageProvider implements CoverageProvider {
     debug(`[HybridCoverageProvider] JS coverage has ${Object.keys(jsCoverage.data).length} files`);
     debug(`[HybridCoverageProvider] TIMING JS generateCoverage: ${(performance.now() - asGenerateEnd).toFixed(2)} ms`);
 
-    // Merge AS coverage into JS coverage
-    debug('[HybridCoverageProvider] Merging AS coverage into JS coverage');
-    jsCoverage.merge(asCoverageMap);
+    // Merge AS coverage into JS coverage.
+    // Use toJSON() to pass plain data instead of the CoverageMap instance. This avoids
+    // instanceof failures when istanbul-lib-coverage is loaded from different module paths
+    // (e.g. the pool workers resolve one copy while the coverage provider resolves another).
+    if (asCoverageMap.files().length) {
+      debug('[HybridCoverageProvider] Merging AS coverage into JS coverage');
+      jsCoverage.merge(asCoverageMap.toJSON());
+    } else {
+      debug('[HybridCoverageProvider] AS coverage map empty, not merging into JS coverage');
+    }
     debug(`[HybridCoverageProvider] Final merged coverage has ${Object.keys(jsCoverage.data).length} files`);
 
     debug(`[HybridCoverageProvider] TIMING Total generateCoverage: ${(performance.now() - start).toFixed(2)} ms`);
@@ -266,6 +276,7 @@ export class HybridCoverageProvider implements CoverageProvider {
       ...resolvedV8Options,
       provider: 'custom',
       customProviderModule: definedCoverageOptions.customProviderModule,
+      debugIstanbul: definedCoverageOptions.debugIstanbul ?? false,
       assemblyScriptInclude: definedCoverageOptions.assemblyScriptInclude ?? [],
       assemblyScriptExclude: definedCoverageOptions.assemblyScriptExclude ?? [],
       globbedAssemblyScriptInclude,
