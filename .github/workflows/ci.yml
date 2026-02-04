@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: '20'  # minimum supported version for this project
           cache: 'npm'
-
+      
       - name: Install dependencies
         run: npm ci
 
@@ -32,4 +32,4 @@ jobs:
         run: npm run build
 
       - name: Test
-        run: npm test
+        run: node --experimental-wasm-multi-memory node_modules/vitest/dist/cli.js run
