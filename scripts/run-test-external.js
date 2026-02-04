@@ -23,17 +23,28 @@ const PROJECT_ROOT = resolve(__dirname, '..');
 const EXTERNAL_DIR_NAME = 'vitest-pool-assemblyscript-test-external';
 const EXTERNAL_DIR = resolve(PROJECT_ROOT, '..', EXTERNAL_DIR_NAME);
 
+const noCoverage = process.argv.includes('--no-coverage');
+
 if (!existsSync(EXTERNAL_DIR)) {
   console.error(`External test directory not found: ${EXTERNAL_DIR}`);
   console.error('Run "npm run etest:setup" first to prepare the environment.');
   process.exit(1);
 }
 
+const vitestArgs = ['npx vitest run'];
+if (noCoverage) {
+  vitestArgs.push('--coverage.enabled=false');
+}
+const vitestCommand = vitestArgs.join(' ');
+
 console.log(`Running external tests from: ${EXTERNAL_DIR}`);
+if (noCoverage) {
+  console.log('  Coverage disabled via --no-coverage flag');
+}
 console.log('');
 
 try {
-  execSync('npx vitest run', {
+  execSync(vitestCommand, {
     cwd: EXTERNAL_DIR,
     stdio: 'inherit',
   });

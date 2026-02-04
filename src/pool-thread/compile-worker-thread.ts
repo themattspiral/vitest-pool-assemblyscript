@@ -15,6 +15,7 @@ import { runCompileAndDiscover } from './runner/compile-runner.js';
 import { debug, setGlobalDebugMode } from '../util/debug.js';
 import { createRpcClient } from './rpc-reporter.js';
 import { loadUserWasmImportsFactory } from './load-user-imports.js';
+import { isCoverageSupported } from '../util/node-check.js';
 
 const logModule = `WorkerThread` as const;
 const [_unused, initData] = workerData;
@@ -23,7 +24,9 @@ const { projectRoot, asPoolOptions, asCoverageOptions } = initData as WorkerThre
 setGlobalDebugMode(asPoolOptions.debug);
 debug(`[${logModule}] New compile pool thread created`);
 
-const createWasmImports: WasmImportsFactory | undefined = await loadUserWasmImportsFactory(
+const COVERAGE_SUPPORTED = isCoverageSupported();
+
+const createUserWasmImports: WasmImportsFactory | undefined = await loadUserWasmImportsFactory(
   asPoolOptions.wasmImportsFactory,
   projectRoot,
   logModule
@@ -47,9 +50,9 @@ export async function runCompileAndDisoverSpec(data: RunCompileAndDiscoverTask):
     rpc,
     asPoolOptions,
     config.root,
-    config.coverage.enabled,
+    config.coverage.enabled && COVERAGE_SUPPORTED,
     asCoverageOptions.globbedAssemblyScriptProjectRelativeExcludeOnly ?? [],
-    { highlight, createWasmImports } satisfies ThreadImports,
+    { highlight, createUserWasmImports } satisfies ThreadImports,
     typeof config.diff === 'object' ? config.diff : undefined,
     config.testNamePattern,
     config.allowOnly,

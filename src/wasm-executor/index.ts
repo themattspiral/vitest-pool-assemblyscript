@@ -25,7 +25,7 @@ import { extractCallStack } from './source-maps.js';
 const SIG_MISMATCH_ERROR_MSG = `WASM RuntimeError indicates function signature type mismatch during test suite collection.`
   + ` This is likely caused by passing a non-void callback to expect().`
   + ` Use braces to ensure it returns void  e.g. \`expect(() => { failingFunction(); }).toThrowError()\`.`
-  + ` Look for the failing expect() within the describe() block indicated in the stack trace.`
+  + ` Look for the failing expect() within the describe() block indicated in the stack trace.`;
 
 function createExecutorPoolError(
   testFileBasename: string,
@@ -75,7 +75,7 @@ export async function executeWASMDiscovery(
     handleLog,
     logPrefix,
     coverageMemory,
-    threadImports.createWasmImports
+    threadImports.createUserWasmImports
   );
 
   // Instantiate WASM module
@@ -208,7 +208,7 @@ export async function executeWASMTest(
     handleLog,
     logPrefix,
     coverageMemory,
-    threadImports.createWasmImports
+    threadImports.createUserWasmImports
   );
 
   // Instantiate fresh WASM instance for this test

@@ -188,7 +188,7 @@ export type VitestVersion = 'v3' | 'v4';
 
 export interface ThreadImports {
   highlight: HighlightFunc;
-  createWasmImports?: WasmImportsFactory;
+  createUserWasmImports?: WasmImportsFactory;
 }
 
 export type HighlightFunc = (code: string, options: { colors: Colors }) => string;

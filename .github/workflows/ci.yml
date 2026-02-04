@@ -19,7 +19,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'  # minimum supported version for this project
+          node-version: '22'  # minimum supported version for this project
           cache: 'npm'
       
       - name: Install dependencies
@@ -32,4 +32,4 @@ jobs:
         run: npm run build
 
       - name: Test
-        run: node --experimental-wasm-multi-memory node_modules/vitest/dist/cli.js run
+        run: npm run test:external

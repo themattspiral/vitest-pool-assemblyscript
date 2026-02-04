@@ -166,11 +166,15 @@ npx vitest run
 
 | Dependency | Supported Versions |
 |---|---|
-| Node.js | 20, 22, 24+ |
+| Node.js | (20*), 22, 24+ |
 | Vitest | 3.2.x, 4.x |
 | AssemblyScript | 0.28+ |
 
-**Platforms with prebuilt native binaries:**
+>ℹ️ ***Node 20 Support:** If you don't need code coverage, Node 20 should continue to work for test execution.
+>
+>WASM coverage instrumentation is implemented using WebAssembly [multi-memory](https://github.com/WebAssembly/multi-memory) to isolate coverage counters from user test memory. This feature shipped in V8 12.0 / Node 22. 
+
+**Platforms with prebuilt native binaries for coverage instrumentation & debug info:**
 
 | | x64 | arm64 |
 |---|---|---|

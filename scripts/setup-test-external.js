@@ -4,12 +4,13 @@
  * Prepares a sibling directory with an installed copy of the packed tarball,
  * so that tests run against the package exactly as a consumer would install it.
  *
+ * Assumes the project has already been built (npm run build) before running.
+ *
  * Steps:
  * 1. Clean any previous external test directory
  * 2. Copy test-external/ to the sibling directory
- * 3. Build the project (npm run build)
- * 4. Pack the tarball into the sibling directory
- * 5. Install the tarball in the sibling directory
+ * 3. Pack the tarball into the sibling directory
+ * 4. Install the tarball in the sibling directory
  *
  * Cross-platform: uses Node.js fs APIs instead of shell commands.
  */
@@ -50,23 +51,15 @@ console.log('Step 2: Copying test-external/ to sibling directory...');
 cpSync(EXTERNAL_SOURCE_DIR, EXTERNAL_DIR, { recursive: true });
 console.log(`  Copied to ${EXTERNAL_DIR}`);
 
-// Step 3: Build the project
+// Step 3: Pack the tarball into the external directory
 console.log('');
-console.log('Step 3: Building project...');
-execSync('npm run build', {
-  cwd: PROJECT_ROOT,
-  stdio: 'inherit',
-});
-
-// Step 4: Pack the tarball into the external directory
-console.log('');
-console.log('Step 4: Packing tarball...');
+console.log('Step 3: Packing tarball...');
 execSync(`npm pack --pack-destination "${EXTERNAL_DIR}"`, {
   cwd: PROJECT_ROOT,
   stdio: 'inherit',
 });
 
-// Step 5: Install the tarball in the external directory
+// Step 4: Install the tarball in the external directory
 const tarballFilename = getTarballFilename();
 const tarballPath = join(EXTERNAL_DIR, tarballFilename);
 
@@ -76,7 +69,7 @@ if (!existsSync(tarballPath)) {
 }
 
 console.log('');
-console.log(`Step 5: Installing tarball in external directory...`);
+console.log(`Step 4: Installing tarball in external directory...`);
 execSync(`npm install "${tarballFilename}"`, {
   cwd: EXTERNAL_DIR,
   stdio: 'inherit',
