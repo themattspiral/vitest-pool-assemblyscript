@@ -3,7 +3,11 @@
 <p align="center">
   <img src="docs/images/as-icon.svg" height="50" align="middle">
   &nbsp;&nbsp;&#10133;&nbsp;&nbsp;
-  <img src="docs/images/vitest-dark.svg" height="30" align="middle">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/vitest-light.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/images/vitest-dark.svg">
+    <img alt="Vitest logo" src="docs/images/vitest-dark.svg" height="30" align="middle">
+  </picture>
 </p>
 
 <p align="center">
