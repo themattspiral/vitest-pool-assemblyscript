@@ -11,5 +11,5 @@ test("as smoke fail long running [should fail]", TestOptions.timeout(50).retry(1
   const res = fibonacciRecursive(37);
 
   // if we get here we didn"t timeout correctly
-  expect("Didn"t timeout").toBe("timed out");
+  expect("Didn't timeout").toBe("timed out");
 });

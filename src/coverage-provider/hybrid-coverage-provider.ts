@@ -162,10 +162,10 @@ export class HybridCoverageProvider implements CoverageProvider {
 
       // parse source files with AST parser, then match to hits and convert to istanbul format
       const fileProcessingPromises = this.coverageOptions.globbedAssemblyScriptInclude.map(async (include: GlobResult) => {
-        debug(`[HybridCoverageProvider] Parsing AS source for expected coverage: "${include.absolute}" (file key: "${include.projectRootRelative}")`);
+        debug(`[HybridCoverageProvider] Parsing AS source for expected coverage: "${include.absolute}"`);
         
         const functionsByStartLine = await parseFunctionsFromFile(include.absolute, include.projectRootRelative) || {};
-        debug(`[HybridCoverageProvider] Parsed ${Object.keys(functionsByStartLine).length} AS source functions in "${include.projectRootRelative}"`);
+        debug(`[HybridCoverageProvider] Parsed ${Object.keys(functionsByStartLine).length} AS source functions in "${include.absolute}"`);
 
         const fileHitCountsByPosition = this.accumulatedCoverageData.hitCountsByFileAndPosition[include.absolute] ?? {};
         debug(`[HybridCoverageProvider] Accumulated AS coverage has ${Object.keys(fileHitCountsByPosition).length} positions for "${include.absolute}"`);

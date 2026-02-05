@@ -19,6 +19,7 @@ import type {
   ThreadSpec,
   WorkerThreadInitData,
 } from '../types/types.js';
+import { toForwardSlash } from '../util/path-utils.js';
 import { createInitialFileTask } from '../util/vitest-file-tasks.js';
 import { failTestWithTimeoutError, flagTestTerminated } from '../util/vitest-tasks.js';
 import {
@@ -182,7 +183,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
         this.currentWorkerId = message.context.workerId;
         this.threadSpecs = message.context.files.map((fileSpec): ThreadSpec => ({
           file: createInitialFileTask(
-            fileSpec.filepath,
+            toForwardSlash(fileSpec.filepath),
             this.config!.name ?? '',
             this.config!.root,
             this.config!.testTimeout,

@@ -12,7 +12,9 @@
 import { createRequire } from 'node:module';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import { debug } from '../util/debug.js';
+import { toForwardSlash } from '../util/path-utils.js';
 import {
   NativeAddon,
   NativeInstrumentationResult,
@@ -89,10 +91,10 @@ function convertLocation(
   if (filePath.startsWith(INTERNAL_PATH_LIB_PREFIX)) {
     // ~lib/vitest-pool-assemblyscript/assembly/X.ts -> projectRoot/assembly/X.ts
     const relativePart = filePath.slice(INTERNAL_PATH_LIB_PREFIX.length);
-    filePath = resolve(projectRoot, 'assembly', relativePart);
+    filePath = toForwardSlash(resolve(projectRoot, 'assembly', relativePart));
   } else {
     // Resolve relative path (handles both 'assembly/X.ts' and '../assembly/X.ts')
-    filePath = resolve(projectRoot, filePath);
+    filePath = toForwardSlash(resolve(projectRoot, filePath));
   }
 
   return {
