@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="docs/images/as-icon.svg" height="50" align="middle">
-  &nbsp;&nbsp;&#10133;&nbsp;&nbsp;
+  &nbsp;&nbsp;&nbsp;&nbsp;&#10133;&nbsp;&nbsp;&nbsp;&nbsp;
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/vitest-light.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/images/vitest-dark.svg">
@@ -28,29 +28,51 @@
 </p>
 
 <p align="center">
-  <a href="#status">Status</a> | <a href="#quick-start">Quick Start</a> | <a href="#features">Features</a> | <a href="#compatibility">Compatibility</a> | <a href="#performance">Performance</a> | <a href="#prior-work">Prior Work</a> | <a href="#license">License</a>
+  Check it out:
   <br/>
-  <a href="#writing-tests">Writing Tests</a> | <a href="docs/matchers-api.md">Matchers API</a> | <a href="docs/configuration-guide.md">Configuration Guide</a> | <a href="docs/providing-wasm-imports.md">Providing WASM Imports</a>
+  <a href="#status">Status</a> | 
+  <a href="#quick-start">Quick Start</a> | 
+  <a href="#features">Features</a> |
+  <a href="#frequently-asked-questions">Frequently Asked Questions</a>
+  <br/>
+  <a href="#compatibility">Compatibility</a> | 
+  <a href="#performance">Performance</a> | 
+  <a href="#prior-work">Prior Work</a> | 
+  <a href="#license">License</a>
+</p>
+<p align="center">
+  Dig in:
+  <br/>
+  <a href="#writing-tests">Writing Tests</a> | 
+  <a href="docs/matchers-api.md">Matchers API</a> | 
+  <a href="docs/configuration-guide.md">Configuration Guide</a> | 
+  <a href="docs/providing-wasm-imports.md">Providing WASM Imports</a>
 </p>
 
 ---
 
 <br/>
 <p align="center">
-  <img src="docs/images/example-small.gif" alt="vitest-pool-assemblyscript demo">
+  <img src="docs/images/example-small.gif" alt="vitest-pool-assemblyscript quick demo">
 </p>
 
 ## Status
 
 This project is relatively new to the scene, but is being improved every day. Please give it a try!
 
-- All [listed features](#features) are working and assumed to be bug-free ([report](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new))
-- [`describe()` and `test()` definition APIs](#writing-tests) are stable and not expected to change
-- [`expect()` matchers API](docs/matchers-api.md) is stable and not expected to change. More are coming soon
-- Native instrumentation prebuilds are available [across many platforms](#compatibility)
-- See [Current Limitations & Roadmap](#current-limitations--roadmap) for important limitations to be aware of, and to see what's still planned.
+All [listed features](#features) are working and assumed to be bug-free ([please report any](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new))
 
-Please [report a bug or request a feature](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new) if you have something you'd like to share.
+| Function | Status |
+|---|---|
+| [`describe()` and `test()` APIs](#writing-tests) | - stable<br/>- no breaking changes expected |
+| [`expect()` API](docs/matchers-api.md) | - stable<br/>- no breaking changes expected<br/>- more coming soon |
+| Code Coverage / Instrumentation | - function coverage stable [across platforms](#compatibility)<br/>- branch & line coverage coming soon |
+| Hybrid Coverage Provider | - stable<br/>- v8 delegation, side-by-side JS coverage<br/>- istanbul delegation coming soon
+
+See Also:
+- [Current Limitations & Roadmap](#current-limitations--roadmap)
+- [Frequently Asked Questions](#frequently-asked-questions)
+- [Report a Bug / Request a Feature](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new)
 
 ---
 
@@ -166,17 +188,47 @@ npx vitest run
 
 ---
 
+## Frequently Asked Questions
+
+**Q: How does this work?**
+<br/>
+**A:** Vitest has a [custom pool API](https://vitest.dev/guide/advanced/pool.html) that lets you define the execution environment for the tests it runs (internally, vitest uses its own pools to run JavaScript and TypeScript tests). This custom pool uses the [AssemblyScript compiler](https://www.assemblyscript.org/compiler.html) to compile each test file to WASM, instruments the WASM binary for code coverage, then runs each test in an isolated WASM instance and reports results back to vitest through its standard RPC reporting mechanism.
+
+**Q: So it is really using vitest?**
+<br/>
+**A:** Yes! It's a real vitest pool, not a clone of vitest - it hooks directly into the framework, receiving tests to run from vitest and reporting results back. The pool implements its own compilation, test execution, and [matchers in AS](docs/matchers-api.md), designed to mirror the [vitest expect() API](https://vitest.dev/api/expect.html). We don't use vite build integration, but that's the tradeoff of a custom pool - you can bring any execution environment to vitest.
+
+The overall goal is tight vitest experience integration - most CLI commands, reporters, UI, and project configurations should work as you'd expect, and test runner behavior should match vitest's JS pool runner for features we've implemented (retries, timeouts, skip, only, fails, etc.). Some features aren't implemented yet due to effort and prioritization, and others necessarily differ given AssemblyScript's static typing and execution model. See the [configuration guide](docs/configuration-guide.md) and [limitations / roadmap](#current-limitations--roadmap) for specifics.
+
+**Q: Will this work on my machine?**
+<br/>
+**A:** Probably! WASM coverage instrumentation requires native binaries, and we ship [prebuilt binaries for most common platforms](#compatibility). If your platform isn't listed, the npm package installation will fallback to trying to build the native code using a local C++ toolchain.
+
+**Q: Do you support older versions of AssemblyScript?**
+<br/>
+**A:** It's tested against 0.28.9 currently, and that's the version I have any real experience with. Older versions might work but aren't actively tested. If you're stuck on an older version and run into issues, you're welcome to [open an issue](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new).
+
+**Q: Is this an official vitest project?**
+<br/>
+**A:** No, this is a third-party community project. It's not affiliated with or endorsed by the vitest team, though we're grateful for their extensible architecture that makes projects like this possible, and the [other open-source projects](#prior-work) that provide vital functionality and reference architecture.
+
+**Q: Are you a company? A bot?**
+<br/>
+**A:** Just [a person](https://github.com/themattspiral)! This started as a hobby project to improve my own AssemblyScript testing workflow and learn something about WASM internals, and it's grown from there. I use Claude Code for initial scaffolding and to help dig into the native instrumentation side in particular, but everything goes through me, and my intention is to contribute something useful and high-quality to the community. Feedback and contributions are welcome.
+
+---
+
 ## Compatibility
 
 | Dependency | Supported Versions |
 |---|---|
 | Node.js | (20*), 22, 24+ |
-| Vitest | 3.2.x, 4.x |
-| AssemblyScript | 0.28+ |
+| Vitest | 3.2.x, 4.x.x |
+| AssemblyScript | 0.28.9+ ([more?](#frequently-asked-questions)) |
 
 >ℹ️ ***Node 20 Support:** If you don't need code coverage, Node 20 should continue to work for test execution.
 >
->WASM coverage instrumentation is implemented using WebAssembly [multi-memory](https://github.com/WebAssembly/multi-memory) to isolate coverage counters from user test memory. This feature shipped in V8 12.0 / Node 22. 
+>WASM coverage instrumentation is implemented using [WebAssembly multi-memory](https://github.com/WebAssembly/multi-memory) to isolate coverage counters from user test memory. This feature shipped in V8 12.0 / Node 22.
 
 **Platforms with prebuilt native binaries for coverage instrumentation & debug info:**
 
@@ -194,8 +246,8 @@ npx vitest run
 Import `test`, `describe`, `expect` from `vitest-pool-assemblyscript/assembly`. These functions are designed to follow the vitest API as closely as possible, so that everything is familiar and easy to reason about.
 
 - `it` is available as an alias for `test`
-- `describe` and `test` have inline modifiers to quickly change their status (see below)
-- `TestOptions` allows per-test inline configuration of additional options
+- `describe` and `test` have inline modifiers to quickly change their run mode (see below)
+- `TestOptions` allows per-test inline configuration of additional options (aligned with vitest behavior)
 
 ```typescript
 import { test, it, describe, expect, TestOptions } from "vitest-pool-assemblyscript/assembly";
@@ -219,15 +271,27 @@ describe("a suite of math operations", () => {
 });
 ```
 
-### Inline Modifiers: `.skip`, `.only`, `.fails`
+### Inline Run Mode Modifiers: `.skip`, `.only`, `.fails`
+
+These modify the way in which tests run in relation to each other, and/or how they report results.
+
+They follow vitest JS-pool behavior.
 
 ```typescript
-test.skip("not ready yet", () => { /* ... */ });
+test.skip("not ready yet", () => {
+  // test will register it exists, show as skipped
+});
 
-test.only("run only this test", () => { /* ... */ });
+test.only("debugging this test", () => {
+  // test will run by itself in this file
+});
 
-test.fails("expected to fail, so will actually pass", () => {
+test.fails("conditions are expected to fail, so test will actually pass", () => {
   expect(false).toBeTruthy();
+});
+
+test.fails("conditions are expected to fail but do not, so test will actually fail", () => {
+  expect(true).toBeTruthy();
 });
 
 describe.skip("entire suite skipped", () => { /* ... */ });
@@ -237,9 +301,10 @@ describe.only("only this suite runs", () => { /* ... */ });
 
 ### Inline Test Options
 
-`TestOptions` provides chainable configuration for `timeout`, `retry`, `skip`, `only`, and `fails`.
+`TestOptions` provides chainable configuration for the vitest behavioral options: `timeout`, `retry`, `skip`, `only`, and `fails`
+- While you define them slightly differently in AssemblyScript than JavaScript, their behavior matches the same options in vitest
 - Options can be placed before or after the callback
-- Suite options are inherited by nested tests and suites
+- Suite options (in `describe`) are inherited by nested tests and nested suites
 
 ```typescript
 // options before callback
@@ -265,11 +330,15 @@ test.fails("expected failure with retry", TestOptions.retry(3), () => {
 });
 ```
 
-See the [Matchers API documentation](docs/matchers-api.md) for details on the available `expect()` methods you can use within your tests.
-
 ### Lifecycle Hooks (Setup & Teardown)
 
 Coming Soon!
+
+### Test Matchers
+
+We aim to follow the [vitest/jest `expect()` API](https://vitest.dev/api/expect.html) as closely as possible, with some necessary differences given AssemblyScript's static-typing.
+
+See the AssemblyScript Pool [Matchers API documentation](docs/matchers-api.md) for details on the available `expect()` methods you can use within your tests.
 
 ---
 
@@ -318,16 +387,16 @@ These are known limitations which are currently being worked on.
 
 ## Performance
 
-Efforts have been made to compile and run tests as quickly as possible:
-- Separate compile and test execution thread pools, workers, and runners for quicker startup and respawn
-- Compile threads tuned to take advantage of significant Node V8 engine warmup time savings on consecutive AssemblyScript compilations
+Many efforts have been made to compile and run tests as quickly as possible. Some optimizations that have been most useful:
+- Separate compile and test execution thread pools, worker thread entry points, and runners for quicker startup and thread respawn after test timeouts
+- Compile threads tuned to take advantage of significant Node V8 engine warmup time savings on consecutive AssemblyScript compilations (this is an ongoing investigation as I want to see how it behaves when scaled up significantly)
 - In-memory compiled files and source maps to eliminate intermediate disk I/O
 - Enforced hard timeouts for long-running WASM tests via thread termination, with intelligent resume
 
-As such, it is capable of compiling dozens of test files comprising hundreds of tests in a few seconds.
+As such, it is capable of compiling dozens of test files comprising hundreds of tests in a few seconds, and is likely faster on your machine than mine:
 
 <p align="center">
-  <img src="docs/images/example-fixtures-suite.gif" alt="vitest-pool-assemblyscript demo">
+  <img src="docs/images/example-fixtures-suite.gif" alt="vitest-pool-assemblyscript large suite performance demo">
 </p>
 
 ---
@@ -336,15 +405,16 @@ As such, it is capable of compiling dozens of test files comprising hundreds of 
 
 There are several core pieces of software without which this project would not be possible.
 
-- This project makes direct use of the [AssemblyScript language](https://www.assemblyscript.org) and its fantastic [compiler](https://www.assemblyscript.org/compiler.html)
-- Thanks to the [Vitest team](https://github.com/vitest-dev) for creating the framework in the first place and making it pluggable for different runtimes. Their internal pools were used as extensive reference in early phase development.
-- The key component that allows us to perform WASM instrumentation is [Binaryen](https://github.com/WebAssembly/binaryen), a C++ toolchain infrastructure library for WebAssembly.
-- Particular gratitude is owed to [assemblyscript-unittest-framework](https://github.com/wasm-ecosystem/assemblyscript-unittest-framework) for inspiring parts of our test discovery and instrumentation walking approaches.
+- This project makes direct use of the [AssemblyScript language](https://www.assemblyscript.org) and its fantastic [compiler](https://www.assemblyscript.org/compiler.html). AS is a joy to work with when it comes to WASM because it's so familiar to everyday TypeScript usage.
+- The key component that allows us to perform WASM instrumentation is [Binaryen](https://github.com/WebAssembly/binaryen), a C++ toolchain infrastructure library for WebAssembly. We started by using the fantastic [binaryen.js](https://github.com/AssemblyScript/binaryen.js/) - a JS port also from the folks behind AssemblyScript, and eventually migrated to the native library for some advanced source-map regeneration features.
+- Thanks to the [Vitest team](https://github.com/vitest-dev) for creating the framework in the first place and making it extensible for different runtimes. Their internal pools were used as reference throughout development.
+- Thanks to [`@cloudflare/vitest-pool-workers`](https://github.com/cloudflare/workers-sdk/tree/main/packages/vitest-pool-workers) for providing the leading example of a 3rd party vitest custom pool out in the wild.
+- Particular gratitude is also owed to [assemblyscript-unittest-framework](https://github.com/wasm-ecosystem/assemblyscript-unittest-framework) for inspiring our test discovery and instrumentation expression-walking approaches.
 
 ---
 
 ## License
 
-[MIT](LICENSE)
- - Portions of this software have been derived from third-party works which are licenced under different terms. Individual code contributions have been noted where applicable and are accompanied by their respective licenses.
- - See the license file and source code for details
+Licensed under the [MIT](LICENSE)
+
+Portions of this software have been derived from third-party works which are licenced under different terms. These uses have been noted and are accompanied by their respective licenses in the [project license](LICENSE) and/or in applicable source code.
