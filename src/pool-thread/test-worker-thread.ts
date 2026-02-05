@@ -10,7 +10,7 @@ import { debug, setGlobalDebugMode } from '../util/debug.js';
 import { createRpcClient } from './rpc-reporter.js';
 import { runSuite } from './runner/test-runner.js';
 import { loadUserWasmImportsFactory } from './load-user-imports.js';
-import { isCoverageSupported } from '../util/node-check.js';
+import { isNodeVersionSupportedForCoverage } from '../util/feature-check.js';
 
 const logModule = `WorkerThread` as const;
 const [_unused, initData] = workerData;
@@ -19,7 +19,7 @@ const { asPoolOptions, projectRoot } = initData as WorkerThreadInitData;
 setGlobalDebugMode(asPoolOptions.debug);
 debug(`[${logModule}] New test run pool thread created`);
 
-const COVERAGE_SUPPORTED = isCoverageSupported();
+const COVERAGE_SUPPORTED = isNodeVersionSupportedForCoverage();
 
 const createUserWasmImports: WasmImportsFactory | undefined = await loadUserWasmImportsFactory(
   asPoolOptions.wasmImportsFactory,

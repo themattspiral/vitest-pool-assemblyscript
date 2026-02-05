@@ -1,9 +1,9 @@
 {
   "targets": [
     {
-      "target_name": "wasm_binaryen_debug",
+      "target_name": "wasm_binaryen_debug_instrumenter",
       "sources": [
-        "src/native-instrumentation/addon.cpp"
+        "src/instrumentation/native/addon.cpp"
       ],
       "include_dirs": [
         # node-addon-api C++ headers (N-API wrapper)

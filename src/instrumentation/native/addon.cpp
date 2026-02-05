@@ -811,4 +811,4 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   return exports;
 }
 
-NODE_API_MODULE(wasm_binaryen_debug, Init);
+NODE_API_MODULE(wasm_binaryen_debug_instrumenter, Init);

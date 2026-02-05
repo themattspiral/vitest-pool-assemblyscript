@@ -55,7 +55,7 @@
     "dist",
     "prebuilds",
     "binding.gyp",
-    "src/native-instrumentation/addon.cpp",
+    "src/instrumentation/native/addon.cpp",
     "scripts/setup-binaryen.js",
     "scripts/install.js",
     "BINARYEN_VERSION",

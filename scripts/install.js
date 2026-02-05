@@ -4,10 +4,11 @@
  * Flow:
  * 1. Try to load a prebuilt or locally-built native addon via node-gyp-build
  * 2. If found → clean up non-matching prebuilds to save disk space, then exit
- * 3. If not found → download Binaryen dependencies, then compile from source
+ * 3. If not found → attempt to download Binaryen dependencies and compile from source
+ * 4. If compilation fails → warn and exit successfully (coverage will be unavailable)
  *
- * This makes installation seamless for users on unsupported platforms:
- * they only need a C++ compiler toolchain (standard for native Node.js addons).
+ * Installation always succeeds. Users on unsupported platforms without a C++ toolchain
+ * can still run tests - they just won't have coverage instrumentation.
  */
 
 import { execSync } from 'child_process';
@@ -67,25 +68,36 @@ try {
     stdio: 'inherit',
   });
 } catch (err) {
-  console.error('Failed to download Binaryen dependencies.');
-  console.error('The native addon is required for vitest-pool-assemblyscript.');
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
+  console.error('');
+  console.error('⚠️  Failed to download Binaryen dependencies.');
+  console.error('    Native addon will not be available.');
+  console.error('    Tests will run, but coverage features will be disabled.');
+  console.error('');
+  console.error('    Error: ' + (err instanceof Error ? err.message : String(err)));
+  console.error('');
+  process.exit(0);
 }
 
 // Step 3: Compile native addon from source
 try {
   console.log('');
   console.log('Compiling native addon...');
-  execSync('node-gyp rebuild', {
+  execSync('npx node-gyp rebuild', {
     cwd: packageRoot,
     stdio: 'inherit',
   });
   console.log('');
   console.log('Native addon compiled successfully.');
 } catch (err) {
-  console.error('Failed to compile native addon from source.');
-  console.error('Ensure a C++ compiler toolchain is installed (see https://github.com/nodejs/node-gyp#installation).');
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
+  console.error('');
+  console.error('⚠️  Failed to compile native addon from source.');
+  console.error('    Native addon will not be available.');
+  console.error('    Tests will run, but coverage features will be disabled.');
+  console.error('');
+  console.error('    To enable coverage, install a C++ compiler toolchain and reinstall:');
+  console.error('    https://github.com/nodejs/node-gyp#installation');
+  console.error('');
+  console.error('    Error: ' + (err instanceof Error ? err.message : String(err)));
+  console.error('');
+  process.exit(0);
 }

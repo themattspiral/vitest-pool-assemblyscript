@@ -9,11 +9,22 @@ import { main as ascMain } from 'assemblyscript/asc';
 import { basename, resolve } from 'node:path';
 import { access, readFile, writeFile, mkdir } from 'node:fs/promises';
 
-import { AssemblyScriptCompilerResult, AssemblyScriptCompilerOptions } from '../types/types.js';
+import type {
+  AssemblyScriptCompilerResult,
+  AssemblyScriptCompilerOptions,
+  NativeAddonInterface
+} from '../types/types.js';
 import { POOL_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
-import { instrumentForCoverage } from '../native-instrumentation/addon-interface.js';
 import { createPoolError, throwPoolErrorIfAborted } from '../util/pool-errors.js';
+import { warnASInstrumentationNotLoaded } from '../util/feature-check.js';
+
+let nativeAddon: NativeAddonInterface | undefined;
+try {
+  nativeAddon = await import('../instrumentation/addon-interface.js');
+} catch (err: any) {
+  warnASInstrumentationNotLoaded(err?.message ?? String(err));
+}
 
 const DEBUG_WRITE_FILES = false;
 
@@ -220,15 +231,15 @@ export async function compileAssemblyScript(
     debug(`${logPrefix} - Wrote WASM binary to: "${wasmPath}"`);
   }
 
-  // Instrument binary for coverage if requested
-  if (options.shouldInstrument) {
+  // Instrument binary for coverage if requested and available
+  if (options.shouldInstrument && nativeAddon) {
     throwPoolErrorIfAborted(signal);
 
     const instrumentStart = performance.now();
     const wasmBuffer = Buffer.from(cleanBinary);
     const sourceMapBuffer = Buffer.from(wasmSourceMap);
 
-    const instrumentResult = instrumentForCoverage(wasmBuffer, sourceMapBuffer, options.instrumentationOptions!, logModule, logLabel);
+    const instrumentResult = nativeAddon.instrumentForCoverage(wasmBuffer, sourceMapBuffer, options.instrumentationOptions!, logModule, logLabel);
     const instCount = instrumentResult.debugInfo.instrumentedFunctionCount;
 
     const instrumentEnd = performance.now();
