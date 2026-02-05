@@ -8,7 +8,7 @@ function fails(): i32 {
 
 describe("toBeNan", () => {
   describe("matching failures", () => {
-    test("should print "expected <value> to be NaN" [should fail]", () => {
+    test("should print \"expected <value> to be NaN\" [should fail]", () => {
       expect(77).toBeNaN();
     });
   });

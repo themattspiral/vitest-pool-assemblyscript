@@ -6,6 +6,8 @@ import { basename, relative } from 'node:path';
 import type { File } from '@vitest/runner/types';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
 
+import { toForwardSlash } from '../../util/path-utils.js';
+
 import type {
   AssemblyScriptCompilerOptions,
   AssemblyScriptConsoleLog,
@@ -70,8 +72,7 @@ export async function runCompileAndDiscover(
   try {
     await reportFileQueued(rpc, file, logModule, fileLogLabel);
 
-    // TODO - move to options helpers
-    const relativeTestFilePath = relative(projectRoot, file.filepath);
+    const relativeTestFilePath = toForwardSlash(relative(projectRoot, file.filepath));
     const instrumentationOptions: InstrumentationOptions = {
       projectRoot,
       relativeExcludedFiles: [

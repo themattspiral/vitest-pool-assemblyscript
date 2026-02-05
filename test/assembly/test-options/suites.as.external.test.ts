@@ -14,7 +14,7 @@ describe("suite with retry different than default", TestOptions.retry(5), () => 
     expect(add(1, 2)).toBe(3);
   });
 
-  test("should inherit this suite"s `retry` and [should fail]", () => {
+  test("should inherit this suite's `retry` and [should fail]", () => {
     expect(true).toBe(false);
   });
 

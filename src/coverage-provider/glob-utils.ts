@@ -8,10 +8,11 @@
  * due to recalculating relative paths. Acceptable here since this runs once at startup.
  */
 
-import { relative } from 'path';
+import { relative } from 'node:path';
 import { globSync } from 'tinyglobby';
 
 import { GlobResult } from '../types/types.js';
+import { toForwardSlash } from '../util/path-utils.js';
 
 const NODE_MODULES_GLOB = '**/node_modules/**';
 
@@ -39,7 +40,7 @@ export function globFiles(
   });
 
   return absolutePaths.map((absolute) => ({
-    absolute,
-    projectRootRelative: relative(projectRoot, absolute),
+    absolute: toForwardSlash(absolute),
+    projectRootRelative: toForwardSlash(relative(projectRoot, absolute)),
   }));
 }
