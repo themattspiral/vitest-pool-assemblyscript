@@ -315,20 +315,12 @@ export async function executeWASMTest(
   }
 
   // Extract coverage hits from coverage memory
-  if (collectCoverage) {
+  if (collectCoverage && compilation.debugInfo) {
     if (!coverageMemory) {
       throw createExecutorPoolError(
         testFileBasename,
         'executeWASMTest',
         'Coverage memory not created despite collectCoverage=true'
-      );
-    }
-
-    if (!compilation.debugInfo) {
-      throw createExecutorPoolError(
-        testFileBasename,
-        'executeWASMTest',
-        'debugInfo is required when collectCoverage=true'
       );
     }
 

@@ -15,7 +15,7 @@ import { runCompileAndDiscover } from './runner/compile-runner.js';
 import { debug, setGlobalDebugMode } from '../util/debug.js';
 import { createRpcClient } from './rpc-reporter.js';
 import { loadUserWasmImportsFactory } from './load-user-imports.js';
-import { isCoverageSupported } from '../util/node-check.js';
+import { isNodeVersionSupportedForCoverage } from '../util/feature-check.js';
 
 const logModule = `WorkerThread` as const;
 const [_unused, initData] = workerData;
@@ -24,7 +24,7 @@ const { projectRoot, asPoolOptions, asCoverageOptions } = initData as WorkerThre
 setGlobalDebugMode(asPoolOptions.debug);
 debug(`[${logModule}] New compile pool thread created`);
 
-const COVERAGE_SUPPORTED = isCoverageSupported();
+const COVERAGE_SUPPORTED = isNodeVersionSupportedForCoverage();
 
 const createUserWasmImports: WasmImportsFactory | undefined = await loadUserWasmImportsFactory(
   asPoolOptions.wasmImportsFactory,

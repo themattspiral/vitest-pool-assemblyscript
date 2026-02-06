@@ -20,3 +20,6 @@ prebuilds/
 # Binaryen (downloaded via setup script)
 third_party/
 *.tar.gz
+
+# Native build error marker (written by install script on failure)
+.native-build-error

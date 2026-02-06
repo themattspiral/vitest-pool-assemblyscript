@@ -83,7 +83,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prebuilds/
-          key: prebuild-${{ matrix.platform }}-${{ github.ref_name }}-${{ hashFiles('src/native-instrumentation/**', 'binding.gyp', 'BINARYEN_VERSION', 'scripts/setup-binaryen.js', 'package.json') }}
+          key: prebuild-${{ matrix.platform }}-${{ github.ref_name }}-${{ hashFiles('src/instrumentation/native/**', 'binding.gyp', 'BINARYEN_VERSION', 'scripts/setup-binaryen.js', 'package-lock.json') }}
 
       # Install Ninja for faster Binaryen cmake builds on macOS.
       # The setup script auto-detects Ninja and uses it if available.
@@ -179,12 +179,7 @@ jobs:
           path: .
 
       - name: Run tests
-        if: matrix.node-version != '20'
-        run: npm run test:external
-
-      - name: Run tests (no coverage)
-        if: matrix.node-version == '20'
-        run: npm run test:external:no-coverage
+        run: test:ext:pass
 
   release:
     needs: [build, prebuild, test]

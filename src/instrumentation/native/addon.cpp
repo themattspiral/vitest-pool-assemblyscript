@@ -37,10 +37,10 @@ thread_local bool DEBUG = false;
 thread_local std::string LOG_PREFIX = "InstNative";
 
 struct SourceDebugLocation {
-  bool exists;
-  uint32_t fileIndex;                  // Debug location file index
-  uint32_t lineNumber;                 // Debug location line number
-  uint32_t columnNumber;               // Debug location column number
+  bool exists = false;
+  uint32_t fileIndex = 0;              // Debug location file index
+  uint32_t lineNumber = 0;            // Debug location line number
+  uint32_t columnNumber = 0;          // Debug location column number
 };
 
 /**
@@ -272,7 +272,7 @@ SourceDebugLocation getRepresentativeLocationInBlockBody(
   Block* blockBody,
   const std::unordered_map<wasm::Expression*, std::optional<wasm::Function::DebugLocation>> debugLocations
 ) {
-  SourceDebugLocation repLoc = { .exists = false, .fileIndex = 0, .lineNumber = 0, .columnNumber = 0 };
+  SourceDebugLocation repLoc;
 
   if (DEBUG) {
     std::cout << LOG_PREFIX << " -     Checking func Block body: " << blockBody->list.size() << " body expressions" << std::endl;
@@ -310,8 +310,8 @@ SourceDebugLocation getRepresentativeLocationInBlockBody(
 }
 
 SourceDebugLocation getRepresentativeLocation(Function* func) {
-  SourceDebugLocation repLoc = { .exists = false, .fileIndex = 0, .lineNumber = 0, .columnNumber = 0 };
-  
+  SourceDebugLocation repLoc;
+
   // Get body expression debug location
   Expression* body = func->body;
 
@@ -811,4 +811,4 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   return exports;
 }
 
-NODE_API_MODULE(wasm_binaryen_debug, Init);
+NODE_API_MODULE(wasm_binaryen_debug_instrumenter, Init);

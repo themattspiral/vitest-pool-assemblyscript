@@ -13,9 +13,7 @@ import { createRequire } from 'node:module';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { debug } from '../util/debug.js';
-import { toForwardSlash } from '../util/path-utils.js';
-import {
+import type {
   NativeAddon,
   NativeInstrumentationResult,
   NativeDebugInfoOutput,
@@ -29,18 +27,22 @@ import {
   InstrumentationResult,
   NativeInstrumentationOptions,
   InstrumentationOptions,
+  InstrumentForCoverageFunc,
 } from '../types/types.js';
 import { POOL_ERROR_NAMES, INTERNAL_PATH_LIB_PREFIX } from '../types/constants.js';
+import { debug } from '../util/debug.js';
+import { toForwardSlash } from '../util/path-utils.js';
 import { createPoolError } from '../util/pool-errors.js';
 import { getShortFunctionName } from '../wasm-executor/wasm-names.js';
 
 // Load the native addon via node-gyp-build
 // node-gyp-build checks: prebuilds/ first, then build/Release/
 // It searches from the given directory for a package.json to find the package root.
-// We run from dist/ (published) or src/ (dev/tests), so we try both root paths.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const rootFromDist = resolve(__dirname, '..');
+// TODO: Verify if this src fallback is still needed — pool always runs from dist/ even locally.
+// If confirmed dead code, remove this and simplify to a single nodeGypBuild call.
 const rootFromSrc = resolve(__dirname, '../..');
 
 const require = createRequire(import.meta.url);
@@ -54,9 +56,9 @@ try {
     addon = nodeGypBuild(rootFromSrc);
   } catch (err) {
     throw createPoolError(
-      `Native addon not found. Searched from ${rootFromDist} and ${rootFromSrc}. ` +
-      `Ensure prebuilds are available or run 'npm run build:native' to compile from source. ` +
-      `Original error: ${err instanceof Error ? err.message : String(err)}`,
+      `vitest-pool-assemblyscript native instrumentation addon not found. Searched from ${rootFromDist} and ${rootFromSrc}. `
+      + `Ensure prebuilds are available or run 'node node_modules/vitest-pool-assemblyscript/scripts/install.js'`
+      + ` to compile from source. Original error: ${err instanceof Error ? err.message : String(err)}`,
       POOL_ERROR_NAMES.WASMInstrumentationError
     );
   }
@@ -295,13 +297,13 @@ function transformDebugInfo(
  * @throws {TypeError} If wasmBuffer or sourceMapBuffer are not Buffers
  * @throws {Error} If WASM binary or source map is invalid
  */
-export function instrumentForCoverage(
+export const instrumentForCoverage: InstrumentForCoverageFunc = (
   wasmBuffer: Buffer,
   sourceMapBuffer: Buffer,
   instrumentationOptions: InstrumentationOptions,
   logModule: string,
   logLabel: string,
-): InstrumentationResult {
+): InstrumentationResult => {
   if (!Buffer.isBuffer(wasmBuffer)) {
     throw createPoolError(
       'instrumentForCoverage - wasmBuffer must be a Buffer',

@@ -42,7 +42,7 @@ import {
   POOL_ERROR_NAMES,
   COVERAGE_PAYLOAD_FORMATS
 } from '../types/constants.js';
-import { warnIfASCoverageNotSupported } from '../util/node-check.js';
+import { warnIfASCoverageNotSupportedByNode, warnIfNativeBuildFailed } from '../util/feature-check.js';
 
 export class HybridCoverageProvider implements CoverageProvider {
   name = 'hybrid-assemblyscript-v8' as const;
@@ -74,7 +74,8 @@ export class HybridCoverageProvider implements CoverageProvider {
     this.v8Provider.name = 'hybrid-assemblyscript-v8 (delegated v8 reporter)' as const;
     debug('[HybridCoverageProvider] Initialized with delegated v8 provider');
 
-    warnIfASCoverageNotSupported();
+    warnIfASCoverageNotSupportedByNode();
+    await warnIfNativeBuildFailed();
   }
 
   /**

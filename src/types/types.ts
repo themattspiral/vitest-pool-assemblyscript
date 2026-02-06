@@ -49,6 +49,18 @@ export interface AssemblyScriptPoolError extends Error {
  */
 export type AssemblyScriptTestError = TestError & { name: TestErrorName | PoolErrorName };
 
+/**
+ * Native build error marker file content.
+ * Written by install script when native addon compilation fails.
+ * Read at runtime to display detailed error information to users.
+ */
+export interface NativeBuildError {
+  stage: 'binaryen-download' | 'native-compile';
+  error: string;
+  platform: string;
+  timestamp: string;
+}
+
 // ============================================================================
 // User Configuration
 // ============================================================================
@@ -447,6 +459,18 @@ export interface NativeSourceLocation extends Omit<SourceLocation, 'filePath'> {
 export interface NativeInstrumentationOptions extends Omit<InstrumentationOptions, 'relativeExcludedFiles' | 'projectRoot'> {
   excludedFiles?: string[];
   logPrefix?: string;
+}
+
+export type InstrumentForCoverageFunc = (
+  wasmBuffer: Buffer,
+  sourceMapBuffer: Buffer,
+  instrumentationOptions: InstrumentationOptions,
+  logModule: string,
+  logLabel: string,
+) => InstrumentationResult;
+
+export interface NativeAddonInterface {
+  instrumentForCoverage: InstrumentForCoverageFunc;
 }
 
 /**
