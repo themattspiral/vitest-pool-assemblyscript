@@ -17,13 +17,22 @@ import type {
 import { POOL_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
 import { createPoolError, throwPoolErrorIfAborted } from '../util/pool-errors.js';
-import { warnASInstrumentationNotLoaded } from '../util/feature-check.js';
+import { clearNativeBuildError, hasNativeBuildError, warnASInstrumentationNotLoaded } from '../util/feature-check.js';
 
 let nativeAddon: NativeAddonInterface | undefined;
 try {
   nativeAddon = await import('../instrumentation/addon-interface.js');
+  // Addon loaded successfully — clear any stale build error marker (fire and forget)
+  clearNativeBuildError();
 } catch (err: any) {
-  warnASInstrumentationNotLoaded(err?.message ?? String(err));
+  const knownBuildFailure = await hasNativeBuildError();
+  if (knownBuildFailure) {
+    // Marker file exists — coverage provider will warn the user, just debug log here
+    debug(`[Compiler] Native instrumentation addon not loaded (known build failure): ${err?.message ?? String(err)}`);
+  } else {
+    // Unexpected failure — no marker file, warn the user
+    warnASInstrumentationNotLoaded(err?.message ?? String(err));
+  }
 }
 
 const DEBUG_WRITE_FILES = false;

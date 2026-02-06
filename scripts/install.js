@@ -5,23 +5,59 @@
  * 1. Try to load a prebuilt or locally-built native addon via node-gyp-build
  * 2. If found → clean up non-matching prebuilds to save disk space, then exit
  * 3. If not found → attempt to download Binaryen dependencies and compile from source
- * 4. If compilation fails → warn and exit successfully (coverage will be unavailable)
+ * 4. If compilation fails → write error to marker file and exit successfully
  *
  * Installation always succeeds. Users on unsupported platforms without a C++ toolchain
- * can still run tests - they just won't have coverage instrumentation.
+ * can still run tests - they just won't have coverage instrumentation. The pool checks
+ * for the marker file at runtime and displays a warning with the build error details.
  */
 
 import { execSync } from 'child_process';
 import { createRequire } from 'node:module';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readdirSync, rmSync, existsSync } from 'node:fs';
+import { readdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const packageRoot = resolve(__dirname, '..');
 
 const require = createRequire(import.meta.url);
+
+// Marker file written when native build fails - checked at runtime to warn users
+const NATIVE_BUILD_ERROR_FILE = join(packageRoot, '.native-build-error');
+
+/**
+ * Write a marker file indicating native build failure.
+ * The pool reads this at runtime to display a warning to users.
+ */
+function writeNativeBuildError(stage, errorMessage) {
+  const content = JSON.stringify({
+    stage,
+    error: errorMessage,
+    platform: `${process.platform}-${process.arch}`,
+    timestamp: new Date().toISOString(),
+  }, null, 2);
+
+  try {
+    writeFileSync(NATIVE_BUILD_ERROR_FILE, content, 'utf8');
+  } catch {
+    // Non-critical - worst case user just doesn't see the detailed error
+  }
+}
+
+/**
+ * Remove the marker file if it exists (on successful build).
+ */
+function clearNativeBuildError() {
+  try {
+    if (existsSync(NATIVE_BUILD_ERROR_FILE)) {
+      rmSync(NATIVE_BUILD_ERROR_FILE);
+    }
+  } catch {
+    // Non-critical
+  }
+}
 
 /**
  * Remove prebuild directories that don't match the current platform.
@@ -50,8 +86,9 @@ function cleanUnusedPrebuilds() {
 try {
   const nodeGypBuild = require('node-gyp-build');
   nodeGypBuild(packageRoot);
-  // Addon loaded successfully — clean up unused prebuilds and exit
+  // Addon loaded successfully — clean up unused prebuilds and marker file, then exit
   cleanUnusedPrebuilds();
+  clearNativeBuildError();
   process.exit(0);
 } catch {
   // No prebuild or local build found — fall through to source build
@@ -65,16 +102,11 @@ try {
   console.log('Downloading Binaryen dependencies...');
   execSync('node scripts/setup-binaryen.js', {
     cwd: packageRoot,
-    stdio: 'inherit',
+    stdio: 'pipe',
   });
 } catch (err) {
-  console.error('');
-  console.error('⚠️  Failed to download Binaryen dependencies.');
-  console.error('    Native addon will not be available.');
-  console.error('    Tests will run, but coverage features will be disabled.');
-  console.error('');
-  console.error('    Error: ' + (err instanceof Error ? err.message : String(err)));
-  console.error('');
+  const errorOutput = err?.stderr?.toString() || err?.stdout?.toString() || (err instanceof Error ? err.message : String(err));
+  writeNativeBuildError('binaryen-download', errorOutput);
   process.exit(0);
 }
 
@@ -84,20 +116,13 @@ try {
   console.log('Compiling native addon...');
   execSync('npx node-gyp rebuild', {
     cwd: packageRoot,
-    stdio: 'inherit',
+    stdio: 'pipe',
   });
   console.log('');
   console.log('Native addon compiled successfully.');
+  clearNativeBuildError();
 } catch (err) {
-  console.error('');
-  console.error('⚠️  Failed to compile native addon from source.');
-  console.error('    Native addon will not be available.');
-  console.error('    Tests will run, but coverage features will be disabled.');
-  console.error('');
-  console.error('    To enable coverage, install a C++ compiler toolchain and reinstall:');
-  console.error('    https://github.com/nodejs/node-gyp#installation');
-  console.error('');
-  console.error('    Error: ' + (err instanceof Error ? err.message : String(err)));
-  console.error('');
+  const errorOutput = err?.stderr?.toString() || err?.stdout?.toString() || (err instanceof Error ? err.message : String(err));
+  writeNativeBuildError('native-compile', errorOutput);
   process.exit(0);
 }

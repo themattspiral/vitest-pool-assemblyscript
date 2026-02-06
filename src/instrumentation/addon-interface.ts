@@ -38,10 +38,11 @@ import { getShortFunctionName } from '../wasm-executor/wasm-names.js';
 // Load the native addon via node-gyp-build
 // node-gyp-build checks: prebuilds/ first, then build/Release/
 // It searches from the given directory for a package.json to find the package root.
-// We run from dist/ (published) or src/ (dev/tests), so we try both root paths.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const rootFromDist = resolve(__dirname, '..');
+// TODO: Verify if this src fallback is still needed — pool always runs from dist/ even locally.
+// If confirmed dead code, remove this and simplify to a single nodeGypBuild call.
 const rootFromSrc = resolve(__dirname, '../..');
 
 const require = createRequire(import.meta.url);
