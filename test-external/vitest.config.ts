@@ -25,16 +25,16 @@ export default defineConfig({
     projects: [
       defineProject({
         test: {
-          name: {
-            label: 'as-external-suite',
-            color: 'yellow'
-          },
+          name: { label: 'as-pool-meta', color: 'yellow' },
 
           include: [
-            '../vitest-pool-assemblyscript/test/assembly/**/*.external.test.ts',
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta.test.ts',
           ],
 
           pool: createAssemblyScriptPool({
+            debug: false,
+            debugNative: false,
+            debugCoverageExtract: false,
             wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
           }),
         }
@@ -42,19 +42,19 @@ export default defineConfig({
       
       defineProject({
         test: {
-          name: {
-            label: 'as-passing-suite',
-            color: 'green'
-          },
+          name: { label: 'as-pool-passing', color: 'green' },
 
           include: [
             '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts',
           ],
           exclude: [
-            '../vitest-pool-assemblyscript/test/assembly/**/*.external.test.ts',
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta.test.ts',
           ],
 
           pool: createAssemblyScriptPool({
+            debug: false,
+            debugNative: false,
+            debugCoverageExtract: false,
             wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
           }),
         }

@@ -7,16 +7,13 @@ export default defineConfig({
     environment: 'node',
     reporters: ['verbose'],
 
-    name: {
-      label: 'as-passing-suite',
-      color: 'green'
-    },
+    name: { label: 'as-pool-passing', color: 'green' },
 
     include: [
       '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts',
     ],
     exclude: [
-      '../vitest-pool-assemblyscript/test/assembly/**/*.external.test.ts',
+      '../vitest-pool-assemblyscript/test/assembly/**/*.meta.test.ts',
     ],
 
     coverage: {
@@ -29,7 +26,9 @@ export default defineConfig({
       assemblyScriptInclude: [
         '../vitest-pool-assemblyscript/test/assembly-src/**/*.ts'
       ],
-      assemblyScriptExclude: [ '../vitest-pool-assemblyscript/test/assembly-src/**/*.external.ts' ],
+      assemblyScriptExclude: [
+        '../vitest-pool-assemblyscript/test/assembly-src/**/*.meta.ts'
+      ],
 
       debugIstanbul: false,
 
@@ -44,10 +43,6 @@ export default defineConfig({
       debug: false,
       debugNative: false,
       debugCoverageExtract: false,
-
-      // we don't do internal instrumentation when we're running externally
-      _instrumentPoolInternals: false,
-
       wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
     }),
   },

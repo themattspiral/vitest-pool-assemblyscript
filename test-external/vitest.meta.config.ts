@@ -7,13 +7,10 @@ export default defineConfig({
     environment: 'node',
     reporters: ['verbose'],
 
-    name: {
-      label: 'as-external-suite',
-      color: 'yellow'
-    },
+    name: { label: 'as-pool-meta', color: 'yellow' },
 
     include: [
-      '../vitest-pool-assemblyscript/test/assembly/**/*.external.test.ts',
+      '../vitest-pool-assemblyscript/test/assembly/**/*.meta.test.ts',
     ],
 
     coverage: {
@@ -25,8 +22,7 @@ export default defineConfig({
       
       include: [ '!*' ],
       assemblyScriptInclude: [
-        // we're reporting on our crafted fixtures and fixture source for these external tests
-        '../vitest-pool-assemblyscript/test/assembly-src/**/*.external.ts'
+        '../vitest-pool-assemblyscript/test/assembly-src/**/*.meta.ts'
       ],
 
       debugIstanbul: false,
@@ -36,10 +32,6 @@ export default defineConfig({
       debug: false,
       debugNative: false,
       debugCoverageExtract: false,
-
-      // we don't do internal instrumentation when we're external - save reporting on that for the local run
-      _instrumentPoolInternals: false,
-
       wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
     }),
   },

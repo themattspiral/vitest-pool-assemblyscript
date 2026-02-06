@@ -18,7 +18,7 @@
  */
 
 import { test, expect } from "vitest-pool-assemblyscript/assembly";
-import { helperThatFails, outerHelper } from "../../assembly-src/sourcemap-utils.external";
+import { helperThatFails, outerHelper } from "../../assembly-src/sourcemap-utils.meta";
 
 
 // Test 1: Error at line 25, column 36 - ASSERT_ERROR@25:36

@@ -11,47 +11,31 @@ export default defineConfig({
     coverage: {
       enabled: true,
       reportOnFailure: true,
-      reportsDirectory: 'coverage/',
+      reportsDirectory: 'coverage/meta-suite/',
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       
-      // include: [ 'src/**/*.{ts,js,mts,mjs}' ],
-      include: [ '!*' ],
+      include: [ '!*' ],  // no js
       
       assemblyScriptInclude: [
-        'assembly/**/*.ts',         // actual pool internals
-        'test/assembly-src/**/*.ts' // passing (100% coverage) test source (meta excluded) 
-      ],
-      assemblyScriptExclude: [
-        'test/assembly-src/**/*.meta.ts' // non-100% scenarios
+        'test/assembly-src/**/*.meta.ts'
       ],
 
       debugIstanbul: false,
     },
 
     projects: [
-      defineProject({
-        test: {
-          name: { label: 'ts-pool', color: 'blue' },
-          include: [ 'test/**/*.test.ts' ],
-          exclude: [ 'test/assembly/**/*' ]
-        }
-      }),
-
       defineAssemblyScriptProject({
         test: {
-          name: { label: 'as-pool-passing', color: 'green' },
-          include: ['test/assembly/**/*.test.ts'],
-          exclude: ['test/assembly/**/*.meta.test.ts'],
+          name: { label: 'as-pool-meta', color: 'yellow' },
+          include: ['test/assembly/**/*.meta.test.ts'],
           
           pool: createAssemblyScriptPool({
             debug: false,
             debugNative: false,
             debugCoverageExtract: false,
             wasmImportsFactory: 'test/helpers/create-user-imports.js',
-
-            // instrument our pool internals to get our own (usually excluded) coverage
-            _instrumentPoolInternals: true,
+            _instrumentPoolInternals: false,
           }),
         }
       })

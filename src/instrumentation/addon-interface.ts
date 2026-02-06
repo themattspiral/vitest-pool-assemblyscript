@@ -57,7 +57,7 @@ try {
   } catch (err) {
     throw createPoolError(
       `vitest-pool-assemblyscript native instrumentation addon not found. Searched from ${rootFromDist} and ${rootFromSrc}. `
-      + `Ensure prebuilds are available or run 'node node_modules/vitest-pool-assemblyscript/scripts/install.js'`
+      + `Ensure prebuilds are available or run 'node node_modules/vitest-pool-assemblyscript/scripts/install-native-addon.js'`
       + ` to compile from source. Original error: ${err instanceof Error ? err.message : String(err)}`,
       POOL_ERROR_NAMES.WASMInstrumentationError
     );

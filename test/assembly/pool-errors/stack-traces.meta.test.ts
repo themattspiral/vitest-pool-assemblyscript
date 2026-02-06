@@ -1,6 +1,6 @@
 import { test, expect, describe } from "vitest-pool-assemblyscript/assembly";
-import * as fail from "../../assembly-src/failure-utils.external";
-import { throwsError } from "../../assembly-src/inline-utils.external";
+import * as fail from "../../assembly-src/failure-utils.meta";
+import { throwsError } from "../../assembly-src/inline-utils.meta";
 
 describe("function and callback combinations", () => {
   test("failNamedFunc [should fail]", () => {

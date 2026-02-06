@@ -4,7 +4,7 @@
  */
 
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { fails } from "../../assembly-src/failure-utils.external";
+import { fails } from "../../assembly-src/failure-utils.meta";
 import { fibonacciRecursive } from "../../assembly-src/computation-utils";
 
 test("console log is still printed for failed test [should fail]", () => {

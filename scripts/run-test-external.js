@@ -39,7 +39,7 @@ console.log('');
 
 try {
   execSync(vitestCommand, {
-    cwd: EXTERNAL_DIR,
+    cwd: EXTERNAL_DIR,  // we running in the external project here
     stdio: 'inherit',
   });
 } catch (error) {

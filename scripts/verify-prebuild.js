@@ -1,5 +1,5 @@
 /**
- * Verify that prebuild files exist after artifact download.
+ * Verify that prebuild files exist after artifact download in GitHub Actions.
  *
  * Workaround for actions/download-artifact#454: the action can silently
  * exit 0 with an incomplete or empty download. This script verifies the
