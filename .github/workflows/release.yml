@@ -191,6 +191,9 @@ jobs:
           name: build-output
           path: .
 
+      - name: Setup External Test Directory
+        run: npm run test:ext:setup
+        
       - name: Test Passing Suite Externally
         if: matrix.node-version != '20'
         run: npm run test:ext:pass
