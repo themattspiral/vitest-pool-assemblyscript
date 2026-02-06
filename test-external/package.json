@@ -10,13 +10,12 @@
   "scripts": {
     "// NOT TO BE USED DIRECTLY": " This is a template project! ",
     "// SETUP": "  scripts/setup-test-external.js copies this template to a sibling dir and installs our npm packed project ",
-    "// RUNNER": " scripts/run-test-external.js executes vitest in the sibling dir, passing arguments needed to configure the run ",
+    "// RUNNER": " scripts/run-vitest.js executes vitest in the sibling dir, passing arguments needed to configure the run ",
     "// USAGE": "  From vitest-pool-assemblyscript: `npm run test:ext:pass` OR `npm run test:ext:meta` OR `npm run test:ext:all` ",
     "// CI": "     Runs `npm run test:ext:pass` for normal CI and for Release workflow",
     "// META": "  (FUTURE) Local JS test (in beforeAll?) runs `scripts/setup-test-external.js` ",
-    "// META2": " (FUTURE) Local JS test (in beforeAll?) runs `scripts/run-test-external.js -c vitest.meta.config.ts ",
-    "// META3": " (FUTURE) Local JS test (in beforeAll?) runs `scripts/run-test-external.js -c vitest.meta.config.ts ",
-    "// META4": " (FUTURE) run-test-external.js captures all output and returns to Local JS tests ",
-    "// META5": " (FUTURE) Local JS tests verify meta output is correct (failure scenarios, etc)"
+    "// META2": " (FUTURE) Local JS test (in beforeAll?) runs `scripts/run-vitest.js -c vitest.meta.config.ts ",
+    "// META3": " (FUTURE) run-vitest.js captures all output and returns to Local JS tests ",
+    "// META4": " (FUTURE) Local JS tests verify meta output is correct (failure scenarios, etc)"
   }
 }
