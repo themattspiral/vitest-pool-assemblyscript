@@ -46,10 +46,21 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Run tests
-        if: matrix.node-version != '20'
-        run: npm run test:external
+      - name: Setup External Test Directory
+        run: npm run test:ext:setup
 
-      - name: Run tests (no coverage)
+      - name: Test Passing Suite Externally
+        if: matrix.node-version != '20'
+        run: npm run test:ext:pass
+
+      - name: Test Meta Verify Suite Externally
+        if: matrix.node-version != '20'
+        run: npm run test:ext:meta:verify
+
+      - name: Test Passing Suite Externally (No Coverage)
         if: matrix.node-version == '20'
-        run: npm run test:external:no-coverage
+        run: npm run test:ext:pass:no-cov
+
+      - name: Test Meta Verify Suite Externally (No Coverage)
+        if: matrix.node-version == '20'
+        run: npm run test:ext:meta:verify:no-cov
