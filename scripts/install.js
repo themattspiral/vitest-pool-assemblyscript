@@ -82,6 +82,12 @@ function cleanUnusedPrebuilds() {
   }
 }
 
+// Skip native build when explicitly requested (e.g. CI prebuild jobs that
+// will build separately via prebuildify, avoiding a redundant compile)
+if (process.env.VITEST_POOL_AS_SKIP_NATIVE_BUILD) {
+  process.exit(0);
+}
+
 // Step 1: Check if a prebuild or local build already exists
 try {
   const nodeGypBuild = require('node-gyp-build');

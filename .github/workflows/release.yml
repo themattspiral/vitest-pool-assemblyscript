@@ -13,6 +13,7 @@ on:
         default: true
 
 jobs:
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -27,6 +28,8 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        env:
+          VITEST_POOL_AS_SKIP_NATIVE_BUILD: 1
 
       - name: Type check
         run: npm run tc
@@ -102,6 +105,8 @@ jobs:
       - name: Install dependencies
         if: steps.prebuild-cache.outputs.cache-hit != 'true'
         run: npm ci
+        env:
+          VITEST_POOL_AS_SKIP_NATIVE_BUILD: 1
 
       - name: Create prebuild
         if: steps.prebuild-cache.outputs.cache-hit != 'true'
@@ -160,6 +165,19 @@ jobs:
         with:
           name: ${{ matrix.prebuild-artifact }}
           path: prebuilds/
+
+      # Workaround for actions/download-artifact#454: the action can silently
+      # exit 0 with an incomplete or empty download. Verify the prebuild files
+      # actually exist so we don't cascade into an unnecessary source build.
+      - name: Verify prebuild downloaded
+        shell: bash
+        run: |
+          if [ ! -d prebuilds ] || [ -z "$(ls -A prebuilds)" ]; then
+            echo "::error::Prebuild directory is missing or empty after download"
+            exit 1
+          fi
+          echo "Prebuild contents:"
+          find prebuilds -type f
 
       # Skip setup-node for container jobs (Node.js is provided by the container image)
       - name: Set up Node.js ${{ matrix.node-version }}
@@ -220,12 +238,10 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
-      # we don't need to check for prebuilds or compile because we know we've downloaded
-      # them already, so `--ignore-scripts` stops install.js from running. This in turn
-      # prevents it from cleaning up our unused prebuilds on this runner before they can
-      # be packaged
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm ci
+        env:
+          VITEST_POOL_AS_SKIP_NATIVE_BUILD: 1
 
       - name: Run semantic-release
         run: npx semantic-release ${{ inputs.dry-run == true && '--dry-run' || '' }}
