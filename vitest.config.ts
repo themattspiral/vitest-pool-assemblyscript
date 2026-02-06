@@ -17,11 +17,7 @@ export default defineConfig({
       
       // include: [ 'src/**/*.{ts,js,mts,mjs}' ],
       include: [ '!*' ],
-      assemblyScriptInclude: [
-        'assembly/**/*.ts',
-        'test/assembly-src/**/*.ts'
-      ],
-      assemblyScriptExclude: [ 'test/assembly-src/**/*.external.ts' ],
+      assemblyScriptInclude: [ 'assembly/**/*.ts' ],
 
       debugIstanbul: false,
     },
@@ -40,6 +36,7 @@ export default defineConfig({
           name: { label: 'as-pool', color: 'yellow' },
           include: ['test/assembly/**/*.test.ts'],
           exclude: ['test/assembly/**/*.external.test.ts'],
+          
           pool: createAssemblyScriptPool({
             debug: false,
             debugNative: false,

@@ -179,12 +179,7 @@ jobs:
           path: .
 
       - name: Run tests
-        if: matrix.node-version != '20'
-        run: npm run test:external
-
-      - name: Run tests (no coverage)
-        if: matrix.node-version == '20'
-        run: npm run test:external:no-coverage
+        run: test:ext:pass
 
   release:
     needs: [build, prebuild, test]
