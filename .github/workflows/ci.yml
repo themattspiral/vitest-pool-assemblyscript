@@ -31,5 +31,8 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Test
+      - name: Test Passing Suite Externally
         run: npm run test:ext:pass
+        
+      - name: Test Meta Verify Suite Externally
+        run: npm run test:ext:meta:verify

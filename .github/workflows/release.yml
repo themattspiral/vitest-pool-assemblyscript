@@ -191,13 +191,21 @@ jobs:
           name: build-output
           path: .
 
-      - name: Run tests
+      - name: Test Passing Suite Externally
         if: matrix.node-version != '20'
         run: npm run test:ext:pass
+        
+      - name: Test Meta Verify Suite Externally
+        if: matrix.node-version != '20'
+        run: npm run test:ext:meta:verify
 
-      - name: Run tests (no coverage)
+      - name: Test Passing Suite Externally (No Coverage)
         if: matrix.node-version == '20'
         run: npm run test:ext:pass:no-cov
+
+      - name: Test Meta Verify Suite Externally (No Coverage)
+        if: matrix.node-version == '20'
+        run: npm run test:ext:meta:verify:no-cov
 
   release:
     needs: [build, prebuild, test]
