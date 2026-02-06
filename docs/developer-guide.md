@@ -8,7 +8,7 @@
 - Vitest 3.2.4+ or 4.0.0+
 - AssemblyScript 0.28+
 - C++ build tools (dev only - distributed package includes prebuilds):
-  - GCC 7+ or Clang 5+ (C++20 support required)
+  - GCC 7+ or Clang 5+ (C++17 support required)
   - Python 3.x (required by node-gyp)
 
 ### Setup
