@@ -179,7 +179,7 @@ jobs:
           path: .
 
       - name: Run tests
-        run: test:ext:pass
+        run: npm run test:ext:pass
 
   release:
     needs: [build, prebuild, test]
