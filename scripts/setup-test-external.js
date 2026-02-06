@@ -69,7 +69,7 @@ if (!existsSync(tarballPath)) {
 }
 
 console.log('');
-console.log(`Step 4: Installing tarball in external directory...`);
+console.log(`Step 4: Installing tarball and all dependencies in external directory...`);
 execSync(`npm install "${tarballFilename}"`, {
   cwd: EXTERNAL_DIR,  // we running in the external project here
   stdio: 'inherit',
