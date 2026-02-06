@@ -145,9 +145,11 @@ jobs:
           - os: ubuntu-latest
             node-version: '20'
             prebuild-artifact: prebuild-linux-x64
-          # Alpine/musl: test on Node 22 (minimum supported version with coverage)
+          # Alpine/musl: test on Node 22 (minimum supported version with coverage).
+          # Uses '22-alpine' to avoid colliding with the ubuntu-latest + '22'
+          # cross-product entry (setup-node is skipped for container jobs).
           - os: ubuntu-latest
-            node-version: '22'
+            node-version: '22-alpine'
             prebuild-artifact: prebuild-linux-x64-musl
             container: node:22-alpine
     steps:
@@ -170,14 +172,7 @@ jobs:
       # exit 0 with an incomplete or empty download. Verify the prebuild files
       # actually exist so we don't cascade into an unnecessary source build.
       - name: Verify prebuild downloaded
-        shell: bash
-        run: |
-          if [ ! -d prebuilds ] || [ -z "$(ls -A prebuilds)" ]; then
-            echo "::error::Prebuild directory is missing or empty after download"
-            exit 1
-          fi
-          echo "Prebuild contents:"
-          find prebuilds -type f
+        run: node scripts/verify-prebuild.js
 
       # Skip setup-node for container jobs (Node.js is provided by the container image)
       - name: Set up Node.js ${{ matrix.node-version }}
