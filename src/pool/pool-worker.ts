@@ -314,6 +314,11 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   }
 
   // @ts-ignore
+  // pools are never explicitly destroyed.
+  // - vitest processes are short-lived
+  // - when PoolWorkers are stopped, they cleanup actively-running thread tasks
+  // - in practice stop happens after every run, even in watch mode
+  // - keeping pools hot is desirable for watch mode re-runs, so we maintain our pools
   private async destroyGlobalPoolsIfNeeded(): Promise<void> {
     if (GLOBAL_RUNNING_POOLWORKER_COUNT === 0 && GLOBAL_POOLS_PROMISE) {
       const destroyStart = performance.now();
@@ -383,7 +388,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       config: this.config!,
       isCollectTestsMode: this.isCollectTestsMode,
     } satisfies RunCompileAndDiscoverTask, {
-      name: 'runCompileAndDisoverSpec',
+      name: 'runCompileAndDiscoverSpec',
       transferList: [workerPort],
       signal: GLOBAL_POOL_ABORT_CONTROLLER!.signal,
     });

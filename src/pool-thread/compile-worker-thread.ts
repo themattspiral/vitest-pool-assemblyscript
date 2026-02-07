@@ -32,7 +32,7 @@ const createUserWasmImports: WasmImportsFactory | undefined = await loadUserWasm
   logModule
 );
 
-export async function runCompileAndDisoverSpec(data: RunCompileAndDiscoverTask): Promise<ThreadSpec> {
+export async function runCompileAndDiscoverSpec(data: RunCompileAndDiscoverTask): Promise<ThreadSpec> {
   const { dispatchStart, workerId, file, port, config } = data;
 
   const dispatchToInit = Date.now() - dispatchStart;
