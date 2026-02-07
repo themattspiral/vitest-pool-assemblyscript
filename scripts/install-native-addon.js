@@ -111,7 +111,9 @@ try {
     stdio: 'pipe',
   });
 } catch (err) {
-  const errorOutput = err?.stderr?.toString() || err?.stdout?.toString() || (err instanceof Error ? err.message : String(err));
+  const stdout = err?.stdout?.toString() || '';
+  const stderr = err?.stderr?.toString() || '';
+  const errorOutput = [stdout, stderr].filter(Boolean).join('\n') || (err instanceof Error ? err.message : String(err));
   writeNativeBuildError('binaryen-download', errorOutput);
   process.exit(0);
 }
@@ -128,7 +130,9 @@ try {
   console.log('Native addon compiled successfully.');
   clearNativeBuildError();
 } catch (err) {
-  const errorOutput = err?.stderr?.toString() || err?.stdout?.toString() || (err instanceof Error ? err.message : String(err));
+  const stdout = err?.stdout?.toString() || '';
+  const stderr = err?.stderr?.toString() || '';
+  const errorOutput = [stdout, stderr].filter(Boolean).join('\n') || (err instanceof Error ? err.message : String(err));
   writeNativeBuildError('native-compile', errorOutput);
   process.exit(0);
 }

@@ -103,8 +103,11 @@ function runCapture({ cwd, args }) {
     ...args,
   ];
 
+  // shell: true is required on Windows where npx is a .cmd batch wrapper
+  // that spawnSync can't resolve without the system shell
   const result = spawnSync('npx', captureArgs, {
     cwd,
+    shell: true,
     stdio: ['inherit', 'pipe', 'pipe'],
     encoding: 'utf-8',
   });
