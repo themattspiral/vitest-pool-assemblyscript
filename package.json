@@ -87,6 +87,7 @@
     "test:ext:meta:verify:no-cov": "cross-env RUN_CONTEXT=external_no_coverage vitest run test/meta/ --coverage.enabled=false",
     "test:ext:all": "node scripts/run-vitest.js",
     "//---- test shortcuts ----": "",
+    "mtest": "npm run test:meta",
     "mvtest": "npm run test:meta:verify",
     "eptest": "npm run test:ext:setup && npm run test:ext:pass",
     "emtest": "npm run test:ext:setup && npm run test:ext:meta",

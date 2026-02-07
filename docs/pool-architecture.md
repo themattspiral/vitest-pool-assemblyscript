@@ -16,7 +16,6 @@ The primary architecture targets **vitest 4.x** using the `PoolWorker` API. Vite
 - [RPC Communication](#rpc-communication)
 - [Coverage Architecture Summary](#coverage-architecture-summary)
 - [Native Build & Distribution](#native-build--distribution)
-- [Testing Architecture](#testing-architecture)
 - [CI/CD Pipeline](#cicd-pipeline)
 - [Vitest 3 Compatibility](#vitest-3-compatibility)
 
@@ -570,72 +569,6 @@ If the native build failed during install, the `.native-build-error` marker file
 
 ---
 
-## Testing Architecture
-
-### Local vs External Testing
-
-**Local tests** run the pool against local TypeScript source (unbundled), using vitest's project configuration. This is the primary development feedback loop.
-
-**External tests** validate the published package by running against an `npm pack`-ed and installed tarball. The [`scripts/setup-test-external.js`](../scripts/setup-test-external.js) script:
-1. Cleans the sibling directory `../vitest-pool-assemblyscript-test-external/`
-2. Copies the `test-external/` template (configs, package.json) into it
-3. Runs `npm pack` to create a tarball
-4. Installs the tarball and dependencies in the external directory
-
-This validates that dist output, package.json exports, entry points, prebuilt binaries, and bundled dependencies all work correctly in a real install scenario.
-
-### Standard Tests vs Meta Tests
-
-**Standard tests** (`.test.ts` files in `test/assembly/`) are expected to pass 100% of the time. They validate pool features (matchers, test options, coverage collection, suites) and enforce coverage thresholds. Their AssemblyScript source lives in `test/assembly-src/*.ts`.
-
-**Meta tests** (`.meta.test.ts` files in `test/assembly/`) are designed to fail, timeout, or produce errors. They verify that the pool handles error scenarios correctly: failed assertions produce proper diffs, timeouts trigger with correct behavior, compilation errors are reported cleanly, retry logic works, etc. Their source lives in `test/assembly-src/*.meta.ts` and is excluded from coverage thresholds.
-
-### Meta Test Verification
-
-The meta test system needs to verify *how* tests fail, not just *that* they fail. [`test/meta/verify-output.test.ts`](../test/meta/verify-output.test.ts) accomplishes this by running vitest programmatically in "capture mode":
-
-1. [`scripts/run-vitest.js`](../scripts/run-vitest.js) runs vitest with both JSON and default reporters via `spawnSync`
-2. JSON output is written to a temp file, parsed, and returned alongside CLI output and exit code
-3. The verification test asserts on the structure and content of both outputs
-
-The runner script ([`scripts/run-vitest.js`](../scripts/run-vitest.js)) supports two modes:
-- **Interactive mode**: stdio inherited, output streams directly to terminal (used by npm scripts for manual runs)
-- **Capture mode**: spawnSync with piped stdio, returns `{ jsonOutput, cliOutput, exitCode }` (used by verification tests)
-
-Three verification contexts are supported: `local` (against source), `external` (against installed package with coverage), and `external_no_coverage` (against installed package without coverage, for Node 20 or missing native build).
-
-### Vitest Configuration
-
-| Config File | Purpose | Projects |
-|-------------|---------|----------|
-| [`vitest.config.ts`](../vitest.config.ts) | Local development | `ts-pool` (TypeScript unit tests), `as-pool-passing` (AS passing tests) |
-| [`vitest.meta.config.ts`](../vitest.meta.config.ts) | Local meta tests | AS meta tests only |
-| [`test-external/vitest.pass.config.ts`](../test-external/vitest.pass.config.ts) | External passing tests | AS passing tests with 100% coverage thresholds |
-| [`test-external/vitest.meta.config.ts`](../test-external/vitest.meta.config.ts) | External meta tests | AS meta tests, `reportOnFailure: true` |
-
-### DX Shortcuts
-
-Common test commands have shortcuts for development convenience:
-
-| Command | Shortcut | What it does |
-|---------|----------|-------------|
-| `npm test` | — | Run local tests (vitest run) |
-| `npm run test:meta` | — | Run local meta tests |
-| `npm run test:meta:verify` | — | Run local meta verification |
-| `npm run test:ext:setup` | — | Prepare external test directory |
-| `npm run test:ext:pass` | `npm run eptest` | External passing tests |
-| `npm run test:ext:meta` | `npm run emtest` | External meta tests |
-| `npm run test:ext:meta:verify` | `npm run emvtest` | External meta verification |
-| `npm run build && npm test` | `npm run ctest` | Build + test |
-| `npm run tc && npm run ctest` | `npm run tctest` | Type check + build + test |
-
-**Key source files:**
-- [`scripts/run-vitest.js`](../scripts/run-vitest.js) — vitest runner (interactive + capture modes)
-- [`scripts/setup-test-external.js`](../scripts/setup-test-external.js) — external test directory setup
-- [`test/meta/verify-output.test.ts`](../test/meta/verify-output.test.ts) — meta test verification
-
----
-
 ## CI/CD Pipeline
 
 The release workflow ([`.github/workflows/release.yml`](../.github/workflows/release.yml)) runs in four stages:
@@ -660,6 +593,8 @@ Matrix of platforms and Node versions runs external tests against the `npm pack`
 
 ### 4. Release
 Downloads all prebuilds, runs semantic-release for versioning and changelog, publishes to npm with provenance.
+
+For test organization, configurations, commands, and development workflow, see the [Developer Guide — Testing](developer-guide.md#testing).
 
 ---
 
