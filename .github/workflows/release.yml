@@ -108,6 +108,10 @@ jobs:
         env:
           VITEST_POOL_AS_SKIP_NATIVE_BUILD: 1
 
+      - name: Download Binaryen dependencies
+        if: steps.prebuild-cache.outputs.cache-hit != 'true'
+        run: npm run setup-binaryen
+
       - name: Create prebuild
         if: steps.prebuild-cache.outputs.cache-hit != 'true'
         run: npm run build:prebuild
