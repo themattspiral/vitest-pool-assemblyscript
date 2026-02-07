@@ -43,10 +43,17 @@
 <p align="center">
   Dig in:
   <br/>
-  <a href="#writing-tests">Writing Tests</a> | 
-  <a href="docs/matchers-api.md">Matchers API</a> | 
-  <a href="docs/configuration-guide.md">Configuration Guide</a> | 
+  <a href="#writing-tests">Writing Tests</a> |
+  <a href="docs/matchers-api.md">Matchers API</a> |
+  <a href="docs/configuration-guide.md">Configuration Guide</a> |
   <a href="docs/providing-wasm-imports.md">Providing WASM Imports</a>
+</p>
+<p align="center">
+  Dig deeper:
+  <br/>
+  <a href="docs/pool-architecture.md">Pool Architecture</a> |
+  <a href="docs/coverage-architecture.md">Coverage Architecture</a> |
+  <a href="docs/developer-guide.md">Developer Guide</a>
 </p>
 
 ---
@@ -193,6 +200,8 @@ npx vitest run
 **Q: How does this work?**
 <br/>
 **A:** Vitest has a [custom pool API](https://vitest.dev/guide/advanced/pool.html) that lets you define the execution environment for the tests it runs (internally, vitest uses its own pools to run JavaScript and TypeScript tests). This custom pool uses the [AssemblyScript compiler](https://www.assemblyscript.org/compiler.html) to compile each test file to WASM, instruments the WASM binary for code coverage, then runs each test in an isolated WASM instance and reports results back to vitest through its standard RPC reporting mechanism.
+
+More detailed information can be found in [Pool Architecture](docs/pool-architecture.md) and [Coverage Architecture](docs/coverage-architecture.md)
 
 **Q: So it is really using vitest?**
 <br/>

@@ -14,7 +14,7 @@ The primary architecture targets **vitest 4.x** using the `PoolWorker` API. Vite
 - [Error Handling & Source Mapping](#error-handling--source-mapping)
 - [Timeout Architecture](#timeout-architecture)
 - [RPC Communication](#rpc-communication)
-- [Coverage Architecture (Summary)](#coverage-architecture-summary)
+- [Coverage Architecture Summary](#coverage-architecture-summary)
 - [Native Build & Distribution](#native-build--distribution)
 - [Testing Architecture](#testing-architecture)
 - [CI/CD Pipeline](#cicd-pipeline)
@@ -88,9 +88,30 @@ The primary architecture targets **vitest 4.x** using the `PoolWorker` API. Vite
 
 Vitest creates one `AssemblyScriptPoolWorker` instance per `maxWorkers`. This is how parallelization is achieved: each PoolWorker processes files concurrently, but only allows one active thread operation at a time (either a compile dispatch or a test run dispatch). The global thread pools are specialized hot threads shared across all PoolWorker instances — they could theoretically be sized beyond `maxWorkers` for tuning scenarios requiring more hot-swap thread availability, but the PoolWorker serialization is the parallelism governor, ensuring we don't exceed the configured level of parallelism.
 
+### PoolWorker Deviation from Standard Pattern
+
+While `AssemblyScriptPoolWorker` implements vitest's `PoolWorker` interface (`start/stop/send/on/off`), it does **not** follow vitest's example pattern of having the PoolWorker act as a thin passthrough to a dedicated worker thread. Instead, the PoolWorker itself contains significant orchestration logic: it manages its own global thread pools, dispatches work to compile and run pool threads, enforces timeouts from the main thread, and handles abort + resume across thread boundaries.
+
+This deviation is intentional. The standard passthrough model doesn't support our requirements:
+- **Main-thread timeout enforcement**: WASM infinite loops block the worker thread's event loop, so timeouts must be enforced externally from the PoolWorker
+- **Timeout resume**: After aborting a timed-out thread, the PoolWorker re-dispatches remaining work with preserved state — this requires orchestration logic that lives outside the worker threads
+- **Custom thread pools**: We determined that using two specialized pools with different thread counts and lifetimes helps to optimize performance for WASM workloads (rather than a single 1:1 PoolWorker <-> worker thread). Note: We still **do not exceed** the `maxWorkers` number of ***active*** threads at any time - Each PoolWorker is only ever `await`-ing a single thread pool dispatch at a time, but having the pools allows for a faster and cleaner re-use and respawn mechanism.
+- **Lean worker threads**: Keeping worker threads focused on *either* compilation *or* test execution (not both) also allows faster thread respawn after timeout aborts
+
+### Vitest Integration Contract
+
+The pool's contract with vitest:
+
+**Expects from vitest:** `PoolWorker` lifecycle calls (`start`/`stop`), `WorkerRequest` messages containing file specs and config via `send()`, a `TestProject` with resolved configuration
+
+**Provides to vitest:** Standard RPC reporting via `onQueued`, `onCollected`, `onTaskUpdate`, `onAfterSuiteRun` — all using vitest's task object types (`File`, `Suite`, `Test`). 
+- Coverage data is gathered and reported to our hybrid coverage provider via `onAfterSuiteRun` in a pool-specific format, and then converted to Istanbul format in the hybrid coverage provider, and merged with the Istanbul-formatted coverage report from a delegated v8 coverage provider, to get the "hybrid" coverage report.
+- In **collect-only mode** (vitest's test collection phase), the pool compiles and discovers tests but skips execution, returning the task tree via `onCollected` for vitest's UI and filtering.
+
 **Key source files:**
 - [`src/pool/pool-runner-init.ts`](../src/pool/pool-runner-init.ts) — `createAssemblyScriptPool()` factory, returns `PoolRunnerInitializer`
 - [`src/pool/pool-worker.ts`](../src/pool/pool-worker.ts) — `AssemblyScriptPoolWorker` class implementing vitest's `PoolWorker` interface
+- [`src/coverage-provider/hybrid-coverage-provider.ts`](../src/coverage-provider/hybrid-coverage-provider.ts) — `HybridCoverageProvider`, hybrid AS + JS/TS coverage
 
 ---
 
@@ -228,9 +249,11 @@ Import callbacks cannot be tree-shaken by the AS compiler (they're external depe
 
 ## Error Handling & Source Mapping
 
+AssemblyScript has no try/catch — all runtime errors (failed assertions, null dereferences, out-of-bounds access) result in a WASM abort. This means every error in user test code ultimately arrives through a single channel: the `abort()` import callback. The pool handles this uniformly but with context-specific behavior depending on whether the abort occurs during test discovery or test execution.
+
 ### WASM Abort Flow
 
-All AssemblyScript runtime errors (failed assertions, null dereferences, out-of-bounds access) trigger the WASM `abort()` import. The abort handler's behavior differs between discovery and test execution contexts:
+The abort handler's behavior differs between discovery and test execution contexts:
 
 **During discovery** (`_start` execution):
 1. `abort()` import fires — decode abort info from WASM memory, extract V8 call stack containing WASM frames
@@ -396,7 +419,7 @@ This scenario doesn't apply to our pool for several reasons:
 - Our per-file architecture bounds RPC messages to `(tests_in_file * 2) + suites + lifecycle` per worker
 - We `await` each RPC call, creating natural backpressure (unlike vitest's fire-and-forget approach)
 
-If profiling at scale reveals a bottleneck, throttling would be contained to [`src/pool-thread/rpc-reporter.ts`](../src/pool-thread/rpc-reporter.ts). See `.claude/workspace/analysis/architecture/rpc-throttling-analysis.md` for the full assessment.
+If profiling at scale reveals a bottleneck, throttling would be contained to [`src/pool-thread/rpc-reporter.ts`](../src/pool-thread/rpc-reporter.ts).
 
 **Key source files:**
 - [`src/pool/worker-rpc-channel.ts`](../src/pool/worker-rpc-channel.ts) — MessageChannel + birpc setup
@@ -404,16 +427,20 @@ If profiling at scale reveals a bottleneck, throttling would be contained to [`s
 
 ---
 
-## Coverage Architecture (Summary)
+## Coverage Architecture Summary
 
-Coverage is implemented via WASM instrumentation with a hybrid provider that merges AssemblyScript and JavaScript coverage into unified reports. This section provides an overview — see `docs/coverage-architecture.md` for detailed coverage internals.
+Coverage collection is implemented via native (C++) WASM instrumentation, which does make the pool platform-specific (as the next section on the [native build & distribution](#native-build--distribution) goes into detail about).
+
+We supply a hybrid coverage provider that can be used for both AssemblyScript test coverage and JS test coverage (via a delegated internal v8 coverage module). Coverage data is gathered and reported to our hybrid coverage provider via `onAfterSuiteRun` in a pool-specific format, and then the provider processes the coverage, converts it to Istanbul format, and merges it with the Istanbul-formatted coverage report from the delegated v8 coverage provider. This generates unified coverage reports that include both AssemblyScript and JavaScript coverage.
+
+See [Coverage Architecture](coverage-architecture.md) for detailed coverage internals.
 
 ### Instrumentation
 
 The native C++ addon ([`src/instrumentation/native/addon.cpp`](../src/instrumentation/native/addon.cpp)) performs three operations on each compiled WASM binary:
 
 1. **Debug extraction**: Walk the WASM binary with source map to extract function metadata (names, source positions, representative locations)
-2. **Instrumentation**: Inject `__coverage_trace()` calls at function entry points, writing hit counters to a dedicated coverage memory
+2. **Instrumentation**: Inject function-entry hit counter operations at each function entry point, writing to a dedicated coverage memory
 3. **Source map regeneration**: Rebuild the source map with correct offsets after instrumentation (byte offsets change when instructions are injected)
 
 Coverage counters are stored in a separate `WebAssembly.Memory` instance (`__coverage_memory` import), isolating them from user test memory. Counters are incremented via native WASM `i32.load/store` operations — no JS boundary crossing during test execution.
@@ -456,6 +483,12 @@ This approach was chosen because simpler strategies failed:
 - Delegates JS/TS coverage to vitest's built-in V8 coverage provider
 - In `generateCoverage()`: converts accumulated AS data to Istanbul format, merges with V8 coverage into a unified `CoverageMap`
 - Delegates report generation (HTML, LCOV, JSON, text) to the V8 provider's reporters
+
+### Coverage Configuration
+
+The hybrid coverage provider adds custom configuration options (like `assemblyScriptInclude` and `assemblyScriptExclude`) to vitest's coverage config. These are made available to users' `vitest.config.ts` via **TypeScript module augmentation**: [`src/config/custom-provider-options.ts`](../src/config/custom-provider-options.ts) extends vitest's `CustomProviderOptions` interface with our `HybridProviderOptions` fields.
+
+The augmentation is loaded automatically as a side-effect import when users import from the `./config` or `./v3/config` entry points (e.g. `import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config'`). This gives users full type-checking and IDE autocomplete for AS-specific coverage options alongside standard vitest coverage options, without requiring any additional configuration.
 
 ---
 
@@ -575,10 +608,10 @@ Three verification contexts are supported: `local` (against source), `external` 
 
 | Config File | Purpose | Projects |
 |-------------|---------|----------|
-| `vitest.config.ts` | Local development | `ts-pool` (TypeScript unit tests), `as-pool-passing` (AS passing tests) |
-| `vitest.meta.config.ts` | Local meta tests | AS meta tests only |
-| `test-external/vitest.pass.config.ts` | External passing tests | AS passing tests with 100% coverage thresholds |
-| `test-external/vitest.meta.config.ts` | External meta tests | AS meta tests, `reportOnFailure: true` |
+| [`vitest.config.ts`](../vitest.config.ts) | Local development | `ts-pool` (TypeScript unit tests), `as-pool-passing` (AS passing tests) |
+| [`vitest.meta.config.ts`](../vitest.meta.config.ts) | Local meta tests | AS meta tests only |
+| [`test-external/vitest.pass.config.ts`](../test-external/vitest.pass.config.ts) | External passing tests | AS passing tests with 100% coverage thresholds |
+| [`test-external/vitest.meta.config.ts`](../test-external/vitest.meta.config.ts) | External meta tests | AS meta tests, `reportOnFailure: true` |
 
 ### DX Shortcuts
 
@@ -640,19 +673,19 @@ Vitest 3 uses the `ProcessPool` API with `collectTests()` and `runTests()` metho
 |--------|----------------------|----------------------|
 | API interface | `PoolWorker` (start/stop/send/on/off) | `ProcessPool` (collectTests/runTests) |
 | Thread pools | 2 global Tinypools (compile + run) | 1 Tinypool (combined) |
-| Worker entry | `compile-worker-thread.ts` + `test-worker-thread.ts` | `v3-tinypool-thread.ts` |
+| Worker entry | [`compile-worker-thread.ts`](../src/pool-thread/compile-worker-thread.ts) + [`test-worker-thread.ts`](../src/pool-thread/test-worker-thread.ts) | [`v3-tinypool-thread.ts`](../src/pool-thread/v3-tinypool-thread.ts) |
 | Worker function | `runCompileAndDiscoverSpec` + `runFileSpec` | `runTestFile` (compile + discover + execute) |
 | Dispatch model | Separate compile and test dispatches | Single dispatch does everything |
 
 ### Shared Components
 
 Both versions use the same:
-- **Runners**: `compile-runner.ts` (`runCompileAndDiscover`), `test-runner.ts` (`runSuite`, `runTest`)
-- **RPC reporter**: `rpc-reporter.ts` (all reporting functions)
-- **WASM executor**: `wasm-executor/` (discovery, test execution, error enhancement)
-- **Coverage provider**: `coverage-provider/` (hybrid provider, containment matcher, Istanbul converter)
-- **Compiler**: `compiler/` (AssemblyScript compilation)
-- **Native addon**: `instrumentation/` (debug extraction, instrumentation)
+- **Runners**: [`compile-runner.ts`](../src/pool-thread/runner/compile-runner.ts) (`runCompileAndDiscover`), [`test-runner.ts`](../src/pool-thread/runner/test-runner.ts) (`runSuite`, `runTest`)
+- **RPC reporter**: [`rpc-reporter.ts`](../src/pool-thread/rpc-reporter.ts) (all reporting functions)
+- **WASM executor**: [`wasm-executor/`](../src/wasm-executor/) (discovery, test execution, error enhancement)
+- **Coverage provider**: [`coverage-provider/`](../src/coverage-provider/) (hybrid provider, containment matcher, Istanbul converter)
+- **Compiler**: [`compiler/`](../src/compiler/) (AssemblyScript compilation)
+- **Native addon**: [`instrumentation/`](../src/instrumentation/) (debug extraction, instrumentation)
 
 ### Separate Entry Points
 
@@ -666,6 +699,7 @@ The package exports separate entry points for v3 and v4:
 | `./v3/config` | [`src/config/index-v3.ts`](../src/config/index-v3.ts) | v3 config helpers |
 | `./coverage` | [`src/coverage-provider/index.ts`](../src/coverage-provider/index.ts) | Coverage provider (shared) |
 | `./assembly` | [`assembly/index.mts`](../assembly/index.mts) | AS test framework (shared) |
+| `./__internal` | [`src/index-internal.ts`](../src/index-internal.ts) | Pool internals for unit tests (may be removed) |
 
 Separate entry points were not the preferred approach — a single entry point would be simpler for users. However, v3 and v4 have different vitest API dependencies and version-specific code. The v4 entry imports `PoolWorker` and `PoolRunnerInitializer` types that don't exist in vitest 3, and the v3 entry imports `ProcessPool` and `Vitest` types with v3-specific signatures. Bundling them together would cause import failures when only one vitest version is installed. Separate entry points allow each to import only the APIs available in its target vitest version.
 
