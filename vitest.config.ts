@@ -1,6 +1,5 @@
 import { defineConfig, defineProject } from 'vitest/config';
 import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
-import { defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/v3/config';
 
 export default defineConfig({
   test: {
@@ -15,8 +14,12 @@ export default defineConfig({
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       
-      // include: [ 'src/**/*.{ts,js,mts,mjs}' ],
-      include: [ '!*' ],
+      include: [
+        '!*',
+        // 'src/**/*.{ts,js,mts,mjs}',
+        // 'test/js-example-src/**/*.ts',
+      ],
+      exclude: [],
       
       assemblyScriptInclude: [
         'assembly/**/*.ts',         // actual pool internals
@@ -33,16 +36,22 @@ export default defineConfig({
       defineProject({
         test: {
           name: { label: 'ts-pool', color: 'blue' },
-          include: [ 'test/**/*.test.ts' ],
-          exclude: [ 'test/assembly/**/*' ]
+          include: [
+            'test/**/*.test.ts',
+          ],
+          exclude: [
+            'test/assembly/**/*',
+            'test/meta-verify/**/*',  // meta-verify executed separately
+            'test/js-example/**/*',
+          ]
         }
       }),
 
-      defineAssemblyScriptProject({
+      defineProject({
         test: {
           name: { label: 'as-pool-passing', color: 'green' },
           include: ['test/assembly/**/*.test.ts'],
-          exclude: ['test/assembly/**/*.meta.test.ts'],
+          exclude: ['test/assembly/**/*.meta.test.ts'],   // meta tests executed separately
           
           pool: createAssemblyScriptPool({
             debug: false,

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest';
-import { increment } from '../js-src/smoke-utils.js';
+import { increment } from '../js-example-src/smoke-utils.js';
 
 test('js smoke pass', () => {
   const res: number = increment(1);

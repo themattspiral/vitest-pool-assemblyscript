@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { fibonacciRecursive, countPrimes } from '../js-src/math.js';
+import { fibonacciRecursive, countPrimes } from '../js-example-src/math.js';
 
 describe.skip('heavy math computation', () => {
   test('fibonacci 28', () => {
