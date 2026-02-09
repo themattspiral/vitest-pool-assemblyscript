@@ -1,14 +1,5 @@
 /**
  * Test file to validate @inline decorator behavior with coverage
- *
- * This file contains:
- * 1. Functions with @inline decorator
- * 2. Functions without @inline decorator
- * 3. Test that calls both types
- *
- * We want to verify:
- * - WITHOUT stripping: @inline functions missing from coverage
- * - WITH stripping: @inline functions appear in coverage
  */
 
 import { test, expect } from "vitest-pool-assemblyscript/assembly";
