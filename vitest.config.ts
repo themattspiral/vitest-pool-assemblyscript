@@ -42,7 +42,7 @@ export default defineConfig({
           exclude: [
             'test/assembly/**/*',
             'test/meta-verify/**/*',  // meta-verify executed separately
-            'test/js-example/**/*',
+            'test/js-example-meta/**/*',
           ]
         }
       }),

@@ -85,13 +85,24 @@ export function parseCoverageTableRow(cliOutput: string, filename: string): Cove
   const parts = row.split('|').map(s => s.trim());
   if (parts.length < 6) return null;
 
+  // Destructure with defaults to narrow string | undefined → string
+  // (the length check above guarantees all 6 elements exist)
+  const [
+    fileCell = '',
+    stmtsStr = '',
+    branchStr = '',
+    funcsStr = '',
+    linesStr = '',
+    uncoveredLines = '',
+  ] = parts;
+
   return {
-    filename: parts[0],
-    stmts: parseFloat(parts[1]),
-    branch: parseFloat(parts[2]),
-    funcs: parseFloat(parts[3]),
-    lines: parseFloat(parts[4]),
-    uncoveredLines: parts[5],
+    filename: fileCell,
+    stmts: parseFloat(stmtsStr),
+    branch: parseFloat(branchStr),
+    funcs: parseFloat(funcsStr),
+    lines: parseFloat(linesStr),
+    uncoveredLines,
   };
 }
 

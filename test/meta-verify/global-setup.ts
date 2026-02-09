@@ -24,7 +24,7 @@ const EXTERNAL_DIR = resolve(PROJECT_ROOT, '..', EXTERNAL_DIR_NAME);
 /** Well-known path for the results file. Test files read from here. */
 const RESULTS_PATH = resolve(PROJECT_ROOT, '.meta-verify-results.json');
 
-export default async function setup() {
+export default async function setup(): Promise<() => Promise<void>> {
   const context = process.env.RUN_CONTEXT || 'local';
   const isExternal = context === 'external';
   const isExternalNoCoverage = context === 'external_no_coverage';

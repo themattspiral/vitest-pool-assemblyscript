@@ -30,11 +30,10 @@ export function clamp(value: number, min: number, max: number): number {
 export function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   const match = /^#?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/.exec(hex);
   if (!match) return null;
-  return {
-    r: parseInt(match[1], 16),
-    g: parseInt(match[2], 16),
-    b: parseInt(match[3], 16),
-  };
+  const r = match[1] ?? '';
+  const g = match[2] ?? '';
+  const b = match[3] ?? '';
+  return { r: parseInt(r, 16), g: parseInt(g, 16), b: parseInt(b, 16) };
 }
 
 export function rgbToHex(r: number, g: number, b: number): string {
