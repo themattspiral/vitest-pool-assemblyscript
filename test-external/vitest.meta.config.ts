@@ -16,7 +16,7 @@ export default defineConfig({
     coverage: {
       enabled: true,
       reportOnFailure: true,
-      reportsDirectory: 'coverage/',
+      reportsDirectory: 'coverage/meta/',
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       

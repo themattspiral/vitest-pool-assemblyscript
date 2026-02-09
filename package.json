@@ -87,7 +87,6 @@
     "test:ext:meta": "node scripts/run-vitest.js -c vitest.meta.config.ts",
     "test:ext:meta:verify": "cross-env RUN_CONTEXT=external vitest run -c vitest.meta-verify.config.ts",
     "test:ext:meta:verify:no-cov": "cross-env RUN_CONTEXT=external_no_coverage vitest run -c vitest.meta-verify.config.ts",
-    "test:ext:all": "node scripts/run-vitest.js",
     "//---- test shortcuts ----": "",
     "mtest": "npm run test:meta",
     "mvtest": "npm run test:meta:verify",

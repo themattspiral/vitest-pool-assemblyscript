@@ -10,7 +10,7 @@ export default defineConfig({
 
     name: { label: 'ts-pool-meta-verify', color: 'blue' },
     include: [
-      'test/meta-verify/*.test.ts',
+      'test/meta-verify/**/*.test.ts',
     ],
     exclude: [],
   },
