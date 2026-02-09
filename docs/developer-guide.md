@@ -152,15 +152,15 @@ npm run emvtest   # External meta verification (setup + run - shortcut)
 
 ### Meta Test Verification
 
-The meta test system needs to verify *how* tests fail, not just *that* they fail. [`test/meta/verify-output.test.ts`](../test/meta/verify-output.test.ts) accomplishes this by running vitest programmatically in "capture mode":
+The meta test system needs to verify *how* tests fail, not just *that* they fail. A [`globalSetup`](../test/meta-verify/global-setup.ts) runs the meta suite once before any verification test workers spawn, capturing JSON output, CLI output, and exit code to a results file. Verification tests then read this pre-computed data and assert on specific expected results.
 
-1. [`scripts/run-vitest.js`](../scripts/run-vitest.js) runs vitest with both JSON and default reporters via `spawnSync`
-2. JSON output is written to a temp file, parsed, and returned alongside CLI output and exit code
-3. The verification test asserts on the structure and content of both outputs
+Verification tests live in `test/meta-verify/` and are organized by category:
+- [`test/meta-verify/verify-output.test.ts`](../test/meta-verify/verify-output.test.ts) — JSON and CLI output assertions
+- [`test/meta-verify/coverage-collection/`](../test/meta-verify/coverage-collection/) — coverage collection assertions, split by scenario type (basic, edge, structure, inheritance, modules, reexports, locations), with shared helpers in [`helpers.ts`](../test/meta-verify/coverage-collection/helpers.ts)
 
-The runner script ([`scripts/run-vitest.js`](../scripts/run-vitest.js)) supports two modes:
+The meta suite is run via [`scripts/run-vitest.js`](../scripts/run-vitest.js), which supports two modes:
 - **Interactive mode**: stdio inherited, output streams directly to terminal (used by npm scripts for manual runs)
-- **Capture mode**: spawnSync with piped stdio, returns `{ jsonOutput, cliOutput, exitCode }` (used by verification tests)
+- **Capture mode**: spawnSync with piped stdio, returns `{ jsonOutput, cliOutput, exitCode }` (used by the globalSetup)
 
 Three verification contexts are supported: `local` (against source), `external` (against installed package with coverage), and `external_no_coverage` (against installed package without coverage, for Node 20 or missing native build).
 
@@ -170,6 +170,7 @@ Three verification contexts are supported: `local` (against source), `external` 
 |-------------|---------|----------|
 | [`vitest.config.ts`](../vitest.config.ts) | Local development | `ts-pool` (TypeScript unit tests), `as-pool-passing` (AS passing tests) |
 | [`vitest.meta.config.ts`](../vitest.meta.config.ts) | Local meta tests | AS meta tests only |
+| [`vitest.meta-verify.config.ts`](../vitest.meta-verify.config.ts) | Local meta verification | Meta verification tests with globalSetup |
 | [`test-external/vitest.pass.config.ts`](../test-external/vitest.pass.config.ts) | External passing tests | AS passing tests with 100% coverage thresholds |
 | [`test-external/vitest.meta.config.ts`](../test-external/vitest.meta.config.ts) | External meta tests | AS meta tests, `reportOnFailure: true` |
 
@@ -195,7 +196,8 @@ Three verification contexts are supported: `local` (against source), `external` 
 **Key source files:**
 - [`scripts/run-vitest.js`](../scripts/run-vitest.js) — vitest runner (interactive + capture modes)
 - [`scripts/setup-test-external.js`](../scripts/setup-test-external.js) — external test directory setup
-- [`test/meta/verify-output.test.ts`](../test/meta/verify-output.test.ts) — meta test verification
+- [`test/meta-verify/global-setup.ts`](../test/meta-verify/global-setup.ts) — runs meta suite once, writes results for verification tests
+- [`test/meta-verify/coverage-collection/helpers.ts`](../test/meta-verify/coverage-collection/helpers.ts) — shared types and helpers for coverage verification
 
 ---
 
