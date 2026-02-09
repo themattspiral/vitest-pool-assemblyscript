@@ -68,7 +68,7 @@ export function loadCoverageResults(): CoverageResults {
  */
 export function findEntry(map: CoverageMap, pathSuffix: string): FileCoverage | null {
   const key = Object.keys(map).find(k => k.endsWith(pathSuffix));
-  return key ? map[key] : null;
+  return key ? map[key] ?? null : null;
 }
 
 /**

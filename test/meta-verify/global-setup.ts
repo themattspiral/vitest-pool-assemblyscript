@@ -51,7 +51,7 @@ export default function setup() {
   }));
 
   // Teardown: clean up results file
-  return () => {
+  return (): void => {
     if (existsSync(RESULTS_PATH)) {
       unlinkSync(RESULTS_PATH);
     }
