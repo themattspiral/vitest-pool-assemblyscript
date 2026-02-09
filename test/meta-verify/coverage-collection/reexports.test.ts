@@ -11,8 +11,8 @@ const REEXPORT_BARREL = `${COV_DIR}/reexport-barrel.meta.ts`;
 describe('coverage collection — re-exports', () => {
   let coverageMap: CoverageMap;
 
-  beforeAll(() => {
-    const results = loadCoverageResults();
+  beforeAll(async () => {
+    const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
   });
 

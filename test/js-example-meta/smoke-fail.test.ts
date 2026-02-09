@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest';
-import { fails } from '../js-example-src/smoke-utils.js';
+import { fails } from '../js-example-meta-src/smoke-utils.js';
 
 test('js smoke fail [should fail]', () => {
   const res: number = fails();

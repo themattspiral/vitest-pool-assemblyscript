@@ -11,8 +11,8 @@ const NAMESPACE_FUNCTIONS = `${COV_DIR}/namespace-functions.meta.ts`;
 describe('coverage collection — module-level features', () => {
   let coverageMap: CoverageMap;
 
-  beforeAll(() => {
-    const results = loadCoverageResults();
+  beforeAll(async () => {
+    const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
   });
 

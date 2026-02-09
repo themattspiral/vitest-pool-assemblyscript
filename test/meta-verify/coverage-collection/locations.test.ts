@@ -11,8 +11,8 @@ const FILE_BOUNDARY = `${COV_DIR}/file-boundary.meta.ts`;
 describe('coverage collection — location accuracy', () => {
   let coverageMap: CoverageMap;
 
-  beforeAll(() => {
-    const results = loadCoverageResults();
+  beforeAll(async () => {
+    const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
   });
 

@@ -11,8 +11,8 @@ const OPERATOR_OVERLOAD = `${COV_DIR}/operator-overload.meta.ts`;
 describe('coverage collection — inheritance & operator overloads', () => {
   let coverageMap: CoverageMap;
 
-  beforeAll(() => {
-    const results = loadCoverageResults();
+  beforeAll(async () => {
+    const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
   });
 

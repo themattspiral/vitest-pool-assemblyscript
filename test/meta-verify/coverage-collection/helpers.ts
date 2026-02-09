@@ -1,6 +1,7 @@
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -44,8 +45,8 @@ export interface CoverageResults {
  * Load pre-computed meta-verify results and parse the coverage map.
  * Throws if coverage is not enabled or coverage-final.json is missing.
  */
-export function loadCoverageResults(): CoverageResults {
-  const results = JSON.parse(readFileSync(RESULTS_PATH, 'utf-8'));
+export async function loadCoverageResults(): Promise<CoverageResults> {
+  const results = JSON.parse(await readFile(RESULTS_PATH, 'utf-8'));
   const coverageEnabled = results.coverageEnabled;
 
   let coverageMap: CoverageMap = {};
@@ -54,10 +55,53 @@ export function loadCoverageResults(): CoverageResults {
     if (!existsSync(coveragePath)) {
       throw new Error(`coverage-final.json not found at ${coveragePath}`);
     }
-    coverageMap = JSON.parse(readFileSync(coveragePath, 'utf-8'));
+    coverageMap = JSON.parse(await readFile(coveragePath, 'utf-8'));
   }
 
   return { coverageMap, coverageEnabled };
+}
+
+/**
+ * Load the CLI output from the pre-computed meta-verify results.
+ */
+export async function loadCliOutput(): Promise<string> {
+  const results = JSON.parse(await readFile(RESULTS_PATH, 'utf-8'));
+  return results.cliOutput;
+}
+
+/**
+ * Parse a coverage summary table row from CLI output for a given filename.
+ * Returns the parsed values, or null if the filename isn't found in the table.
+ */
+export function parseCoverageTableRow(cliOutput: string, filename: string): CoverageTableRow | null {
+  // Strip ANSI escape codes for clean matching
+  const clean = cliOutput.replace(/\x1b\[[0-9;]*m/g, '');
+  const lines = clean.split('\n');
+
+  const row = lines.find(l => l.includes(filename) && l.includes('|'));
+  if (!row) return null;
+
+  // Split on pipe delimiters: File | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
+  const parts = row.split('|').map(s => s.trim());
+  if (parts.length < 6) return null;
+
+  return {
+    filename: parts[0],
+    stmts: parseFloat(parts[1]),
+    branch: parseFloat(parts[2]),
+    funcs: parseFloat(parts[3]),
+    lines: parseFloat(parts[4]),
+    uncoveredLines: parts[5],
+  };
+}
+
+export interface CoverageTableRow {
+  filename: string;
+  stmts: number;
+  branch: number;
+  funcs: number;
+  lines: number;
+  uncoveredLines: string;
 }
 
 // --- Helpers ---

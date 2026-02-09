@@ -14,8 +14,8 @@ const TRAP_COVERAGE = `${COV_DIR}/trap-coverage.meta.ts`;
 describe('coverage collection — structure cases', () => {
   let coverageMap: CoverageMap;
 
-  beforeAll(() => {
-    const results = loadCoverageResults();
+  beforeAll(async () => {
+    const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
   });
 

@@ -14,8 +14,8 @@ const CLASS_UNUSED = `${COV_DIR}/class-utils-unused.meta.ts`;
 describe('coverage collection — basic scenarios', () => {
   let coverageMap: CoverageMap;
 
-  beforeAll(() => {
-    const results = loadCoverageResults();
+  beforeAll(async () => {
+    const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
   });
 

@@ -13,8 +13,8 @@ const EDGE_MATH_HELPERS = `${COV_DIR}/edge/math-helpers.meta.ts`;
 describe('coverage collection — edge cases', () => {
   let coverageMap: CoverageMap;
 
-  beforeAll(() => {
-    const results = loadCoverageResults();
+  beforeAll(async () => {
+    const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
   });
 

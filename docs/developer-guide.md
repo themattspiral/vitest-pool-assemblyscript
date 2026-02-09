@@ -148,7 +148,7 @@ npm run emvtest   # External meta verification (setup + run - shortcut)
 
 **Standard tests** (`.test.ts` files in `test/assembly/`) are expected to pass 100% of the time. They validate pool features (matchers, test options, coverage collection, suites) and enforce coverage thresholds. Their AssemblyScript source lives in `test/assembly-src/*.ts`.
 
-**Meta tests** (`.meta.test.ts` files in `test/assembly/`) are designed to fail, timeout, or produce errors. They verify that the pool handles error scenarios correctly: failed assertions produce proper diffs, timeouts trigger with correct behavior, compilation errors are reported cleanly, retry logic works, etc. Their source lives in `test/assembly-src/*.meta.ts` and is excluded from coverage thresholds.
+**Meta tests** are designed to fail, timeout, or produce errors. They verify that the pool handles error scenarios correctly: failed assertions produce proper diffs, timeouts trigger with correct behavior, compilation errors are reported cleanly, retry logic works, etc. The meta suite includes both AS tests (`.meta.test.ts` files in `test/assembly/`, with source in `test/assembly-src/*.meta.ts`) and JS/TS tests (`test/js-example-meta/`, with source in `test/js-example-meta-src/`) for hybrid coverage verification. AS meta sources are excluded from coverage thresholds.
 
 ### Meta Test Verification
 
@@ -169,10 +169,10 @@ Three verification contexts are supported: `local` (against source), `external` 
 | Config File | Purpose | Projects |
 |-------------|---------|----------|
 | [`vitest.config.ts`](../vitest.config.ts) | Local development | `ts-pool` (TypeScript unit tests), `as-pool-passing` (AS passing tests) |
-| [`vitest.meta.config.ts`](../vitest.meta.config.ts) | Local meta tests | AS meta tests only |
+| [`vitest.meta.config.ts`](../vitest.meta.config.ts) | Local meta tests | `as-pool-meta` (AS tests), `ts-pool-meta-example` (JS/TS example fixtures) |
 | [`vitest.meta-verify.config.ts`](../vitest.meta-verify.config.ts) | Local meta verification | Meta verification tests with globalSetup |
 | [`test-external/vitest.pass.config.ts`](../test-external/vitest.pass.config.ts) | External passing tests | AS passing tests with 100% coverage thresholds |
-| [`test-external/vitest.meta.config.ts`](../test-external/vitest.meta.config.ts) | External meta tests | AS meta tests, `reportOnFailure: true` |
+| [`test-external/vitest.meta.config.ts`](../test-external/vitest.meta.config.ts) | External meta tests | `as-pool-meta` (AS tests), `ts-pool-meta-example` (JS/TS example fixtures), `reportOnFailure: true` |
 
 ### DX Command Reference
 

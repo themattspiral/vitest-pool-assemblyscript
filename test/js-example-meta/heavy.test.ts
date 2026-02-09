@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
-import { fibonacciRecursive, countPrimes } from '../js-example-src/math.js';
+import { fibonacciRecursive, countPrimes } from '../js-example-meta-src/math.js';
 
-describe.skip('heavy math computation', () => {
+describe('heavy math computation', () => {
   test('fibonacci 28', () => {
     const result = fibonacciRecursive(28n);
     expect(result).toBe(317811n);
@@ -60,35 +60,5 @@ describe.skip('heavy math computation', () => {
   test('count primes to 60000', () => {
     const count = countPrimes(60000);
     expect(count).toBe(6057)
-  });
-
-  test.skip('fibonacci 34', () => {
-    const result = fibonacciRecursive(34n);
-    expect(result).toBe(5702887n);
-  });
-
-  test('count primes to 70000', () => {
-    const count = countPrimes(70000);
-    expect(count).toBe(6935)
-  });
-
-  test.skip('fibonacci 35', () => {
-    const result = fibonacciRecursive(35n);
-    expect(result).toBe(9227465n);
-  });
-
-  test('count primes to 80000', { timeout: 5, retry: 1, fails: true }, () => {
-    const count = countPrimes(80000);
-    expect(count).toBe(7837)
-  });
-
-  test.skip('fibonacci 36', () => {
-    const result = fibonacciRecursive(36n);
-    expect(result).toBe(14930352n);
-  });
-
-  test('count primes to 90000', () => {
-    const count = countPrimes(90000);
-    expect(count).toBe(8713)
   });
 });

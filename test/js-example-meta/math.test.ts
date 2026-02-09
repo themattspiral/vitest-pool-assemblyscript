@@ -1,5 +1,5 @@
 import { test, describe, expect } from 'vitest';
-import { add, subtract, multiply, divide } from '../js-example-src/math.js';
+import { add, subtract, multiply, divide } from '../js-example-meta-src/math.js';
 
 test('add function works [should fail] [for now]', { retry: 4 }, () => {
   expect(add(2, 3)).toBe(6);

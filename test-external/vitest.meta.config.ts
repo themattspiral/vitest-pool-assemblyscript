@@ -7,12 +7,6 @@ export default defineConfig({
     environment: 'node',
     reporters: ['verbose'],
 
-    name: { label: 'as-pool-meta', color: 'yellow' },
-
-    include: [
-      '../vitest-pool-assemblyscript/test/assembly/**/*.meta.test.ts',
-    ],
-
     coverage: {
       enabled: true,
       reportOnFailure: true,
@@ -20,19 +14,50 @@ export default defineConfig({
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       
-      include: [ '!*' ],
+      include: [
+        'test/js-example-meta-src'
+      ],
+
       assemblyScriptInclude: [
         '../vitest-pool-assemblyscript/test/assembly-src/**/*.meta.ts'
+      ],
+
+      // wide console for our CLI output verification
+      reporter: [
+        ['text', { maxCols: 200 }],
+        ['html', {}],
+        ['json', {}],
       ],
 
       debugIstanbul: false,
     },
 
-    pool: createAssemblyScriptPool({
-      debug: false,
-      debugNative: false,
-      debugCoverageExtract: false,
-      wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
-    }),
+    projects: [
+      defineProject({
+        test: {
+          name: { label: 'ts-pool-meta-example', color: 'blue' },
+          include: [
+            'test/js-example-meta/*.test.ts',
+          ],
+          exclude: [],
+        }
+      }),
+
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta.test.ts'
+          ],
+          pool: createAssemblyScriptPool({
+            debug: false,
+            debugNative: false,
+            debugCoverageExtract: false,
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
+            _instrumentPoolInternals: false,
+          }),
+        }
+      })
+    ]
   },
 });
