@@ -11,7 +11,7 @@
 
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { writeFileSync, unlinkSync, existsSync } from 'node:fs';
+import { writeFile, unlink } from 'node:fs/promises';
 import { runVitest } from '../../scripts/run-vitest.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,7 +24,7 @@ const EXTERNAL_DIR = resolve(PROJECT_ROOT, '..', EXTERNAL_DIR_NAME);
 /** Well-known path for the results file. Test files read from here. */
 const RESULTS_PATH = resolve(PROJECT_ROOT, '.meta-verify-results.json');
 
-export default function setup() {
+export default async function setup() {
   const context = process.env.RUN_CONTEXT || 'local';
   const isExternal = context === 'external';
   const isExternalNoCoverage = context === 'external_no_coverage';
@@ -37,12 +37,12 @@ export default function setup() {
   }
 
   const start = performance.now();
-  const { jsonOutput, cliOutput, exitCode } = runVitest({ cwd, args, capture: true });
+  const { jsonOutput, cliOutput, exitCode } = await runVitest({ cwd, args, capture: true });
   const duration = (performance.now() - start).toFixed(0);
 
   console.log(`[globalSetup] Meta suite completed in ${duration}ms (context: ${context}, cwd: ${cwd})`);
 
-  writeFileSync(RESULTS_PATH, JSON.stringify({
+  await writeFile(RESULTS_PATH, JSON.stringify({
     jsonOutput,
     cliOutput,
     exitCode,
@@ -51,9 +51,7 @@ export default function setup() {
   }));
 
   // Teardown: clean up results file
-  return (): void => {
-    if (existsSync(RESULTS_PATH)) {
-      unlinkSync(RESULTS_PATH);
-    }
+  return async (): Promise<void> => {
+    await unlink(RESULTS_PATH).catch(() => {});
   };
 }

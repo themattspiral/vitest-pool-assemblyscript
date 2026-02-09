@@ -10,4 +10,4 @@ export interface RunVitestResult {
   exitCode: number;
 }
 
-export function runVitest(options: RunVitestOptions): RunVitestResult;
+export function runVitest(options: RunVitestOptions): Promise<RunVitestResult>;

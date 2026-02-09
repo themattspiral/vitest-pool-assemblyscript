@@ -15,7 +15,7 @@
  * // Programmatic usage from a meta-test
  * import { runVitest } from '../scripts/run-vitest.js';
  *
- * const result = runVitest({
+ * const result = await runVitest({
  *   cwd: '/path/to/project',
  *   args: ['-c', 'vitest.meta.config.ts'],
  *   capture: true,
@@ -23,10 +23,11 @@
  * // result: { jsonOutput, cliOutput, exitCode }
  */
 
-import { execSync, spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readFile, unlink } from 'node:fs/promises';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -44,12 +45,12 @@ const EXTERNAL_DIR = resolve(PROJECT_ROOT, '..', EXTERNAL_DIR_NAME);
  * @param {boolean} [options.capture=false] - When true, captures JSON + CLI output
  *   instead of inheriting stdio. JSON reporter output is written to a temp file,
  *   read back, and cleaned up automatically.
- * @returns {{ jsonOutput: object | null, cliOutput: string, exitCode: number }}
- *   In interactive mode (capture=false), returns `{ jsonOutput: null, cliOutput: '', exitCode }`.
- *   In capture mode (capture=true), returns parsed JSON reporter output alongside
+ * @returns {Promise<{ jsonOutput: object | null, cliOutput: string, exitCode: number }>}
+ *   In interactive mode (capture=false), resolves to `{ jsonOutput: null, cliOutput: '', exitCode }`.
+ *   In capture mode (capture=true), resolves to parsed JSON reporter output alongside
  *   the CLI (default reporter) string output and the process exit code.
  */
-export function runVitest({ cwd, args = [], capture = false }) {
+export async function runVitest({ cwd, args = [], capture = false }) {
   if (!existsSync(cwd)) {
     throw new Error(`Working directory not found: ${cwd}`);
   }
@@ -63,37 +64,41 @@ export function runVitest({ cwd, args = [], capture = false }) {
 
 /**
  * Interactive mode: stdio inherited, output streams directly to terminal.
- * Forwards exit code on failure. Used by npm scripts.
+ * Returns exit code on completion. Used by npm scripts.
  */
 function runInteractive({ cwd, args }) {
-  const vitestCommand = ['npx vitest run', ...args].join(' ');
+  const vitestArgs = ['vitest', 'run', ...args];
+  const vitestCommand = ['npx', ...vitestArgs].join(' ');
 
   console.log(`Running vitest from: ${cwd}`);
   console.log(`> ${vitestCommand}`);
   console.log('');
 
-  try {
-    execSync(vitestCommand, { cwd, stdio: 'inherit' });
-    return { jsonOutput: null, cliOutput: '', exitCode: 0 };
-  } catch (error) {
-    const exitCode = error.status ?? 1;
-    return { jsonOutput: null, cliOutput: '', exitCode };
-  }
+  return new Promise((resolve) => {
+    // shell: true is required on Windows where npx is a .cmd batch wrapper
+    const child = spawn('npx', vitestArgs, {
+      cwd,
+      shell: true,
+      stdio: 'inherit',
+    });
+
+    child.on('close', (code) => {
+      resolve({ jsonOutput: null, cliOutput: '', exitCode: code ?? 1 });
+    });
+  });
 }
 
 /**
  * Capture mode: runs vitest with both JSON and default reporters.
  * JSON output goes to a temp file (via --outputFile.json), CLI output
  * is captured from stdout/stderr. The temp file is read, parsed, and
- * deleted before returning.
+ * deleted before resolving.
  */
-function runCapture({ cwd, args }) {
+async function runCapture({ cwd, args }) {
   const jsonOutputPath = join(cwd, '.vitest-meta-json-output.json');
 
   // Clean up any leftover output file from a previous run
-  if (existsSync(jsonOutputPath)) {
-    unlinkSync(jsonOutputPath);
-  }
+  await unlink(jsonOutputPath).catch(() => {});
 
   const captureArgs = [
     'vitest', 'run',
@@ -103,29 +108,41 @@ function runCapture({ cwd, args }) {
     ...args,
   ];
 
-  // shell: true is required on Windows where npx is a .cmd batch wrapper
-  // that spawnSync can't resolve without the system shell
-  const result = spawnSync('npx', captureArgs, {
-    cwd,
-    shell: true,
-    stdio: ['inherit', 'pipe', 'pipe'],
-    encoding: 'utf-8',
-  });
+  const { cliOutput, exitCode } = await new Promise((resolve) => {
+    const stdoutChunks = [];
+    const stderrChunks = [];
 
-  const cliOutput = (result.stdout ?? '') + (result.stderr ?? '');
-  const exitCode = result.status ?? 1;
+    // shell: true is required on Windows where npx is a .cmd batch wrapper
+    // that spawn can't resolve without the system shell
+    const child = spawn('npx', captureArgs, {
+      cwd,
+      shell: true,
+      stdio: ['inherit', 'pipe', 'pipe'],
+    });
+
+    child.stdout.on('data', (chunk) => stdoutChunks.push(chunk));
+    child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
+
+    child.on('close', (code) => {
+      const stdout = Buffer.concat(stdoutChunks).toString('utf-8');
+      const stderr = Buffer.concat(stderrChunks).toString('utf-8');
+      resolve({ cliOutput: stdout + stderr, exitCode: code ?? 1 });
+    });
+  });
 
   // Read and clean up the JSON output file
   let jsonOutput = null;
-  if (existsSync(jsonOutputPath)) {
-    try {
-      const jsonContent = readFileSync(jsonOutputPath, 'utf-8');
-      jsonOutput = JSON.parse(jsonContent);
-    } catch (parseError) {
-      console.error(`Warning: Failed to parse JSON output file: ${parseError.message}`);
-    } finally {
-      unlinkSync(jsonOutputPath);
+  try {
+    const jsonContent = await readFile(jsonOutputPath, 'utf-8');
+    jsonOutput = JSON.parse(jsonContent);
+  } catch (error) {
+    // File may not exist if vitest crashed before writing it,
+    // or content may not be valid JSON
+    if (error.code !== 'ENOENT') {
+      console.error(`Warning: Failed to parse JSON output file: ${error.message}`);
     }
+  } finally {
+    await unlink(jsonOutputPath).catch(() => {});
   }
 
   return { jsonOutput, cliOutput, exitCode };
@@ -142,7 +159,7 @@ if (isCliEntryPoint) {
   }
 
   const passedArgs = process.argv.slice(2);
-  const { exitCode } = runVitest({ cwd: EXTERNAL_DIR, args: passedArgs });
+  const { exitCode } = await runVitest({ cwd: EXTERNAL_DIR, args: passedArgs });
 
   if (exitCode !== 0) {
     process.exit(exitCode);
