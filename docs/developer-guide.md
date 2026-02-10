@@ -89,11 +89,11 @@ This compiles the C++ native addon (`src/instrumentation/native/addon.cpp`) usin
 npm run build
 ```
 
-This compiles the TypeScript pool source to `dist/`. The build must be run after you make changes before executing tests — the compiler transform and worker threads require the compiled output to run at all. You need to re-run this when you change any TypeScript or JavaScript source files under `src/`.
+This compiles the TypeScript pool source to `dist/`. The build must be run after you make changes before executing tests - vitest, the worker threads, and the AS compiler all load the pool from compiled output (see [why](#local-vs-external-testing)). You need to re-run this when you change any TypeScript source files under `src/`.
 
 You do **not** need to rebuild for changes to AssemblyScript test source (`assembly/`, `test/assembly-src/`)
 
-Build+test shortcut commands are available — see [DX Command Reference](#dx-command-reference).
+Build+test shortcut commands are available - see [DX Command Reference](#dx-command-reference).
 
 ---
 
@@ -114,21 +114,37 @@ Understanding the pool's configuration options is important for development and 
 The primary development feedback loop is local tests:
 
 ```bash
-npm test          # Run standard local tests (vitest run)
-npm run ctest     # Build + test (shortcut)
-npm run tctest    # Type check + build + test (shortcut)
+npm test          # Run all local tests (passing + meta output verification)
+npm run ptest     # Run local "passing" tests only (shortcut)
+npm run cptest    # Build + passing tests (shortcut)
+npm run tcptest   # Type check + build + passing tests (shortcut)
 ```
 
 ### Test Organization
 
 #### Local vs External Testing
 
-**Local tests** run the pool against local TypeScript source (unbundled), using vitest's project configuration. This is the primary development feedback loop.
+**Local tests** run the pool "locally" against bundled/transpiled TypeScript in `dist/`, using vitest's project configuration. This is the primary development feedback loop during development:
 
 ```bash
-npm test          # Run standard local tests
+npm test          # Run all local tests (passing + meta output verification)
+npm run ptest     # Run local passing tests only (shortcut)
 npm run mtest     # Run local meta tests (shortcut)
-npm run mvtest    # Run local meta verification (shortcut)
+npm run mvtest    # Run local meta output verification (shortcut)
+```
+
+**Why we run against compiled output:** The pool's TypeScript source must be compiled to JavaScript before tests can run. This isn't a limitation we can easily work around with `tsx`, `ts-node`, or Node's native type stripping, because three separate parts of the pool load compiled JavaScript outside of Vite's transform pipeline:
+
+1. **Pool entry point** — The vitest config imports the pool via its package name (`vitest-pool-assemblyscript/config`), which resolves through the package.json `exports` map to `dist/`
+2. **Worker threads** — The pool spawns compile and test workers using [Tinypool](https://github.com/tinylibs/tinypool) (Node [Worker threads](https://nodejs.org/docs/latest-v24.x/api/worker_threads.html)), which requires resolved JavaScript file paths. These workers run in plain Node, not through Vite.
+3. **Compiler transform** — The [AssemblyScript compiler](https://www.assemblyscript.org/compiler.html#transforms) loads a `--transform` module by path via dynamic `import()`, which also needs to be compiled JavaScript.
+
+As such, when you make changes to pool source code (not just tests), you should build before running tests. We have shortcuts for this:
+
+```bash
+npm run cptest     # Build + Run local passing tests only (shortcut)
+npm run cmtest     # Build + Run local meta tests (shortcut)
+npm run cmvtest    # Build + Run local meta output verification (shortcut)
 ```
 
 **External tests** validate the published package by running against an `npm pack`-ed and installed tarball. The [`scripts/setup-test-external.js`](../scripts/setup-test-external.js) script:
@@ -141,57 +157,70 @@ This validates that dist output, package.json exports, entry points, prebuilt bi
 
 ```bash
 npm run eptest    # External passing tests (setup + run - shortcut)
-npm run emvtest   # External meta verification (setup + run - shortcut)
+npm run emtest    # External meta tests (setup + run - shortcut)
+npm run emvtest   # External meta output verification (setup + run - shortcut)
 ```
 
 #### Standard Tests vs Meta Tests
 
 **Standard tests** (`.test.ts` files in `test/assembly/`) are expected to pass 100% of the time. They validate pool features (matchers, test options, coverage collection, suites) and enforce coverage thresholds. Their AssemblyScript source lives in `test/assembly-src/*.ts`.
 
-**Meta tests** are designed to fail, timeout, or produce errors. They verify that the pool handles error scenarios correctly: failed assertions produce proper diffs, timeouts trigger with correct behavior, compilation errors are reported cleanly, retry logic works, etc. The meta suite includes both AS tests (`.meta.test.ts` files in `test/assembly/`, with source in `test/assembly-src/*.meta.ts`) and JS/TS tests (`test/js-example-meta/`, with source in `test/js-example-meta-src/`) for hybrid coverage verification. AS meta sources are excluded from coverage thresholds.
+**Meta tests** are designed to fail, timeout, produce errors, or otherwise exercise vitest behavior. They verify that the pool handles error scenarios correctly: failed assertions produce proper diffs, timeouts trigger with correct behavior, compilation errors are reported cleanly, retry logic works, etc. The meta suite includes both AS tests (`.meta.test.ts` files in `test/assembly/`, with source in `test/assembly-src/*.meta.ts`) and JS/TS tests (`test/js-example-meta/`, with source in `test/js-example-meta-src/`) for hybrid coverage verification. AS meta sources are excluded from coverage thresholds.
 
 ### Meta Test Verification
 
-The meta test system needs to verify *how* tests fail, not just *that* they fail. A [`globalSetup`](../test/meta-verify/global-setup.ts) runs the meta suite once before any verification test workers spawn, capturing JSON output, CLI output, and exit code to a results file. Verification tests then read this pre-computed data and assert on specific expected results.
+The meta test system needs to verify *how* tests fail, not just *that* they fail. A [`globalSetup`](../test/meta-verify/global-setup.ts) runs the meta suite once before any verification test workers spawn, capturing output and writing it to a results file. This eliminates duplicate meta suite runs and race conditions on shared output files. The flow:
+
+1. The globalSetup calls [`scripts/run-vitest.js`](../scripts/run-vitest.js) in **capture mode**, which runs vitest with piped stdio and returns `{ jsonOutput, cliOutput, exitCode }`
+2. The globalSetup writes the captured data (plus `cwd` and `coverageEnabled`) to `.meta-verify-results.json` at the project root
+3. Verification tests read this pre-computed results file and assert on specific expected output
+4. Coverage verification tests additionally read `coverage-final.json` from the coverage output directory (path derived from `cwd` in the results file)
+5. The globalSetup teardown cleans up `.meta-verify-results.json` when the verification run completes
+
+The `RUN_CONTEXT` environment variable (set via `cross-env` in the npm scripts) determines which verification context is used:
+- **`local`** (default) — runs the meta suite against local `dist/` output
+- **`external`** — runs the meta suite against the installed package in `../vitest-pool-assemblyscript-test-external/`, with coverage enabled
+- **`external_no_coverage`** — same as `external` but with coverage disabled (for Node 20 or missing native build)
 
 Verification tests live in `test/meta-verify/` and are organized by category:
 - [`test/meta-verify/verify-output.test.ts`](../test/meta-verify/verify-output.test.ts) — JSON and CLI output assertions
 - [`test/meta-verify/coverage-collection/`](../test/meta-verify/coverage-collection/) — coverage collection assertions, split by scenario type (basic, edge, structure, inheritance, modules, reexports, locations), with shared helpers in [`helpers.ts`](../test/meta-verify/coverage-collection/helpers.ts)
 
-The meta suite is run via [`scripts/run-vitest.js`](../scripts/run-vitest.js), which supports two modes:
-- **Interactive mode**: stdio inherited, output streams directly to terminal (used by npm scripts for manual runs)
-- **Capture mode**: spawnSync with piped stdio, returns `{ jsonOutput, cliOutput, exitCode }` (used by the globalSetup)
-
-Three verification contexts are supported: `local` (against source), `external` (against installed package with coverage), and `external_no_coverage` (against installed package without coverage, for Node 20 or missing native build).
+[`scripts/run-vitest.js`](../scripts/run-vitest.js) supports two modes:
+- **Interactive mode**: stdio inherited, output streams directly to terminal (used by npm scripts like `mtest` and `eptest` for manual runs)
+- **Capture mode**: async spawn with piped stdio, returns `{ jsonOutput, cliOutput, exitCode }` (used by the globalSetup)
 
 ### Vitest Configuration
 
 | Config File | Purpose | Projects |
 |-------------|---------|----------|
-| [`vitest.config.ts`](../vitest.config.ts) | Local development | `ts-pool` (TypeScript unit tests), `as-pool-passing` (AS passing tests) |
-| [`vitest.meta.config.ts`](../vitest.meta.config.ts) | Local meta tests | `as-pool-meta` (AS tests), `ts-pool-meta-example` (JS/TS example fixtures) |
-| [`vitest.meta-verify.config.ts`](../vitest.meta-verify.config.ts) | Local meta verification | Meta verification tests with globalSetup |
-| [`test-external/vitest.pass.config.ts`](../test-external/vitest.pass.config.ts) | External passing tests | AS passing tests with 100% coverage thresholds |
-| [`test-external/vitest.meta.config.ts`](../test-external/vitest.meta.config.ts) | External meta tests | `as-pool-meta` (AS tests), `ts-pool-meta-example` (JS/TS example fixtures), `reportOnFailure: true` |
+| [`vitest.config.ts`](../vitest.config.ts) | Local passing tests | `ts-pool` (TypeScript pool unit tests), `as-pool-passing` (AS passing tests) |
+| [`vitest.meta.config.ts`](../vitest.meta.config.ts) | Local meta tests | `as-pool-meta` (AS meta tests), `ts-pool-meta-example` (JS/TS meta example fixtures) |
+| [`vitest.meta-verify.config.ts`](../vitest.meta-verify.config.ts) | Meta output verification (all contexts) | `ts-pool-meta-verify` (verification tests with globalSetup) |
+| [`test-external/vitest.pass.config.ts`](../test-external/vitest.pass.config.ts) | External passing tests | `as-pool-passing` (AS passing tests with 100% coverage thresholds) |
+| [`test-external/vitest.meta.config.ts`](../test-external/vitest.meta.config.ts) | External meta tests | `as-pool-meta` (AS meta tests), `ts-pool-meta-example` (JS/TS meta example fixtures) |
 
 ### DX Command Reference
 
-| Command | Shortcut | What it does |
-|---------|----------|-------------|
-| `npm test` | — | Run local tests (vitest run) |
-| `npm run test:meta` | `npm run mtest` | Run local meta tests |
-| `npm run test:meta:verify` | `npm run mvtest` | Run local meta verification |
-| `npm run test:ext:setup` | — | Prepare external test directory |
-| `npm run test:ext:pass` | `npm run eptest` | External passing tests |
-| `npm run test:ext:meta` | `npm run emtest` | External meta tests |
-| `npm run test:ext:meta:verify` | `npm run emvtest` | External meta verification |
-| `npm run build && npm test` | `npm run ctest` | Build + test |
-| `npm run tc && npm run ctest` | `npm run tctest` | Type check + build + test |
-| `npm run build && npm run mvtest` | `npm run cmvtest` | Build + meta verification |
-| `npm run build && npm run eptest` | `npm run ceptest` | Build + external passing tests |
-| `npm run build && npm run emtest` | `npm run cemtest` | Build + external meta tests |
-| `npm run build && npm run emvtest` | `npm run cemvtest` | Build + external meta verification |
-| `npm run build && npm run etest` | `npm run cetest` | Build + all external tests |
+| Shortcut | Command | Function |
+|----------|---------|-------------|
+| `npm test` | — | Run all local tests (passing + meta output verification) |
+| `npm run ptest` | `npm run test:pass` | Run local passing tests |
+| `npm run mtest` | `npm run test:meta` | Run local meta tests |
+| `npm run mvtest` | `npm run test:meta:verify` | Run local meta output verification |
+| — | `npm run test:ext:setup` | Prepare external test directory |
+| `npm run eptest` | `npm run test:ext:pass` | External passing tests (setup + run) |
+| — | `npm run test:ext:pass:no-cov` | External passing tests without coverage - Used by CI for Node 20 runs |
+| `npm run emtest` | `npm run test:ext:meta` | External meta tests (setup + run) |
+| `npm run emvtest` | `npm run test:ext:meta:verify` | External meta output verification (setup + run) |
+| — | `npm run test:ext:meta:verify:no-cov` | External meta output verification without coverage - Used by CI for Node 20 runs |
+| `npm run tcptest` | `npm run tc && npm run build && npm run ptest` | Type check + build + passing tests |
+| `npm run cptest` | `npm run build && npm run ptest` | Build + passing tests |
+| `npm run cmtest` | `npm run build && npm run mtest` | Build + meta tests |
+| `npm run cmvtest` | `npm run build && npm run mvtest` | Build + meta output verification |
+| `npm run ceptest` | `npm run build && npm run eptest` | Build + external passing tests |
+| `npm run cemtest` | `npm run build && npm run emtest` | Build + external meta tests |
+| `npm run cemvtest` | `npm run build && npm run emvtest` | Build + external meta output verification |
 
 **Key source files:**
 - [`scripts/run-vitest.js`](../scripts/run-vitest.js) — vitest runner (interactive + capture modes)

@@ -11,11 +11,11 @@
     "// NOT TO BE USED DIRECTLY": " This is a template project! ",
     "// SETUP": "  scripts/setup-test-external.js copies this template to a sibling dir and installs our npm packed project ",
     "// RUNNER": " scripts/run-vitest.js executes vitest in the sibling dir, passing arguments needed to configure the run ",
-    "// USAGE": "  From vitest-pool-assemblyscript: `npm run test:ext:pass` OR `npm run test:ext:meta` OR `npm run test:ext:all` ",
-    "// CI": "     Runs `npm run test:ext:pass` for normal CI and for Release workflow",
-    "// META": "  (FUTURE) Local JS test (in beforeAll?) runs `scripts/setup-test-external.js` ",
-    "// META2": " (FUTURE) Local JS test (in beforeAll?) runs `scripts/run-vitest.js -c vitest.meta.config.ts ",
-    "// META3": " (FUTURE) run-vitest.js captures all output and returns to Local JS tests ",
-    "// META4": " (FUTURE) Local JS tests verify meta output is correct (failure scenarios, etc)"
+    "// USAGE": "  From vitest-pool-assemblyscript: `npm run eptest` OR `npm run emtest` OR `npm run emvtest` (see docs/developer-guide.md) ",
+    "// CI": "     CI runs test:ext:pass + test:ext:meta:verify (and no-cov variants for Node 20) ",
+    "// META": "  A globalSetup (test/meta-verify/global-setup.ts) runs scripts/run-vitest.js in capture mode against this dir ",
+    "// META2": " run-vitest.js captures JSON output, CLI output, and exit code, which globalSetup writes to .meta-verify-results.json ",
+    "// META3": " Verification tests (test/meta-verify/) read the pre-computed results and assert on specific expected output "
+
   }
 }
