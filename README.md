@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="docs/images/as-icon.svg" height="50" align="middle">
-  &nbsp;&nbsp;&nbsp;&nbsp;&#10133;&nbsp;&nbsp;&nbsp;&nbsp;
+  &nbsp;&nbsp;&#10133;&nbsp;&nbsp;
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/vitest-light.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/images/vitest-dark.svg">
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  AssemblyScript unit testing for your Vitest workflow: Simple, fast, familiar, AS-native.
+  AssemblyScript unit testing in Vitest: Simple, fast, familiar, AS-native.
   <br/>
   <br/>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat"/></a>
@@ -24,7 +24,7 @@
 <br/>
 
 <p align="center">
-  This <a href="https://vitest.dev/guide/advanced/pool.html">custom pool</a> plugs into <a href="https://vitest.dev">Vitest</a>, giving it the ability to compile AssemblyScript, run isolated WASM tests, and report with Vitest's reporters. It co-exists alongside your existing JavaScript/TypeScript tests and coverage reports, and is designed for simple incremental adoption.
+  This <a href="https://vitest.dev/guide/advanced/pool.html">custom pool</a> plugs into <a href="https://vitest.dev">Vitest</a>, giving it the ability to compile AssemblyScript, run isolated WASM tests, and report results with Vitest's reporters. It coexists with your existing JavaScript/TypeScript tests and coverage reporting, and is designed for easy incremental adoption.
 </p>
 
 <p align="center">
@@ -65,16 +65,16 @@
 
 ## Status
 
-This project is relatively new to the scene, but is being improved every day. Please give it a try!
+This project is relatively new to the scene, but is stable and is being improved every day. Please give it a try!
 
-All [listed features](#features) are working and assumed to be bug-free ([please report any](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new))
+All [listed features](#features) are working and assumed to be bug-free ([please report any](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new)).
 
-| Function | Status |
+| Item | Status |
 |---|---|
 | [`describe()` and `test()` APIs](#writing-tests) | - stable<br/>- no breaking changes expected |
-| [`expect()` API](docs/matchers-api.md) | - stable<br/>- no breaking changes expected<br/>- more coming soon |
+| [`expect()` API](docs/matchers-api.md) | - stable<br/>- no breaking changes expected<br/>- more matchers coming soon |
 | Code Coverage / Instrumentation | - function coverage stable [across platforms](#compatibility)<br/>- branch & line coverage coming soon |
-| Hybrid Coverage Provider | - stable<br/>- v8 delegation, side-by-side JS coverage<br/>- istanbul delegation coming soon
+| Hybrid Coverage Provider | - stable<br/>- v8 JS delegation, side-by-side JS coverage<br/>- istanbul JS delegation coming soon
 
 See Also:
 - [Current Limitations & Roadmap](#current-limitations--roadmap)
@@ -193,6 +193,52 @@ npx vitest run
 - Configurable test memory size
 - User-provided WASM imports with access to test memory
 
+
+<table>
+  <tr>
+    <td align="center">
+      <figure>
+        <img src="docs/images/demo-compiler-error.png" alt="AS Compiler Error Output" width="200" /><br/>
+        <figcaption>AS compiler error</figcaption>
+      </figure>
+    </td>
+    <td align="center">
+      <figure>
+        <img src="docs/images/demo-runtime-errors.png" alt="WASM Runtime Error Output" width="200" /><br/>
+        <figcaption>Source-mapped, highlighted runtime errors</figcaption>
+      </figure>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <figure>
+        <img src="docs/images/demo-diffs-array.png" alt="Assertion Error Diff Output" width="200" /><br/>
+        <figcaption>Assertion diff output</figcaption>
+      </figure>
+    </td>
+    <td align="center">
+      <figure>
+        <img src="docs/images/demo-timeout-and-fails.png" alt="Timeout and Fails Outputs" width="200" /><br/>
+        <figcaption>Timeout and fails outputs</figcaption>
+      </figure>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <figure>
+        <img src="docs/images/demo-coverage.png" alt="Coverage Summary Output" width="200" /><br/>
+        <figcaption>AS and JS coverage summary</figcaption>
+      </figure>
+    </td>
+    <td align="center">
+      <figure>
+        <img src="docs/images/demo-coverage-html.png" alt="Coverage HTML Report" width="200" /><br/>
+        <figcaption>AS coverage HTML report</figcaption>
+      </figure>
+    </td>
+  </tr>
+</table>
+
 ---
 
 ## Frequently Asked Questions
@@ -223,7 +269,7 @@ The overall goal is tight vitest experience integration - most CLI commands, rep
 
 **Q: Are you a company? A bot?**
 <br/>
-**A:** Just [a person](https://github.com/themattspiral)! This started as a hobby project to improve my own AssemblyScript testing workflow and learn something about WASM internals, and it's grown from there. I use Claude Code for initial scaffolding and to help dig into the native instrumentation side in particular, but everything goes through me, and my intention is to contribute something useful and high-quality to the community. Feedback and contributions are welcome.
+**A:** Just [a person](https://github.com/themattspiral)! This started as a hobby project to improve my own AssemblyScript testing workflow and to learn something about deep WASM internals, and it's grown from there. I used Claude Code for initial scaffolding and to help dig into the native instrumentation side, but everything goes through me, and my intention is to contribute something useful and high-quality to the community. Feedback and contributions are welcome.
 
 ---
 

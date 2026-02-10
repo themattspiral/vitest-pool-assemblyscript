@@ -6,11 +6,34 @@ function fails(): i32 {
   return value;
 }
 
-describe("toBeNan", () => {
-  describe("matching failures", () => {
-    test("should print \"expected <value> to be NaN\" [should fail]", () => {
-      expect(77).toBeNaN();
+describe("toEqual", () => {
+  describe("arrays", () => {
+    test("print unequal number array diffs", () => {
+      expect([1, 2, 3, 4]).toEqual([1, 2, 7, 4]);
     });
+    
+    test("print string array diffs", () => {
+      expect(["one", "two", "three"]).toEqual(["one", "two", "3"]);
+    });
+
+    // TODO fix set bug
+    // test("print set diffs", () => {
+    //   const setA = new Set<string>();
+    //   setA.add("apple");
+    //   setA.add("cherry");
+      
+    //   const setB = new Set<string>();
+    //   setB.add("apple");
+    //   setB.add("cherry");
+    //   setB.add("banana");
+    //   expect(setA).toEqual(setB);
+    // });
+  });
+});
+
+describe("toBeNan", () => {
+  test("should print \"expected <value> to be NaN\" [should fail]", () => {
+    expect(77).toBeNaN();
   });
 });
 
