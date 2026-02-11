@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import {
-  type FileCoverage, type CoverageMap, COV_DIR,
+  type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, coveredCount, totalFunctions,
 } from './helpers.js';
@@ -10,7 +10,7 @@ const EDGE_COLLISION_A = `${COV_DIR}/edge/name-collision-a.meta.ts`;
 const EDGE_COLLISION_B = `${COV_DIR}/edge/name-collision-b.meta.ts`;
 const EDGE_MATH_HELPERS = `${COV_DIR}/edge/math-helpers.meta.ts`;
 
-describe('coverage collection — edge cases', () => {
+describe.runIf(COVERAGE_ENABLED)('coverage collection — edge cases', () => {
   let coverageMap: CoverageMap;
 
   beforeAll(async () => {

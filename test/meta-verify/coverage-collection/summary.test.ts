@@ -1,10 +1,10 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import {
-  type CoverageTableRow,
+  type CoverageTableRow, COVERAGE_ENABLED,
   loadCliOutput, parseCoverageTableRow,
 } from './helpers.js';
 
-describe('coverage summary — CLI table verification', () => {
+describe.runIf(COVERAGE_ENABLED)('coverage summary — CLI table verification', () => {
   let cliOutput: string;
 
   beforeAll(async () => {

@@ -47,7 +47,6 @@ export default async function setup(): Promise<() => Promise<void>> {
     cliOutput,
     exitCode,
     cwd,
-    coverageEnabled,
   }));
 
   // Teardown: clean up results file

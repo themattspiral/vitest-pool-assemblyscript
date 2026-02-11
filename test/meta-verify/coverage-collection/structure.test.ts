@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import {
-  type FileCoverage, type CoverageMap, COV_DIR,
+  type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, coveredCount, uncoveredCount, totalFunctions,
 } from './helpers.js';
@@ -11,7 +11,7 @@ const MULTIPLE_CLASSES = `${COV_DIR}/multiple-classes.meta.ts`;
 const EMPTY_FUNCTIONS = `${COV_DIR}/empty-functions.meta.ts`;
 const TRAP_COVERAGE = `${COV_DIR}/trap-coverage.meta.ts`;
 
-describe('coverage collection — structure cases', () => {
+describe.runIf(COVERAGE_ENABLED)('coverage collection — structure cases', () => {
   let coverageMap: CoverageMap;
 
   beforeAll(async () => {

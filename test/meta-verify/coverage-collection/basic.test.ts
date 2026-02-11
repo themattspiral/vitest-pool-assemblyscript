@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import {
-  type FileCoverage, type CoverageMap, COV_DIR,
+  type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, coveredCount, uncoveredCount, totalFunctions,
 } from './helpers.js';
@@ -11,7 +11,7 @@ const CALL_COUNTING = `${COV_DIR}/call-counting.meta.ts`;
 const STANDALONE_UNUSED = `${COV_DIR}/standalone-unused.meta.ts`;
 const CLASS_UNUSED = `${COV_DIR}/class-utils-unused.meta.ts`;
 
-describe('coverage collection — basic scenarios', () => {
+describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () => {
   let coverageMap: CoverageMap;
 
   beforeAll(async () => {

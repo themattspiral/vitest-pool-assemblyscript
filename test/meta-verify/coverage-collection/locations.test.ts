@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import {
-  type FileCoverage, type CoverageMap, COV_DIR,
+  type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, coveredCount, totalFunctions, functionInfo,
 } from './helpers.js';
@@ -8,7 +8,7 @@ import {
 const FUNCTION_LOCATIONS = `${COV_DIR}/function-locations.meta.ts`;
 const FILE_BOUNDARY = `${COV_DIR}/file-boundary.meta.ts`;
 
-describe('coverage collection — location accuracy', () => {
+describe.runIf(COVERAGE_ENABLED)('coverage collection — location accuracy', () => {
   let coverageMap: CoverageMap;
 
   beforeAll(async () => {

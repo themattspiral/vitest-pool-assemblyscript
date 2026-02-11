@@ -9,6 +9,11 @@ const PROJECT_ROOT = resolve(__dirname, '../../..');
 
 const RESULTS_PATH = resolve(PROJECT_ROOT, '.meta-verify-results.json');
 
+// --- Coverage enabled check (mirrors global-setup.ts logic) ---
+
+/** Whether coverage data is available in this run context. */
+export const COVERAGE_ENABLED: boolean = process.env.RUN_CONTEXT !== 'external_no_coverage';
+
 // --- Coverage data types ---
 
 export interface FunctionInfo {
@@ -38,7 +43,6 @@ export const COV_DIR = 'coverage-collection-meta';
 
 export interface CoverageResults {
   coverageMap: CoverageMap;
-  coverageEnabled: boolean;
 }
 
 /**
@@ -47,10 +51,9 @@ export interface CoverageResults {
  */
 export async function loadCoverageResults(): Promise<CoverageResults> {
   const results = JSON.parse(await readFile(RESULTS_PATH, 'utf-8'));
-  const coverageEnabled = results.coverageEnabled;
 
   let coverageMap: CoverageMap = {};
-  if (coverageEnabled) {
+  if (COVERAGE_ENABLED) {
     const coveragePath = resolve(results.cwd, 'coverage/meta/coverage-final.json');
     if (!existsSync(coveragePath)) {
       throw new Error(`coverage-final.json not found at ${coveragePath}`);
@@ -58,7 +61,7 @@ export async function loadCoverageResults(): Promise<CoverageResults> {
     coverageMap = JSON.parse(await readFile(coveragePath, 'utf-8'));
   }
 
-  return { coverageMap, coverageEnabled };
+  return { coverageMap };
 }
 
 /**

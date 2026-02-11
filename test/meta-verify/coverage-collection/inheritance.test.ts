@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import {
-  type FileCoverage, type CoverageMap, COV_DIR,
+  type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, allFunctionNames,
 } from './helpers.js';
@@ -8,7 +8,7 @@ import {
 const CLASS_INHERITANCE = `${COV_DIR}/class-inheritance.meta.ts`;
 const OPERATOR_OVERLOAD = `${COV_DIR}/operator-overload.meta.ts`;
 
-describe('coverage collection — inheritance & operator overloads', () => {
+describe.runIf(COVERAGE_ENABLED)('coverage collection — inheritance & operator overloads', () => {
   let coverageMap: CoverageMap;
 
   beforeAll(async () => {

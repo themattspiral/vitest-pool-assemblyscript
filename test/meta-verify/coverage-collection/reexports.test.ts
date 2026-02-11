@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import {
-  type FileCoverage, type CoverageMap, COV_DIR,
+  type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, totalFunctions,
 } from './helpers.js';
@@ -8,7 +8,7 @@ import {
 const REEXPORT_ORIGINAL = `${COV_DIR}/reexport-original.meta.ts`;
 const REEXPORT_BARREL = `${COV_DIR}/reexport-barrel.meta.ts`;
 
-describe('coverage collection — re-exports', () => {
+describe.runIf(COVERAGE_ENABLED)('coverage collection — re-exports', () => {
   let coverageMap: CoverageMap;
 
   beforeAll(async () => {
