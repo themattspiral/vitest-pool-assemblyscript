@@ -1,5 +1,5 @@
 import { defineConfig, defineProject } from 'vitest/config';
-import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
+import { defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/v3/config';
 
 export default defineConfig({
   test: {
@@ -43,19 +43,22 @@ export default defineConfig({
         }
       }),
 
-      defineProject({
+      defineAssemblyScriptProject({
         test: {
           name: { label: 'as-pool-meta', color: 'yellow' },
           include: [
             '../vitest-pool-assemblyscript/test/assembly/**/*.meta.test.ts'
           ],
-          pool: createAssemblyScriptPool({
-            debug: false,
-            debugNative: false,
-            debugCoverageExtract: false,
-            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
-            _instrumentPoolInternals: false,
-          }),
+          pool: 'vitest-pool-assemblyscript/v3',
+          poolOptions: {
+            assemblyScript: {
+              debug: false,
+              debugNative: false,
+              debugCoverageExtract: false,
+              wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
+              _instrumentPoolInternals: false,
+            }
+          },
         }
       })
     ]

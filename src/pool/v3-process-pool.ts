@@ -33,7 +33,7 @@ import {
   flagTestTerminated,
 } from '../util/vitest-tasks.js';
 import { createInitialFileTask } from '../util/vitest-file-tasks.js';
-import { getProjectSerializedOrGlobalConfig, resolvePoolOptions } from '../util/resolve-config.js';
+import { getProjectSerializedOrGlobalConfig } from '../util/resolve-config.js';
 
 // path assumes that we're running from dist/
 const WORKER_PATH = resolve(import.meta.dirname, 'pool-thread/v3-tinypool-thread.mjs');
@@ -265,12 +265,15 @@ async function runTests(
 }
 
 export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
-  const { config, foundProjectSerializedConfig } = getProjectSerializedOrGlobalConfig(ctx);
+  const { config, foundProjectSerializedConfig, v3PoolOptions } = getProjectSerializedOrGlobalConfig(ctx);
   
-  // Resolve pool options and initialize debug mode
-  // @ts-ignore - we build with v4, but this is correct for v3 (has Config.poolOptions)
-  const poolOptions = resolvePoolOptions(config?.poolOptions);
-  setGlobalDebugMode(poolOptions.debug);
+  if (!v3PoolOptions) {
+    throw {
+      name: POOL_ERROR_NAMES.PoolError,
+      message: `Could not parse poot options or generate defaults. This is a bug in vitest-pool-assemblyscript, please report it.`,
+    };
+  }
+  setGlobalDebugMode(v3PoolOptions.debug);
 
   debug('[Pool] Initializing AssemblyScript Pool');
 
@@ -281,13 +284,13 @@ export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
   }
 
   debug(`[Pool] Worker thread path: "${WORKER_PATH}"`);
-  debug(`[Pool] Worker thread configuration - maxThreads: ${poolOptions.maxThreadsV3}`);
+  debug(`[Pool] Worker thread configuration - maxThreads: ${v3PoolOptions.maxThreadsV3}`);
 
   setImmediate(async () => {
-    const userImportsFactoryPath = resolve(config.root, poolOptions.wasmImportsFactory ?? '');
+    const userImportsFactoryPath = resolve(config.root, v3PoolOptions.wasmImportsFactory ?? '');
     const results = await Promise.allSettled([
       access(WORKER_PATH),
-      poolOptions.wasmImportsFactory ? access(userImportsFactoryPath) : Promise.resolve()
+      v3PoolOptions.wasmImportsFactory ? access(userImportsFactoryPath) : Promise.resolve()
     ]);
 
     if (results[0].status === 'rejected') {
@@ -305,11 +308,11 @@ export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
   const pool = new Tinypool({
     filename: WORKER_PATH,
     minThreads: 1,
-    maxThreads: poolOptions.maxThreadsV3,
+    maxThreads: v3PoolOptions.maxThreadsV3,
     idleTimeout: POOL_THREAD_IDLE_TIMEOUT_MS,
     isolateWorkers: false,
     workerData: {
-      asPoolOptions: poolOptions,
+      asPoolOptions: v3PoolOptions,
       asCoverageOptions: config.coverage as ResolvedHybridProviderOptions,
       projectRoot: config.root,
     } satisfies WorkerThreadInitData,

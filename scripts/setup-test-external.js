@@ -24,7 +24,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, '..');
 
-const EXTERNAL_SOURCE_DIR = join(PROJECT_ROOT, 'test-external');
+const VITEST_VERSION = process.env.VITEST_VERSION || '4';
+const EXTERNAL_SOURCE_DIRNAME = VITEST_VERSION === '3' ? `test-external-v3` : 'test-external';
+const EXTERNAL_SOURCE_DIR = join(PROJECT_ROOT, EXTERNAL_SOURCE_DIRNAME);
 const EXTERNAL_DIR_NAME = 'vitest-pool-assemblyscript-test-external';
 const EXTERNAL_DIR = resolve(PROJECT_ROOT, '..', EXTERNAL_DIR_NAME);
 
@@ -47,7 +49,7 @@ if (existsSync(EXTERNAL_DIR)) {
 
 // Step 2: Copy test-external/ to sibling directory
 console.log('');
-console.log('Step 2: Copying test-external/ to sibling directory...');
+console.log(`Step 2: Copying ${EXTERNAL_SOURCE_DIRNAME}/ to sibling directory...`);
 cpSync(EXTERNAL_SOURCE_DIR, EXTERNAL_DIR, { recursive: true });
 console.log(`  Copied to ${EXTERNAL_DIR}`);
 
@@ -77,5 +79,7 @@ execSync(`npm install "${tarballFilename}"`, {
 
 console.log('');
 console.log('External test environment ready.');
+console.log(`  Vitest version: ${VITEST_VERSION}`);
+console.log(`  Template: ${EXTERNAL_SOURCE_DIRNAME}/`);
 console.log(`  Directory: ${EXTERNAL_DIR}`);
 console.log(`  Tarball: ${tarballFilename}`);

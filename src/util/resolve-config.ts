@@ -25,7 +25,7 @@ const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOption
   extraCompilerFlags: [],
 } as const;
 
-// v4: used in runner init to parse user-provided param
+// v4: used in runner init to parse user-provided param directly
 export function resolvePoolOptions(userPoolOptions?: any): ResolvedAssemblyScriptPoolOptions {
   const poolOptions: AssemblyScriptPoolOptions = userPoolOptions ?? DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS;
 
@@ -58,12 +58,15 @@ export function resolvePoolOptions(userPoolOptions?: any): ResolvedAssemblyScrip
 }
 
 // v3 & hybrid coverage provider: used to get project config & poolOptions, with global coverage on project config
+// poolOptions will be undefined for v4 in coverage provider, but it doesn't need them
 export function getProjectSerializedOrGlobalConfig(ctx: Vitest): {
   config: AssemblyScriptProjectConfig;
   foundProjectSerializedConfig: boolean;
+  v3PoolOptions?: ResolvedAssemblyScriptPoolOptions;
 } {
   let testProject: TestProject | undefined;
   let foundProjectSerializedConfig: boolean = false;
+  let v3PoolOptions: ResolvedAssemblyScriptPoolOptions | undefined;
 
   // In multi-project mode, ctx.config is the global config, not the project-specific config
   // We need to find our project in ctx.projects to get project-specific config at the "pool level" in v3,
@@ -90,8 +93,15 @@ export function getProjectSerializedOrGlobalConfig(ctx: Vitest): {
     coverage: ctx.config.coverage as ResolvedHybridProviderOptions
   };
 
+  // @ts-ignore - we build with v4, but this is correct for v3 (has config.poolOptions)
+  const maybeOptions: any = !!testProject ? testProject.config?.poolOptions?.assemblyScript : config?.poolOptions?.assemblyScript;
+  if (maybeOptions) {
+    v3PoolOptions = resolvePoolOptions(maybeOptions);
+  }
+
   return {
     config,
-    foundProjectSerializedConfig
+    foundProjectSerializedConfig,
+    v3PoolOptions
   };
 }

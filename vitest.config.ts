@@ -1,5 +1,6 @@
 import { defineConfig, defineProject } from 'vitest/config';
 import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
+import { defineAssemblyScriptConfig, defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/v3/config';
 
 export default defineConfig({
   test: {
