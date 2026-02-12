@@ -169,10 +169,10 @@ npm run emvtest   # External meta output verification (setup + run - shortcut)
 
 ### Meta Test Verification
 
-The meta test system needs to verify *how* tests fail, not just *that* they fail. A [`globalSetup`](../test/meta-verify/global-setup.ts) runs the meta suite once before any verification test workers spawn, capturing output and writing it to a results file. This eliminates duplicate meta suite runs and race conditions on shared output files. The flow:
+The meta test system needs to verify *how* tests fail, not just *that* they fail. A [`globalSetup`](../test/meta-verify/global-setup-capture-meta-run.ts) runs the meta suite once before any verification test workers spawn, capturing output and writing it to a results file. This eliminates duplicate meta suite runs and race conditions on shared output files. The flow:
 
 1. The globalSetup calls [`scripts/run-vitest.js`](../scripts/run-vitest.js) in **capture mode**, which runs vitest with piped stdio and returns `{ jsonOutput, cliOutput, exitCode }`
-2. The globalSetup writes the captured data (plus `cwd` and `coverageEnabled`) to `.meta-verify-results.json` at the project root
+2. The globalSetup writes the captured data (plus `cwd` and `coverageEnabled`) to `tmp/.meta-verify-results.json` at the project root
 3. Verification tests read this pre-computed results file and assert on specific expected output
 4. Coverage verification tests additionally read `coverage-final.json` from the coverage output directory (path derived from `cwd` in the results file)
 5. The globalSetup teardown cleans up `.meta-verify-results.json` when the verification run completes
@@ -225,7 +225,7 @@ Verification tests live in `test/meta-verify/` and are organized by category:
 **Key source files:**
 - [`scripts/run-vitest.js`](../scripts/run-vitest.js) — vitest runner (interactive + capture modes)
 - [`scripts/setup-test-external.js`](../scripts/setup-test-external.js) — external test directory setup
-- [`test/meta-verify/global-setup.ts`](../test/meta-verify/global-setup.ts) — runs meta suite once, writes results for verification tests
+- [`test/meta-verify/global-setup-capture-meta-run.ts`](../test/meta-verify/global-setup-capture-meta-run.ts) — runs meta suite once, writes results for verification tests
 - [`test/meta-verify/coverage-collection/helpers.ts`](../test/meta-verify/coverage-collection/helpers.ts) — shared types and helpers for coverage verification
 
 ---

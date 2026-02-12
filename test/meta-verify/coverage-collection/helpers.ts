@@ -7,9 +7,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, '../../..');
 
-const RESULTS_PATH = resolve(PROJECT_ROOT, '.meta-verify-results.json');
+const RESULTS_PATH = resolve(PROJECT_ROOT, 'tmp/.meta-verify-results.json');
 
-// --- Coverage enabled check (mirrors global-setup.ts logic) ---
+// --- Coverage enabled check (mirrors global-setup-capture-meta-run.ts logic) ---
 
 /** Whether coverage data is available in this run context. */
 export const COVERAGE_ENABLED: boolean = process.env.RUN_CONTEXT !== 'external_no_coverage';

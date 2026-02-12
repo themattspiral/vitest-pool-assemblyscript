@@ -9,9 +9,11 @@
  * on shared output files (JSON reporter temp file, coverage-final.json).
  */
 
+import { stripVTControlCharacters } from 'node:util';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { writeFile, unlink } from 'node:fs/promises';
+import { writeFile, unlink, mkdir } from 'node:fs/promises';
+
 import { runVitest } from '../../scripts/run-vitest.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,9 +24,16 @@ const EXTERNAL_DIR_NAME = 'vitest-pool-assemblyscript-test-external';
 const EXTERNAL_DIR = resolve(PROJECT_ROOT, '..', EXTERNAL_DIR_NAME);
 
 /** Well-known path for the results file. Test files read from here. */
-const RESULTS_PATH = resolve(PROJECT_ROOT, '.meta-verify-results.json');
+const TMP_DIR = resolve(PROJECT_ROOT, 'tmp/');
+const RESULTS_PATH = resolve(TMP_DIR, '.meta-verify-results.json');
 
 export default async function setup(): Promise<() => Promise<void>> {
+  // remove any existing results file
+  await unlink(RESULTS_PATH).catch(() => {});
+
+  // create project tmp dir if it doesn't exist
+  await mkdir(TMP_DIR, { recursive: true }).catch(() => {});
+
   const context = process.env.RUN_CONTEXT || 'local';
   const isExternal = context === 'external';
   const isExternalNoCoverage = context === 'external_no_coverage';
@@ -40,7 +49,13 @@ export default async function setup(): Promise<() => Promise<void>> {
   const { jsonOutput, cliOutput, exitCode } = await runVitest({ cwd, args, capture: true });
   const duration = (performance.now() - start).toFixed(0);
 
-  console.log(`[globalSetup] Meta suite completed in ${duration}ms (context: ${context}, cwd: ${cwd})`);
+  const runLine = stripVTControlCharacters(cliOutput).match(/RUN\s+v[\d.]+\s+.+/)?.[0]?.trim() ?? 'unknown';
+
+  console.log(`[Meta-Verify globalSetup] Meta suite run completed in ${duration}ms`);
+  console.log(`[Meta-Verify globalSetup]   CLI Output: ${runLine}`);
+  console.log(`[Meta-Verify globalSetup]   RUN_CONTEXT: ${context}`);
+  console.log(`[Meta-Verify globalSetup]   args: ${args.join(' ')}`);
+  console.log(`[Meta-Verify globalSetup]   cwd: ${cwd}`);
 
   await writeFile(RESULTS_PATH, JSON.stringify({
     jsonOutput,
@@ -48,6 +63,9 @@ export default async function setup(): Promise<() => Promise<void>> {
     exitCode,
     cwd,
   }));
+
+  console.log(`[Meta-Verify globalSetup]   Wrote results to: ${RESULTS_PATH}`);
+  console.log('');
 
   // Teardown: clean up results file
   return async (): Promise<void> => {
