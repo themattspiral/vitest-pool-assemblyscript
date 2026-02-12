@@ -12,46 +12,50 @@ function arrayEquals<T extends ArrayLike<unknown>, U extends ArrayLike<unknown>>
   return true;
 }
 
-function setEquals<T extends Set<V>, U extends Set<V>, V>(actual: T, expected: U): bool {
-  if (actual.size != expected.size) {
-    return false;
-  }
-
-  const expectedValues: V[] = expected.values();
-
-  for (let i = 0; i < expectedValues.length; i++) {
-    if (!actual.has(expectedValues[i])) {
+function setEquals<T, U>(actual: T, expected: U): bool {
+  if (actual instanceof Set && expected instanceof Set) {
+    if (actual.size != expected.size) {
       return false;
     }
+
+    const expectedValues = expected.values();
+
+    for (let i = 0; i < expectedValues.length; i++) {
+      if (!actual.has(expectedValues[i])) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
-  return true;
+  return false;
 }
 
-function mapEquals<
-  T extends Map<V, W>,
-  U extends Map<V, W>,
-  V, W
->(actual: T, expected: U): bool {
-  if (actual.size != expected.size) {
-    return false;
-  }
-  
-  const expectedKeys: V[] = expected.keys();
-
-  for (let i = 0; i < expectedKeys.length; i++) {
-    const key: V = expectedKeys[i];
-    
-    if (!actual.has(key)) {
+function mapEquals<T, U>(actual: T, expected: U): bool {
+  if (actual instanceof Map && expected instanceof Map) {
+    if (actual.size != expected.size) {
       return false;
     }
 
-    if (!equals<W, W>(actual.get(key), expected.get(key))) {
-      return false;
+    const expectedKeys = expected.keys();
+
+    for (let i = 0; i < expectedKeys.length; i++) {
+      const key = expectedKeys[i];
+
+      if (!actual.has(key)) {
+        return false;
+      }
+
+      if (!equals(actual.get(key), expected.get(key))) {
+        return false;
+      }
     }
+
+    return true;
   }
 
-  return true;
+  return false;
 }
 
 /**
@@ -210,6 +214,12 @@ export function equals<T, U>(actual: T, expected: U): bool {
   }
   if (actual instanceof Map && expected instanceof Map) {
     return mapEquals(actual, expected);
+  }
+
+  if (idof<T>() != idof<U>()) {
+    throw new Error("Cannot compare equality between " + nameof<T>(actual)
+      + " and " + nameof<U>(expected) + " - this comparison is undefined."
+    );
   }
 
   // TODO value compare

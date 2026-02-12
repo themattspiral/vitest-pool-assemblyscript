@@ -1,6 +1,6 @@
 import { test, expect, describe, TestOptions } from "vitest-pool-assemblyscript/assembly";
 
-test.only("empty strings are equal", () => {
+test("empty strings are equal", () => {
   expect("").toEqual("");
 });
 
@@ -19,7 +19,7 @@ describe("primitives", () => {
     expect(null).toEqual(u8(0.0));
   });
 
-  test("booleans should be equal correct numerical equivalents", () => {
+  test("booleans should be equal to their correct numerical equivalents", () => {
     expect(true).toEqual(u8(1));
     expect(true).toEqual(f32(1.0));
     expect(true).toEqual(f64(1.0));
@@ -141,11 +141,191 @@ describe("arrays", () => {
 });
 
 describe("maps", () => {
-  // TODO
+  test("map equals itself", () => {
+    const mapA = new Map<string, i32>();
+    mapA.set("a", 1);
+    mapA.set("b", 2);
+
+    expect(mapA).toEqual(mapA);
+  });
+
+  test("empty maps are equal", () => {
+    const mapA = new Map<string, i32>();
+    const mapB = new Map<string, i32>();
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("maps with same entries are equal", () => {
+    const mapA = new Map<string, i32>();
+    mapA.set("a", 1);
+    mapA.set("b", 2);
+
+    const mapB = new Map<string, i32>();
+    mapB.set("a", 1);
+    mapB.set("b", 2);
+
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("maps with same entries in different insertion order are equal", () => {
+    const mapA = new Map<string, i32>();
+    mapA.set("a", 1);
+    mapA.set("b", 2);
+    mapA.set("c", 3);
+
+    const mapB = new Map<string, i32>();
+    mapB.set("c", 3);
+    mapB.set("a", 1);
+    mapB.set("b", 2);
+
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("maps with same keys but different values are not equal", () => {
+    const mapA = new Map<string, i32>();
+    mapA.set("a", 1);
+    mapA.set("b", 2);
+
+    const mapB = new Map<string, i32>();
+    mapB.set("a", 1);
+    mapB.set("b", 99);
+
+    expect(mapA).not.toEqual(mapB);
+  });
+
+  test("maps with different sizes are not equal", () => {
+    const mapA = new Map<string, i32>();
+    mapA.set("a", 1);
+
+    const mapB = new Map<string, i32>();
+    mapB.set("a", 1);
+    mapB.set("b", 2);
+
+    expect(mapA).not.toEqual(mapB);
+  });
+
+  test("same-size maps with different keys are not equal", () => {
+    const mapA = new Map<string, i32>();
+    mapA.set("a", 1);
+    mapA.set("b", 2);
+
+    const mapB = new Map<string, i32>();
+    mapB.set("a", 1);
+    mapB.set("c", 2);
+
+    expect(mapA).not.toEqual(mapB);
+  });
+
+  test("maps with array values use deep equality", () => {
+    const mapA = new Map<string, i32[]>();
+    mapA.set("nums", [1, 2, 3]);
+
+    const mapB = new Map<string, i32[]>();
+    mapB.set("nums", [1, 2, 3]);
+
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("maps with different array values are not equal", () => {
+    const mapA = new Map<string, i32[]>();
+    mapA.set("nums", [1, 2, 3]);
+
+    const mapB = new Map<string, i32[]>();
+    mapB.set("nums", [1, 2, 99]);
+
+    expect(mapA).not.toEqual(mapB);
+  });
+
+  test("error is thrown when map compared to non-map type", () => {
+    expect(() => {
+      const mapA = new Map<string, i32>();
+      mapA.set("a", 1);
+
+      const arrayA: string[] = ["a"];
+
+      expect(mapA).toEqual(arrayA);
+    }).toThrowError("Cannot compare equality between");
+  });
 });
 
 describe("sets", () => {
-  // TODO
+  test("set equals itself", () => {
+    const setA = new Set<string>();
+    setA.add("apple");
+    setA.add("cherry");
+    setA.add("banana");
+
+    expect(setA).toEqual(setA);
+  });
+
+  test("empty sets are equal", () => {
+    const setA = new Set<i32>();
+    const setB = new Set<i32>();
+    expect(setA).toEqual(setB);
+  });
+
+  test("sets with same values are equal", () => {
+    const setA = new Set<string>();
+    setA.add("apple");
+    setA.add("cherry");
+
+    const setB = new Set<string>();
+    setB.add("cherry");
+    setB.add("apple");
+
+    expect(setA).toEqual(setB);
+  });
+
+  test("integer sets with same values are equal", () => {
+    const setA = new Set<i32>();
+    setA.add(1);
+    setA.add(2);
+    setA.add(3);
+
+    const setB = new Set<i32>();
+    setB.add(3);
+    setB.add(1);
+    setB.add(2);
+
+    expect(setA).toEqual(setB);
+  });
+
+  test("sets with different sizes are not equal", () => {
+    const setA = new Set<string>();
+    setA.add("apple");
+    setA.add("cherry");
+
+    const setB = new Set<string>();
+    setB.add("apple");
+    setB.add("cherry");
+    setB.add("banana");
+
+    expect(setA).not.toEqual(setB);
+  });
+
+  test("same-size sets with different values are not equal", () => {
+    const setA = new Set<string>();
+    setA.add("apple");
+    setA.add("cherry");
+
+    const setB = new Set<string>();
+    setB.add("apple");
+    setB.add("banana");
+
+    expect(setA).not.toEqual(setB);
+  });
+
+  test("error is thrown when set compared to array with same values", () => {
+    expect(() => {
+      const setA = new Set<string>();
+      setA.add("apple");
+      setA.add("cherry");
+
+      const arrayA = ["apple", "cherry"];
+
+      expect(setA).toEqual(arrayA);
+    }).toThrowError("Cannot compare equality between");
+  });
 });
 
 describe("ArrayBuffer", () => {
