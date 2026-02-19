@@ -14,7 +14,37 @@ const RESULTS_PATH = resolve(PROJECT_ROOT, 'tmp/.meta-verify-results.json');
 /** Whether coverage data is available in this run context. */
 export const COVERAGE_ENABLED: boolean = process.env.RUN_CONTEXT !== 'external_no_coverage';
 
-// --- Coverage data types ---
+// --- Meta run results types (from vitest JSON reporter) ---
+
+export interface TestResult {
+  status: 'passed' | 'failed' | 'skipped';
+  title: string;
+  fullName: string;
+  ancestorTitles: string[];
+  duration: number;
+  failureMessages: string[];
+}
+
+export interface TestFileResult {
+  name: string;
+  status: 'passed' | 'failed';
+  message: string;
+  assertionResults: TestResult[];
+}
+
+export interface MetaRunResults {
+  numTotalTestSuites: number;
+  numPassedTestSuites: number;
+  numFailedTestSuites: number;
+  numPendingTestSuites: number;
+  numTotalTests: number;
+  numPassedTests: number;
+  numFailedTests: number;
+  numPendingTests: number;
+  testResults: TestFileResult[];
+}
+
+// --- Coverage data types (from coverage-final.json / Istanbul format) ---
 
 export interface FunctionInfo {
   name: string;
@@ -35,14 +65,37 @@ export interface FileCoverage {
 
 export type CoverageMap = Record<string, FileCoverage>;
 
-// --- Coverage source file path prefix ---
+export interface CoverageResults {
+  coverageMap: CoverageMap;
+}
 
 export const COV_DIR = 'coverage-collection-meta';
 
+export interface CoverageTableRow {
+  filename: string;
+  stmts: number;
+  branch: number;
+  funcs: number;
+  lines: number;
+  uncoveredLines: string;
+}
+
 // --- Loading ---
 
-export interface CoverageResults {
-  coverageMap: CoverageMap;
+/**
+ * Load the meta run results (vitest JSON reporter output) from the pre-computed results file.
+ */
+export async function loadMetaRunResults(): Promise<MetaRunResults> {
+  const results = JSON.parse(await readFile(RESULTS_PATH, 'utf-8'));
+  return results.jsonOutput;
+}
+
+/**
+ * Load the CLI output from the pre-computed meta-verify results.
+ */
+export async function loadCliOutput(): Promise<string> {
+  const results = JSON.parse(await readFile(RESULTS_PATH, 'utf-8'));
+  return results.cliOutput;
 }
 
 /**
@@ -64,61 +117,66 @@ export async function loadCoverageResults(): Promise<CoverageResults> {
   return { coverageMap };
 }
 
-/**
- * Load the CLI output from the pre-computed meta-verify results.
- */
-export async function loadCliOutput(): Promise<string> {
-  const results = JSON.parse(await readFile(RESULTS_PATH, 'utf-8'));
-  return results.cliOutput;
-}
+// --- Meta run results helpers ---
 
 /**
- * Parse a coverage summary table row from CLI output for a given filename.
- * Returns the parsed values, or null if the filename isn't found in the table.
+ * Find a test file result by matching the end of its absolute path.
+ * Returns null if no match found.
  */
-export function parseCoverageTableRow(cliOutput: string, filename: string): CoverageTableRow | null {
-  // Strip ANSI escape codes for clean matching
-  const clean = cliOutput.replace(/\x1b\[[0-9;]*m/g, '');
-  const lines = clean.split('\n');
-
-  const row = lines.find(l => l.includes(filename) && l.includes('|'));
-  if (!row) return null;
-
-  // Split on pipe delimiters: File | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
-  const parts = row.split('|').map(s => s.trim());
-  if (parts.length < 6) return null;
-
-  // Destructure with defaults to narrow string | undefined → string
-  // (the length check above guarantees all 6 elements exist)
-  const [
-    fileCell = '',
-    stmtsStr = '',
-    branchStr = '',
-    funcsStr = '',
-    linesStr = '',
-    uncoveredLines = '',
-  ] = parts;
-
-  return {
-    filename: fileCell,
-    stmts: parseFloat(stmtsStr),
-    branch: parseFloat(branchStr),
-    funcs: parseFloat(funcsStr),
-    lines: parseFloat(linesStr),
-    uncoveredLines,
-  };
+export function findTestFile(metaRunResults: MetaRunResults, pathSuffix: string): TestFileResult | null {
+  return metaRunResults.testResults.find(tr => tr.name.endsWith(pathSuffix)) ?? null;
 }
 
-export interface CoverageTableRow {
-  filename: string;
-  stmts: number;
-  branch: number;
-  funcs: number;
-  lines: number;
-  uncoveredLines: string;
+/**
+ * Find a test file result, throwing a descriptive error if not found.
+ */
+export function requireTestFile(metaRunResults: MetaRunResults, pathSuffix: string): TestFileResult {
+  const file = findTestFile(metaRunResults, pathSuffix);
+  if (!file) {
+    const available = metaRunResults.testResults
+      .map(tr => `  - ${tr.name}`)
+      .join('\n');
+    throw new Error(
+      `No test file found ending with "${pathSuffix}".\n` +
+      `Available test files:\n${available}`
+    );
+  }
+  return file;
 }
 
-// --- Helpers ---
+/**
+ * Find a test result by title within a test file's assertionResults.
+ * Returns null if no match found.
+ */
+export function findTest(testFile: TestFileResult, title: string): TestResult | null {
+  return testFile.assertionResults.find(ar => ar.title === title) ?? null;
+}
+
+/**
+ * Find a test result by title, throwing a descriptive error if not found.
+ */
+export function requireTest(testFile: TestFileResult, title: string): TestResult {
+  const test = findTest(testFile, title);
+  if (!test) {
+    const available = testFile.assertionResults
+      .map(ar => `  - [${ar.status}] ${ar.title}`)
+      .join('\n');
+    throw new Error(
+      `No test found with title "${title}" in ${testFile.name}.\n` +
+      `Available tests:\n${available}`
+    );
+  }
+  return test;
+}
+
+/**
+ * Count tests by status within a test file.
+ */
+export function countByStatus(testFile: TestFileResult, status: TestResult['status']): number {
+  return testFile.assertionResults.filter(ar => ar.status === status).length;
+}
+
+// --- Coverage helpers ---
 
 /**
  * Find a coverage entry by matching the end of its absolute path key.
@@ -190,4 +248,41 @@ export function totalFunctions(entry: FileCoverage): number {
  */
 export function functionInfo(entry: FileCoverage, funcName: string): FunctionInfo | undefined {
   return Object.values(entry.fnMap).find(fn => fn.name === funcName);
+}
+
+/**
+ * Parse a coverage summary table row from CLI output for a given filename.
+ * Returns the parsed values, or null if the filename isn't found in the table.
+ */
+export function parseCoverageTableRow(cliOutput: string, filename: string): CoverageTableRow | null {
+  // Strip ANSI escape codes for clean matching
+  const clean = cliOutput.replace(/\x1b\[[0-9;]*m/g, '');
+  const lines = clean.split('\n');
+
+  const row = lines.find(l => l.includes(filename) && l.includes('|'));
+  if (!row) return null;
+
+  // Split on pipe delimiters: File | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
+  const parts = row.split('|').map(s => s.trim());
+  if (parts.length < 6) return null;
+
+  // Destructure with defaults to narrow string | undefined → string
+  // (the length check above guarantees all 6 elements exist)
+  const [
+    fileCell = '',
+    stmtsStr = '',
+    branchStr = '',
+    funcsStr = '',
+    linesStr = '',
+    uncoveredLines = '',
+  ] = parts;
+
+  return {
+    filename: fileCell,
+    stmts: parseFloat(stmtsStr),
+    branch: parseFloat(branchStr),
+    funcs: parseFloat(funcsStr),
+    lines: parseFloat(linesStr),
+    uncoveredLines,
+  };
 }

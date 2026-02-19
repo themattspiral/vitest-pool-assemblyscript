@@ -13,29 +13,9 @@ test("should with `skip` option also be skipped", TestOptions.skip(), () => {
   expect(true).toBeTruthy();
 });
 
-test.only("test with only func should run", () => {
+test.only("test with `only` func should run", () => {
   expect(true).toBeTruthy();
 });
-
-test.only("test with only func should run with other options", TestOptions.timeout(300), () => {
-  expect(true).toBeTruthy();
-});
-
-test.only("should also run with options", () => {
-  expect(true).toBeTruthy();
-}, TestOptions.timeout(300));
-
-test.skip("should be skipped too", () => {
-  expect(true).toBeTruthy();
-});
-
-test.skip("a skip that takes options", TestOptions.timeout(300), () => {
-  expect(true).toBeTruthy();
-});
-
-test.skip("another skip that takes options", () => {
-  expect(true).toBeTruthy();
-}, TestOptions.timeout(300));
 
 test("should also run", TestOptions.only(), () => {
   expect(true).toBeTruthy();
