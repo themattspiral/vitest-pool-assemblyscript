@@ -3,7 +3,7 @@ import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, allFunctionNames,
-} from './helpers.js';
+} from '../helpers/shared.js';
 
 const CLASS_INHERITANCE = `${COV_DIR}/class-inheritance.meta.ts`;
 const OPERATOR_OVERLOAD = `${COV_DIR}/operator-overload.meta.ts`;

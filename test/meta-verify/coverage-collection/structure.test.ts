@@ -3,7 +3,7 @@ import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, coveredCount, uncoveredCount, totalFunctions,
-} from './helpers.js';
+} from '../helpers/shared.js';
 
 const INLINE_FUNCTIONS = `${COV_DIR}/inline-functions.meta.ts`;
 const GENERIC_FUNCTIONS = `${COV_DIR}/generic-functions.meta.ts`;

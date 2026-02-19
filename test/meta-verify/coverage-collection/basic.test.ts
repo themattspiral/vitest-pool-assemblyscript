@@ -3,7 +3,7 @@ import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, coveredCount, uncoveredCount, totalFunctions,
-} from './helpers.js';
+} from '../helpers/shared.js';
 
 const MATH_HELPERS = `${COV_DIR}/math-helpers.meta.ts`;
 const CLASS_MIXED = `${COV_DIR}/class-with-mixed-usage.meta.ts`;

@@ -3,7 +3,7 @@ import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, totalFunctions,
-} from './helpers.js';
+} from '../helpers/shared.js';
 
 const REEXPORT_ORIGINAL = `${COV_DIR}/reexport-original.meta.ts`;
 const REEXPORT_BARREL = `${COV_DIR}/reexport-barrel.meta.ts`;

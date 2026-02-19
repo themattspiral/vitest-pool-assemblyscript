@@ -3,7 +3,7 @@ import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, coveredCount, totalFunctions, functionInfo,
-} from './helpers.js';
+} from '../helpers/shared.js';
 
 const FUNCTION_LOCATIONS = `${COV_DIR}/function-locations.meta.ts`;
 const FILE_BOUNDARY = `${COV_DIR}/file-boundary.meta.ts`;

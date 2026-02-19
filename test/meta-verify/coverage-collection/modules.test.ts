@@ -3,7 +3,7 @@ import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, allFunctionNames, totalFunctions,
-} from './helpers.js';
+} from '../helpers/shared.js';
 
 const TOP_LEVEL_CODE = `${COV_DIR}/top-level-code.meta.ts`;
 const NAMESPACE_FUNCTIONS = `${COV_DIR}/namespace-functions.meta.ts`;

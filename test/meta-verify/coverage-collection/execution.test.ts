@@ -3,7 +3,7 @@ import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, coveredCount, uncoveredCount, totalFunctions,
-} from './helpers.js';
+} from '../helpers/shared.js';
 
 const TIMEOUT_COV = `${COV_DIR}/timeout-coverage.meta.ts`;
 const RETRY_COV = `${COV_DIR}/retry-coverage.meta.ts`;

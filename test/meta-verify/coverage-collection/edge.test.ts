@@ -3,7 +3,7 @@ import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, coveredCount, totalFunctions,
-} from './helpers.js';
+} from '../helpers/shared.js';
 
 const MATH_HELPERS = `${COV_DIR}/math-helpers.meta.ts`;
 const EDGE_COLLISION_A = `${COV_DIR}/edge/name-collision-a.meta.ts`;
