@@ -210,3 +210,38 @@ describe("floats and integers together", () => {
     expect(c).not.toBeCloseTo(d, 7);
   });
 });
+
+// toBeCloseTo handles all float/integer combinations safely via f64 promotion,
+// including the combinations that toBe rejects due to precision loss risk.
+// These tests verify that toBeCloseTo works correctly for those rejected combos.
+describe("float/integer combos rejected by toBe", () => {
+  test("f32 vs i32", () => {
+    expect(f32(42.0)).toBeCloseTo(i32(42));
+    expect(i32(42)).toBeCloseTo(f32(42.0));
+    expect(f32(42.5)).not.toBeCloseTo(i32(43));
+  });
+
+  test("f32 vs u32", () => {
+    expect(f32(100.0)).toBeCloseTo(u32(100));
+    expect(u32(100)).toBeCloseTo(f32(100.0));
+    expect(f32(100.5)).not.toBeCloseTo(u32(101));
+  });
+
+  test("f32 vs u64", () => {
+    expect(f32(1000.0)).toBeCloseTo(u64(1000));
+    expect(u64(1000)).toBeCloseTo(f32(1000.0));
+    expect(f32(1000.5)).not.toBeCloseTo(u64(1001));
+  });
+
+  test("f64 vs i64", () => {
+    expect(f64(654321.0)).toBeCloseTo(i64(654321));
+    expect(i64(654321)).toBeCloseTo(f64(654321.0));
+    expect(f64(654321.5)).not.toBeCloseTo(i64(654322));
+  });
+
+  test("f64 vs u64", () => {
+    expect(f64(999999.0)).toBeCloseTo(u64(999999));
+    expect(u64(999999)).toBeCloseTo(f64(999999.0));
+    expect(f64(999999.5)).not.toBeCloseTo(u64(1000000));
+  });
+});

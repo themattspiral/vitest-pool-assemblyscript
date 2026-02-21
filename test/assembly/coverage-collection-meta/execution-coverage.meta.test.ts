@@ -7,7 +7,7 @@ import { coveredByNonSkip, onlyInSkipped } from "../../assembly-src/coverage-col
 // Each scenario uses its own source file so coverage is independently verifiable.
 
 describe("retry coverage accumulation", () => {
-  test("retried test accumulates coverage across attempts", TestOptions.retry(2), () => {
+  test("retried test accumulates coverage across attempts [should fail]", TestOptions.retry(2), () => {
     retryTarget();
     retryHelper();
     // Always fails — triggers retry. With retry(2), this runs 3 times total.

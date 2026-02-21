@@ -31,7 +31,7 @@ describe("parent of timeout", () => {
     expect(beforeTimeout()).toBe(1);
   });
 
-  test("deliberately times out", TestOptions.timeout(100), () => {
+  test("deliberately times out [should fail]", TestOptions.timeout(100), () => {
     duringTimeout();
     // Infinite loop to trigger timeout — coverage from this test is lost
     // because the thread is killed before coverage memory is read
