@@ -124,7 +124,7 @@ When a file's tests are complete, the runner calls `onAfterSuiteRun()` with the 
 
 ### Timeout Resume
 
-When a test times out and execution resumes on a new thread, the accumulated coverage data from the timed-out test's parent suite is preserved and restored. This ensures coverage collected before the timeout is not lost. See [Timeout Architecture](pool-architecture.md#timeout-architecture) in the pool architecture doc.
+When a test times out and execution resumes on a new thread, each suite initializes fresh empty coverage data. Coverage from completed tests is not lost because each completed test's individual `meta.coverageData` is preserved in the task hierarchy across the thread boundary. As `runSuite()` walks through tasks on resume, it skips completed tests' execution but still merges their preserved coverage data into the parent suite — the same merge step that happens during normal execution. This means coverage is reconstructed naturally from children rather than explicitly restored. See [Timeout Architecture](pool-architecture.md#timeout-architecture) in the pool architecture doc.
 
 **Key source files:**
 - [`src/wasm-executor/index.ts`](../src/wasm-executor/index.ts) — `executeWASMTest()` (coverage memory read)

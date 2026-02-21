@@ -2,8 +2,8 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
-  hitCount, coveredCount, uncoveredCount, totalFunctions,
-} from './helpers.js';
+  hitCount, allFunctionNames, coveredCount, uncoveredCount, totalFunctions,
+} from '../helpers/shared.js';
 
 const INLINE_FUNCTIONS = `${COV_DIR}/inline-functions.meta.ts`;
 const GENERIC_FUNCTIONS = `${COV_DIR}/generic-functions.meta.ts`;
@@ -19,9 +19,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — structure cases', () =
     coverageMap = results.coverageMap;
   });
 
-  // --- 8. @inline function coverage ---
-
-  describe('inline-functions: @inline decorator coverage', () => {
+  describe('inline-functions: @inline function coverage', () => {
     let entry: FileCoverage;
 
     beforeAll(() => {
@@ -48,8 +46,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — structure cases', () =
       expect(coveredCount(entry)).toBe(3);
     });
   });
-
-  // --- 9. Generic function coverage ---
 
   describe('generic-functions: monomorphized variant summing', () => {
     let entry: FileCoverage;
@@ -78,8 +74,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — structure cases', () =
       expect(coveredCount(entry)).toBe(3);
     });
   });
-
-  // --- 10. Multiple classes in one file ---
 
   describe('multiple-classes: independent tracking per class', () => {
     let entry: FileCoverage;
@@ -130,8 +124,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — structure cases', () =
     });
   });
 
-  // --- 11. Empty and minimal functions ---
-
   describe('empty-functions: empty and minimal bodies tracked', () => {
     let entry: FileCoverage;
 
@@ -156,14 +148,15 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — structure cases', () =
 
     test('has exactly 2 functions tracked (emptyVoid excluded)', () => {
       expect(totalFunctions(entry)).toBe(2);
+      const names = allFunctionNames(entry);
+      expect(names).toContain('returnsZero');
+      expect(names).toContain('nonEmpty');
     });
 
     test('both tracked functions covered', () => {
       expect(coveredCount(entry)).toBe(2);
     });
   });
-
-  // --- 12. Trap/abort entry counting ---
 
   describe('trap-coverage: functions that trap still counted', () => {
     let entry: FileCoverage;

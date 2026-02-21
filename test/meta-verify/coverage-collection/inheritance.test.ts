@@ -3,7 +3,7 @@ import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, allFunctionNames,
-} from './helpers.js';
+} from '../helpers/shared.js';
 
 const CLASS_INHERITANCE = `${COV_DIR}/class-inheritance.meta.ts`;
 const OPERATOR_OVERLOAD = `${COV_DIR}/operator-overload.meta.ts`;
@@ -15,8 +15,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — inheritance & operator
     const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
   });
-
-  // --- Class inheritance ---
 
   describe('class-inheritance: inherited and overridden method tracking', () => {
     let entry: FileCoverage;
@@ -61,15 +59,20 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — inheritance & operator
       expect(hitCount(entry, 'Cat#meow')).toBe(1);
     });
 
-    test('function names use ClassName#method convention', () => {
+    test('all 9 functions discovered with ClassName#method convention', () => {
       const names = allFunctionNames(entry);
+      expect(names).toHaveLength(9);
       expect(names).toContain('Animal#constructor');
+      expect(names).toContain('Animal#speak');
+      expect(names).toContain('Animal#move');
+      expect(names).toContain('Animal#get:name');
       expect(names).toContain('Dog#constructor');
+      expect(names).toContain('Dog#move');
+      expect(names).toContain('Dog#bark');
       expect(names).toContain('Cat#constructor');
+      expect(names).toContain('Cat#meow');
     });
   });
-
-  // --- Operator overloads ---
 
   describe('operator-overload: @operator decorated methods', () => {
     let entry: FileCoverage;

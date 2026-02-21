@@ -14,11 +14,11 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeFile, unlink, mkdir } from 'node:fs/promises';
 
-import { runVitest } from '../../scripts/run-vitest.js';
+import { runVitest } from '../../../scripts/run-vitest.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const PROJECT_ROOT = resolve(__dirname, '../..');
+const PROJECT_ROOT = resolve(__dirname, '../../..');
 
 const EXTERNAL_DIR_NAME = 'vitest-pool-assemblyscript-test-external';
 const EXTERNAL_DIR = resolve(PROJECT_ROOT, '..', EXTERNAL_DIR_NAME);

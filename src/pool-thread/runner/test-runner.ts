@@ -252,17 +252,9 @@ export async function runSuite(
     suiteMeta.suitePreparedSent = true;
   }
 
-  // restore suite coverage collected so far from the timed out test, if provided.
-  // otherwise create a suite-level coverage data object to aggregate all subtask coverage
-  if (isTimedOutTestInSuite) {
-    suiteMeta.coverageData = (timedOutTest!.suite!.meta as AssemblyScriptSuiteTaskMeta).coverageData;
-    
-    const coverageKeys: number = Object.keys(suiteMeta.coverageData ?? {}).length;
-    debug(`${suiteLogPrefix} - Restored suite coverage data after timeout (${coverageKeys} unique positions)`);
-  } {
-    // initialize aggregated coverage data for suite, which gets updated as each subtask completes
-    suiteMeta.coverageData = { hitCountsByFileAndPosition: {} };
-  }
+  // initialize aggregated coverage data for suite, which gets updated as each subtask completes
+  suiteMeta.coverageData = { hitCountsByFileAndPosition: {} };
+  debug(`${suiteLogPrefix} - Initialized empty suite coverage data`);
 
   let tasksToRun: Task[] = getRunnableTasks(suite);
   debug(`${suiteLogPrefix} - Runnable tasks:`, tasksToRun.length);

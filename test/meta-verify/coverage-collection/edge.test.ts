@@ -3,7 +3,7 @@ import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, coveredCount, totalFunctions,
-} from './helpers.js';
+} from '../helpers/shared.js';
 
 const MATH_HELPERS = `${COV_DIR}/math-helpers.meta.ts`;
 const EDGE_COLLISION_A = `${COV_DIR}/edge/name-collision-a.meta.ts`;
@@ -17,8 +17,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — edge cases', () => {
     const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
   });
-
-  // --- 6. Same-named functions in different files ---
 
   describe('edge: same-named functions in different files', () => {
     let entryA: FileCoverage;
@@ -59,8 +57,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — edge cases', () => {
       expect(coveredCount(entryB)).toBe(2);
     });
   });
-
-  // --- 7. Same-named file in different directory ---
 
   describe('edge: same-named file in different directory', () => {
     let mainEntry: FileCoverage;

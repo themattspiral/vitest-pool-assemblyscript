@@ -13,7 +13,7 @@
     "// RUNNER": " scripts/run-vitest.js executes vitest in the sibling dir, passing arguments needed to configure the run ",
     "// USAGE": "  From vitest-pool-assemblyscript: `npm run eptest` OR `npm run emtest` OR `npm run emvtest` (see docs/developer-guide.md) ",
     "// CI": "     CI runs test:ext:pass + test:ext:meta:verify (and no-cov variants for Node 20) ",
-    "// META": "  A globalSetup (test/meta-verify/global-setup-capture-meta-run.ts) runs scripts/run-vitest.js in capture mode against this dir ",
+    "// META": "  A globalSetup (test/meta-verify/helpers/global-setup-capture-meta-run.ts) runs scripts/run-vitest.js in capture mode against this dir ",
     "// META2": " run-vitest.js captures JSON output, CLI output, and exit code, which globalSetup writes to .meta-verify-results.json ",
     "// META3": " Verification tests (test/meta-verify/) read the pre-computed results and assert on specific expected output "
 

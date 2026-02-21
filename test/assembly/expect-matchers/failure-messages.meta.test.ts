@@ -1,0 +1,328 @@
+import { describe, expect, test, TestOptions } from "vitest-pool-assemblyscript/assembly";
+
+// Meta fixture: intentional matcher failures to verify CLI error output formatting.
+// Each test is expected to fail — the meta-verify tests assert on the resulting
+// error type, message text, and diff content in the CLI output.
+
+class SimpleObject {
+  value: i32;
+  constructor(value: i32) { this.value = value; }
+}
+
+// =============================================================================
+// ASSERTION FAILURES (AssertionError)
+// =============================================================================
+
+describe("toBe", () => {
+  test("integer [should fail]", () => {
+    expect(1).toBe(2);
+  });
+
+  test("string [should fail]", () => {
+    expect("hello").toBe("world");
+  });
+
+  test("float [should fail]", () => {
+    expect(1.5).toBe(2.5);
+  });
+
+  test("array [should fail]", () => {
+    const a: i32[] = [1, 2];
+    const b: i32[] = [1, 2];
+    expect(a).toBe(b);
+  });
+
+  test("map [should fail]", () => {
+    const a = new Map<string, i32>();
+    a.set("x", 1);
+    const b = new Map<string, i32>();
+    b.set("x", 1);
+    expect(a).toBe(b);
+  });
+
+  test("set [should fail]", () => {
+    const a = new Set<i32>();
+    a.add(1);
+    const b = new Set<i32>();
+    b.add(1);
+    expect(a).toBe(b);
+  });
+
+  test("user-defined object [should fail]", () => {
+    expect(new SimpleObject(1)).toBe(new SimpleObject(1));
+  });
+
+  test.skip("ArrayBuffer", () => {
+    // TODO: ArrayBuffer comparison
+  });
+
+  test.skip("SIMD vector", () => {
+    // TODO: SIMD vector comparison
+  });
+});
+
+describe("toBeCloseTo", () => {
+  test("float [should fail]", () => {
+    expect(0.1 + 0.2).toBeCloseTo(0.5);
+  });
+});
+
+describe("toEqual", () => {
+  test("integer [should fail]", () => {
+    expect(1).toEqual(2);
+  });
+
+  test("string [should fail]", () => {
+    expect("hello").toEqual("world");
+  });
+
+  test("float [should fail]", () => {
+    expect(1.5).toEqual(2.5);
+  });
+
+  test("number array [should fail]", () => {
+    expect([1, 2, 3, 4]).toEqual([1, 2, 7, 4]);
+  });
+
+  test("string array [should fail]", () => {
+    expect(["one", "two", "three"]).toEqual(["one", "two", "3"]);
+  });
+
+  test("map [should fail]", () => {
+    const a = new Map<string, i32>();
+    a.set("x", 1);
+    a.set("y", 2);
+
+    const b = new Map<string, i32>();
+    b.set("x", 1);
+    b.set("y", 99);
+
+    expect(a).toEqual(b);
+  });
+
+  test("set [should fail]", () => {
+    const a = new Set<string>();
+    a.add("apple");
+    a.add("cherry");
+
+    const b = new Set<string>();
+    b.add("apple");
+    b.add("banana");
+
+    expect(a).toEqual(b);
+  });
+
+  test.skip("ArrayBuffer", () => {
+    // TODO: ArrayBuffer comparison
+  });
+
+  test.skip("SIMD vector", () => {
+    // TODO: SIMD vector comparison
+  });
+});
+
+describe("toStrictEqual", () => {
+  test("array [should fail]", () => {
+    expect([1, 2]).toStrictEqual([1, 3]);
+  });
+});
+
+describe("toBeGreaterThan", () => {
+  test("integer [should fail]", () => {
+    expect(5).toBeGreaterThan(10);
+  });
+});
+
+describe("toBeGreaterThanOrEqual", () => {
+  test("integer [should fail]", () => {
+    expect(5).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe("toBeLessThan", () => {
+  test("integer [should fail]", () => {
+    expect(10).toBeLessThan(5);
+  });
+});
+
+describe("toBeLessThanOrEqual", () => {
+  test("integer [should fail]", () => {
+    expect(10).toBeLessThanOrEqual(5);
+  });
+});
+
+describe("toBeTruthy", () => {
+  test("zero [should fail]", () => {
+    expect(0).toBeTruthy();
+  });
+});
+
+describe("toBeFalsy", () => {
+  test("nonzero [should fail]", () => {
+    expect(1).toBeFalsy();
+  });
+});
+
+describe("toBeNull", () => {
+  test("string [should fail]", () => {
+    expect("hello").toBeNull();
+  });
+});
+
+describe("toBeNullable", () => {
+  test("string [should fail]", () => {
+    expect("hello").toBeNullable();
+  });
+});
+
+describe("toBeNaN", () => {
+  test("integer [should fail]", () => {
+    expect(77).toBeNaN();
+  });
+});
+
+describe("toHaveLength", () => {
+  test("array [should fail]", () => {
+    expect([1, 2, 3]).toHaveLength(5);
+  });
+
+  test("string [should fail]", () => {
+    expect("hello").toHaveLength(3);
+  });
+});
+
+// =============================================================================
+// RUNTIME ERRORS (WASMRuntimeError)
+// These are thrown by the matcher comparison functions before reaching the
+// assertion pass/fail path. They produce WASMRuntimeError, not AssertionError.
+// Each AS abort kills the WASM instance, so each error path needs its own test.
+// =============================================================================
+
+// --- Float precision: toBe (via identical()) ---
+
+describe("float precision - toBe", () => {
+  test("f32 vs i32 [should fail]", () => {
+    expect(f32(42.0)).toBe(i32(42));
+  });
+
+  test("i32 vs f32 [should fail]", () => {
+    expect(i32(42)).toBe(f32(42.0));
+  });
+});
+
+// --- Float precision: toEqual (via equals() → identical()) ---
+
+describe("float precision - toEqual", () => {
+  test("f32 vs i32 [should fail]", () => {
+    expect(f32(42.0)).toEqual(i32(42));
+  });
+
+  test("i32 vs f32 [should fail]", () => {
+    expect(i32(42)).toEqual(f32(42.0));
+  });
+});
+
+// --- Float precision: inequality matchers (via compareInequality()) ---
+
+describe("float precision - toBeGreaterThan", () => {
+  test("f64 vs i64 [should fail]", () => {
+    expect(f64(42.0)).toBeGreaterThan(i64(42));
+  });
+
+  test("i64 vs f64 [should fail]", () => {
+    expect(i64(42)).toBeGreaterThan(f64(42.0));
+  });
+});
+
+describe("float precision - toBeGreaterThanOrEqual", () => {
+  test("f64 vs i64 [should fail]", () => {
+    expect(f64(42.0)).toBeGreaterThanOrEqual(i64(42));
+  });
+
+  test("i64 vs f64 [should fail]", () => {
+    expect(i64(42)).toBeGreaterThanOrEqual(f64(42.0));
+  });
+});
+
+describe("float precision - toBeLessThan", () => {
+  test("f64 vs i64 [should fail]", () => {
+    expect(f64(42.0)).toBeLessThan(i64(42));
+  });
+
+  test("i64 vs f64 [should fail]", () => {
+    expect(i64(42)).toBeLessThan(f64(42.0));
+  });
+});
+
+describe("float precision - toBeLessThanOrEqual", () => {
+  test("f64 vs i64 [should fail]", () => {
+    expect(f64(42.0)).toBeLessThanOrEqual(i64(42));
+  });
+
+  test("i64 vs f64 [should fail]", () => {
+    expect(i64(42)).toBeLessThanOrEqual(f64(42.0));
+  });
+});
+
+// --- Incomparable types: all inequality matchers (via compareInequality() reference check) ---
+
+describe("incomparable types", () => {
+  test("toBeGreaterThan with arrays [should fail]", () => {
+    expect([1, 2, 3]).toBeGreaterThan([4, 5, 6]);
+  });
+
+  test("toBeGreaterThanOrEqual with arrays [should fail]", () => {
+    expect([1, 2, 3]).toBeGreaterThanOrEqual([4, 5, 6]);
+  });
+
+  test("toBeLessThan with arrays [should fail]", () => {
+    expect([1, 2, 3]).toBeLessThan([4, 5, 6]);
+  });
+
+  test("toBeLessThanOrEqual with arrays [should fail]", () => {
+    expect([1, 2, 3]).toBeLessThanOrEqual([4, 5, 6]);
+  });
+});
+
+// --- Null string: all inequality matchers (via compareInequality() null guard) ---
+
+describe("null string", () => {
+  test("toBeGreaterThan [should fail]", () => {
+    const a: string | null = null;
+    expect(a).toBeGreaterThan("hello");
+  });
+
+  test("toBeGreaterThanOrEqual [should fail]", () => {
+    const a: string | null = null;
+    expect(a).toBeGreaterThanOrEqual("hello");
+  });
+
+  test("toBeLessThan [should fail]", () => {
+    const a: string | null = null;
+    expect(a).toBeLessThan("hello");
+  });
+
+  test("toBeLessThanOrEqual [should fail]", () => {
+    const a: string | null = null;
+    expect(a).toBeLessThanOrEqual("hello");
+  });
+});
+
+// --- Cross-type comparison: toEqual only (via equals() idof check) ---
+
+describe("cross-type comparison", () => {
+  test("toEqual map vs array [should fail]", () => {
+    const m = new Map<string, i32>();
+    m.set("a", 1);
+    const a: string[] = ["a"];
+    expect(m).toEqual(a);
+  });
+});
+
+// --- Deep equality not implemented: toEqual only (via equals() final throw) ---
+
+describe("deep equality", () => {
+  test("toEqual with objects [should fail]", () => {
+    expect(new SimpleObject(1)).toEqual(new SimpleObject(1));
+  });
+});

@@ -3,7 +3,7 @@ import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, totalFunctions,
-} from './helpers.js';
+} from '../helpers/shared.js';
 
 const REEXPORT_ORIGINAL = `${COV_DIR}/reexport-original.meta.ts`;
 const REEXPORT_BARREL = `${COV_DIR}/reexport-barrel.meta.ts`;
@@ -15,8 +15,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — re-exports', () => {
     const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
   });
-
-  // --- Original source file ---
 
   describe('reexport-original: original source file coverage', () => {
     let entry: FileCoverage;
@@ -37,8 +35,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — re-exports', () => {
       expect(totalFunctions(entry)).toBe(2);
     });
   });
-
-  // --- Barrel file ---
 
   describe('reexport-barrel: barrel file coverage', () => {
     let entry: FileCoverage;

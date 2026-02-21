@@ -3,7 +3,7 @@ import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
   hitCount, coveredCount, totalFunctions, functionInfo,
-} from './helpers.js';
+} from '../helpers/shared.js';
 
 const FUNCTION_LOCATIONS = `${COV_DIR}/function-locations.meta.ts`;
 const FILE_BOUNDARY = `${COV_DIR}/file-boundary.meta.ts`;
@@ -16,7 +16,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — location accuracy', ()
     coverageMap = results.coverageMap;
   });
 
-  // --- Function location accuracy ---
   // Source file layout (from function-locations.meta.ts):
   // Line 1: /** doc comment */
   // Line 3: export function atLineThree
@@ -62,8 +61,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — location accuracy', ()
       expect(info!.line).toBe(18);
     });
   });
-
-  // --- File boundary functions ---
 
   describe('file-boundary: functions at start and end of file', () => {
     let entry: FileCoverage;

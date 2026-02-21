@@ -345,7 +345,9 @@ When a test starts, the `execution-start` message sends the current `Test` objec
 - Skip tests marked with `flagTestFinalized` (completed before timeout)
 - Retry or finalize the timed-out test based on its `retry` configuration
 - Continue executing remaining tests that haven't run yet
-- Restore accumulated coverage data from the timed-out test's parent suite metadata
+- Re-aggregate coverage data from completed children (see below)
+
+**Coverage on resume:** Each suite initializes fresh empty coverage data on entry — there is no explicit "restore" of accumulated parent coverage. Coverage from completed tests is not lost because each completed test's individual `meta.coverageData` is preserved in the task hierarchy across the thread boundary. As `runSuite()` walks through tasks on resume, it skips completed tests' execution but still merges their preserved coverage data into the parent suite — the same merge step that happens during normal execution. Coverage is reconstructed naturally from children rather than explicitly restored. See [Coverage Architecture](coverage-architecture.md) for additional details on coverage collection.
 
 **`flagTestFinalized`** marks a test as completed — prevents it from being re-run on resume. Set after each test finishes (pass or fail, all retries exhausted).
 

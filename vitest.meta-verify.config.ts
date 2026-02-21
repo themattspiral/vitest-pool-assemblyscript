@@ -6,7 +6,7 @@ export default defineConfig({
     environment: 'node',
     reporters: ['verbose'],
     
-    globalSetup: './test/meta-verify/global-setup-capture-meta-run.ts',
+    globalSetup: './test/meta-verify/helpers/global-setup-capture-meta-run.ts',
 
     name: { label: 'ts-pool-meta-verify', color: 'blue' },
     include: [

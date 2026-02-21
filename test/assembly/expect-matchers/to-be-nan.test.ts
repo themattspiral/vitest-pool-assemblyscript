@@ -65,7 +65,3 @@ describe("success", () => {
     expect(null).not.toBeNaN();
   });
 });
-
-describe("failure", () => {
-  
-});
