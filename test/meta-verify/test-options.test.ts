@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type MetaRunResults, type TestFileResult, type ParsedCliOutput,
-  loadMetaRunResults, loadParsedCliOutput, requireTestFile, requireTest, countByStatus,
+  loadMetaRunResults, loadParsedCliOutput, requireTestFile, requireTest, countByStatus, TEST_FILE_PREFIX,
 } from './helpers/shared.js';
 
 const SKIP_FILE = 'test-options/skip.meta.test.ts';
@@ -221,9 +221,12 @@ describe('test options & result status verification', () => {
     test('retry + fails interaction: retries still happen even when fails inverts result to pass', () => {
       // A passing fails test has no errors, so failureMessages is empty.
       // Verify retry count from CLI test report output instead: "(retry x5)"
-      expect(parsedCliOutput.testReportOutput).toMatch(
-        /should get inherited retry and fail with it, then pass because inherited `fails` is true.*\(retry x5\)/
-      );
+      const fullTestPath = `${TEST_FILE_PREFIX}test/assembly/${RETRY_FILE} > suite with retry different than default > nested suite with \`fails\` set > should get inherited retry and fail with it, then pass because inherited \`fails\` is true`;
+      const line = parsedCliOutput.testReportOutput
+        .split('\n')
+        .find(l => l.includes(fullTestPath));
+      expect(line).toBeDefined();
+      expect(line).toContain('(retry x5)');
     });
 
     test('fails(false) override with inherited retry: test fails with retry count', () => {

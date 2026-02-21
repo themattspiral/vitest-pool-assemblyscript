@@ -103,7 +103,7 @@ async function runCapture({ cwd, args }) {
   const captureArgs = [
     'vitest', 'run',
     '--reporter=json',
-    '--reporter=default',
+    '--reporter=verbose',
     `--outputFile.json=${jsonOutputPath}`,
     ...args,
   ];
