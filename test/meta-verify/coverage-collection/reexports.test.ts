@@ -16,8 +16,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — re-exports', () => {
     coverageMap = results.coverageMap;
   });
 
-  // --- Original source file ---
-
   describe('reexport-original: original source file coverage', () => {
     let entry: FileCoverage;
 
@@ -37,8 +35,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — re-exports', () => {
       expect(totalFunctions(entry)).toBe(2);
     });
   });
-
-  // --- Barrel file ---
 
   describe('reexport-barrel: barrel file coverage', () => {
     let entry: FileCoverage;

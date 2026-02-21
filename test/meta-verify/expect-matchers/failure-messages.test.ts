@@ -1,190 +1,233 @@
 import { describe, test, expect, beforeAll } from 'vitest';
-import { loadCliOutput } from '../helpers/shared.js';
+import { type ParsedCliOutput, loadParsedCliOutput, requireErrorBlock, TEST_FILE_PREFIX } from '../helpers/shared.js';
 
-const FIXTURE_FILE = 'expect-matchers/failure-messages.meta.test.ts';
+const FIXTURE_FILE = `${TEST_FILE_PREFIX}test/assembly/expect-matchers/failure-messages.meta.test.ts`;
+
+/** Construct the full test path as it appears in vitest's CLI FAIL header. */
+function testPath(...segments: string[]): string {
+  return `${FIXTURE_FILE} > ${segments.join(' > ')}`;
+}
 
 describe('matcher failure message verification', () => {
-  let cliOutput: string;
-  let cleanOutput: string;
+  let parsedCli: ParsedCliOutput;
 
   beforeAll(async () => {
-    cliOutput = await loadCliOutput();
-    // Strip ANSI escape codes for clean matching
-    cleanOutput = cliOutput.replace(/\x1b\[[0-9;]*m/g, '');
+    parsedCli = await loadParsedCliOutput();
   });
 
   // =========================================================================
-  // ASSERTION FAILURES (AssertionError)
+  // MATCHING FAILURES (AssertionError)
+  //
+  // Each test extracts the specific error block for a single fixture test
+  // (scoped by full test path) and verifies the error type + message appear
+  // within that block.
   // =========================================================================
 
   describe('toBe', () => {
     test('integer failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 1 to be 2');
+      const block = requireErrorBlock(parsedCli, testPath('toBe', 'integer [should fail]'));
+      expect(block).toContain('AssertionError: expected 1 to be 2');
     });
 
     test('string failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected "hello" to be "world"');
+      const block = requireErrorBlock(parsedCli, testPath('toBe', 'string [should fail]'));
+      expect(block).toContain('AssertionError: expected "hello" to be "world"');
     });
 
     test('float failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 1.5 to be 2.5');
+      const block = requireErrorBlock(parsedCli, testPath('toBe', 'float [should fail]'));
+      expect(block).toContain('AssertionError: expected 1.5 to be 2.5');
     });
 
     test('array failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected [1,2] to be [1,2]');
+      const block = requireErrorBlock(parsedCli, testPath('toBe', 'array [should fail]'));
+      expect(block).toContain('AssertionError: expected [1,2] to be [1,2]');
     });
 
     test('map failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected [object Map] to be [object Map]');
+      const block = requireErrorBlock(parsedCli, testPath('toBe', 'map [should fail]'));
+      expect(block).toContain('AssertionError: expected [object Map] to be [object Map]');
     });
 
     test('set failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected [object Set] to be [object Set]');
+      const block = requireErrorBlock(parsedCli, testPath('toBe', 'set [should fail]'));
+      expect(block).toContain('AssertionError: expected [object Set] to be [object Set]');
     });
 
     test('user-defined object failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected SimpleObject to be SimpleObject');
+      const block = requireErrorBlock(parsedCli, testPath('toBe', 'user-defined object [should fail]'));
+      expect(block).toContain('AssertionError: expected SimpleObject to be SimpleObject');
     });
   });
 
   describe('toBeCloseTo', () => {
     test('float failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 0.30000000000000007 to be close to 0.5');
+      const block = requireErrorBlock(parsedCli, testPath('toBeCloseTo', 'float [should fail]'));
+      expect(block).toContain('AssertionError: expected 0.30000000000000007 to be close to 0.5');
     });
   });
 
   describe('toEqual', () => {
     test('integer failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 1 to deeply equal 2');
+      const block = requireErrorBlock(parsedCli, testPath('toEqual', 'integer [should fail]'));
+      expect(block).toContain('AssertionError: expected 1 to deeply equal 2');
     });
 
     test('string failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected "hello" to deeply equal "world"');
+      const block = requireErrorBlock(parsedCli, testPath('toEqual', 'string [should fail]'));
+      expect(block).toContain('AssertionError: expected "hello" to deeply equal "world"');
     });
 
     test('float failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 1.5 to deeply equal 2.5');
+      const block = requireErrorBlock(parsedCli, testPath('toEqual', 'float [should fail]'));
+      expect(block).toContain('AssertionError: expected 1.5 to deeply equal 2.5');
     });
 
     test('number array failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected [1,2,3,4] to deeply equal [1,2,7,4]');
+      const block = requireErrorBlock(parsedCli, testPath('toEqual', 'number array [should fail]'));
+      expect(block).toContain('AssertionError: expected [1,2,3,4] to deeply equal [1,2,7,4]');
     });
 
     test('string array failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected ["one","two","three"] to deeply equal ["one","two","3"]');
+      const block = requireErrorBlock(parsedCli, testPath('toEqual', 'string array [should fail]'));
+      expect(block).toContain('AssertionError: expected ["one","two","three"] to deeply equal ["one","two","3"]');
     });
 
     test('map failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected [object Map] to deeply equal [object Map]');
+      const block = requireErrorBlock(parsedCli, testPath('toEqual', 'map [should fail]'));
+      expect(block).toContain('AssertionError: expected [object Map] to deeply equal [object Map]');
     });
 
     test('set failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected [object Set] to deeply equal [object Set]');
+      const block = requireErrorBlock(parsedCli, testPath('toEqual', 'set [should fail]'));
+      expect(block).toContain('AssertionError: expected [object Set] to deeply equal [object Set]');
     });
   });
 
   describe('toStrictEqual', () => {
     test('array failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected [1,2] to strictly equal [1,3]');
+      const block = requireErrorBlock(parsedCli, testPath('toStrictEqual', 'array [should fail]'));
+      expect(block).toContain('AssertionError: expected [1,2] to strictly equal [1,3]');
     });
   });
 
   describe('inequality matchers', () => {
     test('toBeGreaterThan failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 5 to be greater than 10');
+      const block = requireErrorBlock(parsedCli, testPath('toBeGreaterThan', 'integer [should fail]'));
+      expect(block).toContain('AssertionError: expected 5 to be greater than 10');
     });
 
     test('toBeGreaterThanOrEqual failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 5 to be greater than or equal to 10');
+      const block = requireErrorBlock(parsedCli, testPath('toBeGreaterThanOrEqual', 'integer [should fail]'));
+      expect(block).toContain('AssertionError: expected 5 to be greater than or equal to 10');
     });
 
     test('toBeLessThan failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 10 to be less than 5');
+      const block = requireErrorBlock(parsedCli, testPath('toBeLessThan', 'integer [should fail]'));
+      expect(block).toContain('AssertionError: expected 10 to be less than 5');
     });
 
     test('toBeLessThanOrEqual failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 10 to be less than or equal to 5');
+      const block = requireErrorBlock(parsedCli, testPath('toBeLessThanOrEqual', 'integer [should fail]'));
+      expect(block).toContain('AssertionError: expected 10 to be less than or equal to 5');
     });
   });
 
   describe('type check matchers', () => {
     test('toBeTruthy failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 0 to be truthy');
+      const block = requireErrorBlock(parsedCli, testPath('toBeTruthy', 'zero [should fail]'));
+      expect(block).toContain('AssertionError: expected 0 to be truthy');
     });
 
     test('toBeFalsy failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 1 to be falsey');
+      const block = requireErrorBlock(parsedCli, testPath('toBeFalsy', 'nonzero [should fail]'));
+      expect(block).toContain('AssertionError: expected 1 to be falsey');
     });
 
     test('toBeNull failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected "hello" to be null');
+      const block = requireErrorBlock(parsedCli, testPath('toBeNull', 'string [should fail]'));
+      expect(block).toContain('AssertionError: expected "hello" to be null');
     });
 
     test('toBeNullable failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected "hello" to be nullable');
+      const block = requireErrorBlock(parsedCli, testPath('toBeNullable', 'string [should fail]'));
+      expect(block).toContain('AssertionError: expected "hello" to be nullable');
     });
 
     test('toBeNaN failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 77 to be NaN');
+      const block = requireErrorBlock(parsedCli, testPath('toBeNaN', 'integer [should fail]'));
+      expect(block).toContain('AssertionError: expected 77 to be NaN');
     });
   });
 
   describe('toHaveLength', () => {
     test('array failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 3 to have length 5');
+      const block = requireErrorBlock(parsedCli, testPath('toHaveLength', 'array [should fail]'));
+      expect(block).toContain('AssertionError: expected 3 to have length 5');
     });
 
     test('string failure message', () => {
-      expect(cleanOutput).toContain('AssertionError: expected 5 to have length 3');
+      const block = requireErrorBlock(parsedCli, testPath('toHaveLength', 'string [should fail]'));
+      expect(block).toContain('AssertionError: expected 5 to have length 3');
     });
   });
 
   // =========================================================================
   // RUNTIME ERRORS (WASMRuntimeError)
-  // Each unique error message is verified once. The fixture tests exercise
-  // every matcher × direction combination; verify tests confirm the messages
-  // render correctly in vitest CLI output.
+  //
+  // Each test verifies a unique error message from the fixture's runtime
+  // error scenarios. One representative test is verified per error path
+  // (forward/reverse, each matcher direction — the fixture exercises all
+  // directions but they produce the same error message type).
   // =========================================================================
 
   describe('float precision', () => {
-    test('toBe/toEqual - f32 vs i32 (forward)', () => {
-      expect(cleanOutput).toContain('WASMRuntimeError: Cannot compare f32 with i32: float precision is insufficient');
+    test('toBe - f32 vs i32 (forward)', () => {
+      const block = requireErrorBlock(parsedCli, testPath('float precision - toBe', 'f32 vs i32 [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Cannot compare f32 with i32: float precision is insufficient');
     });
 
-    test('toBe/toEqual - i32 vs f32 (reverse)', () => {
-      expect(cleanOutput).toContain('WASMRuntimeError: Cannot compare i32 with f32: float precision is insufficient');
+    test('toBe - i32 vs f32 (reverse)', () => {
+      const block = requireErrorBlock(parsedCli, testPath('float precision - toBe', 'i32 vs f32 [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Cannot compare i32 with f32: float precision is insufficient');
     });
 
     test('inequality - f64 vs i64 (forward)', () => {
-      expect(cleanOutput).toContain('WASMRuntimeError: Cannot compare f64 with i64: float precision is insufficient');
+      const block = requireErrorBlock(parsedCli, testPath('float precision - toBeGreaterThan', 'f64 vs i64 [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Cannot compare f64 with i64: float precision is insufficient');
     });
 
     test('inequality - i64 vs f64 (reverse)', () => {
-      expect(cleanOutput).toContain('WASMRuntimeError: Cannot compare i64 with f64: float precision is insufficient');
+      const block = requireErrorBlock(parsedCli, testPath('float precision - toBeGreaterThan', 'i64 vs f64 [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Cannot compare i64 with f64: float precision is insufficient');
     });
   });
 
   describe('incomparable types', () => {
     test('inequality with arrays', () => {
-      expect(cleanOutput).toContain('WASMRuntimeError: Inequality comparison is not supported for Array<i32> and Array<i32>');
+      const block = requireErrorBlock(parsedCli, testPath('incomparable types', 'toBeGreaterThan with arrays [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Inequality comparison is not supported for Array<i32> and Array<i32>');
     });
   });
 
   describe('null string', () => {
     test('inequality', () => {
-      expect(cleanOutput).toContain('WASMRuntimeError: Cannot compare null string with inequality operators');
+      const block = requireErrorBlock(parsedCli, testPath('null string', 'toBeGreaterThan [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Cannot compare null string with inequality operators');
     });
   });
 
   describe('cross-type comparison', () => {
     test('toEqual map vs array', () => {
-      expect(cleanOutput).toContain('WASMRuntimeError: Cannot compare equality between Map<~lib/string/String,i32> and Array<~lib/string/String> - this comparison is undefined.');
+      const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toEqual map vs array [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Cannot compare equality between Map<~lib/string/String,i32> and Array<~lib/string/String> - this comparison is undefined.');
     });
   });
 
   describe('deep equality', () => {
     test('toEqual with objects', () => {
-      expect(cleanOutput).toContain('WASMRuntimeError: Deep equality comparison of user-defined reference types is not yet implemented');
+      const block = requireErrorBlock(parsedCli, testPath('deep equality', 'toEqual with objects [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Deep equality comparison of user-defined reference types is not yet implemented');
     });
   });
 });

@@ -19,8 +19,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — test execution scenari
     coverageMap = results.coverageMap;
   });
 
-  // --- Timeout coverage preservation ---
-  //
   // Coverage is preserved across timeout resume via the "always merge" strategy:
   // the suite-level merge runs for every task (including completed ones) on resume,
   // re-populating coverage from individual task metas. This means explicit coverage
@@ -79,8 +77,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — test execution scenari
     });
   });
 
-  // --- Retried test coverage ---
-  //
   // Current behavior: only the last retry attempt's coverage is kept.
   // resetTestForRetry() deletes meta.coverageData before each attempt,
   // and executeWASMTest() replaces it with the current attempt's data.
@@ -115,8 +111,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — test execution scenari
     });
   });
 
-  // --- Fails test coverage collection ---
-
   describe('fails-coverage: expected-failure tests still collect coverage', () => {
     let entry: FileCoverage;
 
@@ -142,8 +136,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — test execution scenari
     });
   });
 
-  // --- Skipped test coverage (no phantom hits) ---
-
   describe('skip-coverage: skipped tests produce no phantom coverage', () => {
     let entry: FileCoverage;
 
@@ -168,8 +160,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — test execution scenari
       expect(uncoveredCount(entry)).toBe(1);
     });
   });
-
-  // --- Cross-file coverage merging ---
 
   describe('cross-file-coverage: hit counts summed across test files', () => {
     let entry: FileCoverage;

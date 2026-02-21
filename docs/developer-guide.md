@@ -173,7 +173,10 @@ The meta test system needs to verify *how* tests fail, not just *that* they fail
 
 1. The globalSetup calls [`scripts/run-vitest.js`](../scripts/run-vitest.js) in **capture mode**, which runs vitest with piped stdio and returns `{ jsonOutput, cliOutput, exitCode }`
 2. The globalSetup writes the captured data (plus `cwd` and `coverageEnabled`) to `tmp/.meta-verify-results.json` at the project root
-3. Verification tests read this pre-computed results file and assert on specific expected output
+3. Verification tests load the pre-computed results via shared helpers in [`test/meta-verify/helpers/shared.ts`](../test/meta-verify/helpers/shared.ts):
+   - **JSON output** is loaded directly for structured assertions (test status, counts, hierarchy)
+   - **CLI output** is stripped of ANSI codes once and parsed into pre-indexed maps: error blocks keyed by full test path (from FAIL headers), and coverage table rows keyed by directory-qualified path. Lookups are O(1) map gets with uniqueness validation.
+   - **`TEST_FILE_PREFIX`** adjusts error block lookup keys for the run context — in external context, vitest reports file paths with a `../vitest-pool-assemblyscript/` prefix since it runs from a sibling directory
 4. Coverage verification tests additionally read `coverage-final.json` from the coverage output directory (path derived from `cwd` in the results file)
 5. The globalSetup teardown cleans up `.meta-verify-results.json` when the verification run completes
 
@@ -182,9 +185,12 @@ The `RUN_CONTEXT` environment variable (set via `cross-env` in the npm scripts) 
 - **`external`** — runs the meta suite against the installed package in `../vitest-pool-assemblyscript-test-external/`, with coverage enabled
 - **`external_no_coverage`** — same as `external` but with coverage disabled (for Node 20 or missing native build)
 
+`RUN_CONTEXT` also drives the `COVERAGE_ENABLED` and `TEST_FILE_PREFIX` constants exported from `shared.ts`, which verification tests use to conditionally run coverage assertions and construct correct lookup keys.
+
 Verification tests live in `test/meta-verify/` and are organized by category:
-- [`test/meta-verify/verify-output.test.ts`](../test/meta-verify/verify-output.test.ts) — JSON and CLI output assertions
-- [`test/meta-verify/coverage-collection/`](../test/meta-verify/coverage-collection/) — coverage collection assertions, split by scenario type (basic, edge, structure, inheritance, modules, reexports, locations), with shared helpers in [`helpers.ts`](../test/meta-verify/coverage-collection/helpers.ts)
+- [`test/meta-verify/test-options.test.ts`](../test/meta-verify/test-options.test.ts) — test option behavior (skip, only, fails, retry) via JSON output
+- [`test/meta-verify/expect-matchers/`](../test/meta-verify/expect-matchers/) — matcher failure messages scoped to individual error blocks via CLI output
+- [`test/meta-verify/coverage-collection/`](../test/meta-verify/coverage-collection/) — coverage collection assertions, split by scenario type (basic, edge, structure, inheritance, modules, reexports, locations, execution, summary)
 
 [`scripts/run-vitest.js`](../scripts/run-vitest.js) supports two modes:
 - **Interactive mode**: stdio inherited, output streams directly to terminal (used by npm scripts like `mtest` and `eptest` for manual runs)
@@ -226,7 +232,7 @@ Verification tests live in `test/meta-verify/` and are organized by category:
 - [`scripts/run-vitest.js`](../scripts/run-vitest.js) — vitest runner (interactive + capture modes)
 - [`scripts/setup-test-external.js`](../scripts/setup-test-external.js) — external test directory setup
 - [`test/meta-verify/helpers/global-setup-capture-meta-run.ts`](../test/meta-verify/helpers/global-setup-capture-meta-run.ts) — runs meta suite once, writes results for verification tests
-- [`test/meta-verify/coverage-collection/helpers.ts`](../test/meta-verify/coverage-collection/helpers.ts) — shared types and helpers for coverage verification
+- [`test/meta-verify/helpers/shared.ts`](../test/meta-verify/helpers/shared.ts) — shared types, CLI output parsing, and lookup helpers for all verification tests
 
 ---
 

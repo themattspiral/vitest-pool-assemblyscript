@@ -1,25 +1,21 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import {
-  type CoverageTableRow, COVERAGE_ENABLED,
-  loadCliOutput, parseCoverageTableRow,
+  type CoverageTableRow, type ParsedCliOutput, COVERAGE_ENABLED,
+  loadParsedCliOutput, requireCoverageTableRow,
 } from '../helpers/shared.js';
 
 describe.runIf(COVERAGE_ENABLED)('coverage summary — CLI table verification', () => {
-  let cliOutput: string;
+  let parsedCli: ParsedCliOutput;
 
   beforeAll(async () => {
-    cliOutput = await loadCliOutput();
+    parsedCli = await loadParsedCliOutput();
   });
-
-  // --- Partial coverage: non-whole-number percentages ---
 
   describe('partial-three-of-seven (3/7, non-contiguous gaps)', () => {
     let row: CoverageTableRow;
 
     beforeAll(() => {
-      const parsed = parseCoverageTableRow(cliOutput, 'partial-three-of-seven.meta.ts');
-      expect(parsed, 'coverage table row not found for partial-three-of-seven.meta.ts').not.toBeNull();
-      row = parsed!;
+      row = requireCoverageTableRow(parsedCli, 'partial-three-of-seven.meta.ts');
     });
 
     test('% Funcs is 42.85', () => {
@@ -35,9 +31,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage summary — CLI table verification', 
     let row: CoverageTableRow;
 
     beforeAll(() => {
-      const parsed = parseCoverageTableRow(cliOutput, 'partial-five-of-nine.meta.ts');
-      expect(parsed, 'coverage table row not found for partial-five-of-nine.meta.ts').not.toBeNull();
-      row = parsed!;
+      row = requireCoverageTableRow(parsedCli, 'partial-five-of-nine.meta.ts');
     });
 
     test('% Funcs is 55.55', () => {
@@ -53,9 +47,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage summary — CLI table verification', 
     let row: CoverageTableRow;
 
     beforeAll(() => {
-      const parsed = parseCoverageTableRow(cliOutput, 'partial-two-of-eleven.meta.ts');
-      expect(parsed, 'coverage table row not found for partial-two-of-eleven.meta.ts').not.toBeNull();
-      row = parsed!;
+      row = requireCoverageTableRow(parsedCli, 'partial-two-of-eleven.meta.ts');
     });
 
     test('% Funcs is 18.18', () => {
@@ -71,9 +63,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage summary — CLI table verification', 
     let row: CoverageTableRow;
 
     beforeAll(() => {
-      const parsed = parseCoverageTableRow(cliOutput, 'partial-six-of-seven.meta.ts');
-      expect(parsed, 'coverage table row not found for partial-six-of-seven.meta.ts').not.toBeNull();
-      row = parsed!;
+      row = requireCoverageTableRow(parsedCli, 'partial-six-of-seven.meta.ts');
     });
 
     test('% Funcs is 85.71', () => {
@@ -85,15 +75,11 @@ describe.runIf(COVERAGE_ENABLED)('coverage summary — CLI table verification', 
     });
   });
 
-  // --- Full coverage ---
-
   describe('partial-all-covered (5/5)', () => {
     let row: CoverageTableRow;
 
     beforeAll(() => {
-      const parsed = parseCoverageTableRow(cliOutput, 'partial-all-covered.meta.ts');
-      expect(parsed, 'coverage table row not found for partial-all-covered.meta.ts').not.toBeNull();
-      row = parsed!;
+      row = requireCoverageTableRow(parsedCli, 'partial-all-covered.meta.ts');
     });
 
     test('% Funcs is 100', () => {
@@ -105,15 +91,11 @@ describe.runIf(COVERAGE_ENABLED)('coverage summary — CLI table verification', 
     });
   });
 
-  // --- Completely unused files (0% coverage) ---
-
   describe('standalone-unused (0/3)', () => {
     let row: CoverageTableRow;
 
     beforeAll(() => {
-      const parsed = parseCoverageTableRow(cliOutput, 'standalone-unused.meta.ts');
-      expect(parsed, 'coverage table row not found for standalone-unused.meta.ts').not.toBeNull();
-      row = parsed!;
+      row = requireCoverageTableRow(parsedCli, 'standalone-unused.meta.ts');
     });
 
     test('% Funcs is 0', () => {
@@ -129,9 +111,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage summary — CLI table verification', 
     let row: CoverageTableRow;
 
     beforeAll(() => {
-      const parsed = parseCoverageTableRow(cliOutput, 'class-utils-unused.meta.ts');
-      expect(parsed, 'coverage table row not found for class-utils-unused.meta.ts').not.toBeNull();
-      row = parsed!;
+      row = requireCoverageTableRow(parsedCli, 'class-utils-unused.meta.ts');
     });
 
     test('% Funcs is 0', () => {

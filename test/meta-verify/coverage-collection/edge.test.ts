@@ -18,8 +18,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — edge cases', () => {
     coverageMap = results.coverageMap;
   });
 
-  // --- 6. Same-named functions in different files ---
-
   describe('edge: same-named functions in different files', () => {
     let entryA: FileCoverage;
     let entryB: FileCoverage;
@@ -59,8 +57,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — edge cases', () => {
       expect(coveredCount(entryB)).toBe(2);
     });
   });
-
-  // --- 7. Same-named file in different directory ---
 
   describe('edge: same-named file in different directory', () => {
     let mainEntry: FileCoverage;

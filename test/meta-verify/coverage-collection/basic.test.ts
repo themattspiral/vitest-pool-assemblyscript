@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
-  hitCount, coveredCount, uncoveredCount, totalFunctions,
+  hitCount, allFunctionNames, coveredCount, uncoveredCount, totalFunctions,
 } from '../helpers/shared.js';
 
 const MATH_HELPERS = `${COV_DIR}/math-helpers.meta.ts`;
@@ -18,8 +18,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () =
     const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
   });
-
-  // --- 1. Partial function coverage (math-helpers) ---
 
   describe('math-helpers: partial function coverage', () => {
     let entry: FileCoverage;
@@ -48,8 +46,11 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () =
       expect(hitCount(entry, 'negate')).toBe(0);
     });
 
-    test('has exactly 5 functions tracked', () => {
+    test('exactly these 5 functions tracked', () => {
       expect(totalFunctions(entry)).toBe(5);
+      expect(allFunctionNames(entry)).toEqual(
+        expect.arrayContaining(['add', 'subtract', 'multiply', 'divide', 'negate']),
+      );
     });
 
     test('3 covered, 2 uncovered', () => {
@@ -57,8 +58,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () =
       expect(uncoveredCount(entry)).toBe(2);
     });
   });
-
-  // --- 2. Class partial coverage ---
 
   describe('class-with-mixed-usage: class partial coverage', () => {
     let entry: FileCoverage;
@@ -91,8 +90,14 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () =
       expect(hitCount(entry, 'MixedCounter.create')).toBe(0);
     });
 
-    test('has exactly 6 functions tracked', () => {
+    test('exactly these 6 functions tracked', () => {
       expect(totalFunctions(entry)).toBe(6);
+      expect(allFunctionNames(entry)).toEqual(
+        expect.arrayContaining([
+          'MixedCounter#constructor', 'MixedCounter#increment', 'MixedCounter#decrement',
+          'MixedCounter#reset', 'MixedCounter#get:value', 'MixedCounter.create',
+        ]),
+      );
     });
 
     test('3 covered, 3 uncovered', () => {
@@ -100,8 +105,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () =
       expect(uncoveredCount(entry)).toBe(3);
     });
   });
-
-  // --- 3. Precise hit counts ---
 
   describe('call-counting: precise hit counts', () => {
     let entry: FileCoverage;
@@ -126,8 +129,11 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () =
       expect(hitCount(entry, 'neverCalled')).toBe(0);
     });
 
-    test('has exactly 4 functions tracked', () => {
+    test('exactly these 4 functions tracked', () => {
       expect(totalFunctions(entry)).toBe(4);
+      expect(allFunctionNames(entry)).toEqual(
+        expect.arrayContaining(['calledOnce', 'calledThrice', 'calledFiveTimes', 'neverCalled']),
+      );
     });
 
     test('3 covered, 1 uncovered', () => {
@@ -135,8 +141,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () =
       expect(uncoveredCount(entry)).toBe(1);
     });
   });
-
-  // --- 4. Completely unused standalone file ---
 
   describe('standalone-unused: completely unused file', () => {
     let entry: FileCoverage;
@@ -151,8 +155,11 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () =
       expect(hitCount(entry, 'unusedHelperC')).toBe(0);
     });
 
-    test('has exactly 3 functions tracked', () => {
+    test('exactly these 3 functions tracked', () => {
       expect(totalFunctions(entry)).toBe(3);
+      expect(allFunctionNames(entry)).toEqual(
+        expect.arrayContaining(['unusedHelperA', 'unusedHelperB', 'unusedHelperC']),
+      );
     });
 
     test('0 covered, 3 uncovered', () => {
@@ -160,8 +167,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () =
       expect(uncoveredCount(entry)).toBe(3);
     });
   });
-
-  // --- 5. Completely unused class file (pre-existing fixture) ---
 
   describe('class-utils-unused: completely unused class file', () => {
     let entry: FileCoverage;
@@ -180,8 +185,15 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () =
       expect(hitCount(entry, 'UnusedCounter#getTripled')).toBe(0);
     });
 
-    test('has exactly 7 functions tracked', () => {
+    test('exactly these 7 functions tracked', () => {
       expect(totalFunctions(entry)).toBe(7);
+      expect(allFunctionNames(entry)).toEqual(
+        expect.arrayContaining([
+          'UnusedCounter#constructor', 'UnusedCounter#increment',
+          'UnusedCounter#get:count', 'UnusedCounter#set:count',
+          'UnusedCounter.createDefault', 'UnusedCounter#tripleCount', 'UnusedCounter#getTripled',
+        ]),
+      );
     });
 
     test('0 covered, 7 uncovered', () => {

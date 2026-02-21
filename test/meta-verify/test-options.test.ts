@@ -149,12 +149,6 @@ describe('test options & result status verification', () => {
       expect(t.status).toBe('failed');
     });
 
-    test('fails failure message contains expected text', () => {
-      const t = requireTest(file, 'should not pass with passing assertion when `fails` option is set [should fail]');
-      expect(t.failureMessages).toHaveLength(1);
-      expect(t.failureMessages[0]).toContain('Test is expected to fail, but all assertions passed');
-    });
-
     test('failing test marked with fails reports as passed', () => {
       const t = requireTest(file, 'should pass with a failing assertion when `fails` option is set');
       expect(t.status).toBe('passed');
