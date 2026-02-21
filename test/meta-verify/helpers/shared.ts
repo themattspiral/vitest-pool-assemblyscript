@@ -99,6 +99,14 @@ export interface CoverageTableRow {
  */
 export interface ParsedCliOutput {
   /**
+   * Test reporting output: the CLI content before the error blocks section.
+   * Contains test result lines (✓/✗), file summaries, and retry annotations.
+   * ANSI codes are already stripped. Useful for ad-hoc searches on test result
+   * details that aren't pre-parsed into structures (e.g. retry counts on passing tests).
+   */
+  testReportOutput: string;
+
+  /**
    * Error blocks keyed by the full test path from the FAIL header.
    * Format: 'filepath > suite > testName'
    *
@@ -312,7 +320,21 @@ export async function loadParsedCliOutput(): Promise<ParsedCliOutput> {
   const cleanOutput = rawCliOutput.replace(ANSI_ESCAPE, '');
   const lines = cleanOutput.split('\n');
 
+  // Find the boundary where error blocks begin (first separator followed by FAIL header).
+  // Everything before this is the test reporting output.
+  let errorBlockBoundary = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (!SEPARATOR_LINE.test(lines[i]!)) continue;
+    let j = i + 1;
+    while (j < lines.length && lines[j]!.trim() === '') j++;
+    if (j < lines.length && FAIL_HEADER.test(lines[j]!)) {
+      errorBlockBoundary = i;
+      break;
+    }
+  }
+
   return {
+    testReportOutput: lines.slice(0, errorBlockBoundary).join('\n'),
     errorBlocks: parseErrorBlocks(lines),
     coverageTableRows: parseCoverageTable(lines),
   };

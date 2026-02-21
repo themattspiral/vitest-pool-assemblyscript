@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import {
-  type MetaRunResults, type TestFileResult,
-  loadMetaRunResults, requireTestFile, requireTest, countByStatus,
+  type MetaRunResults, type TestFileResult, type ParsedCliOutput,
+  loadMetaRunResults, loadParsedCliOutput, requireTestFile, requireTest, countByStatus,
 } from './helpers/shared.js';
 
 const SKIP_FILE = 'test-options/skip.meta.test.ts';
@@ -11,9 +11,11 @@ const RETRY_FILE = 'test-options/retry.meta.test.ts';
 
 describe('test options & result status verification', () => {
   let metaRunResults: MetaRunResults;
+  let parsedCliOutput: ParsedCliOutput;
 
   beforeAll(async () => {
     metaRunResults = await loadMetaRunResults();
+    parsedCliOutput = await loadParsedCliOutput();
   });
 
   describe('skip-scenarios: all tests skipped', () => {
@@ -214,6 +216,14 @@ describe('test options & result status verification', () => {
     test('retry + fails interaction: inherited retry and fails, test passes', () => {
       const t = requireTest(file, 'should get inherited retry and fail with it, then pass because inherited `fails` is true');
       expect(t.status).toBe('passed');
+    });
+
+    test('retry + fails interaction: retries still happen even when fails inverts result to pass', () => {
+      // A passing fails test has no errors, so failureMessages is empty.
+      // Verify retry count from CLI test report output instead: "(retry x5)"
+      expect(parsedCliOutput.testReportOutput).toMatch(
+        /should get inherited retry and fail with it, then pass because inherited `fails` is true.*\(retry x5\)/
+      );
     });
 
     test('fails(false) override with inherited retry: test fails with retry count', () => {
