@@ -473,26 +473,44 @@ export function requireTestFile(metaRunResults: MetaRunResults, pathSuffix: stri
 }
 
 /**
- * Find a test result by title within a test file's assertionResults.
- * Uses exact title match (not substring or suffix).
- * Returns null if no match found.
+ * Build the full test path from a test result's ancestor titles and title.
+ * Skips the first ancestor (always the file path) and joins the remaining
+ * describe names with the test title using ' > ' separators.
+ *
+ * Examples:
+ *   - Top-level test: `'my test'`
+ *   - Nested test: `'suite > nested > my test'`
  */
-export function findTest(testFile: TestFileResult, title: string): TestResult | null {
-  return testFile.assertionResults.find(ar => ar.title === title) ?? null;
+function testResultPath(ar: TestResult): string {
+  const suites = ar.ancestorTitles.slice(1);
+  return [...suites, ar.title].join(' > ');
 }
 
 /**
- * Find a test result by title, throwing a descriptive error if not found.
+ * Find a test result by its full path within a test file's assertionResults.
+ * The path is matched against ancestor describe names + test title joined
+ * with ' > ' separators. For top-level tests (no describes), the path is
+ * just the test title.
+ *
+ * Returns null if no match found.
  */
-export function requireTest(testFile: TestFileResult, title: string): TestResult {
-  const test = findTest(testFile, title);
+export function findTest(testFile: TestFileResult, testPath: string): TestResult | null {
+  return testFile.assertionResults.find(ar => testResultPath(ar) === testPath) ?? null;
+}
+
+/**
+ * Find a test result by its full path, throwing a descriptive error if not found.
+ * See {@link findTest} for path format.
+ */
+export function requireTest(testFile: TestFileResult, testPath: string): TestResult {
+  const test = findTest(testFile, testPath);
   if (!test) {
     const available = testFile.assertionResults
-      .map(ar => `  - [${ar.status}] ${ar.title}`)
+      .map(ar => `  - [${ar.status}] ${testResultPath(ar)}`)
       .join('\n');
     throw new Error(
-      `No test found with title "${title}" in ${testFile.name}.\n` +
-      `Available tests:\n${available}`
+      `No test found matching "${testPath}" in ${testFile.name}.\n` +
+      `Available tests (full paths):\n${available}`
     );
   }
   return test;

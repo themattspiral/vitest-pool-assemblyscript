@@ -101,7 +101,7 @@ describe('timeout scenarios verification', () => {
 
   describe('suite-inherited timeout', () => {
     test('test status is failed', () => {
-      const t = requireTest(file, 'inherits suite timeout [should fail]');
+      const t = requireTest(file, 'suite with inherited timeout > inherits suite timeout [should fail]');
       expect(t.status).toBe('failed');
     });
 
@@ -122,7 +122,7 @@ describe('timeout scenarios verification', () => {
     });
 
     test('ancestor titles reflect suite hierarchy', () => {
-      const t = requireTest(file, 'inherits suite timeout [should fail]');
+      const t = requireTest(file, 'suite with inherited timeout > inherits suite timeout [should fail]');
       expect(t.ancestorTitles).toContain('suite with inherited timeout');
     });
   });

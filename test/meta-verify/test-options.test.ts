@@ -52,12 +52,12 @@ describe('test options & result status verification', () => {
     });
 
     test('test nested in describe.skip is pending', () => {
-      const t = requireTest(file, 'should be skipped because it\'s in a skipped suite');
+      const t = requireTest(file, 'suite using `skip` function should be skipped regardless of options on tests in it > should be skipped because it\'s in a skipped suite');
       expect(t.status).toBe('skipped');
     });
 
     test('test nested in describe with TestOptions.skip() is pending', () => {
-      const t = requireTest(file, 'plain - should be skipped because it\'s in a nested skipped suite');
+      const t = requireTest(file, 'suite with `skip` option set should be skipped regardless of options on tests in it > nested suite should be skipped because it\'s in a skipped suite > plain - should be skipped because it\'s in a nested skipped suite');
       expect(t.status).toBe('skipped');
     });
   });
@@ -96,32 +96,32 @@ describe('test options & result status verification', () => {
     });
 
     test('test in describe.only runs', () => {
-      const t = requireTest(file, 'plain test: should run in only suite');
+      const t = requireTest(file, '`only` suite: should run with other onlies > plain test: should run in only suite');
       expect(t.status).toBe('passed');
     });
 
     test('plain sibling suite is skipped when only exists', () => {
-      const t = requireTest(file, 'plain test: should be skipped because the suite gets set to skipped');
+      const t = requireTest(file, 'plain suite with same-level `only` - should be skipped > plain test: should be skipped because the suite gets set to skipped');
       expect(t.status).toBe('skipped');
     });
 
     test('nested describe.only runs within plain suite', () => {
-      const t = requireTest(file, 'plain test: should run within nested suite marked only');
+      const t = requireTest(file, 'plain suite with same-level `only` and `only` nested suite - should run > `only` suite within plain suite should run with other file onlies > plain test: should run within nested suite marked only');
       expect(t.status).toBe('passed');
     });
 
     test('test.only within plain suite runs', () => {
-      const t = requireTest(file, '`only` test within plain suite should run with other file onlies');
+      const t = requireTest(file, 'plain suite with same-level `only` and `only` sub-test - should run > `only` test within plain suite should run with other file onlies');
       expect(t.status).toBe('passed');
     });
 
     test('describe.skip overrides test.only inside it', () => {
-      const t = requireTest(file, '`only` test: should be skipped because suite is skipped despite `only` function');
+      const t = requireTest(file, '`skip` suite: should have all tests skipped regardless of their options > `only` test: should be skipped because suite is skipped despite `only` function');
       expect(t.status).toBe('skipped');
     });
 
     test('hierarchy preserved in ancestorTitles for nested only suite test', () => {
-      const t = requireTest(file, 'plain test: should run within nested suite marked only');
+      const t = requireTest(file, 'plain suite with same-level `only` and `only` nested suite - should run > `only` suite within plain suite should run with other file onlies > plain test: should run within nested suite marked only');
       // ancestorTitles: [filePath, outerDescribe, describe.only]
       expect(t.ancestorTitles).toHaveLength(3);
       expect(t.ancestorTitles[1]).toBe('plain suite with same-level `only` and `only` nested suite - should run');
@@ -147,28 +147,28 @@ describe('test options & result status verification', () => {
     });
 
     test('passing test marked with fails reports as failure', () => {
-      const t = requireTest(file, 'should not pass with passing assertion when `fails` option is set [should fail]');
+      const t = requireTest(file, '`fails` option failure tests > should not pass with passing assertion when `fails` option is set [should fail]');
       expect(t.status).toBe('failed');
     });
 
     test('failing test marked with fails reports as passed', () => {
-      const t = requireTest(file, 'should pass with a failing assertion when `fails` option is set');
+      const t = requireTest(file, 'suite should pass when test within it uses `fails` option and passes > should pass with a failing assertion when `fails` option is set');
       expect(t.status).toBe('passed');
     });
 
     test('nested fails-failure causes file to fail', () => {
-      const t = requireTest(file, 'should fail with a passing assertion when `fails` option is set [should fail]');
+      const t = requireTest(file, 'suite that fails and will cause file suite to fail > nested suite > should fail with a passing assertion when `fails` option is set [should fail]');
       expect(t.status).toBe('failed');
       expect(t.ancestorTitles).toContain('nested suite');
     });
 
     test('fails inheritance from suite: failing test passes due to inherited fails', () => {
-      const t = requireTest(file, 'should pass because inherited `fails` inverts the failure');
+      const t = requireTest(file, 'suite with `fails` set > should pass because inherited `fails` inverts the failure');
       expect(t.status).toBe('passed');
     });
 
     test('fails(false) override at test level', () => {
-      const t = requireTest(file, 'should fail because `fails(false)` overrides suite `fails` [should fail]');
+      const t = requireTest(file, 'suite with `fails` set > should fail because `fails(false)` overrides suite `fails` [should fail]');
       expect(t.status).toBe('failed');
     });
   });
@@ -202,19 +202,19 @@ describe('test options & result status verification', () => {
     });
 
     test('suite-level retry(5) inherited: 6 failure messages (1 initial + 5 retries)', () => {
-      const t = requireTest(file, 'should inherit this suite\'s `retry` and [should fail]');
+      const t = requireTest(file, 'suite with retry different than default > should inherit this suite\'s `retry` and [should fail]');
       expect(t.status).toBe('failed');
       expect(t.failureMessages).toHaveLength(6);
     });
 
     test('test-level retry(3) overrides suite retry(5): 4 failure messages', () => {
-      const t = requireTest(file, 'should override suite `retry` and [should fail]');
+      const t = requireTest(file, 'suite with retry different than default > should override suite `retry` and [should fail]');
       expect(t.status).toBe('failed');
       expect(t.failureMessages).toHaveLength(4);
     });
 
     test('retry + fails interaction: inherited retry and fails, test passes', () => {
-      const t = requireTest(file, 'should get inherited retry and fail with it, then pass because inherited `fails` is true');
+      const t = requireTest(file, 'suite with retry different than default > nested suite with `fails` set > should get inherited retry and fail with it, then pass because inherited `fails` is true');
       expect(t.status).toBe('passed');
     });
 
@@ -230,13 +230,13 @@ describe('test options & result status verification', () => {
     });
 
     test('fails(false) override with inherited retry: test fails with retry count', () => {
-      const t = requireTest(file, 'should get inherited retry and overide `fail` to false, so that it actually [should fail]');
+      const t = requireTest(file, 'suite with retry different than default > nested suite with `fails` set > should get inherited retry and overide `fail` to false, so that it actually [should fail]');
       expect(t.status).toBe('failed');
       expect(t.failureMessages).toHaveLength(6);
     });
 
     test('hierarchy preserved for deeply nested test', () => {
-      const t = requireTest(file, 'should get inherited retry and fail with it, then pass because inherited `fails` is true');
+      const t = requireTest(file, 'suite with retry different than default > nested suite with `fails` set > should get inherited retry and fail with it, then pass because inherited `fails` is true');
       expect(t.ancestorTitles).toHaveLength(3);
       expect(t.ancestorTitles[1]).toBe('suite with retry different than default');
       expect(t.ancestorTitles[2]).toBe('nested suite with `fails` set');
