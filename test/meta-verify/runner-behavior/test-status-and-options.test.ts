@@ -2,12 +2,12 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type MetaRunResults, type TestFileResult, type ParsedCliOutput,
   loadMetaRunResults, loadParsedCliOutput, requireTestFile, requireTest, countByStatus,
-} from './helpers/shared.js';
+} from '../helpers/shared.js';
 
-const SKIP_FILE = 'test-options/skip.meta.test.ts';
-const ONLY_FILE = 'test-options/only.meta.test.ts';
-const FAILS_FILE = 'test-options/fails.meta.test.ts';
-const RETRY_FILE = 'test-options/retry.meta.test.ts';
+const SKIP_FILE = 'runner-behavior/skip.meta.test.ts';
+const ONLY_FILE = 'runner-behavior/only.meta.test.ts';
+const FAILS_FILE = 'runner-behavior/fails.meta.test.ts';
+const RETRY_FILE = 'runner-behavior/retry.meta.test.ts';
 
 describe('test options & result status verification', () => {
   let metaRunResults: MetaRunResults;

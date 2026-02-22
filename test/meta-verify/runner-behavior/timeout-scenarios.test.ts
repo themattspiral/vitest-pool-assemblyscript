@@ -4,9 +4,9 @@ import {
   loadMetaRunResults, loadParsedCliOutput,
   requireTestFile, requireTest, countByStatus,
   requireErrorBlock, TEST_FILE_PREFIX,
-} from './helpers/shared.js';
+} from '../helpers/shared.js';
 
-const TIMEOUT_FILE = 'pool-errors/timeout-scenarios.meta.test.ts';
+const TIMEOUT_FILE = 'runner-behavior/timeout-scenarios.meta.test.ts';
 const FIXTURE_PATH = `${TEST_FILE_PREFIX}test/assembly/${TIMEOUT_FILE}`;
 
 /** Build the full error block key for a top-level test in this fixture. */

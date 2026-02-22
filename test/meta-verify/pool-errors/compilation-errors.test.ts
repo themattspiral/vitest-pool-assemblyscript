@@ -3,7 +3,7 @@ import {
   type MetaRunResults, type TestFileResult, type ParsedCliOutput,
   loadMetaRunResults, loadParsedCliOutput,
   requireTestFile, requireErrorBlock, TEST_FILE_PREFIX,
-} from './helpers/shared.js';
+} from '../helpers/shared.js';
 
 const COMPILATION_ERROR_FILE = 'pool-errors/compilation-error.meta.test.ts';
 const FIXTURE_PATH = `${TEST_FILE_PREFIX}test/assembly/${COMPILATION_ERROR_FILE}`;
