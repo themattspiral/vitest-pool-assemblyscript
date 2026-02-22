@@ -64,7 +64,7 @@ export default async function setup(): Promise<() => Promise<void>> {
     cwd,
   }));
 
-  console.log(`[Meta-Verify globalSetup]   Wrote results to: ${RESULTS_PATH}`);
+  console.log(`[Meta-Verify globalSetup]   Captured results in: ${RESULTS_PATH}`);
   console.log('');
 
   // Teardown: clean up results file

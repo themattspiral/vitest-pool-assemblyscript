@@ -100,13 +100,7 @@ async function runCapture({ cwd, args }) {
   // Clean up any leftover output file from a previous run
   await unlink(jsonOutputPath).catch(() => {});
 
-  const captureArgs = [
-    'vitest', 'run',
-    '--reporter=json',
-    '--reporter=verbose',
-    `--outputFile.json=${jsonOutputPath}`,
-    ...args,
-  ];
+  const captureArgs = [ 'vitest', 'run', ...args ];
 
   const { cliOutput, exitCode } = await new Promise((resolve) => {
     const stdoutChunks = [];

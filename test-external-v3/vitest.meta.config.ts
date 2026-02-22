@@ -5,7 +5,11 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
-    reporters: ['verbose'],
+    reporters: [
+      'json',
+      'default'   // v3 default is closest to v4 verbose
+    ],
+    outputFile: { json: '.vitest-meta-json-output.json' },
 
     coverage: {
       enabled: true,
