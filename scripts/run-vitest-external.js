@@ -13,7 +13,7 @@
  *
  * @example
  * // Programmatic usage from a meta-test
- * import { runVitest } from '../scripts/run-vitest.js';
+ * import { runVitest } from '../scripts/run-vitest-external.js';
  *
  * const result = await runVitest({
  *   cwd: '/path/to/project',

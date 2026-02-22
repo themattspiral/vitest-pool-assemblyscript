@@ -14,7 +14,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeFile, unlink, mkdir } from 'node:fs/promises';
 
-import { runVitest } from '../../../scripts/run-vitest.js';
+import { runVitest } from '../../../scripts/run-vitest-external.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

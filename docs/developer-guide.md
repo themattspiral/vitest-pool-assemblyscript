@@ -171,7 +171,7 @@ npm run emvtest   # External meta output verification (setup + run - shortcut)
 
 The meta test system needs to verify *how* tests fail, not just *that* they fail. A [`globalSetup`](../test/meta-verify/helpers/global-setup-capture-meta-run.ts) runs the meta suite once before any verification test workers spawn, capturing output and writing it to a results file. This eliminates duplicate meta suite runs and race conditions on shared output files. The flow:
 
-1. The globalSetup calls [`scripts/run-vitest.js`](../scripts/run-vitest.js) in **capture mode**, which runs vitest with piped stdio and returns `{ jsonOutput, cliOutput, exitCode }`
+1. The globalSetup calls [`scripts/run-vitest-external.js`](../scripts/run-vitest-external.js) in **capture mode**, which runs vitest with piped stdio and returns `{ jsonOutput, cliOutput, exitCode }`
 2. The globalSetup writes the captured data (plus `cwd` and `coverageEnabled`) to `tmp/.meta-verify-results.json` at the project root
 3. Verification tests load the pre-computed results via shared helpers in [`test/meta-verify/helpers/shared.ts`](../test/meta-verify/helpers/shared.ts):
    - **JSON output** is loaded directly for structured assertions (test status, counts, hierarchy)
@@ -192,7 +192,7 @@ Verification tests live in `test/meta-verify/` and are organized by category:
 - [`test/meta-verify/expect-matchers/`](../test/meta-verify/expect-matchers/) — matcher failure messages scoped to individual error blocks via CLI output
 - [`test/meta-verify/coverage-collection/`](../test/meta-verify/coverage-collection/) — coverage collection assertions, split by scenario type (basic, edge, structure, inheritance, modules, reexports, locations, execution, summary)
 
-[`scripts/run-vitest.js`](../scripts/run-vitest.js) supports two modes:
+[`scripts/run-vitest-external.js`](../scripts/run-vitest-external.js) supports two modes:
 - **Interactive mode**: stdio inherited, output streams directly to terminal (used by npm scripts like `mtest` and `eptest` for manual runs)
 - **Capture mode**: async spawn with piped stdio, returns `{ jsonOutput, cliOutput, exitCode }` (used by the globalSetup)
 
@@ -229,7 +229,7 @@ Verification tests live in `test/meta-verify/` and are organized by category:
 | `npm run cemvtest` | `npm run build && npm run emvtest` | Build + external meta output verification |
 
 **Key source files:**
-- [`scripts/run-vitest.js`](../scripts/run-vitest.js) — vitest runner (interactive + capture modes)
+- [`scripts/run-vitest-external.js`](../scripts/run-vitest-external.js) — vitest runner (interactive + capture modes)
 - [`scripts/setup-test-external.js`](../scripts/setup-test-external.js) — external test directory setup
 - [`test/meta-verify/helpers/global-setup-capture-meta-run.ts`](../test/meta-verify/helpers/global-setup-capture-meta-run.ts) — runs meta suite once, writes results for verification tests
 - [`test/meta-verify/helpers/shared.ts`](../test/meta-verify/helpers/shared.ts) — shared types, CLI output parsing, and lookup helpers for all verification tests
