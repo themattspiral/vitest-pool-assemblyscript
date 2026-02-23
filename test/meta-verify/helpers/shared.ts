@@ -1,5 +1,6 @@
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stripVTControlCharacters } from 'node:util';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
@@ -99,6 +100,14 @@ export interface CoverageTableRow {
  */
 export interface ParsedCliOutput {
   /**
+   * Test reporting output: the CLI content before the error blocks section.
+   * Contains test result lines (✓/✗), file summaries, and retry annotations.
+   * ANSI codes are already stripped. Useful for ad-hoc searches on test result
+   * details that aren't pre-parsed into structures (e.g. retry counts on passing tests).
+   */
+  testReportOutput: string;
+
+  /**
    * Error blocks keyed by the full test path from the FAIL header.
    * Format: 'filepath > suite > testName'
    *
@@ -121,8 +130,6 @@ export interface ParsedCliOutput {
 }
 
 // --- CLI parsing internals ---
-
-const ANSI_ESCAPE = /\x1b\[[0-9;]*m/g;
 
 // Separator lines: "⎯⎯⎯[N/M]⎯", "⎯⎯⎯ Failed Tests N ⎯⎯⎯", etc.
 const SEPARATOR_LINE = /^[⎯─]{3,}/;
@@ -308,11 +315,25 @@ export async function loadParsedCliOutput(): Promise<ParsedCliOutput> {
   const results = JSON.parse(await readFile(RESULTS_PATH, 'utf-8'));
   const rawCliOutput: string = results.cliOutput;
 
-  // Strip ANSI escape codes once for all parsing
-  const cleanOutput = rawCliOutput.replace(ANSI_ESCAPE, '');
+  // Strip VT control characters once for all parsing
+  const cleanOutput = stripVTControlCharacters(rawCliOutput);
   const lines = cleanOutput.split('\n');
 
+  // Find the boundary where error blocks begin (first separator followed by FAIL header).
+  // Everything before this is the test reporting output.
+  let errorBlockBoundary = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (!SEPARATOR_LINE.test(lines[i]!)) continue;
+    let j = i + 1;
+    while (j < lines.length && lines[j]!.trim() === '') j++;
+    if (j < lines.length && FAIL_HEADER.test(lines[j]!)) {
+      errorBlockBoundary = i;
+      break;
+    }
+  }
+
   return {
+    testReportOutput: lines.slice(0, errorBlockBoundary).join('\n'),
     errorBlocks: parseErrorBlocks(lines),
     coverageTableRows: parseCoverageTable(lines),
   };
@@ -451,26 +472,44 @@ export function requireTestFile(metaRunResults: MetaRunResults, pathSuffix: stri
 }
 
 /**
- * Find a test result by title within a test file's assertionResults.
- * Uses exact title match (not substring or suffix).
- * Returns null if no match found.
+ * Build the full test path from a test result's ancestor titles and title.
+ * Skips the first ancestor (always the file path) and joins the remaining
+ * describe names with the test title using ' > ' separators.
+ *
+ * Examples:
+ *   - Top-level test: `'my test'`
+ *   - Nested test: `'suite > nested > my test'`
  */
-export function findTest(testFile: TestFileResult, title: string): TestResult | null {
-  return testFile.assertionResults.find(ar => ar.title === title) ?? null;
+function testResultPath(ar: TestResult): string {
+  const suites = ar.ancestorTitles.slice(1);
+  return [...suites, ar.title].join(' > ');
 }
 
 /**
- * Find a test result by title, throwing a descriptive error if not found.
+ * Find a test result by its full path within a test file's assertionResults.
+ * The path is matched against ancestor describe names + test title joined
+ * with ' > ' separators. For top-level tests (no describes), the path is
+ * just the test title.
+ *
+ * Returns null if no match found.
  */
-export function requireTest(testFile: TestFileResult, title: string): TestResult {
-  const test = findTest(testFile, title);
+export function findTest(testFile: TestFileResult, testPath: string): TestResult | null {
+  return testFile.assertionResults.find(ar => testResultPath(ar) === testPath) ?? null;
+}
+
+/**
+ * Find a test result by its full path, throwing a descriptive error if not found.
+ * See {@link findTest} for path format.
+ */
+export function requireTest(testFile: TestFileResult, testPath: string): TestResult {
+  const test = findTest(testFile, testPath);
   if (!test) {
     const available = testFile.assertionResults
-      .map(ar => `  - [${ar.status}] ${ar.title}`)
+      .map(ar => `  - [${ar.status}] ${testResultPath(ar)}`)
       .join('\n');
     throw new Error(
-      `No test found with title "${title}" in ${testFile.name}.\n` +
-      `Available tests:\n${available}`
+      `No test found matching "${testPath}" in ${testFile.name}.\n` +
+      `Available tests (full paths):\n${available}`
     );
   }
   return test;

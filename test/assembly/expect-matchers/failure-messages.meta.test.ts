@@ -319,6 +319,58 @@ describe("cross-type comparison", () => {
   });
 });
 
+describe("unsupported types", () => {
+  test("toBeGreaterThan with v128 [should fail]", () => {
+    const a: v128 = i32x4.splat(1);
+    const b: v128 = i32x4.splat(2);
+    expect(a).toBeGreaterThan(b);
+  });
+
+  test("toBeGreaterThanOrEqual with v128 [should fail]", () => {
+    const a: v128 = i32x4.splat(1);
+    const b: v128 = i32x4.splat(2);
+    expect(a).toBeGreaterThanOrEqual(b);
+  });
+
+  test("toBeLessThan with v128 [should fail]", () => {
+    const a: v128 = i32x4.splat(1);
+    const b: v128 = i32x4.splat(2);
+    expect(a).toBeLessThan(b);
+  });
+
+  test("toBeLessThanOrEqual with v128 [should fail]", () => {
+    const a: v128 = i32x4.splat(1);
+    const b: v128 = i32x4.splat(2);
+    expect(a).toBeLessThanOrEqual(b);
+  });
+
+  test("toBeCloseTo with v128 [should fail]", () => {
+    const a: v128 = f32x4(1.0, 2.0, 3.0, 4.0);
+    const b: v128 = f32x4(1.0, 2.0, 3.0, 4.0);
+    expect(a).toBeCloseTo(b);
+  });
+
+  test("toBeGreaterThan with v128 actual and i32 expected [should fail]", () => {
+    const a: v128 = i32x4.splat(10);
+    expect(a).toBeGreaterThan(i32(5));
+  });
+
+  test("toBeGreaterThan with i32 actual and v128 expected [should fail]", () => {
+    const b: v128 = i32x4.splat(1);
+    expect(i32(5)).toBeGreaterThan(b);
+  });
+
+  test("toBeCloseTo with v128 actual and f32 expected [should fail]", () => {
+    const a: v128 = f32x4(1.0, 2.0, 3.0, 4.0);
+    expect(a).toBeCloseTo(f32(1.0));
+  });
+
+  test("toBeCloseTo with f32 actual and v128 expected [should fail]", () => {
+    const b: v128 = f32x4(1.0, 2.0, 3.0, 4.0);
+    expect(f32(1.0)).toBeCloseTo(b);
+  });
+});
+
 // --- Deep equality not implemented: toEqual only (via equals() final throw) ---
 
 describe("deep equality", () => {

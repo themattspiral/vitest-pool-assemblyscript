@@ -1,6 +1,8 @@
 import { test, expect, describe } from "vitest-pool-assemblyscript/assembly";
 import * as fail from "../../assembly-src/failure-utils.meta";
+import { callsAnotherFunctionThatFails } from "../../assembly-src/failure-utils-proxy.meta";
 import { throwsError } from "../../assembly-src/inline-utils.meta";
+import { helperWithFailingAssertion } from "./assertion-helper.meta";
 
 describe("function and callback combinations", () => {
   test("failNamedFunc [should fail]", () => {
@@ -53,10 +55,27 @@ describe("classes", () => {
   });
 });
 
-test("inline function error is source mapped to correct line [should fail]", (): void => {
-  const wontAssign = throwsError(); // RUNTIME_ERROR@32:22 STACK_DEPTH:3 EXPECT_IN:inline-utils.ts:33:17 Out of bounds
-});
+describe("edge cases", () => {
+  test("inline function [should fail]", (): void => {
+    const wontAssign = throwsError();
+  });
+  
+  test("single line function [should fail]", () => {
+    fail.failsSingleLine();
+  });
+  
+  test("multiline expect statement [should fail]", (): void => {
+    expect(
+      false
+    ).toBeTruthy();
+  });
+  
+  test("callsAnotherFunctionThatFails [should fail]", (): void => {
+    const val = callsAnotherFunctionThatFails();
+    expect(val).toBe(3);
+  });
 
-test("single line function failure [should fail]", () => {
-  fail.fails();
+  test("assertion error in helper [should fail]", (): void => {
+    helperWithFailingAssertion();
+  });
 });

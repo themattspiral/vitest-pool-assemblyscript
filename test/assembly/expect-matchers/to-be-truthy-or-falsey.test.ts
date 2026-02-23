@@ -50,6 +50,20 @@ describe("primitives", () => {
   });
 });
 
+describe("SIMD vectors", () => {
+  test("non-zero v128 is truthy", () => {
+    const a: v128 = i32x4.splat(1);
+    expect(a).toBeTruthy();
+    expect(a).not.toBeFalsy();
+  });
+
+  test("zero v128 is falsy", () => {
+    const a: v128 = i32x4.splat(0);
+    expect(a).toBeFalsy();
+    expect(a).not.toBeTruthy();
+  });
+});
+
 describe("references", () => {
   test("Non-0-length strings should be truthy", () => {
     expect("hello").toBeTruthy();

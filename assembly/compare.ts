@@ -169,6 +169,13 @@ export function closeTo<T, U>(actual: T, expected: U, precision: i32 = 2): bool 
     return receivedDiff < expectedDiff;
   }
 
+  if (isVector<T>() || isVector<U>()) {
+    throw new Error(
+      "Approximate comparison is not supported for " + nameof<T>() + " and " + nameof<U>()
+      + ". Extract lane values and compare them individually with toBeCloseTo()."
+    );
+  }
+
   return false;
 }
 
@@ -369,6 +376,8 @@ export function isNull<T>(value: T): bool {
     }
   } else {
     if (isBoolean<T>()) {
+      return false;
+    } else if (isVector<T>()) {
       return false;
     } else {
       return nameof<T>(value) == 'usize' && value == 0;

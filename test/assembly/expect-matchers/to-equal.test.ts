@@ -328,6 +328,42 @@ describe("sets", () => {
   });
 });
 
+describe("SIMD vectors", () => {
+  test("i32x4 with same values are equal", () => {
+    const a: v128 = i32x4.splat(42);
+    const b: v128 = i32x4.splat(42);
+    expect(a).toEqual(b);
+  });
+
+  test("i32x4 with different values are not equal", () => {
+    const a: v128 = i32x4.splat(1);
+    const b: v128 = i32x4.splat(2);
+    expect(a).not.toEqual(b);
+  });
+
+  test("f32x4 with same values are equal", () => {
+    const a: v128 = f32x4(1.0, 2.0, 3.0, 4.0);
+    const b: v128 = f32x4(1.0, 2.0, 3.0, 4.0);
+    expect(a).toEqual(b);
+  });
+
+  test("f64x2 with same values are equal", () => {
+    const a: v128 = f64x2(3.14, 2.72);
+    const b: v128 = f64x2(3.14, 2.72);
+    expect(a).toEqual(b);
+  });
+
+  test("different lane types with same bit pattern are equal", () => {
+    const zeros_i32: v128 = i32x4.splat(0);
+    const zeros_f32: v128 = f32x4(0.0, 0.0, 0.0, 0.0);
+    const zeros_i64: v128 = i64x2(0, 0);
+    const zeros_f64: v128 = f64x2(0.0, 0.0);
+    expect(zeros_i32).toEqual(zeros_f32);
+    expect(zeros_i32).toEqual(zeros_i64);
+    expect(zeros_i32).toEqual(zeros_f64);
+  });
+});
+
 describe("ArrayBuffer", () => {
   // TODO
 });

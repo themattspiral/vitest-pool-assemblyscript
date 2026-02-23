@@ -14,7 +14,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeFile, unlink, mkdir } from 'node:fs/promises';
 
-import { runVitest } from '../../../scripts/run-vitest.js';
+import { runVitest } from '../../../scripts/run-vitest-external.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -64,7 +64,7 @@ export default async function setup(): Promise<() => Promise<void>> {
     cwd,
   }));
 
-  console.log(`[Meta-Verify globalSetup]   Wrote results to: ${RESULTS_PATH}`);
+  console.log(`[Meta-Verify globalSetup]   Captured results in: ${RESULTS_PATH}`);
   console.log('');
 
   // Teardown: clean up results file

@@ -13,7 +13,7 @@
  *
  * @example
  * // Programmatic usage from a meta-test
- * import { runVitest } from '../scripts/run-vitest.js';
+ * import { runVitest } from '../scripts/run-vitest-external.js';
  *
  * const result = await runVitest({
  *   cwd: '/path/to/project',
@@ -100,13 +100,7 @@ async function runCapture({ cwd, args }) {
   // Clean up any leftover output file from a previous run
   await unlink(jsonOutputPath).catch(() => {});
 
-  const captureArgs = [
-    'vitest', 'run',
-    '--reporter=json',
-    '--reporter=default',
-    `--outputFile.json=${jsonOutputPath}`,
-    ...args,
-  ];
+  const captureArgs = [ 'vitest', 'run', ...args ];
 
   const { cliOutput, exitCode } = await new Promise((resolve) => {
     const stdoutChunks = [];
