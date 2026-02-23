@@ -125,7 +125,62 @@ describe("primitives", () => {
 });
 
 describe("SIMD vectors", () => {
-  // TODO
+  test("i32x4 with same values are identical", () => {
+    const a: v128 = i32x4.splat(42);
+    const b: v128 = i32x4.splat(42);
+    expect(a).toBe(b);
+  });
+
+  test("i32x4 with different values are not identical", () => {
+    const a: v128 = i32x4.splat(1);
+    const b: v128 = i32x4.splat(2);
+    expect(a).not.toBe(b);
+  });
+
+  test("f32x4 with same values are identical", () => {
+    const a: v128 = f32x4(1.0, 2.0, 3.0, 4.0);
+    const b: v128 = f32x4(1.0, 2.0, 3.0, 4.0);
+    expect(a).toBe(b);
+  });
+
+  test("f32x4 with different values are not identical", () => {
+    const a: v128 = f32x4(1.0, 2.0, 3.0, 4.0);
+    const b: v128 = f32x4(1.0, 2.0, 3.0, 5.0);
+    expect(a).not.toBe(b);
+  });
+
+  test("f64x2 with same values are identical", () => {
+    const a: v128 = f64x2(3.14, 2.72);
+    const b: v128 = f64x2(3.14, 2.72);
+    expect(a).toBe(b);
+  });
+
+  test("i64x2 with same values are identical", () => {
+    const a: v128 = i64x2(100, 200);
+    const b: v128 = i64x2(100, 200);
+    expect(a).toBe(b);
+  });
+
+  test("different lane types with same bit pattern are identical", () => {
+    // v128 equality is bitwise — lane type interpretation doesn't matter
+    const zeros_i32: v128 = i32x4.splat(0);
+    const zeros_f32: v128 = f32x4(0.0, 0.0, 0.0, 0.0);
+    const zeros_i64: v128 = i64x2(0, 0);
+    const zeros_f64: v128 = f64x2(0.0, 0.0);
+    expect(zeros_i32).toBe(zeros_f32);
+    expect(zeros_i32).toBe(zeros_i64);
+    expect(zeros_i32).toBe(zeros_f64);
+    expect(zeros_f32).toBe(zeros_i64);
+    expect(zeros_f32).toBe(zeros_f64);
+    expect(zeros_i64).toBe(zeros_f64);
+  });
+
+  test("different lane types with different bit patterns are not identical", () => {
+    // i32 value 1 and f32 value 1.0 have different bit representations
+    const int_ones: v128 = i32x4.splat(1);
+    const float_ones: v128 = f32x4(1.0, 1.0, 1.0, 1.0);
+    expect(int_ones).not.toBe(float_ones);
+  });
 });
 
 describe("strings", () => {

@@ -56,6 +56,23 @@ expect(f64(42.0)).toBe(i32(42));
 // expect(f64(42.0)).toBe(i64(42));  // Error: float precision insufficient
 ```
 
+#### SIMD Vector Support (`v128`)
+
+SIMD vectors are compared bitwise — two vectors are identical when all 128 bits match, regardless of which lane type was used to construct them (e.g. `i32x4`, `f32x4`, `f64x2`).
+
+```typescript
+expect(i32x4.splat(42)).toBe(i32x4.splat(42));
+expect(f64x2(3.14, 2.72)).toBe(f64x2(3.14, 2.72));
+
+// different lane types with the same underlying bits are identical
+expect(i32x4.splat(0)).toBe(f64x2(0.0, 0.0));
+
+// different lane types with different bit representations are not identical
+expect(i32x4.splat(1)).not.toBe(f32x4(1.0, 1.0, 1.0, 1.0));
+```
+
+>ℹ️ SIMD requires `--enable simd` in the AssemblyScript compiler flags. Add `extraCompilerFlags: ['--enable', 'simd']` to your pool options.
+
 ### `toBeCloseTo()`
 Checks if a floating point value is close to what you expect. Using exact equality with floating point numbers often doesn't work correctly, because of internal rounding to represent floats in binary. This rounding means intuitive comparisons will often fail, so this matcher checks if they are "close enough" to be considered equal.
 
@@ -66,6 +83,12 @@ Strings are compared by value equality, with any `precision` ignored. Non-numeri
 expect(0.1 + 0.2).toBeCloseTo(0.3);
 expect(1.005).toBeCloseTo(1.0, 1);
 ```
+
+>ℹ️ SIMD vectors (`v128`) are not supported by `toBeCloseTo()`. Approximate comparison requires a lane type interpretation to extract numeric values. Extract lane values and compare them individually instead:
+>```typescript
+>const v: v128 = f32x4(0.1, 0.2, 0.3, 0.4);
+>expect(f32x4.extract_lane(v, 2)).toBeCloseTo(0.3);
+>```
 
 ### `toEqual()`
 Checks that two values have the same value (deep equality). Currently supports checking equality of Arrays, Sets, Maps, and nulls. Values inside arrays are compared using `toEqual()` also, while Maps and Sets use their respective rules for membership.
@@ -82,6 +105,15 @@ expect(["one", "two", "three"]).toEqual(["one", "two", "three"]);
 const a: MyObject = new MyObject();
 const b: MyObject = new MyObject();
 expect([a, b]).toEqual([a, b]);
+```
+
+#### SIMD Vector Support (`v128`)
+
+SIMD vectors use the same bitwise comparison as `toBe()` — two vectors are equal when all 128 bits match.
+
+```typescript
+expect(i32x4.splat(42)).toEqual(i32x4.splat(42));
+expect(f32x4(1.0, 2.0, 3.0, 4.0)).toEqual(f32x4(1.0, 2.0, 3.0, 4.0));
 ```
 
 ### `toStrictEqual()`
@@ -106,6 +138,15 @@ expect("").not.toBeFalsy();  // not falsy in AS (unlike JS)
 >⚠️ AS vs JS Quirk: Unlike in JavaScript, empty string (`""`) is truthy in AssemblyScript because it is an object reference, not a primitive. An empty string is still an allocated object with a non-zero address, so it evaluates as truthy!
 
 >ℹ️ `toBeFalsey()` is still available as a deprecated alias for `toBeFalsy()`.
+
+#### SIMD Vector Support (`v128`)
+
+An all-zero `v128` is falsy; any vector with at least one non-zero bit is truthy.
+
+```typescript
+expect(i32x4.splat(1)).toBeTruthy();
+expect(i32x4.splat(0)).toBeFalsy();
+```
 
 ### `toBeNull()`
 Checks that a value is null (`usize(0)` in AssemblyScript).
@@ -181,6 +222,12 @@ expect(true).toBeGreaterThan(false);
 >⚠️ Nullable strings where either value is null will throw an error. Use `toBeNull()` to check for null values.
 
 >⚠️ Non-string reference types (objects, arrays, etc) are not comparable and will throw an error.
+
+>ℹ️ SIMD vectors (`v128`) are not supported by inequality matchers. SIMD lane-wise comparison intrinsics require a specific lane type interpretation (e.g. `i32x4`, `f32x4`) which cannot be inferred from the `v128` type. Extract lane values and compare them individually instead:
+>```typescript
+>const v: v128 = i32x4(10, 20, 30, 40);
+>expect(i32x4.extract_lane(v, 0)).toBeGreaterThan(5);
+>```
 
 ### `toBeGreaterThanOrEqual()`
 Checks that a value is greater than or equal to the expected value. Same type support, cross-type rules, and error conditions as [`toBeGreaterThan()`](#tobegreaterthan).

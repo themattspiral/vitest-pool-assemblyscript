@@ -217,6 +217,56 @@ describe('matcher failure message verification', () => {
     });
   });
 
+  describe('unsupported types', () => {
+    const INEQUALITY_UNSUPPORTED_PREFIX = 'WASMRuntimeError: Inequality comparison is not supported for';
+    const CLOSETO_UNSUPPORTED_PREFIX = 'WASMRuntimeError: Approximate comparison is not supported for';
+
+    test('toBeGreaterThan with v128 vectors', () => {
+      const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toBeGreaterThan with v128 [should fail]'));
+      expect(block).toContain(`${INEQUALITY_UNSUPPORTED_PREFIX} v128 and v128.`);
+    });
+
+    test('toBeGreaterThanOrEqual with v128 vectors', () => {
+      const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toBeGreaterThanOrEqual with v128 [should fail]'));
+      expect(block).toContain(`${INEQUALITY_UNSUPPORTED_PREFIX} v128 and v128.`);
+    });
+
+    test('toBeLessThan with v128 vectors', () => {
+      const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toBeLessThan with v128 [should fail]'));
+      expect(block).toContain(`${INEQUALITY_UNSUPPORTED_PREFIX} v128 and v128.`);
+    });
+
+    test('toBeLessThanOrEqual with v128 vectors', () => {
+      const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toBeLessThanOrEqual with v128 [should fail]'));
+      expect(block).toContain(`${INEQUALITY_UNSUPPORTED_PREFIX} v128 and v128.`);
+    });
+
+    test('toBeCloseTo with v128 vectors', () => {
+      const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toBeCloseTo with v128 [should fail]'));
+      expect(block).toContain(`${CLOSETO_UNSUPPORTED_PREFIX} v128 and v128`);
+    });
+
+    test('toBeGreaterThan with v128 actual and i32 expected', () => {
+      const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toBeGreaterThan with v128 actual and i32 expected [should fail]'));
+      expect(block).toContain(`${INEQUALITY_UNSUPPORTED_PREFIX} v128 and i32.`);
+    });
+
+    test('toBeGreaterThan with i32 actual and v128 expected', () => {
+      const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toBeGreaterThan with i32 actual and v128 expected [should fail]'));
+      expect(block).toContain(`${INEQUALITY_UNSUPPORTED_PREFIX} i32 and v128.`);
+    });
+
+    test('toBeCloseTo with v128 actual and f32 expected', () => {
+      const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toBeCloseTo with v128 actual and f32 expected [should fail]'));
+      expect(block).toContain(`${CLOSETO_UNSUPPORTED_PREFIX} v128 and f32`);
+    });
+
+    test('toBeCloseTo with f32 actual and v128 expected', () => {
+      const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toBeCloseTo with f32 actual and v128 expected [should fail]'));
+      expect(block).toContain(`${CLOSETO_UNSUPPORTED_PREFIX} f32 and v128`);
+    });
+  });
+
   describe('cross-type comparison', () => {
     test('toEqual map vs array', () => {
       const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toEqual map vs array [should fail]'));

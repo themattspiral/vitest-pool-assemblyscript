@@ -60,6 +60,7 @@ export default defineConfig({
               debugNative: false,
               debugCoverageExtract: false,
               wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
+              extraCompilerFlags: ['--enable', 'simd'],
               _instrumentPoolInternals: false,
             }
           },
