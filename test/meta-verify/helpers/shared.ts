@@ -1,5 +1,6 @@
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stripVTControlCharacters } from 'node:util';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
@@ -129,8 +130,6 @@ export interface ParsedCliOutput {
 }
 
 // --- CLI parsing internals ---
-
-const ANSI_ESCAPE = /\x1b\[[0-9;]*m/g;
 
 // Separator lines: "⎯⎯⎯[N/M]⎯", "⎯⎯⎯ Failed Tests N ⎯⎯⎯", etc.
 const SEPARATOR_LINE = /^[⎯─]{3,}/;
@@ -316,8 +315,8 @@ export async function loadParsedCliOutput(): Promise<ParsedCliOutput> {
   const results = JSON.parse(await readFile(RESULTS_PATH, 'utf-8'));
   const rawCliOutput: string = results.cliOutput;
 
-  // Strip ANSI escape codes once for all parsing
-  const cleanOutput = rawCliOutput.replace(ANSI_ESCAPE, '');
+  // Strip VT control characters once for all parsing
+  const cleanOutput = stripVTControlCharacters(rawCliOutput);
   const lines = cleanOutput.split('\n');
 
   // Find the boundary where error blocks begin (first separator followed by FAIL header).

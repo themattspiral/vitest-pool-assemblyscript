@@ -21,6 +21,8 @@ export function fails(): i32 {
   return value;
 }
 
+export function failsSingleLine(): i32 { const arr: i32[] = [1, 2, 3]; const value = arr[10]; return value; }
+
 export function failNamedFunc(): i32 {
   return myFailingNamedFunc();
 }
