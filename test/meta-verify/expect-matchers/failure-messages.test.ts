@@ -285,14 +285,8 @@ describe('matcher failure message verification', () => {
   describe('cross-type comparison', () => {
     test('toEqual map vs array', () => {
       const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toEqual map vs array [should fail]'));
-      expect(block).toContain('WASMRuntimeError: Cannot compare equality between Map<~lib/string/String,i32> and Array<~lib/string/String> - this comparison is undefined.');
+      expect(block).toContain('WASMRuntimeError: Cannot compare deep equality between Map<~lib/string/String,i32> and Array<~lib/string/String>');
     });
   });
 
-  describe('deep equality', () => {
-    test('toEqual with objects', () => {
-      const block = requireErrorBlock(parsedCli, testPath('deep equality', 'toEqual with objects [should fail]'));
-      expect(block).toContain('WASMRuntimeError: Deep equality comparison of user-defined reference types is not yet implemented');
-    });
-  });
 });

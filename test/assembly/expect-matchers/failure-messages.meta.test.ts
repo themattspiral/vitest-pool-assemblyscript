@@ -383,10 +383,3 @@ describe("unsupported types", () => {
   });
 });
 
-// --- Deep equality not implemented: toEqual only (via equals() final throw) ---
-
-describe("deep equality", () => {
-  test("toEqual with objects [should fail]", () => {
-    expect(new SimpleObject(1)).toEqual(new SimpleObject(1));
-  });
-});

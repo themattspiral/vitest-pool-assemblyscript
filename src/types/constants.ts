@@ -49,6 +49,15 @@ export const POOL_INTERNAL_PATHS: string[] = [
   `${INTERNAL_PATH_LIB_PREFIX}test.ts`,
 ] as const;
 
+/** Name of the method injected by the deep-equals compiler transform */
+export const DEEP_EQUALS_INJECTED_METHOD_NAME = '__vitest_assemblyscript_deep_equals' as const;
+
+/**
+ * Export alias for pool's equals() function used by injected deep equal method comparison body.
+ * Declared with @global in assembly/compare.ts to be available in all source files without import.
+ */
+export const COMPARE_EQUALS_EXPORT_ALIAS = '__vitest_assemblyscript_compare_equals' as const;
+
 /** Error names for AssemblyScript test failures reported to vitest */
 export const TEST_ERROR_NAMES = {
   /** Assertion evaluated to false within a test function */
@@ -96,6 +105,9 @@ export const POOL_ERROR_NAMES = {
 
 export const ASCommonFlags = {
   Static: 32,
+  Abstract: 128,
+  Instance: 262144,
+  Constructor: 524288,
   Get: 2048,
   Set: 4096,
 } as const;

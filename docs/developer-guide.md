@@ -20,7 +20,7 @@ If you're new to the codebase, this reading order will help you build a mental m
 
 1. **Entry point**: [`src/pool/pool-runner-init.ts`](../src/pool/pool-runner-init.ts) - `createAssemblyScriptPool()` factory. This is what vitest calls to create the pool.
 2. **Orchestration**: [`src/pool/pool-worker.ts`](../src/pool/pool-worker.ts) - `AssemblyScriptPoolWorker`. Manages file dispatch, timeout enforcement, and thread pool lifecycle.
-3. **Compilation**: [`src/pool-thread/runner/compile-runner.ts`](../src/pool-thread/runner/compile-runner.ts) - `runCompileAndDiscover()`. Compiles AS to WASM and discovers tests.
+3. **Compilation**: [`src/pool-thread/runner/compile-runner.ts`](../src/pool-thread/runner/compile-runner.ts) - `runCompileAndDiscover()`. Compiles AS to WASM and discovers tests. Compiler setup and transform registration in [`src/compiler/index.ts`](../src/compiler/index.ts); AS compiler transforms (deep equality injection, inline stripping) in [`src/compiler/transforms/`](../src/compiler/transforms/).
 4. **Test execution**: [`src/pool-thread/runner/test-runner.ts`](../src/pool-thread/runner/test-runner.ts) - `runSuite()` and `runTest()`. Runs tests and reports results via RPC.
 5. **WASM executor**: [`src/wasm-executor/index.ts`](../src/wasm-executor/index.ts) - `executeWASMDiscovery()` and `executeWASMTest()`. Creates WASM instances and manages the JS↔WASM boundary.
 6. **Error handling**: [`src/wasm-executor/wasm-errors.ts`](../src/wasm-executor/wasm-errors.ts) - `enhanceTestError()`. Source-maps WASM errors back to AssemblyScript source.

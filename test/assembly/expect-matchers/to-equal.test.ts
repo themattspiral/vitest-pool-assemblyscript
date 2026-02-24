@@ -1,4 +1,8 @@
 import { test, expect, describe, TestOptions } from "vitest-pool-assemblyscript/assembly";
+import {
+  Point, PointF, Person, Line, NullableFields,
+  Color, Token, Shape, Circle, Wallet, Pair, GameState,
+} from "../../assembly-src/user-class-utils";
 
 test("empty strings are equal", () => {
   expect("").toEqual("");
@@ -244,7 +248,7 @@ describe("maps", () => {
       const arrayA: string[] = ["a"];
 
       expect(mapA).toEqual(arrayA);
-    }).toThrowError("Cannot compare equality between");
+    }).toThrowError("Cannot compare deep equality between");
   });
 });
 
@@ -324,7 +328,7 @@ describe("sets", () => {
       const arrayA = ["apple", "cherry"];
 
       expect(setA).toEqual(arrayA);
-    }).toThrowError("Cannot compare equality between");
+    }).toThrowError("Cannot compare deep equality between");
   });
 });
 
@@ -491,13 +495,306 @@ describe("ArrayBuffer", () => {
   });
 });
 
-const OBJ_REF_ERROR = "Deep equality comparison of user-defined reference types is not yet implemented";
+describe("user defined objects", () => {
+  describe("structural equality", () => {
+    test("Point with same i32 fields", () => {
+      expect(new Point(1, 2)).toEqual(new Point(1, 2));
+    });
 
-describe("user defined objects", () => {  
-  test("object reference comparison throws for value-equal but different refs", () => {
-    expect(() => {
-      expect(TestOptions.retry(2)).toEqual(TestOptions.retry(2));
-    }).toThrowError(OBJ_REF_ERROR);
+    test("Point with different fields", () => {
+      expect(new Point(1, 2)).not.toEqual(new Point(3, 4));
+      expect(new Point(1, 2)).not.toEqual(new Point(1, 99));
+    });
+
+    test("PointF with same f64 fields", () => {
+      expect(new PointF(1.5, 2.7)).toEqual(new PointF(1.5, 2.7));
+    });
+
+    test("PointF with different fields", () => {
+      expect(new PointF(1.5, 2.7)).not.toEqual(new PointF(1.5, 2.8));
+    });
+
+    test("Person with string and i32 fields", () => {
+      expect(new Person("Alice", 30)).toEqual(new Person("Alice", 30));
+    });
+
+    test("Person with different fields", () => {
+      expect(new Person("Alice", 30)).not.toEqual(new Person("Bob", 30));
+      expect(new Person("Alice", 30)).not.toEqual(new Person("Alice", 31));
+    });
+  });
+
+  describe("nested objects", () => {
+    test("Line with structurally equal Points", () => {
+      expect(new Line(new Point(0, 0), new Point(5, 10)))
+        .toEqual(new Line(new Point(0, 0), new Point(5, 10)));
+    });
+
+    test("Line with different Points", () => {
+      expect(new Line(new Point(0, 0), new Point(5, 10)))
+        .not.toEqual(new Line(new Point(0, 0), new Point(5, 11)));
+    });
+  });
+
+  describe("nullable fields", () => {
+    test("both null", () => {
+      expect(new NullableFields(null, 1)).toEqual(new NullableFields(null, 1));
+    });
+
+    test("both non-null and equal", () => {
+      expect(new NullableFields("hello", 1)).toEqual(new NullableFields("hello", 1));
+    });
+
+    test("one null one non-null", () => {
+      expect(new NullableFields(null, 1)).not.toEqual(new NullableFields("hello", 1));
+      expect(new NullableFields("hello", 1)).not.toEqual(new NullableFields(null, 1));
+    });
+
+    test("different non-null values", () => {
+      expect(new NullableFields("hello", 1)).not.toEqual(new NullableFields("world", 1));
+    });
+  });
+
+  describe("@operator(\"==\") delegation", () => {
+    test("same RGB different name are equal via @operator(\"==\")", () => {
+      expect(new Color(255, 0, 0, "red")).toEqual(new Color(255, 0, 0, "crimson"));
+    });
+
+    test("different RGB are not equal", () => {
+      expect(new Color(255, 0, 0, "red")).not.toEqual(new Color(0, 255, 0, "green"));
+    });
+  });
+
+  describe(".equals() delegation", () => {
+    test("same kind and value with different position are equal via .equals()", () => {
+      expect(new Token(1, "if", 0)).toEqual(new Token(1, "if", 100));
+    });
+
+    test("different kind are not equal", () => {
+      expect(new Token(1, "if", 0)).not.toEqual(new Token(2, "if", 0));
+    });
+
+    test("different value are not equal", () => {
+      expect(new Token(1, "if", 0)).not.toEqual(new Token(1, "else", 0));
+    });
+  });
+
+  describe("inheritance", () => {
+    test("circles with same color and radius", () => {
+      expect(new Circle("red", 5.0)).toEqual(new Circle("red", 5.0));
+    });
+
+    test("circles with different radius", () => {
+      expect(new Circle("red", 5.0)).not.toEqual(new Circle("red", 10.0));
+    });
+
+    test("circles with different inherited color", () => {
+      expect(new Circle("red", 5.0)).not.toEqual(new Circle("blue", 5.0));
+    });
+
+    test("base class: Shapes with same color", () => {
+      expect(new Shape("red")).toEqual(new Shape("red"));
+    });
+
+    test("base class: Shapes with different color", () => {
+      expect(new Shape("red")).not.toEqual(new Shape("blue"));
+    });
+
+    test("polymorphic: Shape-typed Circles with same fields", () => {
+      const a: Shape = new Circle("red", 5.0);
+      const b: Shape = new Circle("red", 5.0);
+      expect(a).toEqual(b);
+    });
+
+    test("polymorphic: Shape-typed Circles with different radius", () => {
+      const a: Shape = new Circle("red", 5.0);
+      const b: Shape = new Circle("red", 10.0);
+      expect(a).not.toEqual(b);
+    });
+
+    test("polymorphic: Shape-typed Circles with different inherited color", () => {
+      const a: Shape = new Circle("red", 5.0);
+      const b: Shape = new Circle("blue", 5.0);
+      expect(a).not.toEqual(b);
+    });
+
+    test("polymorphic: Shape-typed Circle vs Shape-typed Shape are not equal", () => {
+      const a: Shape = new Circle("red", 5.0);
+      const b: Shape = new Shape("red");
+      expect(a).not.toEqual(b);
+    });
+
+    test("cross-type: Circle vs Shape throws", () => {
+      expect(() => {
+        expect(new Circle("red", 5.0)).toEqual(new Shape("red"));
+      }).toThrowError("Cannot compare deep equality between Circle and Shape");
+    });
+  });
+
+  describe("private fields", () => {
+    test("same private balance", () => {
+      expect(new Wallet("Alice", 100)).toEqual(new Wallet("Alice", 100));
+    });
+
+    test("different private balance", () => {
+      expect(new Wallet("Alice", 100)).not.toEqual(new Wallet("Alice", 200));
+    });
+
+    test("different owner same balance", () => {
+      expect(new Wallet("Alice", 100)).not.toEqual(new Wallet("Bob", 100));
+    });
+
+    test("getter exposes private field without affecting equality", () => {
+      const wallet = new Wallet("Alice", 100);
+      expect(wallet.balance).toBe(100);
+    });
+  });
+
+  describe("generic classes", () => {
+    test("Pair<i32> with same values", () => {
+      expect(new Pair<i32>(1, 2)).toEqual(new Pair<i32>(1, 2));
+    });
+
+    test("Pair<i32> with different values", () => {
+      expect(new Pair<i32>(1, 2)).not.toEqual(new Pair<i32>(1, 3));
+    });
+
+    test("Pair<string> with same values", () => {
+      expect(new Pair<string>("a", "b")).toEqual(new Pair<string>("a", "b"));
+    });
+
+    test("Pair<string> with different values", () => {
+      expect(new Pair<string>("a", "b")).not.toEqual(new Pair<string>("a", "c"));
+    });
+
+    test("Pair<Point> with nested user objects", () => {
+      expect(new Pair<Point>(new Point(1, 2), new Point(3, 4)))
+        .toEqual(new Pair<Point>(new Point(1, 2), new Point(3, 4)));
+    });
+
+    test("Pair<Point> with different nested objects", () => {
+      expect(new Pair<Point>(new Point(1, 2), new Point(3, 4)))
+        .not.toEqual(new Pair<Point>(new Point(1, 2), new Point(3, 5)));
+    });
+  });
+
+  describe("composite object (all field types)", () => {
+    test("identical composite objects are equal", () => {
+      const invA = new Map<string, i32>();
+      invA.set("sword", 1);
+      invA.set("potion", 5);
+
+      const invB = new Map<string, i32>();
+      invB.set("sword", 1);
+      invB.set("potion", 5);
+
+      const tagsA = new Set<string>();
+      tagsA.add("warrior");
+      tagsA.add("guild-member");
+
+      const tagsB = new Set<string>();
+      tagsB.add("warrior");
+      tagsB.add("guild-member");
+
+      const bufA = new ArrayBuffer(4);
+      store<u8>(changetype<usize>(bufA), 0xAB);
+      store<u8>(changetype<usize>(bufA) + 1, 0xCD);
+
+      const bufB = new ArrayBuffer(4);
+      store<u8>(changetype<usize>(bufB), 0xAB);
+      store<u8>(changetype<usize>(bufB) + 1, 0xCD);
+
+      expect(new GameState(3, 1500.5, true, "Hero", new Point(10, 20), invA, tagsA, bufA))
+        .toEqual(new GameState(3, 1500.5, true, "Hero", new Point(10, 20), invB, tagsB, bufB));
+    });
+
+    test("different i32 field", () => {
+      const inv = new Map<string, i32>();
+      const tags = new Set<string>();
+      const buf = new ArrayBuffer(0);
+
+      expect(new GameState(3, 0.0, false, "", new Point(0, 0), inv, tags, buf))
+        .not.toEqual(new GameState(4, 0.0, false, "", new Point(0, 0), inv, tags, buf));
+    });
+
+    test("different f64 field", () => {
+      const inv = new Map<string, i32>();
+      const tags = new Set<string>();
+      const buf = new ArrayBuffer(0);
+
+      expect(new GameState(1, 100.0, false, "", new Point(0, 0), inv, tags, buf))
+        .not.toEqual(new GameState(1, 200.0, false, "", new Point(0, 0), inv, tags, buf));
+    });
+
+    test("different bool field", () => {
+      const inv = new Map<string, i32>();
+      const tags = new Set<string>();
+      const buf = new ArrayBuffer(0);
+
+      expect(new GameState(1, 0.0, true, "", new Point(0, 0), inv, tags, buf))
+        .not.toEqual(new GameState(1, 0.0, false, "", new Point(0, 0), inv, tags, buf));
+    });
+
+    test("different string field", () => {
+      const inv = new Map<string, i32>();
+      const tags = new Set<string>();
+      const buf = new ArrayBuffer(0);
+
+      expect(new GameState(1, 0.0, false, "Alice", new Point(0, 0), inv, tags, buf))
+        .not.toEqual(new GameState(1, 0.0, false, "Bob", new Point(0, 0), inv, tags, buf));
+    });
+
+    test("different nested user object field", () => {
+      const inv = new Map<string, i32>();
+      const tags = new Set<string>();
+      const buf = new ArrayBuffer(0);
+
+      expect(new GameState(1, 0.0, false, "", new Point(1, 2), inv, tags, buf))
+        .not.toEqual(new GameState(1, 0.0, false, "", new Point(3, 4), inv, tags, buf));
+    });
+
+    test("different Map field", () => {
+      const invA = new Map<string, i32>();
+      invA.set("sword", 1);
+
+      const invB = new Map<string, i32>();
+      invB.set("sword", 2);
+
+      const tags = new Set<string>();
+      const buf = new ArrayBuffer(0);
+
+      expect(new GameState(1, 0.0, false, "", new Point(0, 0), invA, tags, buf))
+        .not.toEqual(new GameState(1, 0.0, false, "", new Point(0, 0), invB, tags, buf));
+    });
+
+    test("different Set field", () => {
+      const inv = new Map<string, i32>();
+
+      const tagsA = new Set<string>();
+      tagsA.add("warrior");
+
+      const tagsB = new Set<string>();
+      tagsB.add("mage");
+
+      const buf = new ArrayBuffer(0);
+
+      expect(new GameState(1, 0.0, false, "", new Point(0, 0), inv, tagsA, buf))
+        .not.toEqual(new GameState(1, 0.0, false, "", new Point(0, 0), inv, tagsB, buf));
+    });
+
+    test("different ArrayBuffer field", () => {
+      const inv = new Map<string, i32>();
+      const tags = new Set<string>();
+
+      const bufA = new ArrayBuffer(2);
+      store<u8>(changetype<usize>(bufA), 0xFF);
+
+      const bufB = new ArrayBuffer(2);
+      store<u8>(changetype<usize>(bufB), 0x00);
+
+      expect(new GameState(1, 0.0, false, "", new Point(0, 0), inv, tags, bufA))
+        .not.toEqual(new GameState(1, 0.0, false, "", new Point(0, 0), inv, tags, bufB));
+    });
   });
 });
 

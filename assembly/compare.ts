@@ -98,9 +98,11 @@ export function identical<T, U>(actual: T, expected: U): bool {
   // both refs
   if (isReference<T>() && isReference<U>()) {
     const actualIsNullable = isNullable<T>();
-    const actualIsNull = actualIsNullable && actual == null;
+    // Use changetype pointer check instead of `== null` to avoid invoking
+    // user-defined @operator("==") overloads, which reject null arguments
+    const actualIsNull = actualIsNullable && changetype<usize>(actual) == 0;
     const expectedIsNullable = isNullable<U>();
-    const expectedIsNull = expectedIsNullable && expected == null;
+    const expectedIsNull = expectedIsNullable && changetype<usize>(expected) == 0;
     
     // null refs
     if (actualIsNull && expectedIsNull) {
@@ -213,7 +215,8 @@ export function closeTo<T, U>(actual: T, expected: U, precision: i32 = 2): bool 
 
 /**
  * Generic value equality comparison. Assumes comparable types for both values.
- * Does not yet support user-defined types.
+ * Supports primitives, strings, Arrays, Sets, Maps, ArrayBuffers, and user-defined
+ * types (via compiler transform-injected deep equality method).
  */
 export function equals<T, U>(actual: T, expected: U): bool {
   let exactMatch: bool = false;
@@ -236,11 +239,16 @@ export function equals<T, U>(actual: T, expected: U): bool {
   }
 
   if (isNullable<T>()) {
-    if (actual == null && expected == null) {
+    // Use changetype pointer checks instead of `== null` / `!= null` to avoid
+    // invoking user-defined @operator("==") overloads, which reject null arguments
+    const actualIsNull = changetype<usize>(actual) == 0;
+    const expectedIsNull = changetype<usize>(expected) == 0;
+
+    if (actualIsNull && expectedIsNull) {
       return true;
     }
 
-    if ( (actual == null && expected != null) || (actual != null && expected == null) ) {
+    if (actualIsNull != expectedIsNull) {
       return false;
     }
   }
@@ -259,16 +267,48 @@ export function equals<T, U>(actual: T, expected: U): bool {
   }
 
   if (idof<T>() != idof<U>()) {
-    throw new Error("Cannot compare equality between " + nameof<T>(actual)
-      + " and " + nameof<U>(expected) + " - this comparison is undefined."
+    throw new Error("Cannot compare deep equality between " + nameof<T>(actual)
+      + " and " + nameof<U>(expected)
     );
   }
 
-  // TODO value compare
-  throw new Error("Deep equality comparison of user-defined reference types"
-    + " is not yet implemented, and these references are not identical."
-    + " Use toBe() for reference equality."
-  );
+  // Runtime type check: compile-time types match (passed idof above) but runtime
+  // types may differ via polymorphism (e.g. Shape-typed Circle vs Shape-typed Shape).
+  // Without this, changetype pointer case in compiler transform-injected deep equality 
+  // method would read past the smaller object's memory allocation, producing garbage 
+  // comparisons or false positives
+  if (nameof<T>(actual) != nameof<U>(expected)) {
+    return false;
+  }
+
+  // @ts-ignore
+  // User-defined reference types: delegate to compiler transform-injected deep equality
+  // method. Uses hard-coded method name because using a variable like `actual[DEEP_EQ_FUNC]`
+  // requires the class to define an index signature
+  if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
+    // @ts-ignore
+    return actual.__vitest_assemblyscript_deep_equals(changetype<usize>(expected));
+  }
+
+  // Fall back to reference identity for types without deep equality method
+  return changetype<usize>(actual) == changetype<usize>(expected);
+}
+
+/**
+ * Global bridge for the deep-equals compiler transform.
+ *
+ * Injected deep equality methods in user classes call this function for per-field
+ * comparisons. @global makes it available in all source files without import,
+ * solving the afterParse import resolution limitation (injected import statements
+ * are not processed by the AS compiler).
+ *
+ * Loaded into the compilation transitively: user test imports
+ * vitest-pool-assemblyscript/assembly → index.ts → compare.ts.
+ */
+// @ts-ignore: AS-specific @global decorator
+@global
+function __vitest_assemblyscript_compare_equals<T, U>(actual: T, expected: U): bool {
+  return equals<T, U>(actual, expected);
 }
 
 export enum InequalityOperation {

@@ -19,6 +19,7 @@ export default defineConfig([{
     // shared
     'src/coverage-provider/index.ts',
     'src/compiler/transforms/strip-inline.mts',
+    'src/compiler/transforms/deep-equals.mts',
     
     // internal testing
     'src/index-internal.ts',

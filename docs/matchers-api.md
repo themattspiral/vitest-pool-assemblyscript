@@ -91,34 +91,60 @@ expect(1.005).toBeCloseTo(1.0, 1);
 >```
 
 ### `toEqual()`
-Checks that two values have the same value (deep equality). Primitives and strings are compared by value. The following reference types are compared with deep equality rules:
-
-- **`Array`**: element-by-element comparison using `toEqual()` recursively
-- **`ArrayBuffer`**: byte-level content comparison
-- **`Set`**: membership equality (same elements, order-independent)
-- **`Map`**: key-by-key comparison with values compared using `toEqual()`
-
-Other object references are compared with `toBe()` rules (reference identity).
+Checks that two values have the same value (deep equality). Primitives and strings are compared by value.
 
 Like `toBe`, cross-type numeric comparisons follow AssemblyScript's own `==` operator restrictions. Combinations where the float type lacks sufficient mantissa precision for the integer type's range will throw an error (e.g. `f32` vs `i32`, `f64` vs `i64`).
-
-> ⚠️ IMPORTANT: Does not yet support user-defined object deep equality checking. Coming soon!
 
 ```typescript
 expect([1, 2, 3]).toEqual([1, 2, 3]);
 expect(["one", "two", "three"]).toEqual(["one", "two", "three"]);
+```
 
-// ArrayBuffer byte-level comparison
+#### Built-In Reference Types
+Built-in object references are compared with the following deep equality rules:
+- **`Set`**: membership equality (same elements, order-independent)
+- **`Map`**: key-by-key comparison using `toEqual()` on values
+- **`Array`**: element-by-element comparison using `toEqual()` recursively
+- **`ArrayBuffer`**: byte-level content comparison
+
+```typescript
+// byte-level comparison
 const a = new ArrayBuffer(4);
 const b = new ArrayBuffer(4);
 store<u8>(changetype<usize>(a), 0x42);
 store<u8>(changetype<usize>(b), 66);  // 66 decimal == 0x42 hex
 expect(a).toEqual(b);
+```
 
-// objects use reference equality (deep equality not yet supported)
-const x: MyObject = new MyObject();
-const y: MyObject = new MyObject();
-expect([x, y]).toEqual([x, y]);
+#### User-Defined Reference Types
+User object references of the same runtime type use a deep field-by-field comparison of all stored instance fields using `toEqual()` recursively:
+- Includes public, protected, and private fields
+- Getters are **excluded**
+- User-defined `@operator("==")` or `.equals()` methods are used if present, instead of field-by-field comparison
+- Supports inheritance, generics, and nullable fields
+
+>⚠️ AS vs JS Quirk: Objects with different runtime types are **not equal** using `toEqual()` even when they share the same fields & values, which makes `toEqual` and `toStrictEqual()` work identically in the AssemblyScript pool. This differs from vitest's JavaScript `toEqual()`, which compares structurally regardless of constructor / runtime type.
+
+>ℹ️ If a user class extends a library class (from `node_modules` or AS stdlib), only the user class's own declared fields are compared. Inherited library fields are not included, as deep equality injection is scoped to user source files only.
+
+```typescript
+// deep equality
+const p1 = new Point(1, 2);
+const p2 = new Point(1, 2);
+expect(p1).toEqual(p2);
+
+// here, Color compares RGB only, ignores name
+// export class Color {
+//   @operator("==")
+//   equalsAnotherColor(other: Color): bool {
+//     return this.r == other.r && this.g == other.g && this.b == other.b;
+//   }
+// }
+
+// respects custom equality semantics defined in @operator("==") or .equals()
+const c1 = new Color(255, 0, 0, "red");
+const c2 = new new Color(255, 0, 0, "scarlet");
+expect(c1).toEqual(c2);
 ```
 
 #### SIMD Vector Support (`v128`)
@@ -137,7 +163,11 @@ expect(i32x4.splat(1)).not.toEqual(f32x4(1.0, 1.0, 1.0, 1.0));
 ```
 
 ### `toStrictEqual()`
-Alias for `toEqual()`. Currently no differences in AssemblyScript.
+Alias for `toEqual()`.
+
+In vitest's JavaScript pools, `toEqual()` compares structurally regardless of constructor / runtime type, while `toStrictEqual()` requires matching runtime types also.
+
+In the AssemblyScript pool, `toEqual()` also requires matching runtime types. This is consistent with how most testing frameworks behave for statically-typed languages without runtime reflection, but it means that `toEqual()` and `toStrictEqual()` work identically in the AssemblyScript pool.
 
 ### `toBeTruthy()` & `toBeFalsy()`
 Check that a value is truthy or falsy.

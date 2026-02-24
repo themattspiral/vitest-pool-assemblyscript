@@ -270,19 +270,33 @@ abstract class BaseExpectMatcher<T> {
 
   /**
    * Checks that two values have the same value (deep equality). Primitives and strings
-   * are compared by value. The following reference types are compared with deep equality:
-   * - `Array`: element-by-element using `toEqual()` recursively
-   * - `ArrayBuffer`: byte-level content comparison
-   * - `Set`: membership equality (same elements, order-independent)
-   * - `Map`: key-by-key with values compared using `toEqual()`
-   *
-   * Other object references use `toBe()` rules (reference identity).
-   * ⚠️ IMPORTANT: Does not yet support user-defined object deep equality checking.
-   *
+   * are compared by value, and object references are tested for deep equality.
+   * 
    * Like `toBe`, cross-type numeric comparisons follow AssemblyScript's own `==` operator
    * restrictions. `toBeCloseTo()` is safer for any comparison involving a float and
    * accurately handles precision-loss edge cases.
    * 
+   * Built-in object references are compared with the following deep equality rules:
+   * - `Set`: membership equality (same elements, order-independent)
+   * - `Map`: key-by-key comparison using `toEqual()` on values
+   * - `Array`: element-by-element comparison using `toEqual()` recursively
+   * - `ArrayBuffer`: byte-level content comparison
+   *
+   * User object references of the same runtime type are compared using a deep field-by-field
+   * comparison of all stored instance fields using `toEqual()` recursively.
+   * - Includes public, protected, and private fields
+   * - Getters are **excluded**
+   * - User-defined `@operator("==")` or `.equals()` methods are used if present, instead 
+   *   of field-by-field comparison
+   * - Supports inheritance, generics, and nullable fields
+   * - Objects with different runtime types are not equal even when they share 
+   *   the same fields & values, making behavior the same as `toStrictEqual` in the
+   *   AssemblyScript pool. This differs from vitest's JavaScript `toEqual()`, 
+   *   which compares structurally regardless of constructor / runtime type
+   * - Note: If a user class extends a library class (from `node_modules` or AS stdlib),
+   *   only the user class's own declared fields are compared. Inherited library fields
+   *   are not included, as deep equality injection is scoped to user source files only
+   *
    * SIMD vectors use WASM's native `==` comparison, which compares at the bit level, 
    * ignoring lane type. 
    *
@@ -303,20 +317,29 @@ abstract class BaseExpectMatcher<T> {
    * // SIMD vectors: different lane types with the same underlying bits are equal
    * expect(i64x2(3, 7)).toEqual(i32x4(3, 0, 7, 0));
    *
-   * // user-defined objects use reference equality (deep equality not yet supported)
-   * const x = new MyObject(1);
-   * const y = new MyObject(1);  // same data, different reference
-   * // expect(x).toEqual(y);  // throws — not yet supported
+   * // user-defined objects: deep equality
+   * const p1 = new Point(1, 2);
+   * const p2 = new Point(1, 2);
+   * expect(p1).toEqual(p2);
    */
   toEqual<U>(val: U): void {
     this.assertComparison(equals(this.actual, val), this.actual, val, "to deeply equal", true);
   }
   
   /**
-   * Alias for `toEqual`. Currently no differences in AssemblyScript.
+   * Alias for `toEqual`, no functional difference.
+   * 
+   * In JavaScript, `toEqual` compares structurally regardless of type,
+   * while `toStrictEqual` requires the same runtime type.
+   * 
+   * In AssemblyScript, `toEqual` already requires matching runtime types, 
+   * which is consistent with how most testing frameworks behave for statically-typed 
+   * languages without runtime reflection.
    *
    * @example
-   * expect([1, 2]).toStrictEqual([1, 2]);
+   * const p1 = new Point(1, 2);
+   * const p2 = new Point(1, 2);
+   * expect(p1).toEqual(p2);
    */
   toStrictEqual<U>(val: U): void {
     this.assertComparison(equals(this.actual, val), this.actual, val, "to strictly equal", true);

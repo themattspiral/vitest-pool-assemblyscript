@@ -42,13 +42,9 @@
       "types": "./dist/coverage-provider/index.d.mts",
       "default": "./dist/coverage-provider/index.mjs"
     },
-    "./assembly": {
-      "types": "./assembly/index.mts",
-      "default": "./assembly/index.mts"
-    },
     "./__internal": {
-      "types": "./dist/internal-test-entry.d.mts",
-      "default": "./dist/internal-test-entry.mjs"
+      "types": "./dist/internal.d.mts",
+      "default": "./dist/internal.mjs"
     }
   },
   "files": [

@@ -29,7 +29,11 @@ import type {
   InstrumentationOptions,
   InstrumentForCoverageFunc,
 } from '../types/types.js';
-import { POOL_ERROR_NAMES, INTERNAL_PATH_LIB_PREFIX } from '../types/constants.js';
+import {
+  POOL_ERROR_NAMES,
+  INTERNAL_PATH_LIB_PREFIX,
+  DEEP_EQUALS_INJECTED_METHOD_NAME
+} from '../types/constants.js';
 import { debug } from '../util/debug.js';
 import { toForwardSlash } from '../util/path-utils.js';
 import { createPoolError } from '../util/pool-errors.js';
@@ -233,6 +237,15 @@ function transformDebugInfo(
     }
 
     const { func, filePath, positionKey } = result;
+
+    // Skip injected deep equality comparison methods. They should not appear in coverage
+    // reports because their source map positions are synthetic, and if not skipped, would
+    // result in coverage position collision error being thrown
+    const deepEqualsSuffix = `#${DEEP_EQUALS_INJECTED_METHOD_NAME}`;
+    if (getShortFunctionName(func.name).endsWith(deepEqualsSuffix)) {
+      skippedCount++;
+      continue;
+    }
 
     // Check for position collisions
     const existingAtPosition = functionsByFileAndPosition[filePath]?.[positionKey];
