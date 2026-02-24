@@ -58,14 +58,14 @@ expect(f64(42.0)).toBe(i32(42));
 
 #### SIMD Vector Support (`v128`)
 
-SIMD vectors are compared bitwise — two vectors are identical when all 128 bits match, regardless of which lane type was used to construct them (e.g. `i32x4`, `f32x4`, `f64x2`).
+SIMD vectors use WASM's native `==` comparison like other primitives. For `v128` vectors, this compares at the bit level, so that two vectors are identical when all 128 bits match, regardless of which lane type was used to construct them (e.g. `i32x4`, `f32x4`, `f64x2`).
 
 ```typescript
 expect(i32x4.splat(42)).toBe(i32x4.splat(42));
 expect(f64x2(3.14, 2.72)).toBe(f64x2(3.14, 2.72));
 
 // different lane types with the same underlying bits are identical
-expect(i32x4.splat(0)).toBe(f64x2(0.0, 0.0));
+expect(i64x2(3, 7)).toBe(i32x4(3, 0, 7, 0));
 
 // different lane types with different bit representations are not identical
 expect(i32x4.splat(1)).not.toBe(f32x4(1.0, 1.0, 1.0, 1.0));
@@ -91,9 +91,16 @@ expect(1.005).toBeCloseTo(1.0, 1);
 >```
 
 ### `toEqual()`
-Checks that two values have the same value (deep equality). Currently supports checking equality of Arrays, Sets, Maps, and nulls. Values inside arrays are compared using `toEqual()` also, while Maps and Sets use their respective rules for membership.
+Checks that two values have the same value (deep equality). Primitives and strings are compared by value. The following reference types are compared with deep equality rules:
 
-Primitives, strings, and other object references are compared with `toBe()` rules. Like `toBe`, cross-type numeric comparisons follow AssemblyScript's own `==` operator restrictions. Combinations where the float type lacks sufficient mantissa precision for the integer type's range will throw an error (e.g. `f32` vs `i32`, `f64` vs `i64`).
+- **`Array`**: element-by-element comparison using `toEqual()` recursively
+- **`ArrayBuffer`**: byte-level content comparison
+- **`Set`**: membership equality (same elements, order-independent)
+- **`Map`**: key-by-key comparison with values compared using `toEqual()`
+
+Other object references are compared with `toBe()` rules (reference identity).
+
+Like `toBe`, cross-type numeric comparisons follow AssemblyScript's own `==` operator restrictions. Combinations where the float type lacks sufficient mantissa precision for the integer type's range will throw an error (e.g. `f32` vs `i32`, `f64` vs `i64`).
 
 > ⚠️ IMPORTANT: Does not yet support user-defined object deep equality checking. Coming soon!
 
@@ -101,19 +108,32 @@ Primitives, strings, and other object references are compared with `toBe()` rule
 expect([1, 2, 3]).toEqual([1, 2, 3]);
 expect(["one", "two", "three"]).toEqual(["one", "two", "three"]);
 
+// ArrayBuffer byte-level comparison
+const a = new ArrayBuffer(4);
+const b = new ArrayBuffer(4);
+store<u8>(changetype<usize>(a), 0x42);
+store<u8>(changetype<usize>(b), 66);  // 66 decimal == 0x42 hex
+expect(a).toEqual(b);
+
 // objects use reference equality (deep equality not yet supported)
-const a: MyObject = new MyObject();
-const b: MyObject = new MyObject();
-expect([a, b]).toEqual([a, b]);
+const x: MyObject = new MyObject();
+const y: MyObject = new MyObject();
+expect([x, y]).toEqual([x, y]);
 ```
 
 #### SIMD Vector Support (`v128`)
 
-SIMD vectors use the same bitwise comparison as `toBe()` — two vectors are equal when all 128 bits match.
+SIMD vectors use WASM's native `==` comparison like other primitives. For `v128` vectors, this compares at the bit level, so that two vectors are identical when all 128 bits match, regardless of which lane type was used to construct them (e.g. `i32x4`, `f32x4`, `f64x2`).
 
 ```typescript
 expect(i32x4.splat(42)).toEqual(i32x4.splat(42));
-expect(f32x4(1.0, 2.0, 3.0, 4.0)).toEqual(f32x4(1.0, 2.0, 3.0, 4.0));
+expect(f64x2(3.14, 2.72)).toEqual(f64x2(3.14, 2.72));
+
+// different lane types with the same underlying bits are equal
+expect(i64x2(3, 7)).toEqual(i32x4(3, 0, 7, 0));
+
+// different lane types with different bit representations are not equal
+expect(i32x4.splat(1)).not.toEqual(f32x4(1.0, 1.0, 1.0, 1.0));
 ```
 
 ### `toStrictEqual()`
@@ -141,7 +161,7 @@ expect("").not.toBeFalsy();  // not falsy in AS (unlike JS)
 
 #### SIMD Vector Support (`v128`)
 
-An all-zero `v128` is falsy; any vector with at least one non-zero bit is truthy.
+An all-zero `v128` is falsy; a vector with at least one non-zero bit is truthy.
 
 ```typescript
 expect(i32x4.splat(1)).toBeTruthy();

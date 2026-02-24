@@ -58,6 +58,11 @@ describe('matcher failure message verification', () => {
       const block = requireErrorBlock(parsedCli, testPath('toBe', 'user-defined object [should fail]'));
       expect(block).toContain('AssertionError: expected SimpleObject to be SimpleObject');
     });
+
+    test('ArrayBuffer failure message', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toBe', 'ArrayBuffer [should fail]'));
+      expect(block).toContain('AssertionError: expected ArrayBuffer[8] to be ArrayBuffer[8]');
+    });
   });
 
   describe('toBeCloseTo', () => {
@@ -101,6 +106,16 @@ describe('matcher failure message verification', () => {
     test('set failure message', () => {
       const block = requireErrorBlock(parsedCli, testPath('toEqual', 'set [should fail]'));
       expect(block).toContain('AssertionError: expected [object Set] to deeply equal [object Set]');
+    });
+
+    test('ArrayBuffer same length failure message', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toEqual', 'ArrayBuffer same length [should fail]'));
+      expect(block).toContain('AssertionError: expected ArrayBuffer[4] to deeply equal ArrayBuffer[4]');
+    });
+
+    test('ArrayBuffer different length failure message', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toEqual', 'ArrayBuffer different length [should fail]'));
+      expect(block).toContain('AssertionError: expected ArrayBuffer[4] to deeply equal ArrayBuffer[8]');
     });
   });
 

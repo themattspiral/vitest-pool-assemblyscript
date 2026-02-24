@@ -365,7 +365,130 @@ describe("SIMD vectors", () => {
 });
 
 describe("ArrayBuffer", () => {
-  // TODO
+  test("same reference is equal", () => {
+    const buf = new ArrayBuffer(4);
+    expect(buf).toEqual(buf);
+  });
+
+  test("empty buffers are equal", () => {
+    const a = new ArrayBuffer(0);
+    const b = new ArrayBuffer(0);
+    expect(a).toEqual(b);
+  });
+
+  test("zero-filled buffers of same length are equal", () => {
+    const a = new ArrayBuffer(16);
+    const b = new ArrayBuffer(16);
+    expect(a).toEqual(b);
+  });
+
+  test("buffers with same content are equal", () => {
+    const a = new ArrayBuffer(10);
+    const b = new ArrayBuffer(10);
+    for (let i: usize = 0; i < 10; i++) {
+      store<u8>(changetype<usize>(a) + i, u8(i + 1));
+      store<u8>(changetype<usize>(b) + i, u8(i + 1));
+    }
+    expect(a).toEqual(b);
+  });
+
+  test("buffers with same byte content are equal regardless of how data was written", () => {
+    const a = new ArrayBuffer(4);
+    const b = new ArrayBuffer(4);
+    // same byte values written in different representations
+    store<u8>(changetype<usize>(a), 0xFF);
+    store<u8>(changetype<usize>(b), 255);
+    store<u8>(changetype<usize>(a) + 1, 0x2A);
+    store<u8>(changetype<usize>(b) + 1, 42);
+    store<u8>(changetype<usize>(a) + 2, 0x00);
+    store<u8>(changetype<usize>(b) + 2, 0);
+    store<u8>(changetype<usize>(a) + 3, 0x7F);
+    store<u8>(changetype<usize>(b) + 3, 127);
+    expect(a).toEqual(b);
+  });
+
+  test("buffers with different content are not equal", () => {
+    const a = new ArrayBuffer(8);
+    const b = new ArrayBuffer(8);
+    store<u8>(changetype<usize>(a), 0xFF);
+    store<u8>(changetype<usize>(b), 0x00);
+    expect(a).not.toEqual(b);
+  });
+
+  test("buffers with different lengths are not equal", () => {
+    const a = new ArrayBuffer(4);
+    const b = new ArrayBuffer(8);
+    expect(a).not.toEqual(b);
+  });
+
+  test("difference detected in remainder bytes", () => {
+    // 9 bytes: 1 u64 word (bytes 0-7) + 1 remainder byte (byte 8)
+    const a = new ArrayBuffer(9);
+    const b = new ArrayBuffer(9);
+    // first 8 bytes identical (both zero), difference in remainder byte
+    store<u8>(changetype<usize>(a) + 8, 0xAA);
+    store<u8>(changetype<usize>(b) + 8, 0xBB);
+    expect(a).not.toEqual(b);
+  });
+
+  test("difference detected in word-aligned region", () => {
+    // 16 bytes: 2 u64 words, difference in second word
+    const a = new ArrayBuffer(16);
+    const b = new ArrayBuffer(16);
+    store<u8>(changetype<usize>(a) + 12, 0x01);
+    expect(a).not.toEqual(b);
+  });
+
+  test("single byte buffers are compared correctly", () => {
+    const a = new ArrayBuffer(1);
+    const b = new ArrayBuffer(1);
+    store<u8>(changetype<usize>(a), 42);
+    store<u8>(changetype<usize>(b), 42);
+    expect(a).toEqual(b);
+
+    store<u8>(changetype<usize>(b), 99);
+    expect(a).not.toEqual(b);
+  });
+
+  test("buffers smaller than word size are compared correctly", () => {
+    // 7 bytes: entirely handled by remainder loop (no u64 words)
+    const a = new ArrayBuffer(7);
+    const b = new ArrayBuffer(7);
+    for (let i: usize = 0; i < 7; i++) {
+      store<u8>(changetype<usize>(a) + i, u8(i * 3));
+      store<u8>(changetype<usize>(b) + i, u8(i * 3));
+    }
+    expect(a).toEqual(b);
+  });
+
+  test("exactly word-sized buffers are compared correctly", () => {
+    // 8 bytes: exactly 1 u64 word, no remainder
+    const a = new ArrayBuffer(8);
+    const b = new ArrayBuffer(8);
+    for (let i: usize = 0; i < 8; i++) {
+      store<u8>(changetype<usize>(a) + i, u8(i + 10));
+      store<u8>(changetype<usize>(b) + i, u8(i + 10));
+    }
+    expect(a).toEqual(b);
+  });
+
+  test("large buffers with complex data patterns are compared correctly", () => {
+    // 259 bytes: 32 u64 words + 3 remainder bytes — exercises multiple word iterations
+    const size: usize = 259;
+    const a = new ArrayBuffer(size);
+    const b = new ArrayBuffer(size);
+    for (let i: usize = 0; i < size; i++) {
+      // non-trivial byte pattern: mix of primes and bit ops to avoid repetition
+      const val = u8((i * 7 + 13) ^ (i >> 2));
+      store<u8>(changetype<usize>(a) + i, val);
+      store<u8>(changetype<usize>(b) + i, val);
+    }
+    expect(a).toEqual(b);
+
+    // flip a single byte near the end (in the remainder region) — should detect the difference
+    store<u8>(changetype<usize>(b) + size - 2, 0xFF);
+    expect(a).not.toEqual(b);
+  });
 });
 
 const OBJ_REF_ERROR = "Deep equality comparison of user-defined reference types is not yet implemented";

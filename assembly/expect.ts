@@ -96,7 +96,8 @@ abstract class BaseExpectMatcher<T> {
   /**
    * Checks that a value is what you expect using identity comparison. Primitives and strings
    * are compared by value, and references are checked for reference equality only (including
-   * objects, arrays, etc).
+   * objects, arrays, etc). SIMD vectors use WASM's native `==` comparison, which compares at 
+   * the bit level, ignoring lane type.
    *
    * Cross-type numeric comparisons are allowed where AssemblyScript's own `==` operator
    * permits them (e.g. `f64` vs `i32`). `toBeCloseTo()` is safer for any comparison
@@ -116,6 +117,9 @@ abstract class BaseExpectMatcher<T> {
    * // supported float/integer comparisons (small integer types)
    * expect(f64(42.0)).toBe(i32(42));
    *
+   * // SIMD vectors: different lane types with the same underlying bits are identical
+   * expect(i64x2(3, 7)).toBe(i32x4(3, 0, 7, 0));
+   *
    * // unsupported float/integer comparisons throw an error
    * // expect(f32(42.0)).toBe(i32(42));  // Error: float precision insufficient
    * // expect(f64(42.0)).toBe(i64(42));  // Error: float precision insufficient
@@ -133,9 +137,14 @@ abstract class BaseExpectMatcher<T> {
    *
    * Strings are compared by value equality as with `toBe`. Non-numeric, non-string types return false.
    *
-   * @param precision - Specify the number of decimal places that must match for values to be 
+   * SIMD `v128` vectors are not supported, as approximate comparison requires a lane type
+   * interpretation to extract numeric values. Extract lane values as needed and compare them individually.
+   *
+   * @param precision - Specify the number of decimal places that must match for values to be
    * considered close. Defaults to 2 digits, meaning effectively that values must be within 0.005 of
    * each other.
+   *
+   * @throws When either value is a `v128` vector.
    *
    * @example
    * expect(0.1 + 0.2).toBeCloseTo(0.3);
@@ -153,11 +162,14 @@ abstract class BaseExpectMatcher<T> {
    * (more permissive than AS's own `>` operator). Booleans are treated as numeric
    * (true=1, false=0).
    *
+   * SIMD `v128` vectors are not supported, as numeric lane-wise comparison requires a 
+   * specific lane type interpretation. Extract lane values and compare them individually instead.
+   *
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
    * @throws When comparing nullable strings where either value is null. Use `toBeNull()`
    * to check for null values.
-   * @throws When comparing non-string reference types (objects, arrays, etc).
+   * @throws When comparing non-string reference types (objects, arrays, etc) or `v128` vectors.
    *
    * @example
    * expect(10).toBeGreaterThan(5);
@@ -179,11 +191,14 @@ abstract class BaseExpectMatcher<T> {
    * (more permissive than AS's own `>=` operator). Booleans are treated as numeric
    * (true=1, false=0).
    *
+   * SIMD `v128` vectors are not supported, as numeric lane-wise comparison requires a 
+   * specific lane type interpretation. Extract lane values and compare them individually instead.
+   *
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
    * @throws When comparing nullable strings where either value is null. Use `toBeNull()`
    * to check for null values.
-   * @throws When comparing non-string reference types (objects, arrays, etc).
+   * @throws When comparing non-string reference types (objects, arrays, etc) or `v128` vectors.
    *
    * @example
    * expect(10).toBeGreaterThanOrEqual(10);
@@ -204,11 +219,14 @@ abstract class BaseExpectMatcher<T> {
    * (more permissive than AS's own `<` operator). Booleans are treated as numeric
    * (true=1, false=0).
    *
+   * SIMD `v128` vectors are not supported, as numeric lane-wise comparison requires a 
+   * specific lane type interpretation. Extract lane values and compare them individually instead.
+   *
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
    * @throws When comparing nullable strings where either value is null. Use `toBeNull()`
    * to check for null values.
-   * @throws When comparing non-string reference types (objects, arrays, etc).
+   * @throws When comparing non-string reference types (objects, arrays, etc) or `v128` vectors.
    *
    * @example
    * expect(5).toBeLessThan(10);
@@ -230,11 +248,14 @@ abstract class BaseExpectMatcher<T> {
    * (more permissive than AS's own `<=` operator). Booleans are treated as numeric
    * (true=1, false=0).
    *
+   * SIMD `v128` vectors are not supported, as numeric lane-wise comparison requires a 
+   * specific lane type interpretation. Extract lane values and compare them individually instead.
+   *
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
    * @throws When comparing nullable strings where either value is null. Use `toBeNull()`
    * to check for null values.
-   * @throws When comparing non-string reference types (objects, arrays, etc).
+   * @throws When comparing non-string reference types (objects, arrays, etc) or `v128` vectors.
    *
    * @example
    * expect(5).toBeLessThanOrEqual(5);
@@ -248,17 +269,22 @@ abstract class BaseExpectMatcher<T> {
   }
 
   /**
-   * Checks that two values have the same value (deep equality). Currently supports
-   * checking equality of Arrays, Sets, Maps, and nulls. Values inside arrays are
-   * compared using `toEqual()` also, while Maps and Sets use their respective rules
-   * for membership. Primitives, strings, and other object references are compared with
-   * `toBe()` rules.
+   * Checks that two values have the same value (deep equality). Primitives and strings
+   * are compared by value. The following reference types are compared with deep equality:
+   * - `Array`: element-by-element using `toEqual()` recursively
+   * - `ArrayBuffer`: byte-level content comparison
+   * - `Set`: membership equality (same elements, order-independent)
+   * - `Map`: key-by-key with values compared using `toEqual()`
+   *
+   * Other object references use `toBe()` rules (reference identity).
+   * ⚠️ IMPORTANT: Does not yet support user-defined object deep equality checking.
    *
    * Like `toBe`, cross-type numeric comparisons follow AssemblyScript's own `==` operator
    * restrictions. `toBeCloseTo()` is safer for any comparison involving a float and
    * accurately handles precision-loss edge cases.
-   *
-   * ⚠️ IMPORTANT: Does not yet support user-defined object deep equality checking.
+   * 
+   * SIMD vectors use WASM's native `==` comparison, which compares at the bit level, 
+   * ignoring lane type. 
    *
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
@@ -267,10 +293,20 @@ abstract class BaseExpectMatcher<T> {
    * expect([1, 2, 3]).toEqual([1, 2, 3]);
    * expect(["one", "two", "three"]).toEqual(["one", "two", "three"]);
    *
-   * // objects use reference equality (deep equality not yet supported)
-   * const a: MyObject = new MyObject();
-   * const b: MyObject = new MyObject();
-   * expect([a, b]).toEqual([a, b]);
+   * // ArrayBuffer byte-level comparison
+   * const a = new ArrayBuffer(4);
+   * const b = new ArrayBuffer(4);
+   * store<u8>(changetype<usize>(a), 0x42);
+   * store<u8>(changetype<usize>(b), 66);  // 66 decimal == 0x42 hex
+   * expect(a).toEqual(b);
+   *
+   * // SIMD vectors: different lane types with the same underlying bits are equal
+   * expect(i64x2(3, 7)).toEqual(i32x4(3, 0, 7, 0));
+   *
+   * // user-defined objects use reference equality (deep equality not yet supported)
+   * const x = new MyObject(1);
+   * const y = new MyObject(1);  // same data, different reference
+   * // expect(x).toEqual(y);  // throws — not yet supported
    */
   toEqual<U>(val: U): void {
     this.assertComparison(equals(this.actual, val), this.actual, val, "to deeply equal", true);
@@ -293,10 +329,13 @@ abstract class BaseExpectMatcher<T> {
    * an object reference, not a primitive. An empty string is still an allocated object
    * with a non-zero address, so it evaluates as truthy.
    *
+   * A SIMD `v128` vector with at least one non-zero bit is truthy; an all-zero vector is falsy.
+   *
    * @example
    * expect(1).toBeTruthy();
    * expect("hello").toBeTruthy();
    * expect("").toBeTruthy();  // truthy in AS (unlike JS)
+   * expect(i32x4.splat(1)).toBeTruthy();
    */
   toBeTruthy(): void {
     this.assertComparison(truthyOrFalsey(this.actual, true), this.actual, true, "to be truthy", false);
@@ -309,11 +348,14 @@ abstract class BaseExpectMatcher<T> {
    * an object reference, not a primitive. An empty string is still an allocated object
    * with a non-zero address, so it evaluates as truthy.
    *
+   * An all-zero SIMD `v128` vector is falsy; a vector with at least one non-zero bit is truthy.
+   *
    * @example
    * expect(0).toBeFalsy();
    * expect(NaN).toBeFalsy();
    * expect(null).toBeFalsy();
    * expect("").not.toBeFalsy();  // not falsy in AS (unlike JS)
+   * expect(i32x4.splat(0)).toBeFalsy();
    */
   toBeFalsy(): void {
     this.assertComparison(truthyOrFalsey(this.actual, false), this.actual, false, "to be falsey", false);

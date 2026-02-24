@@ -32,6 +32,38 @@ function setEquals<T, U>(actual: T, expected: U): bool {
   return false;
 }
 
+function arrayBufferEquals<T, U>(actual: T, expected: U): bool {
+  if (!(actual instanceof ArrayBuffer) || !(expected instanceof ArrayBuffer)) {
+    return false;
+  }
+
+  if (actual.byteLength != expected.byteLength) {
+    return false;
+  }
+
+  const actualPtr = changetype<usize>(actual);
+  const expectedPtr = changetype<usize>(expected);
+  const wordCount: usize = actual.byteLength / 8;
+  const remainder: usize = actual.byteLength % 8;
+
+  // compare 8 bytes at a time (u64 word-sized comparison)
+  for (let i: usize = 0; i < wordCount; i++) {
+    if (load<u64>(actualPtr + i * 8) != load<u64>(expectedPtr + i * 8)) {
+      return false;
+    }
+  }
+
+  // compare remaining 0-7 bytes individually
+  const remainderOffset = wordCount * 8;
+  for (let i: usize = 0; i < remainder; i++) {
+    if (load<u8>(actualPtr + remainderOffset + i) != load<u8>(expectedPtr + remainderOffset + i)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function mapEquals<T, U>(actual: T, expected: U): bool {
   if (actual instanceof Map && expected instanceof Map) {
     if (actual.size != expected.size) {
@@ -221,6 +253,9 @@ export function equals<T, U>(actual: T, expected: U): bool {
   }
   if (actual instanceof Map && expected instanceof Map) {
     return mapEquals(actual, expected);
+  }
+  if (actual instanceof ArrayBuffer && expected instanceof ArrayBuffer) {
+    return arrayBufferEquals(actual, expected);
   }
 
   if (idof<T>() != idof<U>()) {

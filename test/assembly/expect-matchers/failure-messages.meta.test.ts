@@ -52,8 +52,11 @@ describe("toBe", () => {
     expect(new SimpleObject(1)).toBe(new SimpleObject(1));
   });
 
-  test.skip("ArrayBuffer", () => {
-    // TODO: ArrayBuffer comparison
+  test("ArrayBuffer [should fail]", () => {
+    const a = new ArrayBuffer(8);
+    const b = new ArrayBuffer(8);
+    store<u8>(changetype<usize>(a), 0x01);
+    expect(a).toBe(b);
   });
 
   test.skip("SIMD vector", () => {
@@ -112,8 +115,17 @@ describe("toEqual", () => {
     expect(a).toEqual(b);
   });
 
-  test.skip("ArrayBuffer", () => {
-    // TODO: ArrayBuffer comparison
+  test("ArrayBuffer same length [should fail]", () => {
+    const a = new ArrayBuffer(4);
+    const b = new ArrayBuffer(4);
+    store<u8>(changetype<usize>(a), 0xFF);
+    expect(a).toEqual(b);
+  });
+
+  test("ArrayBuffer different length [should fail]", () => {
+    const a = new ArrayBuffer(4);
+    const b = new ArrayBuffer(8);
+    expect(a).toEqual(b);
   });
 
   test.skip("SIMD vector", () => {
