@@ -496,7 +496,7 @@ describe("ArrayBuffer", () => {
 });
 
 describe("user defined objects", () => {
-  describe("structural equality", () => {
+  describe("deep equality", () => {
     test("Point with same i32 fields", () => {
       expect(new Point(1, 2)).toEqual(new Point(1, 2));
     });
@@ -525,7 +525,7 @@ describe("user defined objects", () => {
   });
 
   describe("nested objects", () => {
-    test("Line with structurally equal Points", () => {
+    test("Line with deeply equal Points", () => {
       expect(new Line(new Point(0, 0), new Point(5, 10)))
         .toEqual(new Line(new Point(0, 0), new Point(5, 10)));
     });
@@ -624,10 +624,8 @@ describe("user defined objects", () => {
       expect(a).not.toEqual(b);
     });
 
-    test("cross-type: Circle vs Shape throws", () => {
-      expect(() => {
-        expect(new Circle("red", 5.0)).toEqual(new Shape("red"));
-      }).toThrowError("Cannot compare deep equality between Circle and Shape");
+    test("cross-type: Circle vs Shape are not equal", () => {
+      expect(new Circle("red", 5.0)).not.toEqual(new Shape("red"));
     });
   });
 

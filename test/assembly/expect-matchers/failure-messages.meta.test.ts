@@ -1,13 +1,9 @@
 import { describe, expect, test, TestOptions } from "vitest-pool-assemblyscript/assembly";
+import { Circle, Point, Shape } from "../../assembly-src/user-class-utils";
 
 // Meta fixture: intentional matcher failures to verify CLI error output formatting.
 // Each test is expected to fail — the meta-verify tests assert on the resulting
 // error type, message text, and diff content in the CLI output.
-
-class SimpleObject {
-  value: i32;
-  constructor(value: i32) { this.value = value; }
-}
 
 // =============================================================================
 // ASSERTION FAILURES (AssertionError)
@@ -49,7 +45,7 @@ describe("toBe", () => {
   });
 
   test("user-defined object [should fail]", () => {
-    expect(new SimpleObject(1)).toBe(new SimpleObject(1));
+    expect(new Point(1, 2)).toBe(new Point(1, 2));
   });
 
   test("ArrayBuffer [should fail]", () => {
@@ -320,7 +316,7 @@ describe("null string", () => {
   });
 });
 
-// --- Cross-type comparison: toEqual only (via equals() idof check) ---
+// --- Cross-type comparison: toEqual only ---
 
 describe("cross-type comparison", () => {
   test("toEqual map vs array [should fail]", () => {
@@ -328,6 +324,10 @@ describe("cross-type comparison", () => {
     m.set("a", 1);
     const a: string[] = ["a"];
     expect(m).toEqual(a);
+  });
+
+  test("toEqual user class type mismatch [should fail]", () => {
+    expect(new Circle("red", 5.0)).toEqual(new Shape("red"));
   });
 });
 

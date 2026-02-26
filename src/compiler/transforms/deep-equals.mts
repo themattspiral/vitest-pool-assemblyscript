@@ -46,6 +46,7 @@ import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
   COMPARE_EQUALS_EXPORT_ALIAS,
   DEEP_EQUALS_INJECTED_METHOD_NAME,
+  EQUALITY_RESULT_ENUM_NAME,
   INTERNAL_PATH_LIB_PREFIX,
   ASCommonFlags,
   ASDecoratorKind,
@@ -121,16 +122,17 @@ function processClass(parser: Parser, classDecl: ClassDeclaration, barrelPath: s
   // Each body starts with a changetype cast from the raw usize parameter to the
   // typed class reference, so all field/method access uses the properly-typed `other`.
   const typedCast = `const other = changetype<${className}${typeSuffix}>(__other);`;
+  const EQ = EQUALITY_RESULT_ENUM_NAME;
   let methodBody: string;
 
   if (hasOperatorEquals(classDecl)) {
     // Delegate to user's @operator("==") overload
-    methodBody = `${typedCast} return this == other;`;
+    methodBody = `${typedCast} return (this == other) ? ${EQ}.Equal : ${EQ}.NotEqual;`;
   } else if (hasMethod(classDecl, 'equals')) {
     // Delegate to user's .equals() method
-    methodBody = `${typedCast} return this.equals(other);`;
+    methodBody = `${typedCast} return this.equals(other) ? ${EQ}.Equal : ${EQ}.NotEqual;`;
   } else {
-    // Structural field-by-field comparison
+    // field-by-field comparison
     methodBody = `${typedCast} ${generateStructuralBody(classDecl)}`;
   }
 
@@ -141,7 +143,7 @@ function processClass(parser: Parser, classDecl: ClassDeclaration, barrelPath: s
   // A uniform usize signature avoids this at any inheritance depth. Each method body
   // casts the pointer to its own type via changetype.
   const methodSource =
-    `${DEEP_EQUALS_INJECTED_METHOD_NAME}(__other: usize): bool { ${methodBody} }`;
+    `${DEEP_EQUALS_INJECTED_METHOD_NAME}(__other: usize): ${EQ} { ${methodBody} }`;
 
   // Use the barrel path if available, otherwise fall back to the class's own source path
   const sourcePath = barrelPath || classDecl.range.source.normalizedPath;
@@ -240,13 +242,17 @@ function getStoredInstanceFields(classDecl: ClassDeclaration): FieldDeclaration[
  * Generate the structural comparison body for a class.
  * Delegates all field comparisons to the pool's equals function, which handles
  * primitives, strings, containers, nullables, and nested user types recursively.
+ *
+ * Uses a shared `__result` variable to capture and propagate EqualityResult from
+ * each comparison, so type mismatch information from nested comparisons is preserved.
  */
 function generateStructuralBody(classDecl: ClassDeclaration): string {
   const fields = getStoredInstanceFields(classDecl);
+  const EQ = EQUALITY_RESULT_ENUM_NAME;
 
   // No fields: always equal (two instances of an empty class are structurally identical)
   if (fields.length === 0) {
-    return `return true;`;
+    return `return ${EQ}.Equal;`;
   }
 
   // Check if class extends another class — if so, include super comparison
@@ -254,12 +260,16 @@ function generateStructuralBody(classDecl: ClassDeclaration): string {
 
   const comparisons: string[] = [];
 
+  // Declare a shared result variable for capturing and propagating EqualityResult
+  comparisons.push(`let __result: ${EQ};`);
+
   // Super class comparison: delegate to superclass's deep equality comparison method if it exists.
   // Passes __other (raw usize) since the parent's method also takes usize.
   if (hasSuper) {
     comparisons.push(
       `if (isDefined(super.${DEEP_EQUALS_INJECTED_METHOD_NAME})) { `
-      + `if (!super.${DEEP_EQUALS_INJECTED_METHOD_NAME}(__other)) return false; `
+      + `__result = super.${DEEP_EQUALS_INJECTED_METHOD_NAME}(__other); `
+      + `if (__result != ${EQ}.Equal) return __result; `
       + `}`
     );
   }
@@ -267,11 +277,12 @@ function generateStructuralBody(classDecl: ClassDeclaration): string {
   for (const field of fields) {
     const fieldName = field.name.text;
     comparisons.push(
-      `if (!${COMPARE_EQUALS_EXPORT_ALIAS}(this.${fieldName}, other.${fieldName})) return false;`
+      `__result = ${COMPARE_EQUALS_EXPORT_ALIAS}(this.${fieldName}, other.${fieldName}); `
+      + `if (__result != ${EQ}.Equal) return __result;`
     );
   }
 
-  return comparisons.join(' ') + ' return true;';
+  return comparisons.join(' ') + ` return ${EQ}.Equal;`;
 }
 
 // =============================================================================

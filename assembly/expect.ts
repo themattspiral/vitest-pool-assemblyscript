@@ -1,6 +1,7 @@
 import {
   closeTo,
   compareInequality,
+  EqualityResult,
   equals,
   identical,
   InequalityOperation,
@@ -323,7 +324,9 @@ abstract class BaseExpectMatcher<T> {
    * expect(p1).toEqual(p2);
    */
   toEqual<U>(val: U): void {
-    this.assertComparison(equals(this.actual, val), this.actual, val, "to deeply equal", true);
+    const result = equals(this.actual, val);
+    const suffix = result == EqualityResult.TypeMismatch ? " (runtime type mismatch)" : "";
+    this.assertComparison(result == EqualityResult.Equal, this.actual, val, "to deeply equal", true, true, suffix);
   }
   
   /**
@@ -342,7 +345,9 @@ abstract class BaseExpectMatcher<T> {
    * expect(p1).toEqual(p2);
    */
   toStrictEqual<U>(val: U): void {
-    this.assertComparison(equals(this.actual, val), this.actual, val, "to strictly equal", true);
+    const result = equals(this.actual, val);
+    const suffix = result == EqualityResult.TypeMismatch ? " (runtime type mismatch)" : "";
+    this.assertComparison(result == EqualityResult.Equal, this.actual, val, "to strictly equal", true, true, suffix);
   }
 
   /**
@@ -471,7 +476,7 @@ abstract class BaseExpectMatcher<T> {
     }
   }
 
-  protected assertComparison<U, V>(rawCondition: bool, actual: U, expected: V, methodStr: string, printExpected: bool, provideDiff: bool = true): void {
+  protected assertComparison<U, V>(rawCondition: bool, actual: U, expected: V, methodStr: string, printExpected: bool, provideDiff: bool = true, suffix: string = ""): void {
     const condition = this.isInverted ? !rawCondition : rawCondition;
 
     if (condition) {
@@ -480,7 +485,7 @@ abstract class BaseExpectMatcher<T> {
       const notStr = this.isInverted ? "not " : "";
       const actualStr = itemMessageString(actual);
       const expectedStr = itemMessageString(expected);
-      const msg = `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}`;
+      const msg = `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}${suffix}`;
 
       __assertion_fail<string>(msg, nameof<U>() + " " + nameof<V>(), provideDiff, actualStr, expectedStr);
   

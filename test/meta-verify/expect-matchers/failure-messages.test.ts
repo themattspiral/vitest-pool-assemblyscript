@@ -56,7 +56,7 @@ describe('matcher failure message verification', () => {
 
     test('user-defined object failure message', () => {
       const block = requireErrorBlock(parsedCli, testPath('toBe', 'user-defined object [should fail]'));
-      expect(block).toContain('AssertionError: expected SimpleObject to be SimpleObject');
+      expect(block).toContain('AssertionError: expected Point to be Point');
     });
 
     test('ArrayBuffer failure message', () => {
@@ -286,6 +286,11 @@ describe('matcher failure message verification', () => {
     test('toEqual map vs array', () => {
       const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toEqual map vs array [should fail]'));
       expect(block).toContain('WASMRuntimeError: Cannot compare deep equality between Map<~lib/string/String,i32> and Array<~lib/string/String>');
+    });
+
+    test('toEqual user class type mismatch', () => {
+      const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toEqual user class type mismatch [should fail]'));
+      expect(block).toContain('AssertionError: expected Circle to deeply equal Shape (runtime type mismatch)');
     });
   });
 

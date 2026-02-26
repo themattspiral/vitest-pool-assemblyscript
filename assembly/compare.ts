@@ -1,44 +1,58 @@
-function arrayEquals<T extends ArrayLike<unknown>, U extends ArrayLike<unknown>>(actual: T, expected: U): bool {
+/**
+ * Result of a deep equality comparison.
+ * Declared @global so it is available in all source files without import —
+ * including transform-injected deep equality methods in user classes.
+ */
+// @ts-ignore: AS-specific @global decorator
+@global
+export enum EqualityResult {
+  Equal,
+  NotEqual,
+  TypeMismatch,
+}
+
+function arrayEquals<T extends ArrayLike<unknown>, U extends ArrayLike<unknown>>(actual: T, expected: U): EqualityResult {
   if (actual.length != expected.length) {
-    return false;
+    return EqualityResult.NotEqual;
   }
 
   for (let i = 0; i < expected.length; i++) {
-    if (!equals(actual[i], expected[i])) {
-      return false;
+    const result = equals(actual[i], expected[i]);
+    if (result != EqualityResult.Equal) {
+      return result;
     }
   }
 
-  return true;
+  return EqualityResult.Equal;
 }
 
-function setEquals<T, U>(actual: T, expected: U): bool {
+function setEquals<T, U>(actual: T, expected: U): EqualityResult {
   if (actual instanceof Set && expected instanceof Set) {
     if (actual.size != expected.size) {
-      return false;
+      return EqualityResult.NotEqual;
     }
 
     const expectedValues = expected.values();
 
     for (let i = 0; i < expectedValues.length; i++) {
       if (!actual.has(expectedValues[i])) {
-        return false;
+        return EqualityResult.NotEqual;
       }
     }
 
-    return true;
+    return EqualityResult.Equal;
   }
 
-  return false;
+  return EqualityResult.NotEqual;
 }
 
-function arrayBufferEquals<T, U>(actual: T, expected: U): bool {
+function arrayBufferEquals<T, U>(actual: T, expected: U): EqualityResult {
   if (!(actual instanceof ArrayBuffer) || !(expected instanceof ArrayBuffer)) {
-    return false;
+    return EqualityResult.NotEqual;
   }
 
   if (actual.byteLength != expected.byteLength) {
-    return false;
+    return EqualityResult.NotEqual;
   }
 
   const actualPtr = changetype<usize>(actual);
@@ -49,7 +63,7 @@ function arrayBufferEquals<T, U>(actual: T, expected: U): bool {
   // compare 8 bytes at a time (u64 word-sized comparison)
   for (let i: usize = 0; i < wordCount; i++) {
     if (load<u64>(actualPtr + i * 8) != load<u64>(expectedPtr + i * 8)) {
-      return false;
+      return EqualityResult.NotEqual;
     }
   }
 
@@ -57,17 +71,17 @@ function arrayBufferEquals<T, U>(actual: T, expected: U): bool {
   const remainderOffset = wordCount * 8;
   for (let i: usize = 0; i < remainder; i++) {
     if (load<u8>(actualPtr + remainderOffset + i) != load<u8>(expectedPtr + remainderOffset + i)) {
-      return false;
+      return EqualityResult.NotEqual;
     }
   }
 
-  return true;
+  return EqualityResult.Equal;
 }
 
-function mapEquals<T, U>(actual: T, expected: U): bool {
+function mapEquals<T, U>(actual: T, expected: U): EqualityResult {
   if (actual instanceof Map && expected instanceof Map) {
     if (actual.size != expected.size) {
-      return false;
+      return EqualityResult.NotEqual;
     }
 
     const expectedKeys = expected.keys();
@@ -76,18 +90,19 @@ function mapEquals<T, U>(actual: T, expected: U): bool {
       const key = expectedKeys[i];
 
       if (!actual.has(key)) {
-        return false;
+        return EqualityResult.NotEqual;
       }
 
-      if (!equals(actual.get(key), expected.get(key))) {
-        return false;
+      const result = equals(actual.get(key), expected.get(key));
+      if (result != EqualityResult.Equal) {
+        return result;
       }
     }
 
-    return true;
+    return EqualityResult.Equal;
   }
 
-  return false;
+  return EqualityResult.NotEqual;
 }
 
 /**
@@ -217,8 +232,11 @@ export function closeTo<T, U>(actual: T, expected: U, precision: i32 = 2): bool 
  * Generic value equality comparison. Assumes comparable types for both values.
  * Supports primitives, strings, Arrays, Sets, Maps, ArrayBuffers, and user-defined
  * types (via compiler transform-injected deep equality method).
+ *
+ * Returns an EqualityResult enum to distinguish between "not equal" and "type mismatch",
+ * enabling matchers to produce more informative assertion failure messages.
  */
-export function equals<T, U>(actual: T, expected: U): bool {
+export function equals<T, U>(actual: T, expected: U): EqualityResult {
   let exactMatch: bool = false;
 
   // allow boolean-to-number comparisons here
@@ -232,10 +250,10 @@ export function equals<T, U>(actual: T, expected: U): bool {
 
   if (!isReference<T>() || isString<T>() || isVector<T>()) {
     // non-bool primitives or strings: return result of comparing
-    return exactMatch;
+    return exactMatch ? EqualityResult.Equal : EqualityResult.NotEqual;
   } else if (exactMatch) {
     // primitive / reference comparison passed already
-    return true;
+    return EqualityResult.Equal;
   }
 
   if (isNullable<T>()) {
@@ -245,11 +263,11 @@ export function equals<T, U>(actual: T, expected: U): bool {
     const expectedIsNull = changetype<usize>(expected) == 0;
 
     if (actualIsNull && expectedIsNull) {
-      return true;
+      return EqualityResult.Equal;
     }
 
     if (actualIsNull != expectedIsNull) {
-      return false;
+      return EqualityResult.NotEqual;
     }
   }
 
@@ -266,19 +284,23 @@ export function equals<T, U>(actual: T, expected: U): bool {
     return arrayBufferEquals(actual, expected);
   }
 
-  if (idof<T>() != idof<U>()) {
+  // Runtime type check via nameof with value arguments — returns the actual runtime
+  // class name, catching both compile-time type differences (e.g. Circle vs Shape)
+  // and polymorphic runtime differences (e.g. Shape-typed Circle vs Shape-typed Shape).
+  // Without this guard, changetype in the compiler transform-injected deep equality
+  // method would read past the smaller object's memory allocation, producing garbage
+  // comparisons or false positives.
+  if (nameof<T>(actual) != nameof<U>(expected)) {
+    // @ts-ignore
+    if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
+      // User-defined classes: return TypeMismatch so the matcher can produce an
+      // informative assertion failure message instead of an opaque error
+      return EqualityResult.TypeMismatch;
+    }
+    // Non-user-defined types (containers, etc.): incompatible comparison is an error
     throw new Error("Cannot compare deep equality between " + nameof<T>(actual)
       + " and " + nameof<U>(expected)
     );
-  }
-
-  // Runtime type check: compile-time types match (passed idof above) but runtime
-  // types may differ via polymorphism (e.g. Shape-typed Circle vs Shape-typed Shape).
-  // Without this, changetype pointer case in compiler transform-injected deep equality 
-  // method would read past the smaller object's memory allocation, producing garbage 
-  // comparisons or false positives
-  if (nameof<T>(actual) != nameof<U>(expected)) {
-    return false;
   }
 
   // @ts-ignore
@@ -291,7 +313,9 @@ export function equals<T, U>(actual: T, expected: U): bool {
   }
 
   // Fall back to reference identity for types without deep equality method
-  return changetype<usize>(actual) == changetype<usize>(expected);
+  return changetype<usize>(actual) == changetype<usize>(expected)
+    ? EqualityResult.Equal
+    : EqualityResult.NotEqual;
 }
 
 /**
@@ -302,12 +326,15 @@ export function equals<T, U>(actual: T, expected: U): bool {
  * solving the afterParse import resolution limitation (injected import statements
  * are not processed by the AS compiler).
  *
+ * Returns EqualityResult so injected methods can propagate type mismatch information
+ * from nested comparisons back to the top-level matcher.
+ *
  * Loaded into the compilation transitively: user test imports
  * vitest-pool-assemblyscript/assembly → index.ts → compare.ts.
  */
 // @ts-ignore: AS-specific @global decorator
 @global
-function __vitest_assemblyscript_compare_equals<T, U>(actual: T, expected: U): bool {
+function __vitest_assemblyscript_compare_equals<T, U>(actual: T, expected: U): EqualityResult {
   return equals<T, U>(actual, expected);
 }
 

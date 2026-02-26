@@ -58,6 +58,12 @@ export const DEEP_EQUALS_INJECTED_METHOD_NAME = '__vitest_assemblyscript_deep_eq
  */
 export const COMPARE_EQUALS_EXPORT_ALIAS = '__vitest_assemblyscript_compare_equals' as const;
 
+/**
+ * Name of the @global enum in assembly/compare.ts that represents deep equality comparison results.
+ * Used in transform-generated code to reference enum members (e.g. EqualityResult.Equal).
+ */
+export const EQUALITY_RESULT_ENUM_NAME = 'EqualityResult' as const;
+
 /** Error names for AssemblyScript test failures reported to vitest */
 export const TEST_ERROR_NAMES = {
   /** Assertion evaluated to false within a test function */
