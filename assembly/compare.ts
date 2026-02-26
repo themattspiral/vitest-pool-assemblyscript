@@ -1,4 +1,11 @@
 /**
+ * Byte offset from an object pointer to the rtId field in the AS managed object header.
+ * Every managed object has a 20-byte header preceding the payload; rtId is a u32 at offset -8.
+ * See: https://www.assemblyscript.org/runtime.html#memory-layout
+ */
+const MANAGED_OBJECT_RTID_BYTE_OFFSET: usize = 8;
+
+/**
  * Result of a deep equality comparison.
  * Declared @global so it is available in all source files without import —
  * including transform-injected deep equality methods in user classes.
@@ -284,32 +291,60 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
     return arrayBufferEquals(actual, expected);
   }
 
-  // Runtime type check via nameof with value arguments — returns the actual runtime
-  // class name, catching both compile-time type differences (e.g. Circle vs Shape)
-  // and polymorphic runtime differences (e.g. Shape-typed Circle vs Shape-typed Shape).
-  // Without this guard, changetype in the compiler transform-injected deep equality
-  // method would read past the smaller object's memory allocation, producing garbage
-  // comparisons or false positives.
-  if (nameof<T>(actual) != nameof<U>(expected)) {
-    // @ts-ignore
-    if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
-      // User-defined classes: return TypeMismatch so the matcher can produce an
-      // informative assertion failure message instead of an opaque error
-      return EqualityResult.TypeMismatch;
-    }
-    // Non-user-defined types (containers, etc.): incompatible comparison is an error
-    throw new Error("Cannot compare deep equality between " + nameof<T>(actual)
-      + " and " + nameof<U>(expected)
+  // Runtime type checking for reference types.
+  // Managed objects have a header with rtId (runtime type ID) that reflects the actual
+  // runtime type, even when the variable is declared as a base type. Unmanaged objects
+  // lack this header and fall back to compile-time idof checks.
+  if (isManaged<T>() != isManaged<U>()) {
+    // Managed vs unmanaged is a fundamental memory layout incompatibility
+    throw new Error("Cannot compare deep equality between managed and unmanaged types: "
+      + nameof<T>() + " and " + nameof<U>()
     );
+  }
+
+  if (isManaged<T>() && isManaged<U>()) {
+    // Both managed: read runtime type ID from the AS object header
+    const actualRtId = load<u32>(changetype<usize>(actual) - MANAGED_OBJECT_RTID_BYTE_OFFSET);
+    const expectedRtId = load<u32>(changetype<usize>(expected) - MANAGED_OBJECT_RTID_BYTE_OFFSET);
+
+    if (actualRtId != expectedRtId) {
+      // @ts-ignore
+      if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
+        // User-defined classes: return TypeMismatch so the matcher can produce an
+        // informative assertion failure message instead of an opaque error
+        return EqualityResult.TypeMismatch;
+      }
+      // Non-user-defined types (containers, etc.): incompatible comparison is an error
+      throw new Error("Cannot compare deep equality between " + nameof<T>(actual)
+        + " and " + nameof<U>(expected)
+      );
+    }
+  } else {
+    // Both unmanaged: no object header or idof available, fall back to compile-time
+    // nameof check. This is acceptable because unmanaged types don't participate in
+    // virtual dispatch or polymorphic inheritance — the compile-time type is reliable.
+    if (nameof<T>() != nameof<U>()) {
+      // @ts-ignore
+      if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
+        return EqualityResult.TypeMismatch;
+      }
+      throw new Error("Cannot compare deep equality between " + nameof<T>(actual)
+        + " and " + nameof<U>(expected)
+      );
+    }
   }
 
   // @ts-ignore
   // User-defined reference types: delegate to compiler transform-injected deep equality
   // method. Uses hard-coded method name because using a variable like `actual[DEEP_EQ_FUNC]`
-  // requires the class to define an index signature
+  // requires the class to define an index signature.
+  // Cast to NonNullable<T> because AS doesn't narrow nullability from the changetype-based
+  // null checks above — it requires explicit type narrowing to call methods on nullable types.
+  // Safe because both-null and one-null cases return early above.
   if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
+    const nonNullActual = <NonNullable<T>>actual;
     // @ts-ignore
-    return actual.__vitest_assemblyscript_deep_equals(changetype<usize>(expected));
+    return nonNullActual.__vitest_assemblyscript_deep_equals(changetype<usize>(expected));
   }
 
   // Fall back to reference identity for types without deep equality method

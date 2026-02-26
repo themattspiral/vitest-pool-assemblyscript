@@ -8,9 +8,12 @@
  * - Nullable fields
  * - Classes with @operator("==") (user-defined equality semantics)
  * - Classes with .equals() method (user-defined equality semantics)
- * - Inheritance
+ * - Inheritance (single, multi-level, abstract, sibling subclasses)
  * - Private/protected fields
  * - Generic classes
+ * - Edge cases: empty, static-only, getter-only, readonly, sealed, unmanaged,
+ *   no constructor, class expressions, container fields with user objects,
+ *   circular references, namespaced classes
  */
 
 // --- Simple field classes ---
@@ -187,5 +190,244 @@ export class Pair<T> {
   constructor(first: T, second: T) {
     this.first = first;
     this.second = second;
+  }
+}
+
+// =============================================================================
+// Edge case fixtures
+// =============================================================================
+
+// --- Empty class (no stored fields) ---
+
+export class Empty {}
+
+// --- Only static fields (no instance fields to compare) ---
+
+export class StaticOnly {
+  static counter: i32 = 0;
+}
+
+// --- Only getters (all excluded from comparison by design) ---
+// No stored instance fields — only computed getters.
+
+export class GetterOnly {
+  get value(): i32 {
+    return 42;
+  }
+
+  get label(): string {
+    return "computed";
+  }
+}
+
+// --- Readonly fields ---
+
+export class Config {
+  readonly host: string;
+  readonly port: i32;
+
+  constructor(host: string, port: i32) {
+    this.host = host;
+    this.port = port;
+  }
+}
+
+// --- No explicit constructor (AS auto-generates default) ---
+
+export class Tag {
+  label: string = "default";
+  priority: i32 = 0;
+}
+
+// --- @sealed class (prevents subclassing) ---
+
+// @ts-ignore - AS supports top leve decorators
+@sealed
+export class SealedPoint {
+  x: i32;
+  y: i32;
+
+  constructor(x: i32, y: i32) {
+    this.x = x;
+    this.y = y;
+  }
+}
+
+// --- @unmanaged class (bypasses GC, manual memory management) ---
+// Uses only primitive fields since @unmanaged classes have restrictions
+// on managed references.
+
+@unmanaged
+export class RawVec2 {
+  // @ts-ignore
+  x: f32;
+  // @ts-ignore
+  y: f32;
+}
+
+// --- Multi-level inheritance (extends existing Shape → Circle) ---
+
+export class Sphere extends Circle {
+  solid: bool;
+
+  constructor(color: string, radius: f64, solid: bool) {
+    super(color, radius);
+    this.solid = solid;
+  }
+}
+
+// --- Sibling subclass (same base as Circle) ---
+
+export class Square extends Shape {
+  side: f64;
+
+  constructor(color: string, side: f64) {
+    super(color);
+    this.side = side;
+  }
+}
+
+// --- Abstract base class with concrete subclasses ---
+
+export abstract class Animal {
+  name: string;
+  legs: i32;
+
+  constructor(name: string, legs: i32) {
+    this.name = name;
+    this.legs = legs;
+  }
+}
+
+export class Dog extends Animal {
+  breed: string;
+
+  constructor(name: string, breed: string) {
+    super(name, 4);
+    this.breed = breed;
+  }
+}
+
+export class Cat extends Animal {
+  indoor: bool;
+
+  constructor(name: string, indoor: bool) {
+    super(name, 4);
+    this.indoor = indoor;
+  }
+}
+
+// --- Both @operator("==") AND .equals() — operator takes precedence ---
+
+export class DualEquality {
+  id: i32;
+  label: string;
+
+  constructor(id: i32, label: string) {
+    this.id = id;
+    this.label = label;
+  }
+
+  // Custom equality via operator: compares id only
+  @operator("==")
+  opEquals(other: DualEquality): bool {
+    return this.id == other.id;
+  }
+
+  // Custom equality via .equals(): compares label only (not used by deep equality — operator== takes precedence)
+  equals(other: DualEquality): bool {
+    return this.label == other.label;
+  }
+}
+
+// --- @operator("==") that throws on specific condition ---
+
+export class ThrowingEquals {
+  value: i32;
+
+  constructor(value: i32) {
+    this.value = value;
+  }
+
+  @operator("==")
+  opEquals(other: ThrowingEquals): bool {
+    if (this.value < 0 || other.value < 0) {
+      throw new Error("Cannot compare negative values");
+    }
+    return this.value == other.value;
+  }
+}
+
+// --- Container fields with user objects ---
+
+export class Team {
+  teamName: string;
+  members: Array<Person>;
+
+  constructor(teamName: string, members: Array<Person>) {
+    this.teamName = teamName;
+    this.members = members;
+  }
+}
+
+export class Registry {
+  entries: Map<string, Point>;
+
+  constructor(entries: Map<string, Point>) {
+    this.entries = entries;
+  }
+}
+
+export class PointGroup {
+  points: Set<Point>;
+
+  constructor(points: Set<Point>) {
+    this.points = points;
+  }
+}
+
+// --- Nested type mismatch: wrapper with polymorphic field ---
+
+export class ShapeWrapper {
+  label: string;
+  shape: Shape;
+
+  constructor(label: string, shape: Shape) {
+    this.label = label;
+    this.shape = shape;
+  }
+}
+
+// --- Circular / self-referential ---
+
+export class ListNode {
+  value: i32;
+  next: ListNode | null;
+
+  constructor(value: i32, next: ListNode | null = null) {
+    this.value = value;
+    this.next = next;
+  }
+}
+
+// --- Namespaced classes with the same name ---
+
+export namespace NS_A {
+  export class Item {
+    value: i32;
+
+    constructor(value: i32) {
+      this.value = value;
+    }
+  }
+}
+
+export namespace NS_B {
+  export class Item {
+    value: i32;
+
+    constructor(value: i32) {
+      this.value = value;
+    }
   }
 }

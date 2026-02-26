@@ -292,6 +292,14 @@ describe('matcher failure message verification', () => {
       const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toEqual user class type mismatch [should fail]'));
       expect(block).toContain('AssertionError: expected Circle to deeply equal Shape (runtime type mismatch)');
     });
+
+    // TODO: The error message here is opaque — it says "ShapeWrapper vs ShapeWrapper" but the
+    // actual mismatch is in a nested field (Circle vs Square). Improved DX should surface the
+    // field path and nested type information (e.g. "field 'shape': Circle vs Square").
+    test('toEqual nested type mismatch', () => {
+      const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toEqual nested type mismatch [should fail]'));
+      expect(block).toContain('AssertionError: expected ShapeWrapper to deeply equal ShapeWrapper (runtime type mismatch)');
+    });
   });
 
 });

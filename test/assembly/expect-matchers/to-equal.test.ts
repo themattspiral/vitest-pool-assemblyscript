@@ -2,6 +2,11 @@ import { test, expect, describe, TestOptions } from "vitest-pool-assemblyscript/
 import {
   Point, PointF, Person, Line, NullableFields,
   Color, Token, Shape, Circle, Wallet, Pair, GameState,
+  Empty, StaticOnly, GetterOnly, Config, Tag, SealedPoint, RawVec2,
+  Sphere, Square, Animal, Dog, Cat,
+  DualEquality, ThrowingEquals,
+  Team, Registry, PointGroup, ShapeWrapper, ListNode,
+  NS_A, NS_B,
 } from "../../assembly-src/user-class-utils";
 
 test("empty strings are equal", () => {
@@ -319,6 +324,36 @@ describe("sets", () => {
     expect(setA).not.toEqual(setB);
   });
 
+  // Set uses reference identity for .has() membership checks, not deep equality.
+  // Shared references work as expected, but structurally equal distinct instances
+  // are treated as different members.
+  test("sets with same user object references are equal", () => {
+    const p1 = new Point(1, 2);
+    const p2 = new Point(3, 4);
+
+    const setA = new Set<Point>();
+    setA.add(p1);
+    setA.add(p2);
+
+    const setB = new Set<Point>();
+    setB.add(p1);
+    setB.add(p2);
+
+    expect(setA).toEqual(setB);
+  });
+
+  test("sets with structurally equal but distinct user object instances are not equal", () => {
+    const setA = new Set<Point>();
+    setA.add(new Point(1, 2));
+
+    const setB = new Set<Point>();
+    setB.add(new Point(1, 2));
+
+    // These Points are structurally equal but different instances.
+    // Set.has() uses reference identity, so setA doesn't "have" setB's Point.
+    expect(setA).not.toEqual(setB);
+  });
+
   test("error is thrown when set compared to array with same values", () => {
     expect(() => {
       const setA = new Set<string>();
@@ -495,6 +530,78 @@ describe("ArrayBuffer", () => {
   });
 });
 
+describe("StaticArray", () => {
+  test("same values are equal", () => {
+    const a: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2, 3]);
+    const b: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2, 3]);
+    expect(a).toEqual(b);
+  });
+
+  test("different values are not equal", () => {
+    const a: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2, 3]);
+    const b: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2, 99]);
+    expect(a).not.toEqual(b);
+  });
+
+  test("different lengths are not equal", () => {
+    const a: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2, 3]);
+    const b: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2]);
+    expect(a).not.toEqual(b);
+  });
+
+  test("empty static arrays are equal", () => {
+    const a: StaticArray<i32> = StaticArray.fromArray<i32>([]);
+    const b: StaticArray<i32> = StaticArray.fromArray<i32>([]);
+    expect(a).toEqual(b);
+  });
+
+  test("string static arrays with same values are equal", () => {
+    const a: StaticArray<string> = StaticArray.fromArray<string>(["one", "two"]);
+    const b: StaticArray<string> = StaticArray.fromArray<string>(["one", "two"]);
+    expect(a).toEqual(b);
+  });
+});
+
+describe("TypedArrays", () => {
+  test("Int32Array with same values are equal", () => {
+    const a = new Int32Array(3);
+    a[0] = 1; a[1] = 2; a[2] = 3;
+    const b = new Int32Array(3);
+    b[0] = 1; b[1] = 2; b[2] = 3;
+    expect(a).toEqual(b);
+  });
+
+  test("Int32Array with different values are not equal", () => {
+    const a = new Int32Array(3);
+    a[0] = 1; a[1] = 2; a[2] = 3;
+    const b = new Int32Array(3);
+    b[0] = 1; b[1] = 2; b[2] = 99;
+    expect(a).not.toEqual(b);
+  });
+
+  test("Float64Array with same values are equal", () => {
+    const a = new Float64Array(2);
+    a[0] = 3.14; a[1] = 2.72;
+    const b = new Float64Array(2);
+    b[0] = 3.14; b[1] = 2.72;
+    expect(a).toEqual(b);
+  });
+
+  test("Uint8Array with same values are equal", () => {
+    const a = new Uint8Array(4);
+    a[0] = 0xFF; a[1] = 0x00; a[2] = 0xAB; a[3] = 0xCD;
+    const b = new Uint8Array(4);
+    b[0] = 0xFF; b[1] = 0x00; b[2] = 0xAB; b[3] = 0xCD;
+    expect(a).toEqual(b);
+  });
+
+  test("TypedArrays with different lengths are not equal", () => {
+    const a = new Int32Array(2);
+    const b = new Int32Array(3);
+    expect(a).not.toEqual(b);
+  });
+});
+
 describe("user defined objects", () => {
   describe("deep equality", () => {
     test("Point with same i32 fields", () => {
@@ -522,6 +629,53 @@ describe("user defined objects", () => {
       expect(new Person("Alice", 30)).not.toEqual(new Person("Bob", 30));
       expect(new Person("Alice", 30)).not.toEqual(new Person("Alice", 31));
     });
+  });
+
+  describe("class structure variations", () => {
+    test("empty class (no fields): same type instances are equal", () => {
+      expect(new Empty()).toEqual(new Empty());
+    });
+
+    test("static-only class: no instance fields, same type instances are equal", () => {
+      expect(new StaticOnly()).toEqual(new StaticOnly());
+    });
+
+    test("getter-only class: getters excluded, same type instances are equal", () => {
+      const g = new GetterOnly();
+      expect(g).toEqual(new GetterOnly());
+      // Exercise getters directly for coverage — deep equality excludes them by design
+      expect(g.value).toBe(42);
+      expect(g.label).toBe("computed");
+    });
+
+    test("readonly fields are compared normally", () => {
+      expect(new Config("localhost", 8080)).toEqual(new Config("localhost", 8080));
+      expect(new Config("localhost", 8080)).not.toEqual(new Config("localhost", 3000));
+      expect(new Config("localhost", 8080)).not.toEqual(new Config("remote", 8080));
+    });
+
+    test("class with no explicit constructor uses default field values", () => {
+      expect(new Tag()).toEqual(new Tag());
+    });
+
+    test("@sealed class: injection and comparison work normally", () => {
+      expect(new SealedPoint(1, 2)).toEqual(new SealedPoint(1, 2));
+      expect(new SealedPoint(1, 2)).not.toEqual(new SealedPoint(3, 4));
+    });
+
+    test("@unmanaged class: field comparison works", () => {
+      const a: RawVec2 = { x: 1.0, y: 2.0 };
+      const b: RawVec2 = { x: 1.0, y: 2.0 };
+      expect(a).toEqual(b);
+
+      const c: RawVec2 = { x: 1.0, y: 3.0 };
+      expect(a).not.toEqual(c);
+    });
+
+    // Class expressions: AS parses `const MyClass = class { value: i32; }` but the
+    // anonymous class has no name, so the deep equality transform generates
+    // `changetype<>(__other)` with an empty type parameter, causing a parse error.
+    // This is a transform limitation for anonymous classes — tracked for potential fix.
   });
 
   describe("nested objects", () => {
@@ -562,6 +716,26 @@ describe("user defined objects", () => {
 
     test("different RGB are not equal", () => {
       expect(new Color(255, 0, 0, "red")).not.toEqual(new Color(0, 255, 0, "green"));
+    });
+
+    test("@operator(\"==\") takes precedence when .equals() is also defined", () => {
+      // DualEquality has operator== comparing id only, and .equals() comparing label only.
+      // operator== should win: same id, different label → equal
+      expect(new DualEquality(1, "foo")).toEqual(new DualEquality(1, "bar"));
+      // different id, same label → not equal (operator== says no, even though .equals() would say yes)
+      expect(new DualEquality(1, "foo")).not.toEqual(new DualEquality(2, "foo"));
+      // Exercise .equals() directly for coverage — deep equality uses operator== instead
+      const a = new DualEquality(1, "foo");
+      const b = new DualEquality(2, "foo");
+      expect(a.equals(b)).toBe(true);   // same label → .equals() returns true
+      expect(a.equals(new DualEquality(1, "bar"))).toBe(false); // different label → false
+    });
+
+    test("@operator(\"==\") that throws propagates the error", () => {
+      // ThrowingEquals throws when either value is negative
+      expect(() => {
+        expect(new ThrowingEquals(-1)).toEqual(new ThrowingEquals(1));
+      }).toThrowError("Cannot compare negative values");
     });
   });
 
@@ -627,6 +801,52 @@ describe("user defined objects", () => {
     test("cross-type: Circle vs Shape are not equal", () => {
       expect(new Circle("red", 5.0)).not.toEqual(new Shape("red"));
     });
+
+    test("multi-level: Spheres with same fields across 3 levels", () => {
+      expect(new Sphere("red", 5.0, true)).toEqual(new Sphere("red", 5.0, true));
+    });
+
+    test("multi-level: Spheres with different own field", () => {
+      expect(new Sphere("red", 5.0, true)).not.toEqual(new Sphere("red", 5.0, false));
+    });
+
+    test("multi-level: Spheres with different middle-level field", () => {
+      expect(new Sphere("red", 5.0, true)).not.toEqual(new Sphere("red", 10.0, true));
+    });
+
+    test("multi-level: Spheres with different base-level field", () => {
+      expect(new Sphere("red", 5.0, true)).not.toEqual(new Sphere("blue", 5.0, true));
+    });
+
+    test("sibling subclasses as base type are not equal", () => {
+      const a: Shape = new Circle("red", 5.0);
+      const b: Shape = new Square("red", 5.0);
+      expect(a).not.toEqual(b);
+    });
+
+    test("abstract base: concrete subclasses with same inherited fields", () => {
+      expect(new Dog("Rex", "labrador")).toEqual(new Dog("Rex", "labrador"));
+    });
+
+    test("abstract base: concrete subclasses with different own field", () => {
+      expect(new Dog("Rex", "labrador")).not.toEqual(new Dog("Rex", "poodle"));
+    });
+
+    test("abstract base: concrete subclasses with different inherited field", () => {
+      expect(new Dog("Rex", "labrador")).not.toEqual(new Dog("Spot", "labrador"));
+    });
+
+    test("abstract base: different concrete subclasses as base type are not equal", () => {
+      const a: Animal = new Dog("Rex", "labrador");
+      const b: Animal = new Cat("Whiskers", true);
+      expect(a).not.toEqual(b);
+    });
+
+    test("abstract base: same concrete subclass as base type", () => {
+      const a: Animal = new Dog("Rex", "labrador");
+      const b: Animal = new Dog("Rex", "labrador");
+      expect(a).toEqual(b);
+    });
   });
 
   describe("private fields", () => {
@@ -673,6 +893,36 @@ describe("user defined objects", () => {
     test("Pair<Point> with different nested objects", () => {
       expect(new Pair<Point>(new Point(1, 2), new Point(3, 4)))
         .not.toEqual(new Pair<Point>(new Point(1, 2), new Point(3, 5)));
+    });
+
+    test("Pair with nullable type parameter: both null", () => {
+      expect(new Pair<Point | null>(null, null))
+        .toEqual(new Pair<Point | null>(null, null));
+    });
+
+    test("Pair with nullable type parameter: one null one non-null", () => {
+      expect(new Pair<Point | null>(new Point(1, 2), null))
+        .not.toEqual(new Pair<Point | null>(null, null));
+    });
+
+    test("Pair with nullable type parameter: both non-null and equal", () => {
+      expect(new Pair<Point | null>(new Point(1, 2), new Point(3, 4)))
+        .toEqual(new Pair<Point | null>(new Point(1, 2), new Point(3, 4)));
+    });
+
+    test("Pair with nullable type parameter: both non-null and different", () => {
+      expect(new Pair<Point | null>(new Point(1, 2), null))
+        .not.toEqual(new Pair<Point | null>(new Point(1, 99), null));
+    });
+
+    test("nested generics: Pair<Pair<i32>>", () => {
+      expect(new Pair<Pair<i32>>(new Pair<i32>(1, 2), new Pair<i32>(3, 4)))
+        .toEqual(new Pair<Pair<i32>>(new Pair<i32>(1, 2), new Pair<i32>(3, 4)));
+    });
+
+    test("nested generics: Pair<Pair<i32>> with different inner values", () => {
+      expect(new Pair<Pair<i32>>(new Pair<i32>(1, 2), new Pair<i32>(3, 4)))
+        .not.toEqual(new Pair<Pair<i32>>(new Pair<i32>(1, 2), new Pair<i32>(3, 5)));
     });
   });
 
@@ -792,6 +1042,182 @@ describe("user defined objects", () => {
 
       expect(new GameState(1, 0.0, false, "", new Point(0, 0), inv, tags, bufA))
         .not.toEqual(new GameState(1, 0.0, false, "", new Point(0, 0), inv, tags, bufB));
+    });
+  });
+
+  describe("container fields with user objects", () => {
+    test("Array<Person> field: deeply equal members", () => {
+      const teamA = new Team("alpha", [new Person("Alice", 30), new Person("Bob", 25)]);
+      const teamB = new Team("alpha", [new Person("Alice", 30), new Person("Bob", 25)]);
+      expect(teamA).toEqual(teamB);
+    });
+
+    test("Array<Person> field: different member", () => {
+      const teamA = new Team("alpha", [new Person("Alice", 30)]);
+      const teamB = new Team("alpha", [new Person("Bob", 25)]);
+      expect(teamA).not.toEqual(teamB);
+    });
+
+    test("Array<Person> field: different length", () => {
+      const teamA = new Team("alpha", [new Person("Alice", 30)]);
+      const teamB = new Team("alpha", [new Person("Alice", 30), new Person("Bob", 25)]);
+      expect(teamA).not.toEqual(teamB);
+    });
+
+    test("Map<string, Point> field: deeply equal entries", () => {
+      const mapA = new Map<string, Point>();
+      mapA.set("origin", new Point(0, 0));
+      mapA.set("target", new Point(5, 10));
+
+      const mapB = new Map<string, Point>();
+      mapB.set("origin", new Point(0, 0));
+      mapB.set("target", new Point(5, 10));
+
+      expect(new Registry(mapA)).toEqual(new Registry(mapB));
+    });
+
+    test("Map<string, Point> field: different point value", () => {
+      const mapA = new Map<string, Point>();
+      mapA.set("origin", new Point(0, 0));
+
+      const mapB = new Map<string, Point>();
+      mapB.set("origin", new Point(1, 1));
+
+      expect(new Registry(mapA)).not.toEqual(new Registry(mapB));
+    });
+
+    // Set<Point> field: Set uses reference identity for .has(), not deep equality.
+    // Same shared references work, but distinct structurally-equal instances don't.
+    test("Set<Point> field: same references are equal", () => {
+      const p1 = new Point(1, 2);
+      const p2 = new Point(3, 4);
+
+      const setA = new Set<Point>();
+      setA.add(p1);
+      setA.add(p2);
+
+      const setB = new Set<Point>();
+      setB.add(p1);
+      setB.add(p2);
+
+      expect(new PointGroup(setA)).toEqual(new PointGroup(setB));
+    });
+
+    test("Set<Point> field: structurally equal but distinct instances are not equal", () => {
+      const setA = new Set<Point>();
+      setA.add(new Point(1, 2));
+
+      const setB = new Set<Point>();
+      setB.add(new Point(1, 2));
+
+      expect(new PointGroup(setA)).not.toEqual(new PointGroup(setB));
+    });
+  });
+
+  describe("nested type mismatch propagation", () => {
+    test("polymorphic field with same runtime types", () => {
+      const a = new ShapeWrapper("w1", new Circle("red", 5.0));
+      const b = new ShapeWrapper("w1", new Circle("red", 5.0));
+      expect(a).toEqual(b);
+    });
+
+    test("polymorphic field with different runtime types: not equal", () => {
+      const a = new ShapeWrapper("w1", new Circle("red", 5.0));
+      const b = new ShapeWrapper("w1", new Square("red", 5.0));
+      expect(a).not.toEqual(b);
+    });
+
+    test("polymorphic field with different values of same runtime type: not equal", () => {
+      const a = new ShapeWrapper("w1", new Circle("red", 5.0));
+      const b = new ShapeWrapper("w1", new Circle("red", 10.0));
+      expect(a).not.toEqual(b);
+    });
+  });
+
+  describe("circular references", () => {
+    test("non-circular linked list: same structure", () => {
+      const a = new ListNode(1, new ListNode(2, new ListNode(3)));
+      const b = new ListNode(1, new ListNode(2, new ListNode(3)));
+      expect(a).toEqual(b);
+    });
+
+    test("non-circular linked list: different value", () => {
+      const a = new ListNode(1, new ListNode(2));
+      const b = new ListNode(1, new ListNode(99));
+      expect(a).not.toEqual(b);
+    });
+
+    test("non-circular linked list: different length", () => {
+      const a = new ListNode(1, new ListNode(2, new ListNode(3)));
+      const b = new ListNode(1, new ListNode(2));
+      expect(a).not.toEqual(b);
+    });
+
+    test("non-circular linked list: null vs non-null next", () => {
+      const a = new ListNode(1);
+      const b = new ListNode(1, new ListNode(2));
+      expect(a).not.toEqual(b);
+    });
+
+    // Circular references cause infinite recursion in deep equality — no cycle detection
+    // currently exists. Additionally, the resulting stack overflow error is not caught by
+    // toThrowError() because it doesn't go through the WASM abort() handler (not yet
+    // investigated why). Both issues need to be fixed separately.
+    test.skip("circular reference causes predictable error", () => {
+      expect(() => {
+        const a = new ListNode(1);
+        a.next = a;  // circular: a → a
+
+        const b = new ListNode(1);
+        b.next = b;  // circular: b → b
+
+        expect(a).toEqual(b);
+      }).toThrowError();
+    });
+  });
+
+  describe("namespaced classes", () => {
+    test("same namespace, same values are equal", () => {
+      expect(new NS_A.Item(42)).toEqual(new NS_A.Item(42));
+    });
+
+    test("same namespace, different values are not equal", () => {
+      expect(new NS_A.Item(42)).not.toEqual(new NS_A.Item(99));
+    });
+
+    test("different namespaces with same field values are not equal", () => {
+      // NS_A.Item and NS_B.Item are distinct types despite identical structure.
+      // Runtime type IDs (rtId) distinguish them even though nameof returns "Item" for both.
+      const a = new NS_A.Item(42);
+      const b = new NS_B.Item(42);
+      expect(a).not.toEqual(b);
+    });
+  });
+
+  describe("nullable user object types", () => {
+    test("both null: nullable user objects are equal", () => {
+      const a: Point | null = null;
+      const b: Point | null = null;
+      expect(a).toEqual(b);
+    });
+
+    test("null vs non-null: not equal", () => {
+      const a: Point | null = null;
+      const b: Point | null = new Point(1, 2);
+      expect(a).not.toEqual(b);
+      expect(b).not.toEqual(a);
+    });
+
+    test("both non-null and equal", () => {
+      const a: Point | null = new Point(1, 2);
+      const b: Point | null = new Point(1, 2);
+      expect(a).toEqual(b);
+    });
+
+    test("both non-null and different", () => {
+      const a: Point | null = new Point(1, 2);
+      const b: Point | null = new Point(3, 4);
+      expect(a).not.toEqual(b);
     });
   });
 });

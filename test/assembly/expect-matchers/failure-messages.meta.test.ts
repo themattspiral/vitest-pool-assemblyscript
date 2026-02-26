@@ -1,5 +1,5 @@
 import { describe, expect, test, TestOptions } from "vitest-pool-assemblyscript/assembly";
-import { Circle, Point, Shape } from "../../assembly-src/user-class-utils";
+import { Circle, Point, Shape, Square, ShapeWrapper } from "../../assembly-src/user-class-utils";
 
 // Meta fixture: intentional matcher failures to verify CLI error output formatting.
 // Each test is expected to fail — the meta-verify tests assert on the resulting
@@ -328,6 +328,12 @@ describe("cross-type comparison", () => {
 
   test("toEqual user class type mismatch [should fail]", () => {
     expect(new Circle("red", 5.0)).toEqual(new Shape("red"));
+  });
+
+  test("toEqual nested type mismatch [should fail]", () => {
+    const a = new ShapeWrapper("w1", new Circle("red", 5.0));
+    const b = new ShapeWrapper("w1", new Square("red", 5.0));
+    expect(a).toEqual(b);
   });
 });
 
