@@ -9,6 +9,7 @@ coverage-fixtures/
 .vscode/
 tmp/
 vitest-pool-assemblyscript-*.tgz
+.vitest-meta-json-output.json
 
 # build artifacts
 build/

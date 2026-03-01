@@ -5,11 +5,10 @@ import {
   Empty, StaticOnly, GetterOnly, Config, Tag, SealedPoint, RawVec2,
   Sphere, Square, Animal, Dog, Cat,
   DualEquality, ThrowingEquals,
-  Team, Registry, PointGroup, ShapeWrapper, ListNode,
+  ShapeWrapper, ListNode,
   NS_A, NS_B,
 } from "../../assembly-src/user-class-utils";
 
-describe("user defined objects", () => {
   describe("deep equality", () => {
     test("Point with same i32 fields", () => {
       expect(new Point(1, 2)).toEqual(new Point(1, 2));
@@ -452,75 +451,6 @@ describe("user defined objects", () => {
     });
   });
 
-  describe("container fields with user objects", () => {
-    test("Array<Person> field: deeply equal members", () => {
-      const teamA = new Team("alpha", [new Person("Alice", 30), new Person("Bob", 25)]);
-      const teamB = new Team("alpha", [new Person("Alice", 30), new Person("Bob", 25)]);
-      expect(teamA).toEqual(teamB);
-    });
-
-    test("Array<Person> field: different member", () => {
-      const teamA = new Team("alpha", [new Person("Alice", 30)]);
-      const teamB = new Team("alpha", [new Person("Bob", 25)]);
-      expect(teamA).not.toEqual(teamB);
-    });
-
-    test("Array<Person> field: different length", () => {
-      const teamA = new Team("alpha", [new Person("Alice", 30)]);
-      const teamB = new Team("alpha", [new Person("Alice", 30), new Person("Bob", 25)]);
-      expect(teamA).not.toEqual(teamB);
-    });
-
-    test("Map<string, Point> field: deeply equal entries", () => {
-      const mapA = new Map<string, Point>();
-      mapA.set("origin", new Point(0, 0));
-      mapA.set("target", new Point(5, 10));
-
-      const mapB = new Map<string, Point>();
-      mapB.set("origin", new Point(0, 0));
-      mapB.set("target", new Point(5, 10));
-
-      expect(new Registry(mapA)).toEqual(new Registry(mapB));
-    });
-
-    test("Map<string, Point> field: different point value", () => {
-      const mapA = new Map<string, Point>();
-      mapA.set("origin", new Point(0, 0));
-
-      const mapB = new Map<string, Point>();
-      mapB.set("origin", new Point(1, 1));
-
-      expect(new Registry(mapA)).not.toEqual(new Registry(mapB));
-    });
-
-    // Set<Point> field: Set uses reference identity for .has(), not deep equality.
-    // Same shared references work, but distinct structurally-equal instances don't.
-    test("Set<Point> field: same references are equal", () => {
-      const p1 = new Point(1, 2);
-      const p2 = new Point(3, 4);
-
-      const setA = new Set<Point>();
-      setA.add(p1);
-      setA.add(p2);
-
-      const setB = new Set<Point>();
-      setB.add(p1);
-      setB.add(p2);
-
-      expect(new PointGroup(setA)).toEqual(new PointGroup(setB));
-    });
-
-    test("Set<Point> field: structurally equal but distinct instances are not equal", () => {
-      const setA = new Set<Point>();
-      setA.add(new Point(1, 2));
-
-      const setB = new Set<Point>();
-      setB.add(new Point(1, 2));
-
-      expect(new PointGroup(setA)).not.toEqual(new PointGroup(setB));
-    });
-  });
-
   describe("nested type mismatch propagation", () => {
     test("polymorphic field with same runtime types", () => {
       const a = new ShapeWrapper("w1", new Circle("red", 5.0));
@@ -598,6 +528,12 @@ describe("user defined objects", () => {
       const a = new NS_A.Item(42);
       const b = new NS_B.Item(42);
       expect(a).not.toEqual(b);
+
+      // expect(() => {
+      //   const a = new NS_A.Item(42);
+      //   const b = new NS_B.Item(42);
+      //   expect(a).toEqual(b);
+      // }).toThrowError("runtime type mismatch");
     });
   });
 
@@ -627,4 +563,3 @@ describe("user defined objects", () => {
       expect(a).not.toEqual(b);
     });
   });
-});

@@ -61,3 +61,59 @@ See the precision loss counterexamples in:
 
 - **Equality (`toBe`, `toEqual`)**: compared by value
 - **Inequality**: allowed — lexicographic comparison (Unicode code point order), matching AS language behavior. Nullable strings where either value is null throw an error.
+
+---
+
+## Error Type Analysis
+
+All comparison functions can produce errors via two mechanisms:
+1. **`throw`** — halts WASM execution via `abort()`, reported as `WASMRuntimeError`
+2. **`EqualityResult.TypeMismatch` return** — allows the matcher to produce an `AssertionError` with an informative suffix
+
+The distinction matters for `.not` inversion because of the execution order in `toEqual`:
+
+```
+toEqual<U>(val: U): void {
+    const result = equals(this.actual, val);         // LINE A: comparison
+    this.assertComparison(result == EqualityResult.Equal, ...);  // LINE B: assertion + .not
+}
+```
+
+`equals()` (LINE A) runs BEFORE `assertComparison()` (LINE B), where `.not` inversion lives. If `equals()` **throws** at LINE A, execution never reaches LINE B — `.not` cannot run, and the test crashes with `WASMRuntimeError` regardless of inversion. If `equals()` **returns** `TypeMismatch`, LINE B is reached, `result == Equal` evaluates to `false`, and `.not` can invert it to a pass.
+
+### Why `TypeMismatch` is a return value, not a throw
+
+User-defined class runtime type mismatches (e.g. `Shape`-typed Circle vs `Shape`-typed Square) are the one case where `.not` is a legitimate assertion: `expect(circleAsShape).not.toEqual(squareAsShape)` should pass, because they genuinely are not equal. With a throw, this assertion would crash. With a `TypeMismatch` return, `equals()` returns normally, `toEqual` evaluates `result == Equal` (false), passes that to `assertComparison`, and `.not` inverts it to a pass.
+
+All other type error cases throw, because they represent programmer mistakes where `.not` would not produce a meaningful assertion.
+
+### Throw paths by location
+
+#### `compare.ts`
+
+| # | Function | Line(s) | Condition | Reachable from | `.not` relevant? |
+|---|---|---|---|---|---|
+| 1 | `assertSameContainerGeneric` | 30 | Container rtIds differ (e.g. `Set<i32>` vs `Set<string>`) | `toEqual`/`toStrictEqual` via `arrayEquals`, `setEquals`, `mapEquals` | No — wrong generic instantiation types |
+| 2 | `identical` | 224–239 | Float/int precision loss (`sizeof(integer) >= sizeof(float)`) | `toBe`; also `toEqual`/`toStrictEqual` via `equals()` → `identical()` | No — use `toBeCloseTo` or cast to f64 |
+| 3 | `identical` | 247–248 | Catch-all: types that don't match any known category | `toBe`; also `toEqual`/`toStrictEqual` via `equals()` → `identical()` | **TODO** — currently returns `false` with a `// TODO - throw?` comment. Needs decision on whether to throw or silently return false |
+| 4 | `closeTo` | 278 | `v128` vector passed to approximate comparison | `toBeCloseTo` | No — wrong matcher for type; extract lanes instead |
+| 5 | `equals` | 349 | `isManaged<T>() != isManaged<U>()` | `toEqual`/`toStrictEqual` | No — fundamental memory layout incompatibility |
+| 6 | `equals` | 368 | Managed rtId mismatch, no `__vitest_assemblyscript_deep_equals` (non-user container/reference types) | `toEqual`/`toStrictEqual` | No — incompatible types without deep equality support |
+| 7 | `equals` | 381 | Unmanaged type name mismatch, no `__vitest_assemblyscript_deep_equals` | `toEqual`/`toStrictEqual` | No — different unmanaged types |
+| 8 | `compareInequality` | 463 | Null string with inequality operator | `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual` | No — result is undefined; use `toBeNull()` |
+| 9 | `compareInequality` | 473 | Non-string reference type (objects, arrays) | All 4 inequality matchers | No — reference types are not orderable |
+| 10 | `compareInequality` | 485–500 | Float/int precision loss (same as #2) | All 4 inequality matchers | No — same as #2 |
+| 11 | `compareInequality` | 548 | Unsupported type catch-all (e.g. vectors) | All 4 inequality matchers | No — wrong matcher for type |
+
+#### `expect.ts`
+
+| # | Function | Line(s) | Condition | Reachable from | `.not` relevant? |
+|---|---|---|---|---|---|
+| 12 | `toThrowError` | 531 | Non-function value passed to `expect()` | `toThrowError`/`toThrow` | N/A — `InvertedExpectMatcher` does not have `toThrowError` |
+
+### Return-value error paths (non-throw)
+
+| # | Function | Line(s) | Condition | Returned value | Reachable from | `.not` relevant? |
+|---|---|---|---|---|---|---|
+| 1 | `equals` | 364 | Managed user-defined class rtId mismatch (has `__vitest_assemblyscript_deep_equals`) | `EqualityResult.TypeMismatch` | `toEqual`/`toStrictEqual` | **Yes** — the only case where `.not` is legitimate |
+| 2 | `equals` | 379 | Unmanaged user-defined class name mismatch (has `__vitest_assemblyscript_deep_equals`) | `EqualityResult.TypeMismatch` | `toEqual`/`toStrictEqual` | **Yes** — same rationale as managed case |

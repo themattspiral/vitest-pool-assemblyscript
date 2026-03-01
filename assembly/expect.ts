@@ -107,6 +107,8 @@ abstract class BaseExpectMatcher<T> {
    *
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
+   * @throws When comparing fundamentally incompatible types: reference vs value type
+   * (e.g. `string` vs `i32`, unless one is null/zero), or `v128` vs non-vector type.
    *
    * @example
    * expect(1 + 1).toBe(2);
@@ -278,10 +280,13 @@ abstract class BaseExpectMatcher<T> {
    * accurately handles precision-loss edge cases.
    * 
    * Built-in object references are compared with the following deep equality rules:
-   * - `Set`: membership equality (same elements, order-independent)
+   * - `Array`, `StaticArray`, `TypedArray`: element-by-element comparison using `toEqual()` recursively
+   * - `Set`: deep element equality (same elements, order-independent) using `toEqual()`
    * - `Map`: key-by-key comparison using `toEqual()` on values
-   * - `Array`: element-by-element comparison using `toEqual()` recursively
    * - `ArrayBuffer`: byte-level content comparison
+   *
+   * Arrays and Sets support cross-type element comparison where element types are compatible
+   * (e.g. `Array<i32>` vs `Array<f64>`). Maps currently require exact generic type match.
    *
    * User object references of the same runtime type are compared using a deep field-by-field
    * comparison of all stored instance fields using `toEqual()` recursively.
@@ -303,6 +308,10 @@ abstract class BaseExpectMatcher<T> {
    *
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
+   * @throws When comparing fundamentally incompatible types: reference vs value type
+   * (e.g. `string` vs `i32`, unless one is null/zero), or `v128` vs non-vector type.
+   * @throws When comparing containers with incompatible element types (e.g. `Array<string>`
+   * vs `Array<i32>`), or precision-loss numeric combinations (e.g. `Array<f32>` vs `Array<i32>`).
    *
    * @example
    * expect([1, 2, 3]).toEqual([1, 2, 3]);
@@ -325,7 +334,7 @@ abstract class BaseExpectMatcher<T> {
    */
   toEqual<U>(val: U): void {
     const result = equals(this.actual, val);
-    const suffix = result == EqualityResult.TypeMismatch ? " (runtime type mismatch)" : "";
+    const suffix = result == EqualityResult.RuntimeTypeMismatch ? " (runtime type mismatch)" : "";
     this.assertComparison(result == EqualityResult.Equal, this.actual, val, "to deeply equal", true, true, suffix);
   }
   
@@ -346,7 +355,7 @@ abstract class BaseExpectMatcher<T> {
    */
   toStrictEqual<U>(val: U): void {
     const result = equals(this.actual, val);
-    const suffix = result == EqualityResult.TypeMismatch ? " (runtime type mismatch)" : "";
+    const suffix = result == EqualityResult.RuntimeTypeMismatch ? " (runtime type mismatch)" : "";
     this.assertComparison(result == EqualityResult.Equal, this.actual, val, "to strictly equal", true, true, suffix);
   }
 
@@ -410,7 +419,7 @@ abstract class BaseExpectMatcher<T> {
 
   /**
    * Checks that the type of the value is nullable (can hold `null`). This is a type-level
-   * check, not a value check — a bare `null` (which is `usize(0)`) is not itself a nullable type.
+   * check, not a value check - a bare `null` (which is `usize(0)`) is not itself a nullable type.
    * Use `toBeNull()` to check if a value is null.
    *
    * @example

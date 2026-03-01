@@ -63,6 +63,7 @@ import { ASNodeKind } from '../types/constants.js';
  * - onMethodDeclaration: Called when visiting a method declaration
  * - onVariableDeclaration: Called when visiting a variable declaration
  * - onClassEnter/onClassExit: Called when entering/exiting a class
+ * - onNamespaceEnter/onNamespaceExit: Called when entering/exiting a namespace
  */
 export abstract class ASTVisitor {
   /**
@@ -79,6 +80,18 @@ export abstract class ASTVisitor {
    * Override to perform pre-visit tasks (e.g., stripping decorators).
    */
   protected beforeVisit(_node: Node): void {}
+
+  /**
+   * Hook called when entering a namespace declaration.
+   * Override to track namespace context.
+   */
+  protected onNamespaceEnter(_node: NamespaceDeclaration): void {}
+
+  /**
+   * Hook called when exiting a namespace declaration.
+   * Override to restore namespace context.
+   */
+  protected onNamespaceExit(_node: NamespaceDeclaration): void {}
 
   /**
    * Hook called when entering a class declaration.
@@ -378,7 +391,9 @@ export abstract class ASTVisitor {
       }
       case ASNodeKind.NamespaceDeclaration: {
         const decl = node as NamespaceDeclaration;
+        this.onNamespaceEnter(decl);
         for (const member of decl.members) this.visitNode(member);
+        this.onNamespaceExit(decl);
         break;
       }
       case ASNodeKind.VariableDeclaration: {

@@ -30,6 +30,8 @@ export const ASSEMBLYSCRIPT_LIB_PREFIX = '~lib/' as const;
 
 export const INTERNAL_PATH_LIB_PREFIX: string = `${ASSEMBLYSCRIPT_LIB_PREFIX}vitest-pool-assemblyscript/assembly/` as const;
 
+export const INTERNAL_FUNCTION_NAME_SUBSTRING = '__vitest_assemblyscript_' as const;
+
 /** Paths instrumentation exclusions and assetion error stack frame filtering */
 export const POOL_INTERNAL_PATHS: string[] = [
   // AS compiler source maps these as relative paths when running locally

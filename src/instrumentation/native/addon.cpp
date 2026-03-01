@@ -213,7 +213,12 @@ bool startsWith(const std::string& str, const std::string& prefix) {
 /**
  * Check if a function should be instrumented for coverage
  */
-bool shouldInstrumentFunction(Function* func, std::string& excludedLibraryFilePrefix, std::string& excludedLibraryFileOverridePrefix) {
+bool shouldInstrumentFunction(
+  Function* func,
+  std::string& excludedLibraryFilePrefix,
+  std::string& excludedLibraryFileOverridePrefix,
+  std::string& excludedInternalFunctionSubstring
+) {
   const std::string& name = func->name.toString();
 
   // Skip functions without a body
@@ -228,6 +233,14 @@ bool shouldInstrumentFunction(Function* func, std::string& excludedLibraryFilePr
   if (func->module.size() > 0) {
     if (DEBUG) {
       std::cout << LOG_PREFIX << " -   Skip Reason: Imported from \"" << func->module.toString() << "\"" << std::endl;
+    }
+    return false;
+  }
+
+  // Skip Internal function (synthetic / injected by a transform)
+  if (name.find(excludedInternalFunctionSubstring) != std::string::npos) {
+    if (DEBUG) {
+      std::cout << LOG_PREFIX << " -   Skip Reason: Internal-only function" << std::endl;
     }
     return false;
   }
@@ -254,7 +267,7 @@ bool shouldInstrumentFunction(Function* func, std::string& excludedLibraryFilePr
     return false;
   }
 
-  // Compiler-generated entry point
+  // Skip Compiler-generated entry point
   if (name.compare("~start") == 0) {
     if (DEBUG) {
       std::cout << LOG_PREFIX << " -   Skip Reason: Module entry point" << std::endl;
@@ -423,6 +436,8 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     std::unordered_set<std::string> excludedFiles;
     std::string excludedLibraryFilePrefix;
     std::string excludedLibraryFileOverridePrefix = "";
+    std::string excludedInternalFunctionSubstring = "";
+
     // 1 page = 64KB / 4bytes (32bits) each = 16384 counters
     uint32_t coverageMemoryPagesMin = 1;
     // 4 pages = 256KB / 4bytes (32bits) each = 65536 counters
@@ -490,6 +505,17 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         
         if (DEBUG) {
           std::cout << LOG_PREFIX << " - OPTIONS - Excluded Library File Override Prefix: \"" << excludedLibraryFileOverridePrefix << "\"" << std::endl;
+        }
+      }
+    }
+    
+    if (options.Has("excludedInternalFunctionSubstring")) {
+      Napi::Value internalFunctionSubstringProperty = options.Get("excludedInternalFunctionSubstring");
+      if (internalFunctionSubstringProperty.IsString()) {
+        excludedInternalFunctionSubstring = internalFunctionSubstringProperty.As<Napi::String>().Utf8Value();
+        
+        if (DEBUG) {
+          std::cout << LOG_PREFIX << " - OPTIONS - Excluded Internal Function Name Substring: \"" << excludedLibraryFileOverridePrefix << "\"" << std::endl;
         }
       }
     }
@@ -575,7 +601,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       }
 
       // Check if this function should be instrumented
-      if (!shouldInstrumentFunction(func, excludedLibraryFilePrefix, excludedLibraryFileOverridePrefix)) {
+      if (!shouldInstrumentFunction(func, excludedLibraryFilePrefix, excludedLibraryFileOverridePrefix, excludedInternalFunctionSubstring)) {
         if (DEBUG) {
           std::cout << LOG_PREFIX << " -   SKIP function (quick filtered): \"" << funcName << "\"" << std::endl;
         }

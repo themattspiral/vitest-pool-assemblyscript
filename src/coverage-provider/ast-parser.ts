@@ -24,6 +24,7 @@ import {
   FunctionDeclaration,
   MethodDeclaration,
   ClassDeclaration,
+  NamespaceDeclaration,
   VariableDeclaration,
   FunctionExpression,
 } from 'assemblyscript';
@@ -44,6 +45,8 @@ class FunctionExtractorVisitor extends ASTVisitor {
   private filePath: string;
   /** Accumulated function records, keyed by start line */
   readonly functions: Record<number, ParsedSourceFunctionInfo[]> = {};
+  /** Namespace context stack (supports nested namespaces) */
+  private namespaceStack: string[] = [];
   /** Current class name (when inside a class) */
   private currentClassName: string | null = null;
 
@@ -55,10 +58,32 @@ class FunctionExtractorVisitor extends ASTVisitor {
   }
 
   /**
-   * Track class context when entering a class
+   * Track namespace context when entering a namespace.
+   * Supports nesting — push onto the stack.
+   */
+  protected onNamespaceEnter(node: NamespaceDeclaration): void {
+    this.namespaceStack.push(node.name?.text ?? 'Anonymous');
+  }
+
+  /**
+   * Restore namespace context when exiting a namespace.
+   */
+  protected onNamespaceExit(_node: NamespaceDeclaration): void {
+    this.namespaceStack.pop();
+  }
+
+  /**
+   * Track class context when entering a class.
+   * Includes namespace prefix when inside a namespace, matching binary naming convention
+   * (e.g. "NS_A.Item" for class Item inside namespace NS_A).
    */
   protected onClassEnter(node: ClassDeclaration): void {
-    this.currentClassName = node.name?.text ?? 'Anonymous';
+    const className = node.name?.text ?? 'Anonymous';
+    if (this.namespaceStack.length > 0) {
+      this.currentClassName = `${this.namespaceStack.join('.')}.${className}`;
+    } else {
+      this.currentClassName = className;
+    }
   }
 
   /**
@@ -73,7 +98,10 @@ class FunctionExtractorVisitor extends ASTVisitor {
    */
   protected onFunctionDeclaration(node: FunctionDeclaration): boolean {
     if (node.body && this.hasBodyStatements(node.body)) {
-      const shortName = node.name?.text ?? '~anonymous';
+      const funcName = node.name?.text ?? '~anonymous';
+      const shortName = this.namespaceStack.length > 0
+        ? `${this.namespaceStack.join('.')}.${funcName}`
+        : funcName;
       const qualifiedName = `${this.modulePath}/${shortName}`;
       const range = this.buildRange(node, node.name ?? null);
       this.addFunction(qualifiedName, shortName, range);

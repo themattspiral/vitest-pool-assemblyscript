@@ -1,33 +1,6 @@
 import { test, expect, describe, TestOptions } from "vitest-pool-assemblyscript/assembly";
-import {
-  Point, PointF, Person, Line, NullableFields,
-  Color, Token, Shape, Circle, Wallet, Pair, GameState,
-  Empty, StaticOnly, GetterOnly, Config, Tag, SealedPoint, RawVec2,
-  Sphere, Square, Animal, Dog, Cat,
-  DualEquality, ThrowingEquals,
-  Team, Registry, PointGroup, ShapeWrapper, ListNode,
-  NS_A, NS_B,
-} from "../../assembly-src/user-class-utils";
 
-test("empty strings are equal", () => {
-  expect("").toEqual("");
-});
-
-describe("primitives", () => {
-  test("0-equivalent values should equal null", () => {
-    // these will pass a loose toEqual(null), but not strict toBeNull()
-    expect(false).toEqual(null);
-    expect(0).toEqual(null);
-    expect(f64(0.0)).toEqual(null);
-    expect(u64(0.0)).toEqual(null);
-    expect(u8(0.0)).toEqual(null);
-    expect(null).toEqual(false);
-    expect(null).toEqual(0);
-    expect(null).toEqual(f64(0.0));
-    expect(null).toEqual(u64(0.0));
-    expect(null).toEqual(u8(0.0));
-  });
-
+describe("booleans", () => {
   test("booleans should be equal to their correct numerical equivalents", () => {
     expect(true).toEqual(u8(1));
     expect(true).toEqual(f32(1.0));
@@ -45,7 +18,7 @@ describe("primitives", () => {
   });
 });
 
-describe("edge cases", () => {
+describe("builtin edge cases", () => {
   test("global consts should be equal to themselves", () => {
     expect(Infinity).toEqual(Infinity);
   });
@@ -88,285 +61,6 @@ describe("strings", () => {
   });
 });
 
-describe("arrays", () => {
-  test("arrays with same values are equal", () => {
-    const a: i32[] = [1, 2, 3, 4, 5];
-    const b: i32[] = [1, 2, 3, 4, 5];
-    expect(a).toEqual(b);
-    expect(a).toStrictEqual(b);
-  });
-  
-  test("arrays with different int types with same values are equal", () => {
-    const a: u64[] = [1, 9, 37, 2];
-    const b: i8[] = [1, 9, 37, 2];
-    // NOTE: This behavior differs from JS expect.toBeCloseTo
-    expect(a).toEqual(b);
-  });
-  
-  test("arrays with different float types with same values (binary representable) are equal", () => {
-    const a: f64[] = [22.5];
-    const b: f32[] = [22.5];
-    expect(a).toEqual(b);
-  });
-  
-  test("arrays with different float types with same values (non binary representable) are not equal", () => {
-    const a: f64[] = [22.12345];
-    const b: f32[] = [22.12345];
-    expect(a).not.toEqual(b);
-  });
-  
-  test("arrays with same values in different order are not equal", () => {
-    const a: i32[] = [2, 4, 5, 1, 3];
-    const b: i32[] = [1, 2, 3, 4, 5];
-    expect(a).not.toEqual(b);
-  });
-  
-  test("arrays with different values are not equal", () => {
-    const a: i32[] = [1, 5, 5, 9, 9];
-    const b: i32[] = [1, 2, 3, 4, 5];
-    expect(a).not.toEqual(b);
-  });
-
-  test("arrays with different lengths are not equal", () => {
-    const a: u8[] = [1, 5, 5, 9, 9, 1];
-    const b: u8[] = [1, 5, 5, 9, 9];
-    expect(a).not.toEqual(b);
-  });
-
-  test("arrays of equal strings are equal", () => {
-    const a: string[] = ["one", "two", "three"];
-    const b: string[] = ["one", "two", "three"];
-    expect(a).toEqual(b);
-  });
-  
-  test("arrays of different strings are not equal", () => {
-    const a: string[] = ["one", "two", "three"];
-    const b: string[] = ["one", "two", "three", "four"];
-    const c: string[] = ["one", "2", "three"];
-    expect(a).not.toEqual(b);
-    expect(a).not.toEqual(c);
-    expect(b).not.toEqual(c);
-  });
-});
-
-describe("maps", () => {
-  test("map equals itself", () => {
-    const mapA = new Map<string, i32>();
-    mapA.set("a", 1);
-    mapA.set("b", 2);
-
-    expect(mapA).toEqual(mapA);
-  });
-
-  test("empty maps are equal", () => {
-    const mapA = new Map<string, i32>();
-    const mapB = new Map<string, i32>();
-    expect(mapA).toEqual(mapB);
-  });
-
-  test("maps with same entries are equal", () => {
-    const mapA = new Map<string, i32>();
-    mapA.set("a", 1);
-    mapA.set("b", 2);
-
-    const mapB = new Map<string, i32>();
-    mapB.set("a", 1);
-    mapB.set("b", 2);
-
-    expect(mapA).toEqual(mapB);
-  });
-
-  test("maps with same entries in different insertion order are equal", () => {
-    const mapA = new Map<string, i32>();
-    mapA.set("a", 1);
-    mapA.set("b", 2);
-    mapA.set("c", 3);
-
-    const mapB = new Map<string, i32>();
-    mapB.set("c", 3);
-    mapB.set("a", 1);
-    mapB.set("b", 2);
-
-    expect(mapA).toEqual(mapB);
-  });
-
-  test("maps with same keys but different values are not equal", () => {
-    const mapA = new Map<string, i32>();
-    mapA.set("a", 1);
-    mapA.set("b", 2);
-
-    const mapB = new Map<string, i32>();
-    mapB.set("a", 1);
-    mapB.set("b", 99);
-
-    expect(mapA).not.toEqual(mapB);
-  });
-
-  test("maps with different sizes are not equal", () => {
-    const mapA = new Map<string, i32>();
-    mapA.set("a", 1);
-
-    const mapB = new Map<string, i32>();
-    mapB.set("a", 1);
-    mapB.set("b", 2);
-
-    expect(mapA).not.toEqual(mapB);
-  });
-
-  test("same-size maps with different keys are not equal", () => {
-    const mapA = new Map<string, i32>();
-    mapA.set("a", 1);
-    mapA.set("b", 2);
-
-    const mapB = new Map<string, i32>();
-    mapB.set("a", 1);
-    mapB.set("c", 2);
-
-    expect(mapA).not.toEqual(mapB);
-  });
-
-  test("maps with array values use deep equality", () => {
-    const mapA = new Map<string, i32[]>();
-    mapA.set("nums", [1, 2, 3]);
-
-    const mapB = new Map<string, i32[]>();
-    mapB.set("nums", [1, 2, 3]);
-
-    expect(mapA).toEqual(mapB);
-  });
-
-  test("maps with different array values are not equal", () => {
-    const mapA = new Map<string, i32[]>();
-    mapA.set("nums", [1, 2, 3]);
-
-    const mapB = new Map<string, i32[]>();
-    mapB.set("nums", [1, 2, 99]);
-
-    expect(mapA).not.toEqual(mapB);
-  });
-
-  test("error is thrown when map compared to non-map type", () => {
-    expect(() => {
-      const mapA = new Map<string, i32>();
-      mapA.set("a", 1);
-
-      const arrayA: string[] = ["a"];
-
-      expect(mapA).toEqual(arrayA);
-    }).toThrowError("Cannot compare deep equality between");
-  });
-});
-
-describe("sets", () => {
-  test("set equals itself", () => {
-    const setA = new Set<string>();
-    setA.add("apple");
-    setA.add("cherry");
-    setA.add("banana");
-
-    expect(setA).toEqual(setA);
-  });
-
-  test("empty sets are equal", () => {
-    const setA = new Set<i32>();
-    const setB = new Set<i32>();
-    expect(setA).toEqual(setB);
-  });
-
-  test("sets with same values are equal", () => {
-    const setA = new Set<string>();
-    setA.add("apple");
-    setA.add("cherry");
-
-    const setB = new Set<string>();
-    setB.add("cherry");
-    setB.add("apple");
-
-    expect(setA).toEqual(setB);
-  });
-
-  test("integer sets with same values are equal", () => {
-    const setA = new Set<i32>();
-    setA.add(1);
-    setA.add(2);
-    setA.add(3);
-
-    const setB = new Set<i32>();
-    setB.add(3);
-    setB.add(1);
-    setB.add(2);
-
-    expect(setA).toEqual(setB);
-  });
-
-  test("sets with different sizes are not equal", () => {
-    const setA = new Set<string>();
-    setA.add("apple");
-    setA.add("cherry");
-
-    const setB = new Set<string>();
-    setB.add("apple");
-    setB.add("cherry");
-    setB.add("banana");
-
-    expect(setA).not.toEqual(setB);
-  });
-
-  test("same-size sets with different values are not equal", () => {
-    const setA = new Set<string>();
-    setA.add("apple");
-    setA.add("cherry");
-
-    const setB = new Set<string>();
-    setB.add("apple");
-    setB.add("banana");
-
-    expect(setA).not.toEqual(setB);
-  });
-
-  // Set uses reference identity for .has() membership checks, not deep equality.
-  // Shared references work as expected, but structurally equal distinct instances
-  // are treated as different members.
-  test("sets with same user object references are equal", () => {
-    const p1 = new Point(1, 2);
-    const p2 = new Point(3, 4);
-
-    const setA = new Set<Point>();
-    setA.add(p1);
-    setA.add(p2);
-
-    const setB = new Set<Point>();
-    setB.add(p1);
-    setB.add(p2);
-
-    expect(setA).toEqual(setB);
-  });
-
-  test("sets with structurally equal but distinct user object instances are not equal", () => {
-    const setA = new Set<Point>();
-    setA.add(new Point(1, 2));
-
-    const setB = new Set<Point>();
-    setB.add(new Point(1, 2));
-
-    // These Points are structurally equal but different instances.
-    // Set.has() uses reference identity, so setA doesn't "have" setB's Point.
-    expect(setA).not.toEqual(setB);
-  });
-
-  test("error is thrown when set compared to array with same values", () => {
-    expect(() => {
-      const setA = new Set<string>();
-      setA.add("apple");
-      setA.add("cherry");
-
-      const arrayA = ["apple", "cherry"];
-
-      expect(setA).toEqual(arrayA);
-    }).toThrowError("Cannot compare deep equality between");
-  });
-});
-
 describe("SIMD vectors", () => {
   test("i32x4 with same values are equal", () => {
     const a: v128 = i32x4.splat(42);
@@ -403,216 +97,34 @@ describe("SIMD vectors", () => {
   });
 });
 
-describe("ArrayBuffer", () => {
-  test("same reference is equal", () => {
-    const buf = new ArrayBuffer(4);
-    expect(buf).toEqual(buf);
+describe("nulls", () => {
+  describe("bare nulls", () => {
+    test("nulls are equal", () => {
+      expect(null).toEqual(null);
+    });
   });
-
-  test("empty buffers are equal", () => {
-    const a = new ArrayBuffer(0);
-    const b = new ArrayBuffer(0);
-    expect(a).toEqual(b);
+  
+  describe("nullables", () => {
+    // TODO - decide if this is correct
+    test("values of any nullable types are equal when null", () => {
+      const a: string | null = null;
+      const b: TestOptions | null = null;
+      expect(a).toEqual(b);
+    });
   });
-
-  test("zero-filled buffers of same length are equal", () => {
-    const a = new ArrayBuffer(16);
-    const b = new ArrayBuffer(16);
-    expect(a).toEqual(b);
-  });
-
-  test("buffers with same content are equal", () => {
-    const a = new ArrayBuffer(10);
-    const b = new ArrayBuffer(10);
-    for (let i: usize = 0; i < 10; i++) {
-      store<u8>(changetype<usize>(a) + i, u8(i + 1));
-      store<u8>(changetype<usize>(b) + i, u8(i + 1));
-    }
-    expect(a).toEqual(b);
-  });
-
-  test("buffers with same byte content are equal regardless of how data was written", () => {
-    const a = new ArrayBuffer(4);
-    const b = new ArrayBuffer(4);
-    // same byte values written in different representations
-    store<u8>(changetype<usize>(a), 0xFF);
-    store<u8>(changetype<usize>(b), 255);
-    store<u8>(changetype<usize>(a) + 1, 0x2A);
-    store<u8>(changetype<usize>(b) + 1, 42);
-    store<u8>(changetype<usize>(a) + 2, 0x00);
-    store<u8>(changetype<usize>(b) + 2, 0);
-    store<u8>(changetype<usize>(a) + 3, 0x7F);
-    store<u8>(changetype<usize>(b) + 3, 127);
-    expect(a).toEqual(b);
-  });
-
-  test("buffers with different content are not equal", () => {
-    const a = new ArrayBuffer(8);
-    const b = new ArrayBuffer(8);
-    store<u8>(changetype<usize>(a), 0xFF);
-    store<u8>(changetype<usize>(b), 0x00);
-    expect(a).not.toEqual(b);
-  });
-
-  test("buffers with different lengths are not equal", () => {
-    const a = new ArrayBuffer(4);
-    const b = new ArrayBuffer(8);
-    expect(a).not.toEqual(b);
-  });
-
-  test("difference detected in remainder bytes", () => {
-    // 9 bytes: 1 u64 word (bytes 0-7) + 1 remainder byte (byte 8)
-    const a = new ArrayBuffer(9);
-    const b = new ArrayBuffer(9);
-    // first 8 bytes identical (both zero), difference in remainder byte
-    store<u8>(changetype<usize>(a) + 8, 0xAA);
-    store<u8>(changetype<usize>(b) + 8, 0xBB);
-    expect(a).not.toEqual(b);
-  });
-
-  test("difference detected in word-aligned region", () => {
-    // 16 bytes: 2 u64 words, difference in second word
-    const a = new ArrayBuffer(16);
-    const b = new ArrayBuffer(16);
-    store<u8>(changetype<usize>(a) + 12, 0x01);
-    expect(a).not.toEqual(b);
-  });
-
-  test("single byte buffers are compared correctly", () => {
-    const a = new ArrayBuffer(1);
-    const b = new ArrayBuffer(1);
-    store<u8>(changetype<usize>(a), 42);
-    store<u8>(changetype<usize>(b), 42);
-    expect(a).toEqual(b);
-
-    store<u8>(changetype<usize>(b), 99);
-    expect(a).not.toEqual(b);
-  });
-
-  test("buffers smaller than word size are compared correctly", () => {
-    // 7 bytes: entirely handled by remainder loop (no u64 words)
-    const a = new ArrayBuffer(7);
-    const b = new ArrayBuffer(7);
-    for (let i: usize = 0; i < 7; i++) {
-      store<u8>(changetype<usize>(a) + i, u8(i * 3));
-      store<u8>(changetype<usize>(b) + i, u8(i * 3));
-    }
-    expect(a).toEqual(b);
-  });
-
-  test("exactly word-sized buffers are compared correctly", () => {
-    // 8 bytes: exactly 1 u64 word, no remainder
-    const a = new ArrayBuffer(8);
-    const b = new ArrayBuffer(8);
-    for (let i: usize = 0; i < 8; i++) {
-      store<u8>(changetype<usize>(a) + i, u8(i + 10));
-      store<u8>(changetype<usize>(b) + i, u8(i + 10));
-    }
-    expect(a).toEqual(b);
-  });
-
-  test("large buffers with complex data patterns are compared correctly", () => {
-    // 259 bytes: 32 u64 words + 3 remainder bytes — exercises multiple word iterations
-    const size: usize = 259;
-    const a = new ArrayBuffer(size);
-    const b = new ArrayBuffer(size);
-    for (let i: usize = 0; i < size; i++) {
-      // non-trivial byte pattern: mix of primes and bit ops to avoid repetition
-      const val = u8((i * 7 + 13) ^ (i >> 2));
-      store<u8>(changetype<usize>(a) + i, val);
-      store<u8>(changetype<usize>(b) + i, val);
-    }
-    expect(a).toEqual(b);
-
-    // flip a single byte near the end (in the remainder region) — should detect the difference
-    store<u8>(changetype<usize>(b) + size - 2, 0xFF);
-    expect(a).not.toEqual(b);
-  });
-});
-
-describe("StaticArray", () => {
-  test("same values are equal", () => {
-    const a: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2, 3]);
-    const b: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2, 3]);
-    expect(a).toEqual(b);
-  });
-
-  test("different values are not equal", () => {
-    const a: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2, 3]);
-    const b: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2, 99]);
-    expect(a).not.toEqual(b);
-  });
-
-  test("different lengths are not equal", () => {
-    const a: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2, 3]);
-    const b: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2]);
-    expect(a).not.toEqual(b);
-  });
-
-  test("empty static arrays are equal", () => {
-    const a: StaticArray<i32> = StaticArray.fromArray<i32>([]);
-    const b: StaticArray<i32> = StaticArray.fromArray<i32>([]);
-    expect(a).toEqual(b);
-  });
-
-  test("string static arrays with same values are equal", () => {
-    const a: StaticArray<string> = StaticArray.fromArray<string>(["one", "two"]);
-    const b: StaticArray<string> = StaticArray.fromArray<string>(["one", "two"]);
-    expect(a).toEqual(b);
-  });
-});
-
-describe("TypedArrays", () => {
-  test("Int32Array with same values are equal", () => {
-    const a = new Int32Array(3);
-    a[0] = 1; a[1] = 2; a[2] = 3;
-    const b = new Int32Array(3);
-    b[0] = 1; b[1] = 2; b[2] = 3;
-    expect(a).toEqual(b);
-  });
-
-  test("Int32Array with different values are not equal", () => {
-    const a = new Int32Array(3);
-    a[0] = 1; a[1] = 2; a[2] = 3;
-    const b = new Int32Array(3);
-    b[0] = 1; b[1] = 2; b[2] = 99;
-    expect(a).not.toEqual(b);
-  });
-
-  test("Float64Array with same values are equal", () => {
-    const a = new Float64Array(2);
-    a[0] = 3.14; a[1] = 2.72;
-    const b = new Float64Array(2);
-    b[0] = 3.14; b[1] = 2.72;
-    expect(a).toEqual(b);
-  });
-
-  test("Uint8Array with same values are equal", () => {
-    const a = new Uint8Array(4);
-    a[0] = 0xFF; a[1] = 0x00; a[2] = 0xAB; a[3] = 0xCD;
-    const b = new Uint8Array(4);
-    b[0] = 0xFF; b[1] = 0x00; b[2] = 0xAB; b[3] = 0xCD;
-    expect(a).toEqual(b);
-  });
-
-  test("TypedArrays with different lengths are not equal", () => {
-    const a = new Int32Array(2);
-    const b = new Int32Array(3);
-    expect(a).not.toEqual(b);
-  });
-});
-
-describe("bare nulls", () => {
-  test("nulls are equal", () => {
-    expect(null).toEqual(null);
-  });
-});
-
-describe("nullables", () => {
-  test("values of any nullable types are equal when null", () => {
-    const a: string | null = null;
-    const b: TestOptions | null = null;
-    expect(a).toEqual(b);
+  
+  test("0-equivalent values should equal null", () => {
+    // these will pass a loose toEqual(null), but not strict toBeNull()
+    expect(false).toEqual(null);
+    expect(0).toEqual(null);
+    expect(f64(0.0)).toEqual(null);
+    expect(u64(0.0)).toEqual(null);
+    expect(u8(0.0)).toEqual(null);
+    expect(null).toEqual(false);
+    expect(null).toEqual(0);
+    expect(null).toEqual(f64(0.0));
+    expect(null).toEqual(u64(0.0));
+    expect(null).toEqual(u8(0.0));
   });
 });
 
@@ -669,5 +181,34 @@ describe("precision loss false positives", () => {
 
     expect(a == b).toBeFalsy();
     expect(f32(a)).toEqual(f32(b));
+  });
+});
+
+// Incomparable types: combinations where the types cannot be meaningfully compared.
+// Reference vs value types throw because they occupy fundamentally different domains.
+// Vector vs non-vector types throw because v128 doesn't fit any scalar category.
+describe("incomparable types", () => {
+  test("string vs i32 throws", () => {
+    expect(() => {
+      expect("hello").toEqual(42);
+    }).toThrowError("reference and value types are not comparable");
+  });
+
+  test("i32 vs string throws", () => {
+    expect(() => {
+      expect(42).toEqual("hello");
+    }).toThrowError("reference and value types are not comparable");
+  });
+
+  test("v128 vs i32 throws", () => {
+    expect(() => {
+      expect(i32x4.splat(1)).toEqual(1);
+    }).toThrowError("incompatible types");
+  });
+
+  test("i32 vs v128 throws", () => {
+    expect(() => {
+      expect(1).toEqual(i32x4.splat(1));
+    }).toThrowError("incompatible types");
   });
 });

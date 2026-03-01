@@ -7,6 +7,7 @@ import {
 
 const TOP_LEVEL_CODE = `${COV_DIR}/top-level-code.meta.ts`;
 const NAMESPACE_FUNCTIONS = `${COV_DIR}/namespace-functions.meta.ts`;
+const NAMESPACE_CLASSES = `${COV_DIR}/namespace-classes.meta.ts`;
 
 describe.runIf(COVERAGE_ENABLED)('coverage collection — module-level features', () => {
   let coverageMap: CoverageMap;
@@ -26,8 +27,8 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — module-level features'
       entry = requireEntry(coverageMap, TOP_LEVEL_CODE);
     });
 
-    test('helper called 15 times (top-level initializations + direct call across instances)', () => {
-      expect(hitCount(entry, 'helper')).toBe(15);
+    test('helper called 19 times (top-level initializations + direct call across instances)', () => {
+      expect(hitCount(entry, 'helper')).toBe(19);
     });
 
     test('readComputed called 1 time', () => {
@@ -44,9 +45,8 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — module-level features'
     });
   });
 
-  // Namespace functions use bare names (e.g. 'square', not 'MathUtils.square').
-  // The namespace prefix is stripped during instrumentation — only the function
-  // name itself appears in fnMap.
+  // Namespace functions use namespace-prefixed names (e.g. 'MathUtils.square')
+  // to match the binary naming convention and avoid ambiguity between namespaces.
   describe('namespace-functions: namespace function discovery and naming', () => {
     let entry: FileCoverage;
 
@@ -54,16 +54,16 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — module-level features'
       entry = requireEntry(coverageMap, NAMESPACE_FUNCTIONS);
     });
 
-    test('square called 1 time', () => {
-      expect(hitCount(entry, 'square')).toBe(1);
+    test('MathUtils.square called 1 time', () => {
+      expect(hitCount(entry, 'MathUtils.square')).toBe(1);
     });
 
-    test('cube called 1 time', () => {
-      expect(hitCount(entry, 'cube')).toBe(1);
+    test('MathUtils.cube called 1 time', () => {
+      expect(hitCount(entry, 'MathUtils.cube')).toBe(1);
     });
 
-    test('unused is uncovered (0 hits)', () => {
-      expect(hitCount(entry, 'unused')).toBe(0);
+    test('MathUtils.unused is uncovered (0 hits)', () => {
+      expect(hitCount(entry, 'MathUtils.unused')).toBe(0);
     });
 
     test('topLevel called 1 time', () => {
@@ -74,18 +74,55 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — module-level features'
       expect(totalFunctions(entry)).toBe(4);
     });
 
-    test('uses bare function names (not namespace-prefixed)', () => {
+    test('uses namespace-prefixed function names', () => {
       const names = allFunctionNames(entry);
       expect(names).toHaveLength(4);
-      expect(names).toContain('square');
-      expect(names).toContain('cube');
-      expect(names).toContain('unused');
+      expect(names).toContain('MathUtils.square');
+      expect(names).toContain('MathUtils.cube');
+      expect(names).toContain('MathUtils.unused');
       expect(names).toContain('topLevel');
     });
 
     test('3 covered, 1 uncovered', () => {
       expect(coveredCount(entry)).toBe(3);
       expect(uncoveredCount(entry)).toBe(1);
+    });
+  });
+
+  // Namespace classes with identical structure must be tracked independently.
+  // Each namespace's class gets its own coverage entries with namespace-prefixed names.
+  // This guards against coverage misattribution where instrumentation indices for
+  // later namespace classes exceed the coverage memory extraction bounds.
+  describe('namespace-classes: independent tracking per namespace', () => {
+    let entry: FileCoverage;
+
+    beforeAll(() => {
+      entry = requireEntry(coverageMap, NAMESPACE_CLASSES);
+    });
+
+    test('Animals.Dog#constructor called 2 times', () => {
+      expect(hitCount(entry, 'Animals.Dog#constructor')).toBe(2);
+    });
+
+    test('Animals.Dog#speak called 1 time', () => {
+      expect(hitCount(entry, 'Animals.Dog#speak')).toBe(1);
+    });
+
+    test('Robots.Dog#constructor called 2 times', () => {
+      expect(hitCount(entry, 'Robots.Dog#constructor')).toBe(2);
+    });
+
+    test('Robots.Dog#speak called 1 time', () => {
+      expect(hitCount(entry, 'Robots.Dog#speak')).toBe(1);
+    });
+
+    test('has exactly 4 functions (2 per namespace class)', () => {
+      expect(totalFunctions(entry)).toBe(4);
+    });
+
+    test('all 4 covered', () => {
+      expect(coveredCount(entry)).toBe(4);
+      expect(uncoveredCount(entry)).toBe(0);
     });
   });
 });

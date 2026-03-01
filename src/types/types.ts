@@ -236,9 +236,10 @@ export interface InstrumentationOptions {
   /** List of relative file paths to exclude from instrumentation */
   relativeExcludedFiles: string[];
   excludedLibraryFilePrefix: string;
+  excludedLibraryFileOverridePrefix?: string;
+  excludedInternalFunctionSubstring: string;
   coverageMemoryPagesMin: number;
   coverageMemoryPagesMax: number;
-  excludedLibraryFileOverridePrefix?: string;
   debug?: boolean;
 }
 

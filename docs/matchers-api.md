@@ -56,6 +56,15 @@ expect(f64(42.0)).toBe(i32(42));
 // expect(f64(42.0)).toBe(i64(42));  // Error: float precision insufficient
 ```
 
+>⚠️ Comparing fundamentally incompatible types will throw an error:
+>- Reference vs value type (e.g. `string` vs `i32`, unless one is null/zero)
+>- `v128` vs non-vector type
+>
+>```typescript
+>// expect("hello").toBe(42);        // Error: reference and value types are not comparable
+>// expect(i32x4.splat(1)).toBe(42); // Error: incompatible types
+>```
+
 #### SIMD Vector Support (`v128`)
 
 SIMD vectors use WASM's native `==` comparison like other primitives. For `v128` vectors, this compares at the bit level, so that two vectors are identical when all 128 bits match, regardless of which lane type was used to construct them (e.g. `i32x4`, `f32x4`, `f64x2`).
@@ -102,10 +111,12 @@ expect(["one", "two", "three"]).toEqual(["one", "two", "three"]);
 
 #### Built-In Reference Types
 Built-in object references are compared with the following deep equality rules:
-- **`Set`**: membership equality (same elements, order-independent)
+- **`Array`**, **`StaticArray`**, **`TypedArray`** (e.g. `Int32Array`, `Float64Array`): element-by-element comparison using `toEqual()` recursively
+- **`Set`**: deep element equality (same elements, order-independent). Each element in one set is matched against elements in the other using `toEqual()`, so distinct instances that are deeply equal are considered matching
 - **`Map`**: key-by-key comparison using `toEqual()` on values
-- **`Array`**: element-by-element comparison using `toEqual()` recursively
 - **`ArrayBuffer`**: byte-level content comparison
+
+**Cross-type element comparison:** Arrays and Sets support cross-type element comparison where the element types are compatible. For example, `Array<i32>` vs `Array<f64>` and `Set<i32>` vs `Set<f64>` will compare elements correctly because `toEqual()` handles cross-type numeric comparison per-element. Maps currently require exact generic type match.
 
 ```typescript
 // byte-level comparison
@@ -114,7 +125,16 @@ const b = new ArrayBuffer(4);
 store<u8>(changetype<usize>(a), 0x42);
 store<u8>(changetype<usize>(b), 66);  // 66 decimal == 0x42 hex
 expect(a).toEqual(b);
+
+// cross-type element comparison
+expect<Array<i32>>([1, 2, 3]).toEqual<Array<f64>>([1.0, 2.0, 3.0]);
 ```
+
+>⚠️ Comparing containers with incompatible element types (e.g. `Array<string>` vs `Array<i32>`) will throw an error at the element level, as will precision-loss numeric combinations (e.g. `Array<f32>` vs `Array<i32>`).
+>
+>⚠️ Comparing fundamentally incompatible types will throw an error, the same as with `toBe()`:
+>- Reference vs value type (e.g. `string` vs `i32`, unless one is null/zero)
+>- `v128` vs non-vector type
 
 #### User-Defined Reference Types
 User object references of the same runtime type use a deep field-by-field comparison of all stored instance fields using `toEqual()` recursively:
@@ -143,7 +163,7 @@ expect(p1).toEqual(p2);
 
 // respects custom equality semantics defined in @operator("==") or .equals()
 const c1 = new Color(255, 0, 0, "red");
-const c2 = new new Color(255, 0, 0, "scarlet");
+const c2 = new Color(255, 0, 0, "scarlet");
 expect(c1).toEqual(c2);
 ```
 
@@ -210,7 +230,7 @@ expect(false).not.toBeNull();
 ```
 
 ### `toBeNullable()`
-Checks that the type of the value is nullable (can hold `null`). This is a type-level check, not a value check — use `toBeNull()` to check if a value *is* null.
+Checks that the type of the value is nullable (can hold `null`). This is a type-level check, not a value check - use `toBeNull()` to check if a value *is* null.
 
 ```typescript
 const val: string | null = null;

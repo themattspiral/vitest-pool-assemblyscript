@@ -57,7 +57,7 @@ export default defineConfig({
             debugCoverageExtract: false,
             wasmImportsFactory: 'test/helpers/create-user-imports.js',
             extraCompilerFlags: ['--enable', 'simd'],
-            _instrumentPoolInternals: false,
+            _instrumentPoolInternals: true,
           }),
         }
       })

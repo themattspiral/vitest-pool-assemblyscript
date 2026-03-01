@@ -282,3 +282,32 @@ describe("edge cases", () => {
     expect(F32.NaN).not.toBe(F64.NaN);
   });
 });
+
+// Incomparable types: combinations where the types cannot be meaningfully compared.
+// Reference vs value types throw because they occupy fundamentally different domains.
+// Vector vs non-vector types throw because v128 doesn't fit any scalar category.
+describe("incomparable types", () => {
+  test("string vs i32 throws", () => {
+    expect(() => {
+      expect("hello").toBe(42);
+    }).toThrowError("reference and value types are not comparable");
+  });
+
+  test("i32 vs string throws", () => {
+    expect(() => {
+      expect(42).toBe("hello");
+    }).toThrowError("reference and value types are not comparable");
+  });
+
+  test("v128 vs i32 throws", () => {
+    expect(() => {
+      expect(i32x4.splat(1)).toBe(1);
+    }).toThrowError("incompatible types");
+  });
+
+  test("i32 vs v128 throws", () => {
+    expect(() => {
+      expect(1).toBe(i32x4.splat(1));
+    }).toThrowError("incompatible types");
+  });
+});

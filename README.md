@@ -264,7 +264,7 @@ The overall goal is tight vitest experience integration - most CLI commands, rep
 
 **Q: Is this an official vitest project?**
 <br/>
-**A:** No, this is a third-party community project. It's not affiliated with or endorsed by the vitest team, though we're grateful for their extensible architecture that makes projects like this possible, and the [other open-source projects](#prior-work) that provide vital functionality and reference architecture.
+**A:** No, this is a third-party, community project. It's not affiliated with the Vitest team or VoidZero directly, though we're grateful for their open-source code and intentionally extensible architecture which make projects like this possible, and to the [other open-source projects](#prior-work) that provide vital functionality and reference architecture.
 
 **Q: Are you a company? A bot?**
 <br/>

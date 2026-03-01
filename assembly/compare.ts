@@ -15,7 +15,22 @@ const MANAGED_OBJECT_RTID_BYTE_OFFSET: usize = 8;
 export enum EqualityResult {
   Equal,
   NotEqual,
-  TypeMismatch,
+  RuntimeTypeMismatch,
+}
+
+/**
+ * Validates that two container references are the same generic instantiation by comparing
+ * their runtime type IDs from the AS managed object header. Throws if they differ
+ * (e.g. Set<i32> vs Set<string>, Map<i32, string> vs Map<string, i32>).
+ */
+function assertSameContainerGeneric<T, U>(actual: T, expected: U): void {
+  const actualRtId = load<u32>(changetype<usize>(actual) - MANAGED_OBJECT_RTID_BYTE_OFFSET);
+  const expectedRtId = load<u32>(changetype<usize>(expected) - MANAGED_OBJECT_RTID_BYTE_OFFSET);
+  if (actualRtId != expectedRtId) {
+    throw new Error("Cannot compare deep equality between containers with the specified generic types: "
+      + nameof<T>(actual) + " and " + nameof<U>(expected)
+    );
+  }
 }
 
 function arrayEquals<T extends ArrayLike<unknown>, U extends ArrayLike<unknown>>(actual: T, expected: U): EqualityResult {
@@ -39,15 +54,69 @@ function setEquals<T, U>(actual: T, expected: U): EqualityResult {
       return EqualityResult.NotEqual;
     }
 
+    const actualValues = actual.values();
     const expectedValues = expected.values();
 
+    // Track which actual elements have been matched to prevent double-counting.
+    // Without this, two expected elements could both match the same actual element.
+    const matched = new Array<bool>(actualValues.length);
+    for (let i = 0; i < matched.length; i++) {
+      matched[i] = false;
+    }
+
     for (let i = 0; i < expectedValues.length; i++) {
-      if (!actual.has(expectedValues[i])) {
+      let found = false;
+      for (let j = 0; j < actualValues.length; j++) {
+        if (!matched[j] && equals(expectedValues[i], actualValues[j]) == EqualityResult.Equal) {
+          matched[j] = true;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
         return EqualityResult.NotEqual;
       }
     }
 
     return EqualityResult.Equal;
+  }
+
+  return EqualityResult.NotEqual;
+}
+
+function mapEquals<T, U>(actual: T, expected: U): EqualityResult {
+  if (actual instanceof Map && expected instanceof Map) {
+    assertSameContainerGeneric(actual, expected);
+
+    const castActual = changetype<U>(actual);
+
+    if (actual.size != expected.size) {
+      return EqualityResult.NotEqual;
+    }
+
+    // Map check needed again after the generic cast
+    if (castActual instanceof Map) {
+      const expectedKeys = expected.keys();
+
+      for (let i = 0; i < expectedKeys.length; i++) {
+        const key = expectedKeys[i];
+
+        if (!castActual.has(key)) {
+          return EqualityResult.NotEqual;
+        }
+
+        const result = equals(castActual.get(key), expected.get(key));
+        if (result != EqualityResult.Equal) {
+          // should only ever return NotEqual, since type match asserted above
+          return result;
+        }
+      }
+
+      return EqualityResult.Equal;
+    } else {
+      // will never happen
+      unreachable();
+    }
   }
 
   return EqualityResult.NotEqual;
@@ -85,33 +154,6 @@ function arrayBufferEquals<T, U>(actual: T, expected: U): EqualityResult {
   return EqualityResult.Equal;
 }
 
-function mapEquals<T, U>(actual: T, expected: U): EqualityResult {
-  if (actual instanceof Map && expected instanceof Map) {
-    if (actual.size != expected.size) {
-      return EqualityResult.NotEqual;
-    }
-
-    const expectedKeys = expected.keys();
-
-    for (let i = 0; i < expectedKeys.length; i++) {
-      const key = expectedKeys[i];
-
-      if (!actual.has(key)) {
-        return EqualityResult.NotEqual;
-      }
-
-      const result = equals(actual.get(key), expected.get(key));
-      if (result != EqualityResult.Equal) {
-        return result;
-      }
-    }
-
-    return EqualityResult.Equal;
-  }
-
-  return EqualityResult.NotEqual;
-}
-
 /**
  * Generic primitive / reference equality comparison. Assumes comparable primitive types
  * (or same reference type) for provided values.
@@ -140,12 +182,26 @@ export function identical<T, U>(actual: T, expected: U): bool {
       // object refs
       return changetype<usize>(actual) == changetype<usize>(expected);
     }
-  } else if (isReference<T>() && !isReference<U>()) { 
-    // actual is null ref, expected bare null
-    return changetype<usize>(actual) == usize(0) && expected == usize(0);
-  } else if (!isReference<T>() && isReference<U>()) { 
-    // actual is bare null, expected is null ref
-    return actual == usize(0) && changetype<usize>(expected) == usize(0);
+  } else if (isReference<T>() && !isReference<U>()) {
+    // Both null/zero: null reference matches bare null (usize(0))
+    if (changetype<usize>(actual) == 0 && expected == usize(0)) {
+      return true;
+    }
+    // Non-null reference vs value type: fundamentally incomparable
+    throw new Error(
+      "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+      + ": reference and value types are not comparable."
+    );
+  } else if (!isReference<T>() && isReference<U>()) {
+    // Both null/zero: bare null (usize(0)) matches null reference
+    if (actual == usize(0) && changetype<usize>(expected) == 0) {
+      return true;
+    }
+    // Value type vs non-null reference: fundamentally incomparable
+    throw new Error(
+      "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+      + ": reference and value types are not comparable."
+    );
   } else { // both primitives
     if ( (isBoolean<T>() && !isBoolean<U>()) || (!isBoolean<T>() && isBoolean<U>())
     ) {
@@ -192,12 +248,17 @@ export function identical<T, U>(actual: T, expected: U): bool {
           );
         }
       }
+
+      // if we got here, cast to f64 is safe without precision loss - cast to compare
       return f64(actual) === f64(expected);
     } else if (isVector<T>() && isVector<U>()) {
       return <v128>actual == <v128>expected;
     } else {
-      return false;
-    } 
+      throw new Error(
+        "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+        + ": incompatible types."
+      );
+    }
   }
 }
 
@@ -311,10 +372,23 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
       // @ts-ignore
       if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
         // User-defined classes: return TypeMismatch so the matcher can produce an
-        // informative assertion failure message instead of an opaque error
-        return EqualityResult.TypeMismatch;
+        // informative assertion failure message instead of an opaque error.
+        //
+        // We return here instead of throwing to support `.not.toEqual()` for
+        // polymorphic runtime type mismatches — e.g. a Shape-typed Circle vs
+        // Shape-typed Square, where asserting "not equal" is valid, not a
+        // programmer error. In `toEqual`, `equals()` is called BEFORE
+        // `assertComparison()`. If `equals()` throws, execution never reaches
+        // `assertComparison`, so `.not` inversion cannot run and the test
+        // crashes. By returning TypeMismatch, `toEqual` evaluates
+        // `result == EqualityResult.Equal` (false), passes that to
+        // `assertComparison`, and `.not` can invert it to a pass.
+        return EqualityResult.RuntimeTypeMismatch;
       }
-      // Non-user-defined types (containers, etc.): incompatible comparison is an error
+
+      // Non-user-defined managed types with mismatched rtIds: cross-container comparisons
+      // (e.g. Map vs Set, Array vs Map) that fell through the instanceof checks above
+      // (which require both operands to be the same container type), or stdlib types
       throw new Error("Cannot compare deep equality between " + nameof<T>(actual)
         + " and " + nameof<U>(expected)
       );
@@ -326,8 +400,12 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
     if (nameof<T>() != nameof<U>()) {
       // @ts-ignore
       if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
-        return EqualityResult.TypeMismatch;
+        // see both-managed case above: same reasoning here, just behind a different type check
+        return EqualityResult.RuntimeTypeMismatch;
       }
+
+      // see both-managed case above: handle potential mismatched type fallthrough
+      // for unmanaged stdlib / container type mismatches
       throw new Error("Cannot compare deep equality between " + nameof<T>(actual)
         + " and " + nameof<U>(expected)
       );
