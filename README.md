@@ -65,16 +65,16 @@
 
 ## Status
 
-This project is relatively new to the scene, but is stable and is being improved every day. Please give it a try!
+While relatively young, this project is stable and is being improved every day.
 
-All [listed features](#features) are working and assumed to be bug-free ([please report any](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new)).
+All [listed features](#features) are working, tested, and assumed to be bug-free.
 
 | Item | Status |
 |---|---|
 | [`describe()` and `test()` APIs](#writing-tests) | - stable<br/>- no breaking changes expected |
 | [`expect()` API](docs/matchers-api.md) | - stable<br/>- no breaking changes expected<br/>- more matchers coming soon |
 | Code Coverage / Instrumentation | - function coverage stable [across platforms](#compatibility)<br/>- branch & line coverage coming soon |
-| Hybrid Coverage Provider | - stable<br/>- v8 JS delegation, side-by-side JS coverage<br/>- istanbul JS delegation coming soon
+| Hybrid Coverage Provider | - stable<br/>- v8 JS delegation, side-by-side JS coverage<br/>- JS delegation to istanbul provider coming soon
 
 See Also:
 - [Current Limitations & Roadmap](#current-limitations--roadmap)
@@ -160,15 +160,14 @@ npx vitest run
 - Use familiar `vitest` commands, CLI spec and test filtering, watch mode
 - Works with Vitest UI, reporters, and coverage tools
 - Project (workspace) config allows coexisting AssemblyScript pools and JavaScript pools
-- Hybrid Coverage Provider unifies test reports from multiple pools (delegating to v8 for JS/TS coverage)
-- Coverage reporting using any vitest reporter (`html`, `lcov`, `json`, etc)
-- Dual vitest 3.x / 4.x support
+- Hybrid Coverage Provider unifies test reports (`html`, `lcov`, `json`, etc) from multiple pools (delegates to v8 provider for JS coverage)
+- Supports vitest 3.x and 4.x
 
 ### Per-Test WASM Isolation
-- Each AssemblyScript test file is compiled to a WASM binary once
-- Each test case runs in a fresh WASM instance (reusing the compiled binary)
+- Each AssemblyScript test **file** is compiled to a WASM binary
+- Each AssemblyScript test **case** runs in a fresh WASM instance (reusing the compiled binary)
 - One crashing test doesn't kill the rest within the same suite
-- `toThrowError()` matcher can be used to catch and expect specific errors (which trap and abort)
+- `toThrowError()` matcher can catch and expect specific errors (which trap and abort)
 
 ### Familiar Developer Experience
 - Suite and test definition using `describe()` and `test()` in AssemblyScript

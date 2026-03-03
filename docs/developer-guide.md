@@ -18,12 +18,12 @@ This guide is for contributors and maintainers working on `vitest-pool-assemblys
 
 If you're new to the codebase, this reading order will help you build a mental model of how the pool works:
 
-1. **Entry point**: [`src/pool/pool-runner-init.ts`](../src/pool/pool-runner-init.ts) — `createAssemblyScriptPool()` factory. This is what vitest calls to create the pool.
-2. **Orchestration**: [`src/pool/pool-worker.ts`](../src/pool/pool-worker.ts) — `AssemblyScriptPoolWorker`. Manages file dispatch, timeout enforcement, and thread pool lifecycle.
-3. **Compilation**: [`src/pool-thread/runner/compile-runner.ts`](../src/pool-thread/runner/compile-runner.ts) — `runCompileAndDiscover()`. Compiles AS to WASM and discovers tests.
-4. **Test execution**: [`src/pool-thread/runner/test-runner.ts`](../src/pool-thread/runner/test-runner.ts) — `runSuite()` and `runTest()`. Runs tests and reports results via RPC.
-5. **WASM executor**: [`src/wasm-executor/index.ts`](../src/wasm-executor/index.ts) — `executeWASMDiscovery()` and `executeWASMTest()`. Creates WASM instances and manages the JS↔WASM boundary.
-6. **Error handling**: [`src/wasm-executor/wasm-errors.ts`](../src/wasm-executor/wasm-errors.ts) — `enhanceTestError()`. Source-maps WASM errors back to AssemblyScript source.
+1. **Entry point**: [`src/pool/pool-runner-init.ts`](../src/pool/pool-runner-init.ts) - `createAssemblyScriptPool()` factory. This is what vitest calls to create the pool.
+2. **Orchestration**: [`src/pool/pool-worker.ts`](../src/pool/pool-worker.ts) - `AssemblyScriptPoolWorker`. Manages file dispatch, timeout enforcement, and thread pool lifecycle.
+3. **Compilation**: [`src/pool-thread/runner/compile-runner.ts`](../src/pool-thread/runner/compile-runner.ts) - `runCompileAndDiscover()`. Compiles AS to WASM and discovers tests.
+4. **Test execution**: [`src/pool-thread/runner/test-runner.ts`](../src/pool-thread/runner/test-runner.ts) - `runSuite()` and `runTest()`. Runs tests and reports results via RPC.
+5. **WASM executor**: [`src/wasm-executor/index.ts`](../src/wasm-executor/index.ts) - `executeWASMDiscovery()` and `executeWASMTest()`. Creates WASM instances and manages the JS↔WASM boundary.
+6. **Error handling**: [`src/wasm-executor/wasm-errors.ts`](../src/wasm-executor/wasm-errors.ts) - `enhanceTestError()`. Source-maps WASM errors back to AssemblyScript source.
 7. **Coverage**: [`src/instrumentation/`](../src/instrumentation/) (native addon, debug extraction, instrumentation) → [`src/coverage-provider/`](../src/coverage-provider/) (hybrid provider, containment matching, Istanbul conversion). See [Coverage Architecture](coverage-architecture.md).
 
 For architecture details, see [Pool Architecture](pool-architecture.md) and [Coverage Architecture](coverage-architecture.md).
@@ -101,51 +101,44 @@ Build+test shortcut commands are available - see [DX Command Reference](#dx-comm
 
 Understanding the pool's configuration options is important for development and testing. The [Configuration Guide](configuration-guide.md) documents all supported options:
 
-- [AssemblyScript Pool Options](configuration-guide.md#assemblyscript-pool-options) — pool-specific settings (compiler flags, memory sizing, debug options, etc.)
-- [Supported Vitest Config Options](configuration-guide.md#supported-vitest-config-options) — which standard vitest options are supported
-- [Config Templates](configuration-guide.md#config-templates) — example configurations for v3 and v4
+- [AssemblyScript Pool Options](configuration-guide.md#assemblyscript-pool-options) - pool-specific settings (compiler flags, memory sizing, debug options, etc.)
+- [Supported Vitest Config Options](configuration-guide.md#supported-vitest-config-options) - which standard vitest options are supported
+- [Config Templates](configuration-guide.md#config-templates) - example configurations for v3 and v4
 
 ---
 
 ## Testing
 
-### Running Tests
+### Test Organization - Local vs External
 
-The primary development feedback loop is local tests:
+#### Local Tests
 
-```bash
-npm test          # Run all local tests (passing + meta output verification)
-npm run ptest     # Run local "passing" tests only (shortcut)
-npm run cptest    # Build + passing tests (shortcut)
-npm run tcptest   # Type check + build + passing tests (shortcut)
-```
-
-### Test Organization
-
-#### Local vs External Testing
-
-**Local tests** run the pool "locally" against bundled/transpiled TypeScript in `dist/`, using vitest's project configuration. This is the primary development feedback loop during development:
+**Local tests** run the pool against bundled/transpiled TypeScript in `dist/`, using vitest's project configuration. This is the primary development feedback loop during development:
 
 ```bash
 npm test          # Run all local tests (passing + meta output verification)
 npm run ptest     # Run local passing tests only (shortcut)
-npm run mtest     # Run local meta tests (shortcut)
 npm run mvtest    # Run local meta output verification (shortcut)
+
+npm run mtest     # Run local meta tests for debugging (shortcut)
 ```
 
 **Why we run against compiled output:** The pool's TypeScript source must be compiled to JavaScript before tests can run. This isn't a limitation we can easily work around with `tsx`, `ts-node`, or Node's native type stripping, because three separate parts of the pool load compiled JavaScript outside of Vite's transform pipeline:
 
-1. **Pool entry point** — The vitest config imports the pool via its package name (`vitest-pool-assemblyscript/config`), which resolves through the package.json `exports` map to `dist/`
-2. **Worker threads** — The pool spawns compile and test workers using [Tinypool](https://github.com/tinylibs/tinypool) (Node [Worker threads](https://nodejs.org/docs/latest-v24.x/api/worker_threads.html)), which requires resolved JavaScript file paths. These workers run in plain Node, not through Vite.
-3. **Compiler transform** — The [AssemblyScript compiler](https://www.assemblyscript.org/compiler.html#transforms) loads a `--transform` module by path via dynamic `import()`, which also needs to be compiled JavaScript.
+1. **Pool entry point** - The vitest config imports the pool via its package name (`vitest-pool-assemblyscript/config`), which resolves through the package.json `exports` map to `dist/`
+2. **Worker threads** - The pool spawns compile and test workers using [Tinypool](https://github.com/tinylibs/tinypool) (Node [Worker threads](https://nodejs.org/docs/latest-v24.x/api/worker_threads.html)), which requires resolved JavaScript file paths. These workers run in plain Node, not through Vite.
+3. **Compiler transform** - The [AssemblyScript compiler](https://www.assemblyscript.org/compiler.html#transforms) loads a `--transform` module by path via dynamic `import()`, which also needs to be compiled JavaScript.
 
 As such, when you make changes to pool source code (not just tests), you should build before running tests. We have shortcuts for this:
 
 ```bash
 npm run cptest     # Build + Run local passing tests only (shortcut)
-npm run cmtest     # Build + Run local meta tests (shortcut)
 npm run cmvtest    # Build + Run local meta output verification (shortcut)
+
+npm run cmtest     # Build + Run local meta tests for debugging (shortcut)
 ```
+
+#### External Tests
 
 **External tests** validate the published package by running against an `npm pack`-ed and installed tarball. The [`scripts/setup-test-external.js`](../scripts/setup-test-external.js) script:
 1. Cleans the sibling directory `../vitest-pool-assemblyscript-test-external/`
@@ -157,13 +150,14 @@ This validates that dist output, package.json exports, entry points, prebuilt bi
 
 ```bash
 npm run eptest    # External passing tests (setup + run - shortcut)
-npm run emtest    # External meta tests (setup + run - shortcut)
 npm run emvtest   # External meta output verification (setup + run - shortcut)
+
+npm run emtest    # External meta tests for debugging (setup + run - shortcut)
 ```
 
-#### Standard Tests vs Meta Tests
+### Test Category - Standard vs Meta
 
-**Standard tests** (`.test.ts` files in `test/assembly/`) are expected to pass 100% of the time. They validate pool features (matchers, test options, coverage collection, suites) and enforce coverage thresholds. Their AssemblyScript source lives in `test/assembly-src/*.ts`.
+**Standard tests** (`.test.ts` files in `test/assembly/`) are expected to pass 100% of the time, as a normal test suite would be. They validate pool features (matchers, test options, coverage collection, suites) and enforce coverage thresholds. Their AssemblyScript source lives in `test/assembly-src/*.ts`.
 
 **Meta tests** are designed to fail, timeout, produce errors, or otherwise exercise vitest behavior. They verify that the pool handles error scenarios correctly: failed assertions produce proper diffs, timeouts trigger with correct behavior, compilation errors are reported cleanly, retry logic works, etc. The meta suite includes both AS tests (`.meta.test.ts` files in `test/assembly/`, with source in `test/assembly-src/*.meta.ts`) and JS/TS tests (`test/js-example-meta/`, with source in `test/js-example-meta-src/`) for hybrid coverage verification. AS meta sources are excluded from coverage thresholds.
 
@@ -176,21 +170,21 @@ The meta test system needs to verify *how* tests fail, not just *that* they fail
 3. Verification tests load the pre-computed results via shared helpers in [`test/meta-verify/helpers/shared.ts`](../test/meta-verify/helpers/shared.ts):
    - **JSON output** is loaded directly for structured assertions (test status, counts, hierarchy)
    - **CLI output** is stripped of ANSI codes once and parsed into pre-indexed maps: error blocks keyed by full test path (from FAIL headers), and coverage table rows keyed by directory-qualified path. Lookups are O(1) map gets with uniqueness validation.
-   - **`TEST_FILE_PREFIX`** adjusts error block lookup keys for the run context — in external context, vitest reports file paths with a `../vitest-pool-assemblyscript/` prefix since it runs from a sibling directory
+   - **`TEST_FILE_PREFIX`** adjusts error block lookup keys for the run context - in external context, vitest reports file paths with a `../vitest-pool-assemblyscript/` prefix since it runs from a sibling directory
 4. Coverage verification tests additionally read `coverage-final.json` from the coverage output directory (path derived from `cwd` in the results file)
 5. The globalSetup teardown cleans up `.meta-verify-results.json` when the verification run completes
 
 The `RUN_CONTEXT` environment variable (set via `cross-env` in the npm scripts) determines which verification context is used:
-- **`local`** (default) — runs the meta suite against local `dist/` output
-- **`external`** — runs the meta suite against the installed package in `../vitest-pool-assemblyscript-test-external/`, with coverage enabled
-- **`external_no_coverage`** — same as `external` but with coverage disabled (for Node 20 or missing native build)
+- **`local`** (default) - runs the meta suite against local `dist/` output
+- **`external`** - runs the meta suite against the installed package in `../vitest-pool-assemblyscript-test-external/`, with coverage enabled
+- **`external_no_coverage`** - same as `external` but with coverage disabled (for Node 20 or missing native build)
 
 `RUN_CONTEXT` also drives the `COVERAGE_ENABLED` and `TEST_FILE_PREFIX` constants exported from `shared.ts`, which verification tests use to conditionally run coverage assertions and construct correct lookup keys.
 
 Verification tests live in `test/meta-verify/` and are organized by category:
-- [`test/meta-verify/test-options.test.ts`](../test/meta-verify/test-options.test.ts) — test option behavior (skip, only, fails, retry) via JSON output
-- [`test/meta-verify/expect-matchers/`](../test/meta-verify/expect-matchers/) — matcher failure messages scoped to individual error blocks via CLI output
-- [`test/meta-verify/coverage-collection/`](../test/meta-verify/coverage-collection/) — coverage collection assertions, split by scenario type (basic, edge, structure, inheritance, modules, reexports, locations, execution, summary)
+- [`test/meta-verify/test-options.test.ts`](../test/meta-verify/test-options.test.ts) - test option behavior (skip, only, fails, retry) via JSON output
+- [`test/meta-verify/expect-matchers/`](../test/meta-verify/expect-matchers/) - matcher failure messages scoped to individual error blocks via CLI output
+- [`test/meta-verify/coverage-collection/`](../test/meta-verify/coverage-collection/) - coverage collection assertions, split by scenario type (basic, edge, structure, inheritance, modules, reexports, locations, execution, summary)
 
 [`scripts/run-vitest-external.js`](../scripts/run-vitest-external.js) supports two modes:
 - **Interactive mode**: stdio inherited, output streams directly to terminal (used by npm scripts like `mtest` and `eptest` for manual runs)
@@ -210,29 +204,31 @@ Verification tests live in `test/meta-verify/` and are organized by category:
 
 | Shortcut | Command | Function |
 |----------|---------|-------------|
-| `npm test` | — | Run all local tests (passing + meta output verification) |
+| `npm test` | - | Run all local tests (v4 only, passing + meta output verification) |
 | `npm run ptest` | `npm run test:pass` | Run local passing tests |
 | `npm run mtest` | `npm run test:meta` | Run local meta tests |
 | `npm run mvtest` | `npm run test:meta:verify` | Run local meta output verification |
-| — | `npm run test:ext:setup` | Prepare external test directory |
-| `npm run eptest` | `npm run test:ext:pass` | External passing tests (setup + run) |
-| — | `npm run test:ext:pass:no-cov` | External passing tests without coverage - Used by CI for Node 20 runs |
-| `npm run emtest` | `npm run test:ext:meta` | External meta tests (setup + run) |
-| `npm run emvtest` | `npm run test:ext:meta:verify` | External meta output verification (setup + run) |
-| — | `npm run test:ext:meta:verify:no-cov` | External meta output verification without coverage - Used by CI for Node 20 runs |
+| - | `npm run test:ext:setup` | Prepare external test directory (v4) |
+| `npm run eptest` | `npm run test:ext:pass` | Run external passing tests (setup + run) |
+| - | `npm run test:ext:pass:no-cov` | Run external passing tests without coverage - used by CI for Node 20 runs |
+| `npm run emtest` | `npm run test:ext:meta` | Run external meta tests (setup + run) |
+| `npm run emvtest` | `npm run test:ext:meta:verify` | Run external meta output verification (setup + run) |
+| - | `npm run test:ext:meta:verify:no-cov` | Run external meta output verification without coverage - used by CI for Node 20 runs |
+| - | `npm run test:ext:setup:v3` | Prepare external test directory (v3) |
+| `npm run ep3test` | `npm run test:ext:setup:v3 && npm run test:ext:pass` | Run external v3 passing tests (setup + run) |
+| `npm run em3test` | `npm run test:ext:setup:v3 && npm run test:ext:meta` | Run external v3 meta tests (setup + run) |
+| `npm run emv3test` | `npm run test:ext:setup:v3 && npm run test:ext:meta:verify` | Run external v3 meta output verification (setup + run) |
+| `npm run eetest` | `npm run aetest && npm run ae3test` | Run all external tests (v4 + v3, passing + meta output verification) |
 | `npm run tcptest` | `npm run tc && npm run build && npm run ptest` | Type check + build + passing tests |
-| `npm run cptest` | `npm run build && npm run ptest` | Build + passing tests |
-| `npm run cmtest` | `npm run build && npm run mtest` | Build + meta tests |
-| `npm run cmvtest` | `npm run build && npm run mvtest` | Build + meta output verification |
-| `npm run ceptest` | `npm run build && npm run eptest` | Build + external passing tests |
-| `npm run cemtest` | `npm run build && npm run emtest` | Build + external meta tests |
-| `npm run cemvtest` | `npm run build && npm run emvtest` | Build + external meta output verification |
+| `npm run cptest` | `npm run build && npm run ptest` | Build + local passing tests |
+| `npm run cmtest` | `npm run build && npm run mtest` | Build + local meta tests |
+| `npm run cmvtest` | `npm run build && npm run mvtest` | Build + local meta output verification |
 
 **Key source files:**
-- [`scripts/run-vitest-external.js`](../scripts/run-vitest-external.js) — vitest runner (interactive + capture modes)
-- [`scripts/setup-test-external.js`](../scripts/setup-test-external.js) — external test directory setup
-- [`test/meta-verify/helpers/global-setup-capture-meta-run.ts`](../test/meta-verify/helpers/global-setup-capture-meta-run.ts) — runs meta suite once, writes results for verification tests
-- [`test/meta-verify/helpers/shared.ts`](../test/meta-verify/helpers/shared.ts) — shared types, CLI output parsing, and lookup helpers for all verification tests
+- [`scripts/run-vitest-external.js`](../scripts/run-vitest-external.js) - vitest runner (interactive + capture modes)
+- [`scripts/setup-test-external.js`](../scripts/setup-test-external.js) - external test directory setup
+- [`test/meta-verify/helpers/global-setup-capture-meta-run.ts`](../test/meta-verify/helpers/global-setup-capture-meta-run.ts) - runs meta suite once, writes results for verification tests
+- [`test/meta-verify/helpers/shared.ts`](../test/meta-verify/helpers/shared.ts) - shared types, CLI output parsing, and lookup helpers for all verification tests
 
 ---
 
