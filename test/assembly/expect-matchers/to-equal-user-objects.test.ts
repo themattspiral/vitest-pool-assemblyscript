@@ -9,6 +9,61 @@ import {
   NS_A, NS_B,
 } from "../../assembly-src/user-class-utils";
 
+// Helpers for composite object tests — at module level because AS doesn't support closures.
+// Each "different X" test calls defaultGameState() and overrides the field under test.
+function defaultInventory(): Map<string, i32> {
+  const m = new Map<string, i32>();
+  m.set("sword", 1);
+  m.set("potion", 5);
+  return m;
+}
+function defaultTags(): Set<string> {
+  const s = new Set<string>();
+  s.add("warrior");
+  s.add("guild-member");
+  return s;
+}
+function defaultRawScores(): Int32Array {
+  const a = new Int32Array(3);
+  a[0] = 100; a[1] = 200; a[2] = 300;
+  return a;
+}
+function defaultLandmarks(): Map<string, Point> {
+  const m = new Map<string, Point>();
+  m.set("spawn", new Point(0, 0));
+  m.set("boss", new Point(99, 99));
+  return m;
+}
+function defaultVisited(): Set<Point> {
+  const s = new Set<Point>();
+  s.add(new Point(1, 1));
+  s.add(new Point(2, 2));
+  return s;
+}
+function defaultBuf(): ArrayBuffer {
+  const b = new ArrayBuffer(4);
+  store<u8>(changetype<usize>(b), 0xAB);
+  store<u8>(changetype<usize>(b) + 1, 0xCD);
+  return b;
+}
+function defaultGameState(): GameState {
+  return new GameState(
+    3, 1500.5, true, "Hero",
+    new Point(10, 20),
+    new Point(50, 50),
+    defaultInventory(),
+    defaultTags(),
+    [10, 20, 30],
+    StaticArray.fromArray<f64>([1.5, 2.5]),
+    defaultRawScores(),
+    [new Point(1, 2), new Point(3, 4)],
+    defaultLandmarks(),
+    defaultVisited(),
+    i32x4(1, 0, 0, 0),
+    defaultBuf(),
+  );
+}
+
   describe("deep equality", () => {
     test("Point with same i32 fields", () => {
       expect(new Point(1, 2)).toEqual(new Point(1, 2));
@@ -334,120 +389,140 @@ import {
 
   describe("composite object (all field types)", () => {
     test("identical composite objects are equal", () => {
-      const invA = new Map<string, i32>();
-      invA.set("sword", 1);
-      invA.set("potion", 5);
-
-      const invB = new Map<string, i32>();
-      invB.set("sword", 1);
-      invB.set("potion", 5);
-
-      const tagsA = new Set<string>();
-      tagsA.add("warrior");
-      tagsA.add("guild-member");
-
-      const tagsB = new Set<string>();
-      tagsB.add("warrior");
-      tagsB.add("guild-member");
-
-      const bufA = new ArrayBuffer(4);
-      store<u8>(changetype<usize>(bufA), 0xAB);
-      store<u8>(changetype<usize>(bufA) + 1, 0xCD);
-
-      const bufB = new ArrayBuffer(4);
-      store<u8>(changetype<usize>(bufB), 0xAB);
-      store<u8>(changetype<usize>(bufB) + 1, 0xCD);
-
-      expect(new GameState(3, 1500.5, true, "Hero", new Point(10, 20), invA, tagsA, bufA))
-        .toEqual(new GameState(3, 1500.5, true, "Hero", new Point(10, 20), invB, tagsB, bufB));
+      expect(defaultGameState()).toEqual(defaultGameState());
     });
 
     test("different i32 field", () => {
-      const inv = new Map<string, i32>();
-      const tags = new Set<string>();
-      const buf = new ArrayBuffer(0);
-
-      expect(new GameState(3, 0.0, false, "", new Point(0, 0), inv, tags, buf))
-        .not.toEqual(new GameState(4, 0.0, false, "", new Point(0, 0), inv, tags, buf));
+      const a = defaultGameState();
+      const b = defaultGameState();
+      b.level = 99;
+      expect(a).not.toEqual(b);
     });
 
     test("different f64 field", () => {
-      const inv = new Map<string, i32>();
-      const tags = new Set<string>();
-      const buf = new ArrayBuffer(0);
-
-      expect(new GameState(1, 100.0, false, "", new Point(0, 0), inv, tags, buf))
-        .not.toEqual(new GameState(1, 200.0, false, "", new Point(0, 0), inv, tags, buf));
+      const a = defaultGameState();
+      const b = defaultGameState();
+      b.score = 9999.9;
+      expect(a).not.toEqual(b);
     });
 
     test("different bool field", () => {
-      const inv = new Map<string, i32>();
-      const tags = new Set<string>();
-      const buf = new ArrayBuffer(0);
-
-      expect(new GameState(1, 0.0, true, "", new Point(0, 0), inv, tags, buf))
-        .not.toEqual(new GameState(1, 0.0, false, "", new Point(0, 0), inv, tags, buf));
+      const a = defaultGameState();
+      const b = defaultGameState();
+      b.active = false;
+      expect(a).not.toEqual(b);
     });
 
     test("different string field", () => {
-      const inv = new Map<string, i32>();
-      const tags = new Set<string>();
-      const buf = new ArrayBuffer(0);
-
-      expect(new GameState(1, 0.0, false, "Alice", new Point(0, 0), inv, tags, buf))
-        .not.toEqual(new GameState(1, 0.0, false, "Bob", new Point(0, 0), inv, tags, buf));
+      const a = defaultGameState();
+      const b = defaultGameState();
+      b.playerName = "Villain";
+      expect(a).not.toEqual(b);
     });
 
-    test("different nested user object field", () => {
-      const inv = new Map<string, i32>();
-      const tags = new Set<string>();
-      const buf = new ArrayBuffer(0);
-
-      expect(new GameState(1, 0.0, false, "", new Point(1, 2), inv, tags, buf))
-        .not.toEqual(new GameState(1, 0.0, false, "", new Point(3, 4), inv, tags, buf));
+    test("different user object field", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
+      b.position = new Point(99, 99);
+      expect(a).not.toEqual(b);
     });
 
-    test("different Map field", () => {
-      const invA = new Map<string, i32>();
-      invA.set("sword", 1);
-
-      const invB = new Map<string, i32>();
-      invB.set("sword", 2);
-
-      const tags = new Set<string>();
-      const buf = new ArrayBuffer(0);
-
-      expect(new GameState(1, 0.0, false, "", new Point(0, 0), invA, tags, buf))
-        .not.toEqual(new GameState(1, 0.0, false, "", new Point(0, 0), invB, tags, buf));
+    test("different nullable field (non-null vs different non-null)", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
+      b.target = new Point(77, 77);
+      expect(a).not.toEqual(b);
     });
 
-    test("different Set field", () => {
+    test("different nullable field (non-null vs null)", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
+      b.target = null;
+      expect(a).not.toEqual(b);
+    });
+
+    test("different Map<string, i32> field", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
       const inv = new Map<string, i32>();
+      inv.set("sword", 99);
+      b.inventory = inv;
+      expect(a).not.toEqual(b);
+    });
 
-      const tagsA = new Set<string>();
-      tagsA.add("warrior");
+    test("different Set<string> field", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
+      const tags = new Set<string>();
+      tags.add("mage");
+      b.tags = tags;
+      expect(a).not.toEqual(b);
+    });
 
-      const tagsB = new Set<string>();
-      tagsB.add("mage");
+    test("different Array<i32> field", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
+      b.scores = [10, 20, 99];
+      expect(a).not.toEqual(b);
+    });
 
-      const buf = new ArrayBuffer(0);
+    test("different StaticArray<f64> field", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
+      b.fixedRatios = StaticArray.fromArray<f64>([1.5, 9.9]);
+      expect(a).not.toEqual(b);
+    });
 
-      expect(new GameState(1, 0.0, false, "", new Point(0, 0), inv, tagsA, buf))
-        .not.toEqual(new GameState(1, 0.0, false, "", new Point(0, 0), inv, tagsB, buf));
+    test("different Int32Array field", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
+      const raw = new Int32Array(3);
+      raw[0] = 100; raw[1] = 200; raw[2] = 999;
+      b.rawScores = raw;
+      expect(a).not.toEqual(b);
+    });
+
+    test("different Array<Point> field", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
+      b.waypoints = [new Point(1, 2), new Point(99, 99)];
+      expect(a).not.toEqual(b);
+    });
+
+    test("different Map<string, Point> field", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
+      const lm = new Map<string, Point>();
+      lm.set("spawn", new Point(0, 0));
+      lm.set("boss", new Point(1, 1));
+      b.landmarks = lm;
+      expect(a).not.toEqual(b);
+    });
+
+    test("different Set<Point> field", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
+      const v = new Set<Point>();
+      v.add(new Point(8, 8));
+      v.add(new Point(9, 9));
+      b.visited = v;
+      expect(a).not.toEqual(b);
+    });
+
+    test("different v128 field", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
+      b.direction = i32x4(9, 9, 9, 9);
+      expect(a).not.toEqual(b);
     });
 
     test("different ArrayBuffer field", () => {
-      const inv = new Map<string, i32>();
-      const tags = new Set<string>();
-
-      const bufA = new ArrayBuffer(2);
-      store<u8>(changetype<usize>(bufA), 0xFF);
-
-      const bufB = new ArrayBuffer(2);
-      store<u8>(changetype<usize>(bufB), 0x00);
-
-      expect(new GameState(1, 0.0, false, "", new Point(0, 0), inv, tags, bufA))
-        .not.toEqual(new GameState(1, 0.0, false, "", new Point(0, 0), inv, tags, bufB));
+      const a = defaultGameState();
+      const b = defaultGameState();
+      const buf = new ArrayBuffer(4);
+      store<u8>(changetype<usize>(buf), 0xFF);
+      b.rawData = buf;
+      expect(a).not.toEqual(b);
     });
   });
 

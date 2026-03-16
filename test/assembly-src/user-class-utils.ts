@@ -148,16 +148,37 @@ export class Wallet {
   }
 }
 
-// --- Complex composite class (exercises all recursive comparison paths) ---
+// --- Complex composite class (exercises all supported toEqual field types) ---
 
 export class GameState {
+  // Primitives + string
   level: i32;
   score: f64;
   active: bool;
   playerName: string;
+
+  // User object
   position: Point;
+
+  // Nullable reference
+  target: Point | null;
+
+  // Containers with primitives/strings
   inventory: Map<string, i32>;
   tags: Set<string>;
+  scores: Array<i32>;
+  fixedRatios: StaticArray<f64>;
+  rawScores: Int32Array;
+
+  // Containers with user objects
+  waypoints: Array<Point>;
+  landmarks: Map<string, Point>;
+  visited: Set<Point>;
+
+  // SIMD vector
+  direction: v128;
+
+  // Raw bytes
   rawData: ArrayBuffer;
 
   constructor(
@@ -166,8 +187,16 @@ export class GameState {
     active: bool,
     playerName: string,
     position: Point,
+    target: Point | null,
     inventory: Map<string, i32>,
     tags: Set<string>,
+    scores: Array<i32>,
+    fixedRatios: StaticArray<f64>,
+    rawScores: Int32Array,
+    waypoints: Array<Point>,
+    landmarks: Map<string, Point>,
+    visited: Set<Point>,
+    direction: v128,
     rawData: ArrayBuffer,
   ) {
     this.level = level;
@@ -175,8 +204,16 @@ export class GameState {
     this.active = active;
     this.playerName = playerName;
     this.position = position;
+    this.target = target;
     this.inventory = inventory;
     this.tags = tags;
+    this.scores = scores;
+    this.fixedRatios = fixedRatios;
+    this.rawScores = rawScores;
+    this.waypoints = waypoints;
+    this.landmarks = landmarks;
+    this.visited = visited;
+    this.direction = direction;
     this.rawData = rawData;
   }
 }
