@@ -1,40 +1,51 @@
 import { test, expect, describe } from "vitest-pool-assemblyscript/assembly";
 
-import { Person, Shape, Circle, Square } from "../../assembly-src/user-class-utils";
+import { Point, Person, Shape, Circle, Square } from "../../assembly-src/user-class-utils";
 import { Team } from "../../assembly-src/user-class-container-utils";
 
 describe("arrays", () => {
+  test("array equals itself", () => {
+    const a: i32[] = [1, 2, 3];
+    expect(a).toEqual(a);
+  });
+
+  test("empty arrays are equal", () => {
+    const a: i32[] = [];
+    const b: i32[] = [];
+    expect(a).toEqual(b);
+  });
+
   test("arrays with same values are equal", () => {
     const a: i32[] = [1, 2, 3, 4, 5];
     const b: i32[] = [1, 2, 3, 4, 5];
     expect(a).toEqual(b);
     expect(a).toStrictEqual(b);
   });
-  
+
   test("arrays with different int types with same values are equal", () => {
     const a: u64[] = [1, 9, 37, 2];
     const b: i8[] = [1, 9, 37, 2];
     expect(a).toEqual(b);
   });
-  
+
   test("arrays with different float types with same values (binary representable) are equal", () => {
     const a: f64[] = [22.5];
     const b: f32[] = [22.5];
     expect(a).toEqual(b);
   });
-  
+
   test("arrays with different float types with same values (non binary representable) are not equal", () => {
     const a: f64[] = [22.12345];
     const b: f32[] = [22.12345];
     expect(a).not.toEqual(b);
   });
-  
+
   test("arrays with same values in different order are not equal", () => {
     const a: i32[] = [2, 4, 5, 1, 3];
     const b: i32[] = [1, 2, 3, 4, 5];
     expect(a).not.toEqual(b);
   });
-  
+
   test("arrays with different values are not equal", () => {
     const a: i32[] = [1, 5, 5, 9, 9];
     const b: i32[] = [1, 2, 3, 4, 5];
@@ -52,7 +63,7 @@ describe("arrays", () => {
     const b: string[] = ["one", "two", "three"];
     expect(a).toEqual(b);
   });
-  
+
   test("arrays of different strings are not equal", () => {
     const a: string[] = ["one", "two", "three"];
     const b: string[] = ["one", "two", "three", "four"];
@@ -60,6 +71,34 @@ describe("arrays", () => {
     expect(a).not.toEqual(b);
     expect(a).not.toEqual(c);
     expect(b).not.toEqual(c);
+  });
+
+  test("arrays with same Point references are equal", () => {
+    const p1 = new Point(1, 2);
+    const p2 = new Point(3, 4);
+    const p3 = new Point(5, 6);
+
+    const a: Array<Point> = [p1, p2, p3];
+    const b: Array<Point> = [p1, p2, p3];
+    expect(a).toEqual(b);
+  });
+
+  test("arrays with deeply equal distinct Point instances are equal", () => {
+    const a: Array<Point> = [new Point(1, 2), new Point(3, 4), new Point(5, 6)];
+    const b: Array<Point> = [new Point(1, 2), new Point(3, 4), new Point(5, 6)];
+    expect(a).toEqual(b);
+  });
+
+  test("arrays where one Point element differs are not equal", () => {
+    const a: Array<Point> = [new Point(1, 2), new Point(3, 4)];
+    const b: Array<Point> = [new Point(1, 2), new Point(99, 99)];
+    expect(a).not.toEqual(b);
+  });
+
+  test("arrays where all Point elements differ are not equal", () => {
+    const a: Array<Point> = [new Point(1, 2), new Point(3, 4)];
+    const b: Array<Point> = [new Point(5, 6), new Point(7, 8)];
+    expect(a).not.toEqual(b);
   });
 
   test("Array<Person> field: deeply equal members", () => {
@@ -79,9 +118,7 @@ describe("arrays", () => {
     const teamB = new Team("alpha", [new Person("Alice", 30), new Person("Bob", 25)]);
     expect(teamA).not.toEqual(teamB);
   });
-});
 
-describe("polymorphic array elements", () => {
   test("Array<Shape> with same runtime types are equal", () => {
     const a: Array<Shape> = [new Circle("red", 5.0), new Circle("blue", 3.0)];
     const b: Array<Shape> = [new Circle("red", 5.0), new Circle("blue", 3.0)];
@@ -93,9 +130,7 @@ describe("polymorphic array elements", () => {
     const b: Array<Shape> = [new Square("red", 5.0)];
     expect(a).not.toEqual(b);
   });
-});
 
-describe("nested containers", () => {
   test("Array<Array<i32>> with deeply equal inner arrays are equal", () => {
     const a: Array<Array<i32>> = [[1, 2], [3, 4], [5, 6]];
     const b: Array<Array<i32>> = [[1, 2], [3, 4], [5, 6]];
