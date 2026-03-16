@@ -1,6 +1,6 @@
 import { test, expect, describe } from "vitest-pool-assemblyscript/assembly";
 
-import { Person } from "../../assembly-src/user-class-utils";
+import { Person, Shape, Circle, Square } from "../../assembly-src/user-class-utils";
 import { Team } from "../../assembly-src/user-class-container-utils";
 
 describe("arrays", () => {
@@ -78,6 +78,34 @@ describe("arrays", () => {
     const teamA = new Team("alpha", [new Person("Alice", 30)]);
     const teamB = new Team("alpha", [new Person("Alice", 30), new Person("Bob", 25)]);
     expect(teamA).not.toEqual(teamB);
+  });
+});
+
+describe("polymorphic array elements", () => {
+  test("Array<Shape> with same runtime types are equal", () => {
+    const a: Array<Shape> = [new Circle("red", 5.0), new Circle("blue", 3.0)];
+    const b: Array<Shape> = [new Circle("red", 5.0), new Circle("blue", 3.0)];
+    expect(a).toEqual(b);
+  });
+
+  test("Array<Shape> with Circle vs Square elements are not equal", () => {
+    const a: Array<Shape> = [new Circle("red", 5.0)];
+    const b: Array<Shape> = [new Square("red", 5.0)];
+    expect(a).not.toEqual(b);
+  });
+});
+
+describe("nested containers", () => {
+  test("Array<Array<i32>> with deeply equal inner arrays are equal", () => {
+    const a: Array<Array<i32>> = [[1, 2], [3, 4], [5, 6]];
+    const b: Array<Array<i32>> = [[1, 2], [3, 4], [5, 6]];
+    expect(a).toEqual(b);
+  });
+
+  test("Array<Array<i32>> where one inner array differs are not equal", () => {
+    const a: Array<Array<i32>> = [[1, 2], [3, 4]];
+    const b: Array<Array<i32>> = [[1, 2], [3, 99]];
+    expect(a).not.toEqual(b);
   });
 });
 

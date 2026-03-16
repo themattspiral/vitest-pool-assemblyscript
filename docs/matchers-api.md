@@ -113,10 +113,10 @@ expect(["one", "two", "three"]).toEqual(["one", "two", "three"]);
 Built-in object references are compared with the following deep equality rules:
 - **`Array`**, **`StaticArray`**, **`TypedArray`** (e.g. `Int32Array`, `Float64Array`): element-by-element comparison using `toEqual()` recursively
 - **`Set`**: deep element equality (same elements, order-independent). Each element in one set is matched against elements in the other using `toEqual()`, so distinct instances that are deeply equal are considered matching
-- **`Map`**: key-by-key comparison using `toEqual()` on values
+- **`Map`**: key-by-key comparison using `toEqual()` on values. Key types must match exactly; value types support cross-type comparison
 - **`ArrayBuffer`**: byte-level content comparison
 
-**Cross-type element comparison:** Arrays and Sets support cross-type element comparison where the element types are compatible. For example, `Array<i32>` vs `Array<f64>` and `Set<i32>` vs `Set<f64>` will compare elements correctly because `toEqual()` handles cross-type numeric comparison per-element. Maps currently require exact generic type match.
+**Cross-type element comparison:** Arrays, Sets, and Maps support cross-type comparison where the element/value types are compatible. For example, `Array<i32>` vs `Array<f64>`, `Set<i32>` vs `Set<f64>`, and `Map<string, i32>` vs `Map<string, f64>` will compare correctly because `toEqual()` handles cross-type numeric comparison per-element. For Maps, key types must match exactly - only value types can differ.
 
 ```typescript
 // byte-level comparison

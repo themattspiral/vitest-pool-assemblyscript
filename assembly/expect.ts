@@ -282,11 +282,13 @@ abstract class BaseExpectMatcher<T> {
    * Built-in object references are compared with the following deep equality rules:
    * - `Array`, `StaticArray`, `TypedArray`: element-by-element comparison using `toEqual()` recursively
    * - `Set`: deep element equality (same elements, order-independent) using `toEqual()`
-   * - `Map`: key-by-key comparison using `toEqual()` on values
+   * - `Map`: key-by-key comparison using `toEqual()` on values. Key types must match
+   *   exactly; value types support cross-type comparison
    * - `ArrayBuffer`: byte-level content comparison
    *
-   * Arrays and Sets support cross-type element comparison where element types are compatible
-   * (e.g. `Array<i32>` vs `Array<f64>`). Maps currently require exact generic type match.
+   * Arrays, Sets, and Maps support cross-type comparison where element/value types are
+   * compatible (e.g. `Array<i32>` vs `Array<f64>`, `Map<string, i32>` vs `Map<string, f64>`).
+   * For Maps, key types must match exactly - only value types can differ.
    *
    * User object references of the same runtime type are compared using a deep field-by-field
    * comparison of all stored instance fields using `toEqual()` recursively.

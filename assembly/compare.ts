@@ -18,21 +18,6 @@ export enum EqualityResult {
   RuntimeTypeMismatch,
 }
 
-/**
- * Validates that two container references are the same generic instantiation by comparing
- * their runtime type IDs from the AS managed object header. Throws if they differ
- * (e.g. Set<i32> vs Set<string>, Map<i32, string> vs Map<string, i32>).
- */
-function assertSameContainerGeneric<T, U>(actual: T, expected: U): void {
-  const actualRtId = load<u32>(changetype<usize>(actual) - MANAGED_OBJECT_RTID_BYTE_OFFSET);
-  const expectedRtId = load<u32>(changetype<usize>(expected) - MANAGED_OBJECT_RTID_BYTE_OFFSET);
-  if (actualRtId != expectedRtId) {
-    throw new Error("Cannot compare deep equality between containers with the specified generic types: "
-      + nameof<T>(actual) + " and " + nameof<U>(expected)
-    );
-  }
-}
-
 function arrayEquals<T extends ArrayLike<unknown>, U extends ArrayLike<unknown>>(actual: T, expected: U): EqualityResult {
   if (actual.length != expected.length) {
     return EqualityResult.NotEqual;
@@ -86,15 +71,26 @@ function setEquals<T, U>(actual: T, expected: U): EqualityResult {
 
 function mapEquals<T, U>(actual: T, expected: U): EqualityResult {
   if (actual instanceof Map && expected instanceof Map) {
-    assertSameContainerGeneric(actual, expected);
-
-    const castActual = changetype<U>(actual);
+    // Key types must match exactly — cross-type key comparison is not safe because
+    // .has() and .get() depend on the key's hash and equality semantics, which differ
+    // across types (e.g. string vs i32 keys have incompatible hash/lookup behavior).
+    if (nameof<indexof<T>>() != nameof<indexof<U>>()) {
+      throw new Error("Map key types must match for deep equality comparison: "
+        + nameof<T>(actual) + " and " + nameof<U>(expected)
+      );
+    }
 
     if (actual.size != expected.size) {
       return EqualityResult.NotEqual;
     }
 
-    // Map check needed again after the generic cast
+    // Cast actual to use expected's key type (verified equal above) while preserving
+    // actual's native value type. This lets us iterate expected's keys and look them
+    // up in actual, while equals() handles cross-type value comparison naturally
+    // (e.g. valueof<T>=i32 vs valueof<U>=f64).
+    const castActual = changetype<Map<indexof<U>, valueof<T>>>(actual);
+
+    // instanceof needed after changetype for the compiler to resolve Map methods
     if (castActual instanceof Map) {
       const expectedKeys = expected.keys();
 
@@ -105,16 +101,17 @@ function mapEquals<T, U>(actual: T, expected: U): EqualityResult {
           return EqualityResult.NotEqual;
         }
 
+        // Cross-type value comparison delegates to equals(), which handles
+        // compatible numeric types, incomparable types, and precision-loss cases
         const result = equals(castActual.get(key), expected.get(key));
         if (result != EqualityResult.Equal) {
-          // should only ever return NotEqual, since type match asserted above
           return result;
         }
       }
 
       return EqualityResult.Equal;
     } else {
-      // will never happen
+      // will never happen — changetype preserves the underlying Map instance
       unreachable();
     }
   }

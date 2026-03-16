@@ -1,6 +1,6 @@
 import { test, expect, describe } from "vitest-pool-assemblyscript/assembly";
 
-import { Point } from "../../assembly-src/user-class-utils";
+import { Point, Shape, Circle, Square } from "../../assembly-src/user-class-utils";
 import {
   Registry, PointGroup
 } from "../../assembly-src/user-class-container-utils";
@@ -8,8 +8,8 @@ import {
 
 // Container type safety: incompatible container element types, container-level type
 // mismatches, and precision-loss element comparisons all throw errors.
-// Arrays and Sets throw at the element level via equals()/identical().
-// Maps throw via assertSameContainerGeneric (rtId check).
+// Arrays, Sets, and Maps throw at the element/value level via equals()/identical().
+// Maps additionally throw for mismatched key types (key types must match exactly).
 // Cross-container comparisons (e.g. Set vs Array) throw via rtId mismatch in equals().
 const CONTAINER_TYPE_ERROR_SUBSTRING = "Cannot compare deep equality between";
 const INCOMPARABLE_ELEMENT_ERROR_SUBSTRING = "reference and value types are not comparable";
@@ -17,6 +17,9 @@ const INCOMPARABLE_ELEMENT_ERROR_SUBSTRING = "reference and value types are not 
 // toEqual follows the same float/integer type restrictions as toBe.
 // See to-be-mixed-numerical-types.as.test.ts for the full comparison matrix.
 const PRECISION_ERROR_SUBSTRING = "float precision is insufficient";
+
+// Map-specific: key types must match for cross-type value comparison.
+const MAP_KEY_TYPE_ERROR_SUBSTRING = "Map key types must match";
 
 describe("maps", () => {
   test("map equals itself", () => {
@@ -114,6 +117,59 @@ describe("maps", () => {
     expect(mapA).not.toEqual(mapB);
   });
 
+  test("maps with deeply equal distinct Point values are equal", () => {
+    const mapA = new Map<string, Point>();
+    mapA.set("origin", new Point(0, 0));
+    mapA.set("target", new Point(5, 10));
+    mapA.set("mid", new Point(2, 5));
+
+    const mapB = new Map<string, Point>();
+    mapB.set("origin", new Point(0, 0));
+    mapB.set("target", new Point(5, 10));
+    mapB.set("mid", new Point(2, 5));
+
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("maps with same Point references are equal", () => {
+    const p1 = new Point(1, 2);
+    const p2 = new Point(3, 4);
+
+    const mapA = new Map<string, Point>();
+    mapA.set("a", p1);
+    mapA.set("b", p2);
+
+    const mapB = new Map<string, Point>();
+    mapB.set("a", p1);
+    mapB.set("b", p2);
+
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("maps where one Point value differs are not equal", () => {
+    const mapA = new Map<string, Point>();
+    mapA.set("origin", new Point(0, 0));
+    mapA.set("target", new Point(5, 10));
+
+    const mapB = new Map<string, Point>();
+    mapB.set("origin", new Point(0, 0));
+    mapB.set("target", new Point(99, 99));
+
+    expect(mapA).not.toEqual(mapB);
+  });
+
+  test("maps where all Point values differ are not equal", () => {
+    const mapA = new Map<string, Point>();
+    mapA.set("a", new Point(1, 2));
+    mapA.set("b", new Point(3, 4));
+
+    const mapB = new Map<string, Point>();
+    mapB.set("a", new Point(5, 6));
+    mapB.set("b", new Point(7, 8));
+
+    expect(mapA).not.toEqual(mapB);
+  });
+
   test("Map<string, Point> field: deeply equal entries", () => {
     const mapA = new Map<string, Point>();
     mapA.set("origin", new Point(0, 0));
@@ -134,6 +190,72 @@ describe("maps", () => {
     mapB.set("origin", new Point(1, 1));
 
     expect(new Registry(mapA)).not.toEqual(new Registry(mapB));
+  });
+
+  test("Map<string, Shape> with same runtime type values are equal", () => {
+    const mapA = new Map<string, Shape>();
+    mapA.set("a", new Circle("red", 5.0));
+    mapA.set("b", new Circle("blue", 3.0));
+
+    const mapB = new Map<string, Shape>();
+    mapB.set("a", new Circle("red", 5.0));
+    mapB.set("b", new Circle("blue", 3.0));
+
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("Map<string, Shape> with Circle vs Square values are not equal", () => {
+    const mapA = new Map<string, Shape>();
+    mapA.set("a", new Circle("red", 5.0));
+
+    const mapB = new Map<string, Shape>();
+    mapB.set("a", new Square("red", 5.0));
+
+    expect(mapA).not.toEqual(mapB);
+  });
+
+  test("Map<string, Set<i32>> with deeply equal set values are equal", () => {
+    const setA1 = new Set<i32>();
+    setA1.add(1);
+    setA1.add(2);
+    const setA2 = new Set<i32>();
+    setA2.add(3);
+    setA2.add(4);
+
+    const mapA = new Map<string, Set<i32>>();
+    mapA.set("evens", setA1);
+    mapA.set("odds", setA2);
+
+    const setB1 = new Set<i32>();
+    setB1.add(2);
+    setB1.add(1);
+    const setB2 = new Set<i32>();
+    setB2.add(4);
+    setB2.add(3);
+
+    const mapB = new Map<string, Set<i32>>();
+    mapB.set("evens", setB1);
+    mapB.set("odds", setB2);
+
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("Map<string, Set<i32>> where one set value differs are not equal", () => {
+    const setA = new Set<i32>();
+    setA.add(1);
+    setA.add(2);
+
+    const mapA = new Map<string, Set<i32>>();
+    mapA.set("nums", setA);
+
+    const setB = new Set<i32>();
+    setB.add(1);
+    setB.add(99);
+
+    const mapB = new Map<string, Set<i32>>();
+    mapB.set("nums", setB);
+
+    expect(mapA).not.toEqual(mapB);
   });
 
   test("error is thrown when map compared to non-map type", () => {
@@ -313,6 +435,52 @@ describe("sets", () => {
     
     expect(new PointGroup(setA)).toEqual(new PointGroup(setB));
   });
+
+  test("Set<Shape> with same runtime type elements are equal", () => {
+    const setA = new Set<Shape>();
+    setA.add(new Circle("red", 5.0));
+    setA.add(new Circle("blue", 3.0));
+
+    const setB = new Set<Shape>();
+    setB.add(new Circle("blue", 3.0));
+    setB.add(new Circle("red", 5.0));
+
+    expect(setA).toEqual(setB);
+  });
+
+  test("Set<Shape> with Circle vs Square elements are not equal", () => {
+    const setA = new Set<Shape>();
+    setA.add(new Circle("red", 5.0));
+
+    const setB = new Set<Shape>();
+    setB.add(new Square("red", 5.0));
+
+    expect(setA).not.toEqual(setB);
+  });
+
+  test("Set<Array<i32>> with deeply equal inner arrays are equal", () => {
+    const setA = new Set<Array<i32>>();
+    setA.add([1, 2, 3]);
+    setA.add([4, 5, 6]);
+
+    const setB = new Set<Array<i32>>();
+    setB.add([4, 5, 6]);
+    setB.add([1, 2, 3]);
+
+    expect(setA).toEqual(setB);
+  });
+
+  test("Set<Array<i32>> where one inner array differs are not equal", () => {
+    const setA = new Set<Array<i32>>();
+    setA.add([1, 2, 3]);
+    setA.add([4, 5, 6]);
+
+    const setB = new Set<Array<i32>>();
+    setB.add([1, 2, 3]);
+    setB.add([4, 5, 99]);
+
+    expect(setA).not.toEqual(setB);
+  });
 });
 
 // Cross-type container equality: containers with compatible element types are compared
@@ -342,6 +510,30 @@ describe("cross-type container equality", () => {
     setB.add(3.0);
 
     expect(setA).toEqual(setB);
+  });
+
+  test("Map<string, i32> vs Map<string, f64> with matching values are equal", () => {
+    const mapA = new Map<string, i32>();
+    mapA.set("a", 1);
+    mapA.set("b", 2);
+    mapA.set("c", 3);
+
+    const mapB = new Map<string, f64>();
+    mapB.set("a", 1.0);
+    mapB.set("b", 2.0);
+    mapB.set("c", 3.0);
+
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("Map<string, i32> vs Map<string, f64> with different values are not equal", () => {
+    const mapA = new Map<string, i32>();
+    mapA.set("a", 1);
+
+    const mapB = new Map<string, f64>();
+    mapB.set("a", 99.0);
+
+    expect(mapA).not.toEqual(mapB);
   });
 });
 
@@ -380,24 +572,34 @@ describe("container type safety", () => {
     }).toThrowError(PRECISION_ERROR_SUBSTRING);
   });
 
-  test("Map<string, i32> vs Map<string, string> throws", () => {
+  test("Map<string, i32> vs Map<string, string> throws (incomparable value types)", () => {
     expect(() => {
       const mapA = new Map<string, i32>();
       mapA.set("x", 1);
       const mapB = new Map<string, string>();
       mapB.set("x", "one");
       expect(mapA).toEqual(mapB);
-    }).toThrowError(CONTAINER_TYPE_ERROR_SUBSTRING);
+    }).toThrowError(INCOMPARABLE_ELEMENT_ERROR_SUBSTRING);
   });
 
-  test("Map<string, i32> vs Map<i32, string> throws", () => {
+  test("Map<string, f32> vs Map<string, i32> throws (precision loss)", () => {
+    expect(() => {
+      const mapA = new Map<string, f32>();
+      mapA.set("x", 1.0);
+      const mapB = new Map<string, i32>();
+      mapB.set("x", 1);
+      expect(mapA).toEqual(mapB);
+    }).toThrowError(PRECISION_ERROR_SUBSTRING);
+  });
+
+  test("Map<string, i32> vs Map<i32, string> throws (mismatched key types)", () => {
     expect(() => {
       const mapA = new Map<string, i32>();
       mapA.set("x", 1);
       const mapB = new Map<i32, string>();
       mapB.set(1, "x");
       expect(mapA).toEqual(mapB);
-    }).toThrowError(CONTAINER_TYPE_ERROR_SUBSTRING);
+    }).toThrowError(MAP_KEY_TYPE_ERROR_SUBSTRING);
   });
 
   test("Set vs Array with same values throws", () => {
