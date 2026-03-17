@@ -63,6 +63,11 @@ describe('matcher failure message verification', () => {
       const block = requireErrorBlock(parsedCli, testPath('toBe', 'ArrayBuffer [should fail]'));
       expect(block).toContain('AssertionError: expected ArrayBuffer[8] to be ArrayBuffer[8]');
     });
+
+    test('SIMD vector failure message', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toBe', 'SIMD vector [should fail]'));
+      expect(block).toContain('AssertionError: expected v128 to be v128');
+    });
   });
 
   describe('toBeCloseTo', () => {
@@ -116,6 +121,11 @@ describe('matcher failure message verification', () => {
     test('ArrayBuffer different length failure message', () => {
       const block = requireErrorBlock(parsedCli, testPath('toEqual', 'ArrayBuffer different length [should fail]'));
       expect(block).toContain('AssertionError: expected ArrayBuffer[4] to deeply equal ArrayBuffer[8]');
+    });
+
+    test('SIMD vector failure message', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toEqual', 'SIMD vector [should fail]'));
+      expect(block).toContain('AssertionError: expected v128 to deeply equal v128');
     });
   });
 

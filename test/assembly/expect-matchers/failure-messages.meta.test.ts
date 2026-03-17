@@ -55,8 +55,8 @@ describe("toBe", () => {
     expect(a).toBe(b);
   });
 
-  test.skip("SIMD vector", () => {
-    // TODO: SIMD vector comparison
+  test("SIMD vector [should fail]", () => {
+    expect(i32x4(1, 2, 3, 4)).toBe(i32x4(1, 2, 3, 99));
   });
 });
 
@@ -124,8 +124,8 @@ describe("toEqual", () => {
     expect(a).toEqual(b);
   });
 
-  test.skip("SIMD vector", () => {
-    // TODO: SIMD vector comparison
+  test("SIMD vector [should fail]", () => {
+    expect(i32x4(1, 2, 3, 4)).toEqual(i32x4(1, 2, 3, 99));
   });
 });
 
