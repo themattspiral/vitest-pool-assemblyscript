@@ -41,17 +41,17 @@ describe('matcher failure message verification', () => {
 
     test('array failure message', () => {
       const block = requireErrorBlock(parsedCli, testPath('toBe', 'array [should fail]'));
-      expect(block).toContain('AssertionError: expected [1,2] to be [1,2]');
+      expect(block).toContain('AssertionError: expected [1,2,3] to be [1,2,3]');
     });
 
     test('map failure message', () => {
       const block = requireErrorBlock(parsedCli, testPath('toBe', 'map [should fail]'));
-      expect(block).toContain('AssertionError: expected [object Map] to be [object Map]');
+      expect(block).toContain('AssertionError: expected Map { "x" => 1, "y" => 2 } to be Map { "x" => 1, "y" => 2 }');
     });
 
     test('set failure message', () => {
       const block = requireErrorBlock(parsedCli, testPath('toBe', 'set [should fail]'));
-      expect(block).toContain('AssertionError: expected [object Set] to be [object Set]');
+      expect(block).toContain('AssertionError: expected Set { 1, 2, 3 } to be Set { 1, 2, 3 }');
     });
 
     test('user-defined object failure message', () => {
@@ -105,12 +105,12 @@ describe('matcher failure message verification', () => {
 
     test('map failure message', () => {
       const block = requireErrorBlock(parsedCli, testPath('toEqual', 'map [should fail]'));
-      expect(block).toContain('AssertionError: expected [object Map] to deeply equal [object Map]');
+      expect(block).toContain('AssertionError: expected Map { "x" => 1, "y" => 2 } to deeply equal Map { "x" => 1, "y" => 99 }');
     });
 
     test('set failure message', () => {
       const block = requireErrorBlock(parsedCli, testPath('toEqual', 'set [should fail]'));
-      expect(block).toContain('AssertionError: expected [object Set] to deeply equal [object Set]');
+      expect(block).toContain('AssertionError: expected Set { "apple", "cherry" } to deeply equal Set { "apple", "banana" }');
     });
 
     test('ArrayBuffer same length failure message', () => {

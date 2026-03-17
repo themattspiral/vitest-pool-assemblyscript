@@ -43,7 +43,8 @@ function itemMessageString<T>(item: T): string {
     if (isString<T>()) return `"${item}"`;
     else if (item instanceof ArrayBuffer) return `ArrayBuffer[${item.byteLength}]`;
     else if (isArrayLike<T>(item)) return arrayMessageString(item);
-    else if (item instanceof Set || item instanceof Map) return item.toString();
+    else if (item instanceof Set) return setMessageString(item);
+    else if (item instanceof Map) return mapMessageString(item);
     else return nameof<T>(item);
   } else if (isBoolean<T>()){
     return bool(item).toString();
@@ -70,6 +71,46 @@ function arrayMessageString<T extends ArrayLike<unknown>>(array: T): string {
   str += "]";
 
   return str;
+}
+
+function setMessageString<T>(set: T): string {
+  if (isNullable<T>(set) && set == null) {
+    return "null";
+  }
+
+  if (set instanceof Set) {
+    const values = set.values();
+    let str = "Set {";
+    for (let i = 0; i < values.length; i++) {
+      if (i > 0) str += ",";
+      str += " " + itemMessageString(values[i]);
+    }
+    if (values.length > 0) str += " ";
+    str += "}";
+    return str;
+  }
+
+  return nameof<T>(set);
+}
+
+function mapMessageString<T>(map: T): string {
+  if (isNullable<T>(map) && map == null) {
+    return "null";
+  }
+
+  if (map instanceof Map) {
+    const keys = map.keys();
+    let str = "Map {";
+    for (let i = 0; i < keys.length; i++) {
+      if (i > 0) str += ",";
+      str += " " + itemMessageString(keys[i]) + " => " + itemMessageString(map.get(keys[i]));
+    }
+    if (keys.length > 0) str += " ";
+    str += "}";
+    return str;
+  }
+
+  return nameof<T>(map);
 }
 
 /**

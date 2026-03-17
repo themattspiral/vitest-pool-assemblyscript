@@ -23,24 +23,30 @@ describe("toBe", () => {
   });
 
   test("array [should fail]", () => {
-    const a: i32[] = [1, 2];
-    const b: i32[] = [1, 2];
+    const a: i32[] = [1, 2, 3];
+    const b: i32[] = [1, 2, 3];
     expect(a).toBe(b);
   });
 
   test("map [should fail]", () => {
     const a = new Map<string, i32>();
     a.set("x", 1);
+    a.set("y", 2);
     const b = new Map<string, i32>();
     b.set("x", 1);
+    b.set("y", 2);
     expect(a).toBe(b);
   });
 
   test("set [should fail]", () => {
     const a = new Set<i32>();
     a.add(1);
+    a.add(2);
+    a.add(3);
     const b = new Set<i32>();
     b.add(1);
+    b.add(2);
+    b.add(3);
     expect(a).toBe(b);
   });
 
