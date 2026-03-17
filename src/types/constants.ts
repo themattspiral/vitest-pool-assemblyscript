@@ -40,6 +40,7 @@ export const POOL_INTERNAL_PATHS: string[] = [
   'assembly/expect.ts',
   'assembly/index.ts',
   'assembly/options.ts',
+  'assembly/stringify.ts',
   'assembly/test.ts',
 
   // AS compiler source maps these as library paths when running published version
@@ -48,6 +49,7 @@ export const POOL_INTERNAL_PATHS: string[] = [
   `${INTERNAL_PATH_LIB_PREFIX}expect.ts`,
   `${INTERNAL_PATH_LIB_PREFIX}index.ts`,
   `${INTERNAL_PATH_LIB_PREFIX}options.ts`,
+  `${INTERNAL_PATH_LIB_PREFIX}stringify.ts`,
   `${INTERNAL_PATH_LIB_PREFIX}test.ts`,
 ] as const;
 
