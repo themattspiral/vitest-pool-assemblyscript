@@ -3,6 +3,7 @@ import {
   compareInequality,
   EqualityResult,
   equals,
+  equalsRefPairsClear,
   identical,
   InequalityOperation,
   isNull,
@@ -335,6 +336,7 @@ abstract class BaseExpectMatcher<T> {
    * expect(p1).toEqual(p2);
    */
   toEqual<U>(val: U): void {
+    equalsRefPairsClear();
     const result = equals(this.actual, val);
     const suffix = result == EqualityResult.RuntimeTypeMismatch ? " (runtime type mismatch)" : "";
     this.assertComparison(result == EqualityResult.Equal, this.actual, val, "to deeply equal", true, true, suffix);
@@ -356,6 +358,7 @@ abstract class BaseExpectMatcher<T> {
    * expect(p1).toEqual(p2);
    */
   toStrictEqual<U>(val: U): void {
+    equalsRefPairsClear();
     const result = equals(this.actual, val);
     const suffix = result == EqualityResult.RuntimeTypeMismatch ? " (runtime type mismatch)" : "";
     this.assertComparison(result == EqualityResult.Equal, this.actual, val, "to strictly equal", true, true, suffix);

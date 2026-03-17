@@ -419,6 +419,16 @@ export class ListNode {
   }
 }
 
+export class TreeNode {
+  value: i32;
+  children: Array<TreeNode>;
+
+  constructor(value: i32, children: Array<TreeNode> = []) {
+    this.value = value;
+    this.children = children;
+  }
+}
+
 // --- Namespaced classes with the same name ---
 
 export namespace NS_A {

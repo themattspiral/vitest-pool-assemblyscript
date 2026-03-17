@@ -5,7 +5,7 @@ import {
   Empty, StaticOnly, GetterOnly, Config, Tag, SealedPoint, RawVec2,
   Sphere, Square, Animal, Dog, Cat,
   DualEquality, ThrowingEquals,
-  ShapeWrapper, ListNode,
+  ShapeWrapper, ListNode, TreeNode,
   NS_A, NS_B,
 } from "../../assembly-src/user-class-utils";
 
@@ -547,44 +547,72 @@ function defaultGameState(): GameState {
   });
 
   describe("circular references", () => {
-    test("non-circular linked list: same structure", () => {
-      const a = new ListNode(1, new ListNode(2, new ListNode(3)));
-      const b = new ListNode(1, new ListNode(2, new ListNode(3)));
+    test("self-referential with same values are equal", () => {
+      const a = new ListNode(1);
+      a.next = a;
+
+      const b = new ListNode(1);
+      b.next = b;
+
       expect(a).toEqual(b);
     });
 
-    test("non-circular linked list: different value", () => {
-      const a = new ListNode(1, new ListNode(2));
-      const b = new ListNode(1, new ListNode(99));
-      expect(a).not.toEqual(b);
-    });
-
-    test("non-circular linked list: different length", () => {
-      const a = new ListNode(1, new ListNode(2, new ListNode(3)));
-      const b = new ListNode(1, new ListNode(2));
-      expect(a).not.toEqual(b);
-    });
-
-    test("non-circular linked list: null vs non-null next", () => {
+    test("self-referential with different values are not equal", () => {
       const a = new ListNode(1);
-      const b = new ListNode(1, new ListNode(2));
+      a.next = a;
+
+      const b = new ListNode(99);
+      b.next = b;
+
       expect(a).not.toEqual(b);
     });
 
-    // Circular references cause infinite recursion in deep equality — no cycle detection
-    // currently exists. Additionally, the resulting stack overflow error is not caught by
-    // toThrowError() because it doesn't go through the WASM abort() handler (not yet
-    // investigated why). Both issues need to be fixed separately.
-    test.skip("circular reference causes predictable error", () => {
-      expect(() => {
-        const a = new ListNode(1);
-        a.next = a;  // circular: a → a
+    test("mutual circular reference with same values are equal", () => {
+      const a1 = new ListNode(1);
+      const a2 = new ListNode(2);
+      a1.next = a2;
+      a2.next = a1;
 
-        const b = new ListNode(1);
-        b.next = b;  // circular: b → b
+      const b1 = new ListNode(1);
+      const b2 = new ListNode(2);
+      b1.next = b2;
+      b2.next = b1;
 
-        expect(a).toEqual(b);
-      }).toThrowError();
+      expect(a1).toEqual(b1);
+    });
+
+    test("mutual circular reference with different values are not equal", () => {
+      const a1 = new ListNode(1);
+      const a2 = new ListNode(2);
+      a1.next = a2;
+      a2.next = a1;
+
+      const b1 = new ListNode(1);
+      const b2 = new ListNode(99);
+      b1.next = b2;
+      b2.next = b1;
+
+      expect(a1).not.toEqual(b1);
+    });
+
+    test("container-mediated cycle with same values are equal", () => {
+      const a = new TreeNode(1);
+      a.children.push(a);
+
+      const b = new TreeNode(1);
+      b.children.push(b);
+
+      expect(a).toEqual(b);
+    });
+
+    test("container-mediated cycle with different values are not equal", () => {
+      const a = new TreeNode(1);
+      a.children.push(a);
+
+      const b = new TreeNode(99);
+      b.children.push(b);
+
+      expect(a).not.toEqual(b);
     });
   });
 

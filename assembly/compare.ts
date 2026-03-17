@@ -6,11 +6,37 @@
 const MANAGED_OBJECT_RTID_BYTE_OFFSET: usize = 8;
 
 /**
+ * Cycle detection for deep equality comparisons. Tracks which (actual, expected) reference
+ * pairs are currently being compared to prevent infinite recursion on self-referential or
+ * mutually-referential object graphs.
+ *
+ * Pairs are packed as u64 keys: (u64(actualPtr) << 32) | u64(expectedPtr).
+ * Entries are added when a reference comparison starts and never individually removed —
+ * if a pair was previously Equal, revisiting returns Equal (correct); if NotEqual, we
+ * already returned and won't revisit. Cleared at the start of each toEqual/toStrictEqual call.
+ */
+const equalsRefPairs = new Set<u64>();
+
+function equalsRefPairSeen(actualPtr: usize, expectedPtr: usize): bool {
+  const key: u64 = (u64(actualPtr) << 32) | u64(expectedPtr);
+  return equalsRefPairs.has(key);
+}
+
+function equalsRefPairMark(actualPtr: usize, expectedPtr: usize): void {
+  const key: u64 = (u64(actualPtr) << 32) | u64(expectedPtr);
+  equalsRefPairs.add(key);
+}
+
+export function equalsRefPairsClear(): void {
+  equalsRefPairs.clear();
+}
+
+/**
  * Result of a deep equality comparison.
- * Declared @global so it is available in all source files without import —
+ * Declared global so it is available in all source files without import —
  * including transform-injected deep equality methods in user classes.
  */
-// @ts-ignore: AS-specific @global decorator
+// @ts-ignore: AS-specific global decorator
 @global
 export enum EqualityResult {
   Equal,
@@ -336,6 +362,16 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
     }
   }
 
+  // Cycle detection: if this reference pair is already being compared further up
+  // the call stack, the cycle structure matches — any field-level differences would
+  // have been caught in the non-cyclic part before reaching the cycle.
+  const actualPtr = changetype<usize>(actual);
+  const expectedPtr = changetype<usize>(expected);
+  if (equalsRefPairSeen(actualPtr, expectedPtr)) {
+    return EqualityResult.Equal;
+  }
+  equalsRefPairMark(actualPtr, expectedPtr);
+
   if (isArrayLike<T>(actual) && isArrayLike<U>(expected)) {
     return arrayEquals(actual, expected);
   }
@@ -432,7 +468,7 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
  * Global bridge for the deep-equals compiler transform.
  *
  * Injected deep equality methods in user classes call this function for per-field
- * comparisons. @global makes it available in all source files without import,
+ * comparisons. Declared global to make it available in all source files without import,
  * solving the afterParse import resolution limitation (injected import statements
  * are not processed by the AS compiler).
  *
@@ -442,7 +478,7 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
  * Loaded into the compilation transitively: user test imports
  * vitest-pool-assemblyscript/assembly → index.ts → compare.ts.
  */
-// @ts-ignore: AS-specific @global decorator
+// @ts-ignore
 @global
 function __vitest_assemblyscript_compare_equals<T, U>(actual: T, expected: U): EqualityResult {
   return equals<T, U>(actual, expected);
