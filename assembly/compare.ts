@@ -38,31 +38,31 @@ export function equalsRefPairsClear(): void {
  */
 // @ts-ignore: AS-specific global decorator
 @global
-export enum EqualityResult {
+export enum __vitest_assemblyscript_EqualityResult {
   Equal,
   NotEqual,
   RuntimeTypeMismatch,
 }
 
-function arrayEquals<T extends ArrayLike<unknown>, U extends ArrayLike<unknown>>(actual: T, expected: U): EqualityResult {
+function arrayEquals<T extends ArrayLike<unknown>, U extends ArrayLike<unknown>>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
   if (actual.length != expected.length) {
-    return EqualityResult.NotEqual;
+    return __vitest_assemblyscript_EqualityResult.NotEqual;
   }
 
   for (let i = 0; i < expected.length; i++) {
     const result = equals(actual[i], expected[i]);
-    if (result != EqualityResult.Equal) {
+    if (result != __vitest_assemblyscript_EqualityResult.Equal) {
       return result;
     }
   }
 
-  return EqualityResult.Equal;
+  return __vitest_assemblyscript_EqualityResult.Equal;
 }
 
-function setEquals<T, U>(actual: T, expected: U): EqualityResult {
+function setEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
   if (actual instanceof Set && expected instanceof Set) {
     if (actual.size != expected.size) {
-      return EqualityResult.NotEqual;
+      return __vitest_assemblyscript_EqualityResult.NotEqual;
     }
 
     const actualValues = actual.values();
@@ -78,24 +78,24 @@ function setEquals<T, U>(actual: T, expected: U): EqualityResult {
     for (let i = 0; i < expectedValues.length; i++) {
       let found = false;
       for (let j = 0; j < actualValues.length; j++) {
-        if (!matched[j] && equals(expectedValues[i], actualValues[j]) == EqualityResult.Equal) {
+        if (!matched[j] && equals(expectedValues[i], actualValues[j]) == __vitest_assemblyscript_EqualityResult.Equal) {
           matched[j] = true;
           found = true;
           break;
         }
       }
       if (!found) {
-        return EqualityResult.NotEqual;
+        return __vitest_assemblyscript_EqualityResult.NotEqual;
       }
     }
 
-    return EqualityResult.Equal;
+    return __vitest_assemblyscript_EqualityResult.Equal;
   }
 
-  return EqualityResult.NotEqual;
+  return __vitest_assemblyscript_EqualityResult.NotEqual;
 }
 
-function mapEquals<T, U>(actual: T, expected: U): EqualityResult {
+function mapEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
   if (actual instanceof Map && expected instanceof Map) {
     // Key types must match exactly — cross-type key comparison is not safe because
     // .has() and .get() depend on the key's hash and equality semantics, which differ
@@ -107,7 +107,7 @@ function mapEquals<T, U>(actual: T, expected: U): EqualityResult {
     }
 
     if (actual.size != expected.size) {
-      return EqualityResult.NotEqual;
+      return __vitest_assemblyscript_EqualityResult.NotEqual;
     }
 
     // Cast actual to use expected's key type (verified equal above) while preserving
@@ -124,34 +124,34 @@ function mapEquals<T, U>(actual: T, expected: U): EqualityResult {
         const key = expectedKeys[i];
 
         if (!castActual.has(key)) {
-          return EqualityResult.NotEqual;
+          return __vitest_assemblyscript_EqualityResult.NotEqual;
         }
 
         // Cross-type value comparison delegates to equals(), which handles
         // compatible numeric types, incomparable types, and precision-loss cases
         const result = equals(castActual.get(key), expected.get(key));
-        if (result != EqualityResult.Equal) {
+        if (result != __vitest_assemblyscript_EqualityResult.Equal) {
           return result;
         }
       }
 
-      return EqualityResult.Equal;
+      return __vitest_assemblyscript_EqualityResult.Equal;
     } else {
       // will never happen — changetype preserves the underlying Map instance
       unreachable();
     }
   }
 
-  return EqualityResult.NotEqual;
+  return __vitest_assemblyscript_EqualityResult.NotEqual;
 }
 
-function arrayBufferEquals<T, U>(actual: T, expected: U): EqualityResult {
+function arrayBufferEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
   if (!(actual instanceof ArrayBuffer) || !(expected instanceof ArrayBuffer)) {
-    return EqualityResult.NotEqual;
+    return __vitest_assemblyscript_EqualityResult.NotEqual;
   }
 
   if (actual.byteLength != expected.byteLength) {
-    return EqualityResult.NotEqual;
+    return __vitest_assemblyscript_EqualityResult.NotEqual;
   }
 
   const actualPtr = changetype<usize>(actual);
@@ -162,7 +162,7 @@ function arrayBufferEquals<T, U>(actual: T, expected: U): EqualityResult {
   // compare 8 bytes at a time (u64 word-sized comparison)
   for (let i: usize = 0; i < wordCount; i++) {
     if (load<u64>(actualPtr + i * 8) != load<u64>(expectedPtr + i * 8)) {
-      return EqualityResult.NotEqual;
+      return __vitest_assemblyscript_EqualityResult.NotEqual;
     }
   }
 
@@ -170,11 +170,11 @@ function arrayBufferEquals<T, U>(actual: T, expected: U): EqualityResult {
   const remainderOffset = wordCount * 8;
   for (let i: usize = 0; i < remainder; i++) {
     if (load<u8>(actualPtr + remainderOffset + i) != load<u8>(expectedPtr + remainderOffset + i)) {
-      return EqualityResult.NotEqual;
+      return __vitest_assemblyscript_EqualityResult.NotEqual;
     }
   }
 
-  return EqualityResult.Equal;
+  return __vitest_assemblyscript_EqualityResult.Equal;
 }
 
 /**
@@ -324,10 +324,10 @@ export function closeTo<T, U>(actual: T, expected: U, precision: i32 = 2): bool 
  * Supports primitives, strings, Arrays, Sets, Maps, ArrayBuffers, and user-defined
  * types (via compiler transform-injected deep equality method).
  *
- * Returns an EqualityResult enum to distinguish between "not equal" and "type mismatch",
+ * Returns an __vitest_assemblyscript_EqualityResult enum to distinguish between "not equal" and "type mismatch",
  * enabling matchers to produce more informative assertion failure messages.
  */
-export function equals<T, U>(actual: T, expected: U): EqualityResult {
+export function equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
   let exactMatch: bool = false;
 
   // allow boolean-to-number comparisons here
@@ -341,10 +341,10 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
 
   if (!isReference<T>() || isString<T>() || isVector<T>()) {
     // non-bool primitives or strings: return result of comparing
-    return exactMatch ? EqualityResult.Equal : EqualityResult.NotEqual;
+    return exactMatch ? __vitest_assemblyscript_EqualityResult.Equal : __vitest_assemblyscript_EqualityResult.NotEqual;
   } else if (exactMatch) {
     // primitive / reference comparison passed already
-    return EqualityResult.Equal;
+    return __vitest_assemblyscript_EqualityResult.Equal;
   }
 
   if (isNullable<T>()) {
@@ -354,11 +354,11 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
     const expectedIsNull = changetype<usize>(expected) == 0;
 
     if (actualIsNull && expectedIsNull) {
-      return EqualityResult.Equal;
+      return __vitest_assemblyscript_EqualityResult.Equal;
     }
 
     if (actualIsNull != expectedIsNull) {
-      return EqualityResult.NotEqual;
+      return __vitest_assemblyscript_EqualityResult.NotEqual;
     }
   }
 
@@ -368,7 +368,7 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
   const actualPtr = changetype<usize>(actual);
   const expectedPtr = changetype<usize>(expected);
   if (equalsRefPairSeen(actualPtr, expectedPtr)) {
-    return EqualityResult.Equal;
+    return __vitest_assemblyscript_EqualityResult.Equal;
   }
   equalsRefPairMark(actualPtr, expectedPtr);
 
@@ -414,9 +414,9 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
         // `assertComparison()`. If `equals()` throws, execution never reaches
         // `assertComparison`, so `.not` inversion cannot run and the test
         // crashes. By returning TypeMismatch, `toEqual` evaluates
-        // `result == EqualityResult.Equal` (false), passes that to
+        // `result == __vitest_assemblyscript_EqualityResult.Equal` (false), passes that to
         // `assertComparison`, and `.not` can invert it to a pass.
-        return EqualityResult.RuntimeTypeMismatch;
+        return __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
       }
 
       // Non-user-defined managed types with mismatched rtIds: cross-container comparisons
@@ -434,7 +434,7 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
       // @ts-ignore
       if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
         // see both-managed case above: same reasoning here, just behind a different type check
-        return EqualityResult.RuntimeTypeMismatch;
+        return __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
       }
 
       // see both-managed case above: handle potential mismatched type fallthrough
@@ -460,8 +460,8 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
 
   // Fall back to reference identity for types without deep equality method
   return changetype<usize>(actual) == changetype<usize>(expected)
-    ? EqualityResult.Equal
-    : EqualityResult.NotEqual;
+    ? __vitest_assemblyscript_EqualityResult.Equal
+    : __vitest_assemblyscript_EqualityResult.NotEqual;
 }
 
 /**
@@ -472,7 +472,7 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
  * solving the afterParse import resolution limitation (injected import statements
  * are not processed by the AS compiler).
  *
- * Returns EqualityResult so injected methods can propagate type mismatch information
+ * Returns __vitest_assemblyscript_EqualityResult so injected methods can propagate type mismatch information
  * from nested comparisons back to the top-level matcher.
  *
  * Loaded into the compilation transitively: user test imports
@@ -480,7 +480,7 @@ export function equals<T, U>(actual: T, expected: U): EqualityResult {
  */
 // @ts-ignore
 @global
-function __vitest_assemblyscript_compare_equals<T, U>(actual: T, expected: U): EqualityResult {
+function __vitest_assemblyscript_compare_equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
   return equals<T, U>(actual, expected);
 }
 

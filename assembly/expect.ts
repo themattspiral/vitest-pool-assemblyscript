@@ -1,7 +1,6 @@
 import {
   closeTo,
   compareInequality,
-  EqualityResult,
   equals,
   equalsRefPairsClear,
   identical,
@@ -338,8 +337,8 @@ abstract class BaseExpectMatcher<T> {
   toEqual<U>(val: U): void {
     equalsRefPairsClear();
     const result = equals(this.actual, val);
-    const suffix = result == EqualityResult.RuntimeTypeMismatch ? " (runtime type mismatch)" : "";
-    this.assertComparison(result == EqualityResult.Equal, this.actual, val, "to deeply equal", true, true, suffix);
+    const suffix = result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch ? " (runtime type mismatch)" : "";
+    this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to deeply equal", true, true, suffix);
   }
   
   /**
@@ -360,8 +359,8 @@ abstract class BaseExpectMatcher<T> {
   toStrictEqual<U>(val: U): void {
     equalsRefPairsClear();
     const result = equals(this.actual, val);
-    const suffix = result == EqualityResult.RuntimeTypeMismatch ? " (runtime type mismatch)" : "";
-    this.assertComparison(result == EqualityResult.Equal, this.actual, val, "to strictly equal", true, true, suffix);
+    const suffix = result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch ? " (runtime type mismatch)" : "";
+    this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to strictly equal", true, true, suffix);
   }
 
   /**
