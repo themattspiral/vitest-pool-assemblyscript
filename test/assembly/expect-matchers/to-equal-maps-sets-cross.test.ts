@@ -6,21 +6,6 @@ import {
 } from "../../assembly-src/user-class-container-utils";
 
 
-// Container type safety: incompatible container element types, container-level type
-// mismatches, and precision-loss element comparisons all throw errors.
-// Arrays, Sets, and Maps throw at the element/value level via equals()/identical().
-// Maps additionally throw for mismatched key types (key types must match exactly).
-// Cross-container comparisons (e.g. Set vs Array) throw via rtId mismatch in equals().
-const CONTAINER_TYPE_ERROR_SUBSTRING = "Cannot compare deep equality between";
-const INCOMPARABLE_ELEMENT_ERROR_SUBSTRING = "reference and value types are not comparable";
-
-// toEqual follows the same float/integer type restrictions as toBe.
-// See to-be-mixed-numerical-types.as.test.ts for the full comparison matrix.
-const PRECISION_ERROR_SUBSTRING = "float precision is insufficient";
-
-// Map-specific: key types must match for cross-type value comparison.
-const MAP_KEY_TYPE_ERROR_SUBSTRING = "Map key types must match";
-
 describe("maps", () => {
   test("map equals itself", () => {
     const mapA = new Map<string, i32>();
@@ -562,83 +547,5 @@ describe("cross-type container equality", () => {
     mapB.set("a", 99.0);
 
     expect(mapA).not.toEqual(mapB);
-  });
-});
-
-describe("container type safety", () => {
-  test("Array<i32> vs Array<string> throws", () => {
-    expect(() => {
-      expect([1, 2, 3]).toEqual(["a", "b", "c"]);
-    }).toThrowError(INCOMPARABLE_ELEMENT_ERROR_SUBSTRING);
-  });
-
-  test("Set<i32> vs Set<string> throws", () => {
-    expect(() => {
-      const setI32 = new Set<i32>();
-      setI32.add(1);
-      const setStr = new Set<string>();
-      setStr.add("a");
-      expect(setI32).toEqual(setStr);
-    }).toThrowError(INCOMPARABLE_ELEMENT_ERROR_SUBSTRING);
-  });
-
-  test("Map<string, i32> vs Map<string, string> throws (incomparable value types)", () => {
-    expect(() => {
-      const mapA = new Map<string, i32>();
-      mapA.set("x", 1);
-      const mapB = new Map<string, string>();
-      mapB.set("x", "one");
-      expect(mapA).toEqual(mapB);
-    }).toThrowError(INCOMPARABLE_ELEMENT_ERROR_SUBSTRING);
-  });
-
-  test("Array<f32> vs Array<i32> throws (precision loss)", () => {
-    expect(() => {
-      const a: f32[] = [1.0, 2.0];
-      const b: i32[] = [1, 2];
-      expect(a).toEqual(b);
-    }).toThrowError(PRECISION_ERROR_SUBSTRING);
-  });
-
-  test("Set<f32> vs Set<i32> throws (precision loss)", () => {
-    expect(() => {
-      const setA = new Set<f32>();
-      setA.add(1.0);
-      const setB = new Set<i32>();
-      setB.add(1);
-      expect(setA).toEqual(setB);
-    }).toThrowError(PRECISION_ERROR_SUBSTRING);
-  });
-
-  test("Map<string, f32> vs Map<string, i32> throws (precision loss)", () => {
-    expect(() => {
-      const mapA = new Map<string, f32>();
-      mapA.set("x", 1.0);
-      const mapB = new Map<string, i32>();
-      mapB.set("x", 1);
-      expect(mapA).toEqual(mapB);
-    }).toThrowError(PRECISION_ERROR_SUBSTRING);
-  });
-
-  test("Map<string, i32> vs Map<i32, string> throws (mismatched key types)", () => {
-    expect(() => {
-      const mapA = new Map<string, i32>();
-      mapA.set("x", 1);
-      const mapB = new Map<i32, string>();
-      mapB.set(1, "x");
-      expect(mapA).toEqual(mapB);
-    }).toThrowError(MAP_KEY_TYPE_ERROR_SUBSTRING);
-  });
-
-  test("Set vs Array with same values throws", () => {
-    expect(() => {
-      const setA = new Set<string>();
-      setA.add("apple");
-      setA.add("cherry");
-
-      const arrayA = ["apple", "cherry"];
-
-      expect(setA).toEqual(arrayA);
-    }).toThrowError(CONTAINER_TYPE_ERROR_SUBSTRING);
   });
 });

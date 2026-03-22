@@ -1,3 +1,5 @@
+import { isNull, nan, itemMessageString } from './utils';
+
 /**
  * Byte offset from an object pointer to the rtId field in the AS managed object header.
  * Every managed object has a 20-byte header preceding the payload; rtId is a u32 at offset -8.
@@ -32,6 +34,47 @@ export function equalsRefPairsClear(): void {
 }
 
 /**
+ * Comparison path tracking for deep equality. Accumulates path segments (e.g. "[0]",
+ * "['key']", "{Set}") as equals() recurses into containers, building a path like
+ * "[2].name" from root to the mismatch point.
+ *
+ * Uses push/pop discipline: pop only on Equal, return-without-pop on non-Equal.
+ * As non-Equal propagates up the call stack, the path naturally accumulates to the
+ * deepest mismatch point. Cleared at the start of each toEqual/toStrictEqual call.
+ */
+const equalsPath: string[] = [];
+
+function equalsPathPush(segment: string): void {
+  equalsPath.push(segment);
+}
+
+function equalsPathPop(): void {
+  equalsPath.pop();
+}
+
+export function equalsPathString(): string {
+  let result = "";
+  for (let i = 0; i < equalsPath.length; i++) {
+    result += equalsPath[i];
+  }
+  return result;
+}
+
+export function equalsPathClear(): void {
+  equalsPath.length = 0;
+}
+
+/** Returns " at <path>" or " within <path>" if the path is non-empty, otherwise empty string. */
+function equalsPathAtSuffix(): string {
+  const path = equalsPathString();
+  if (path == "") return "";
+  // Set comparisons use "within" instead of "at" because set elements have no
+  // meaningful identifier — "within Set" reads naturally, "at Set" does not.
+  if (path == "Set") return " within " + path;
+  return " at " + path;
+}
+
+/**
  * Result of a deep equality comparison.
  * Declared global so it is available in all source files without import —
  * including transform-injected deep equality methods in user classes.
@@ -50,10 +93,12 @@ function arrayEquals<T extends ArrayLike<unknown>, U extends ArrayLike<unknown>>
   }
 
   for (let i = 0; i < expected.length; i++) {
+    equalsPathPush("index [" + i.toString() + "]");
     const result = equals(actual[i], expected[i]);
     if (result != __vitest_assemblyscript_EqualityResult.Equal) {
       return result;
     }
+    equalsPathPop();
   }
 
   return __vitest_assemblyscript_EqualityResult.Equal;
@@ -61,7 +106,15 @@ function arrayEquals<T extends ArrayLike<unknown>, U extends ArrayLike<unknown>>
 
 function setEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
   if (actual instanceof Set && expected instanceof Set) {
+    // Exception to push/pop discipline: always pop before returning, regardless of result.
+    // Set elements have no meaningful identifier (no index, no key), so "Set" is only
+    // useful as a terminal path segment — it should not compose with deeper segments
+    // from recursive comparisons inside elements. equalsPathAtSuffix() formats this
+    // as "within Set" instead of "at Set".
+    equalsPathPush("Set");
+
     if (actual.size != expected.size) {
+      equalsPathPop();
       return __vitest_assemblyscript_EqualityResult.NotEqual;
     }
 
@@ -78,17 +131,19 @@ function setEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Equali
     for (let i = 0; i < expectedValues.length; i++) {
       let found = false;
       for (let j = 0; j < actualValues.length; j++) {
-        if (!matched[j] && equals(expectedValues[i], actualValues[j]) == __vitest_assemblyscript_EqualityResult.Equal) {
+        if (!matched[j] && equals(actualValues[j], expectedValues[i]) == __vitest_assemblyscript_EqualityResult.Equal) {
           matched[j] = true;
           found = true;
           break;
         }
       }
       if (!found) {
+        equalsPathPop();
         return __vitest_assemblyscript_EqualityResult.NotEqual;
       }
     }
 
+    equalsPathPop();
     return __vitest_assemblyscript_EqualityResult.Equal;
   }
 
@@ -102,7 +157,8 @@ function mapEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Equali
     // across types (e.g. string vs i32 keys have incompatible hash/lookup behavior).
     if (nameof<indexof<T>>() != nameof<indexof<U>>()) {
       throw new Error("Map key types must match for deep equality comparison: "
-        + nameof<T>(actual) + " and " + nameof<U>(expected)
+        + nameof<T>() + " and " + nameof<U>()
+        + equalsPathAtSuffix()
       );
     }
 
@@ -122,6 +178,7 @@ function mapEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Equali
 
       for (let i = 0; i < expectedKeys.length; i++) {
         const key = expectedKeys[i];
+        equalsPathPush("key [" + itemMessageString(key) + "]");
 
         if (!castActual.has(key)) {
           return __vitest_assemblyscript_EqualityResult.NotEqual;
@@ -133,6 +190,7 @@ function mapEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Equali
         if (result != __vitest_assemblyscript_EqualityResult.Equal) {
           return result;
         }
+        equalsPathPop();
       }
 
       return __vitest_assemblyscript_EqualityResult.Equal;
@@ -213,7 +271,7 @@ export function identical<T, U>(actual: T, expected: U): bool {
     // Non-null reference vs value type: fundamentally incomparable
     throw new Error(
       "Cannot compare " + nameof<T>() + " with " + nameof<U>()
-      + ": reference and value types are not comparable."
+      + equalsPathAtSuffix() + ": reference and value types are not comparable."
     );
   } else if (!isReference<T>() && isReference<U>()) {
     // Both null/zero: bare null (usize(0)) matches null reference
@@ -223,7 +281,7 @@ export function identical<T, U>(actual: T, expected: U): bool {
     // Value type vs non-null reference: fundamentally incomparable
     throw new Error(
       "Cannot compare " + nameof<T>() + " with " + nameof<U>()
-      + ": reference and value types are not comparable."
+      + equalsPathAtSuffix() + ": reference and value types are not comparable."
     );
   } else { // both primitives
     if ( (isBoolean<T>() && !isBoolean<U>()) || (!isBoolean<T>() && isBoolean<U>())
@@ -256,6 +314,7 @@ export function identical<T, U>(actual: T, expected: U): bool {
         if (sizeof<U>() >= sizeof<T>()) {
           throw new Error(
             "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+            + equalsPathAtSuffix()
             + ": float precision is insufficient for the integer type's range."
             + " Cast both values to f64 before comparing, e.g. expect(f64(a)).toBe(f64(b))."
             + " Note: large integer values may lose precision when cast to f64, which could cause false positives."
@@ -265,6 +324,7 @@ export function identical<T, U>(actual: T, expected: U): bool {
         if (sizeof<T>() >= sizeof<U>()) {
           throw new Error(
             "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+            + equalsPathAtSuffix()
             + ": float precision is insufficient for the integer type's range."
             + " Cast both values to f64 before comparing, e.g. expect(f64(a)).toBe(f64(b))."
             + " Note: large integer values may lose precision when cast to f64, which could cause false positives."
@@ -279,7 +339,7 @@ export function identical<T, U>(actual: T, expected: U): bool {
     } else {
       throw new Error(
         "Cannot compare " + nameof<T>() + " with " + nameof<U>()
-        + ": incompatible types."
+        + equalsPathAtSuffix() + ": incompatible types."
       );
     }
   }
@@ -393,6 +453,7 @@ export function equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Eq
     // Managed vs unmanaged is a fundamental memory layout incompatibility
     throw new Error("Cannot compare deep equality between managed and unmanaged types: "
       + nameof<T>() + " and " + nameof<U>()
+      + equalsPathAtSuffix()
     );
   }
 
@@ -422,8 +483,9 @@ export function equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Eq
       // Non-user-defined managed types with mismatched rtIds: cross-container comparisons
       // (e.g. Map vs Set, Array vs Map) that fell through the instanceof checks above
       // (which require both operands to be the same container type), or stdlib types
-      throw new Error("Cannot compare deep equality between " + nameof<T>(actual)
-        + " and " + nameof<U>(expected)
+      throw new Error("Cannot compare deep equality between " + nameof<T>()
+        + " and " + nameof<U>()
+        + equalsPathAtSuffix()
       );
     }
   } else {
@@ -439,8 +501,9 @@ export function equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Eq
 
       // see both-managed case above: handle potential mismatched type fallthrough
       // for unmanaged stdlib / container type mismatches
-      throw new Error("Cannot compare deep equality between " + nameof<T>(actual)
-        + " and " + nameof<U>(expected)
+      throw new Error("Cannot compare deep equality between " + nameof<T>()
+        + " and " + nameof<U>()
+        + equalsPathAtSuffix()
       );
     }
   }
@@ -615,29 +678,3 @@ export function truthyOrFalsey<T>(actual: T, expected: bool): bool {
   return actual ? expected == true : expected == false;
 }
 
-export function isNull<T>(value: T): bool {
-  if (isReference<T>()) {
-    if (isNullable<T>()) {
-      return value == null;
-    } else {
-      return false;
-    }
-  } else {
-    if (isBoolean<T>()) {
-      return false;
-    } else if (isVector<T>()) {
-      return false;
-    } else {
-      return nameof<T>(value) == 'usize' && value == 0;
-    }
-  }
-}
-
-export function nan<T>(value: T): bool {
-  if (isFloat<T>()) {
-    // @ts-ignore
-    return isNaN<T>(value);
-  } else {
-    return false;
-  }
-}

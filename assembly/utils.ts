@@ -1,4 +1,29 @@
-import { isNull, nan } from './compare';
+export function isNull<T>(value: T): bool {
+  if (isReference<T>()) {
+    if (isNullable<T>()) {
+      return value == null;
+    } else {
+      return false;
+    }
+  } else {
+    if (isBoolean<T>()) {
+      return false;
+    } else if (isVector<T>()) {
+      return false;
+    } else {
+      return nameof<T>(value) == 'usize' && value == 0;
+    }
+  }
+}
+
+export function nan<T>(value: T): bool {
+  if (isFloat<T>()) {
+    // @ts-ignore
+    return isNaN<T>(value);
+  } else {
+    return false;
+  }
+}
 
 /**
  * Produces a human-readable string representation of a value for assertion messages.

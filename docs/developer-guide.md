@@ -163,7 +163,9 @@ npm run emtest    # External meta tests for debugging (setup + run - shortcut)
 
 ### Meta Test Verification
 
-The meta test system needs to verify *how* tests fail, not just *that* they fail. A [`globalSetup`](../test/meta-verify/helpers/global-setup-capture-meta-run.ts) runs the meta suite once before any verification test workers spawn, capturing output and writing it to a results file. This eliminates duplicate meta suite runs and race conditions on shared output files. The flow:
+The meta test system needs to verify *how* tests fail, not just *that* they fail. While `toThrowError` can catch both explicit throws and assertion failures (since failed assertions call `abort()`), it only verifies the WASM-side message string. Meta verification tests the full user-facing output after the entire error pipeline: WASM error → pool error handling (`enhanceTestError`) → vitest reporter → rendered CLI output. This includes error names, formatted actual/expected values, diff rendering, and source-mapped stack traces — the complete error block as the user sees it.
+
+A [`globalSetup`](../test/meta-verify/helpers/global-setup-capture-meta-run.ts) runs the meta suite once before any verification test workers spawn, capturing output and writing it to a results file. This eliminates duplicate meta suite runs and race conditions on shared output files. The flow:
 
 1. The globalSetup calls [`scripts/run-vitest-external.js`](../scripts/run-vitest-external.js) in **capture mode**, which runs vitest with piped stdio and returns `{ jsonOutput, cliOutput, exitCode }`
 2. The globalSetup writes the captured data (plus `cwd` and `coverageEnabled`) to `tmp/.meta-verify-results.json` at the project root

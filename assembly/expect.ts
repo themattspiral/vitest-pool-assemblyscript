@@ -2,15 +2,15 @@ import {
   closeTo,
   compareInequality,
   equals,
+  equalsPathClear,
+  equalsPathString,
   equalsRefPairsClear,
   identical,
   InequalityOperation,
-  isNull,
-  nan,
   truthyOrFalsey
 } from './compare';
 
-import { itemMessageString } from './stringify';
+import { isNull, nan, itemMessageString } from './utils';
 
 // @external functions are imported to the WASM execution environment from pool code
 
@@ -301,8 +301,18 @@ abstract class BaseExpectMatcher<T> {
    */
   toEqual<U>(val: U): void {
     equalsRefPairsClear();
+    equalsPathClear();
     const result = equals(this.actual, val);
-    const suffix = result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch ? " (runtime type mismatch)" : "";
+    const path = equalsPathString();
+    equalsPathClear();
+
+    let suffix = "";
+    if (result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch) {
+      suffix = path != "" ? " (runtime type mismatch at " + path + ")" : " (runtime type mismatch)";
+    } else if (path != "") {
+      suffix = " (differs at " + path + ")";
+    }
+
     this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to deeply equal", true, true, suffix);
   }
   
@@ -323,8 +333,18 @@ abstract class BaseExpectMatcher<T> {
    */
   toStrictEqual<U>(val: U): void {
     equalsRefPairsClear();
+    equalsPathClear();
     const result = equals(this.actual, val);
-    const suffix = result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch ? " (runtime type mismatch)" : "";
+    const path = equalsPathString();
+    equalsPathClear();
+
+    let suffix = "";
+    if (result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch) {
+      suffix = path != "" ? " (runtime type mismatch at " + path + ")" : " (runtime type mismatch)";
+    } else if (path != "") {
+      suffix = " (differs at " + path + ")";
+    }
+
     this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to strictly equal", true, true, suffix);
   }
 

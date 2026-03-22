@@ -105,6 +105,18 @@ describe("toEqual", () => {
     expect(a).toEqual(b);
   });
 
+  test("map with integer key [should fail]", () => {
+    const a = new Map<i32, i32>();
+    a.set(7, 100);
+    a.set(8, 200);
+
+    const b = new Map<i32, i32>();
+    b.set(7, 100);
+    b.set(8, 999);
+
+    expect(a).toEqual(b);
+  });
+
   test("set [should fail]", () => {
     const a = new Set<string>();
     a.add("apple");
@@ -340,6 +352,76 @@ describe("cross-type comparison", () => {
     const a = new ShapeWrapper("w1", new Circle("red", 5.0));
     const b = new ShapeWrapper("w1", new Square("red", 5.0));
     expect(a).toEqual(b);
+  });
+});
+
+// --- Container type safety: throws with path context ---
+
+describe("container type safety", () => {
+  test("Array incomparable element types [should fail]", () => {
+    expect([1, 2, 3]).toEqual(["a", "b", "c"]);
+  });
+
+  test("Set incomparable element types [should fail]", () => {
+    const setI32 = new Set<i32>();
+    setI32.add(1);
+    const setStr = new Set<string>();
+    setStr.add("a");
+    expect(setI32).toEqual(setStr);
+  });
+
+  test("Map incomparable value types with string key [should fail]", () => {
+    const mapA = new Map<string, i32>();
+    mapA.set("x", 1);
+    const mapB = new Map<string, string>();
+    mapB.set("x", "one");
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("Map incomparable value types with integer key [should fail]", () => {
+    const mapA = new Map<i32, string>();
+    mapA.set(7, "hello");
+    const mapB = new Map<i32, i32>();
+    mapB.set(7, 42);
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("Array precision loss [should fail]", () => {
+    const a: f32[] = [1.0, 2.0];
+    const b: i32[] = [1, 2];
+    expect(a).toEqual(b);
+  });
+
+  test("Set precision loss [should fail]", () => {
+    const setA = new Set<f32>();
+    setA.add(1.0);
+    const setB = new Set<i32>();
+    setB.add(1);
+    expect(setA).toEqual(setB);
+  });
+
+  test("Map precision loss with string key [should fail]", () => {
+    const mapA = new Map<string, f32>();
+    mapA.set("x", 1.0);
+    const mapB = new Map<string, i32>();
+    mapB.set("x", 1);
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("Map mismatched key types [should fail]", () => {
+    const mapA = new Map<string, i32>();
+    mapA.set("x", 1);
+    const mapB = new Map<i32, string>();
+    mapB.set(1, "x");
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("Set vs Array cross-container [should fail]", () => {
+    const setA = new Set<string>();
+    setA.add("apple");
+    setA.add("cherry");
+    const arrayA = ["apple", "cherry"];
+    expect(setA).toEqual(arrayA);
   });
 });
 
