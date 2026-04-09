@@ -331,12 +331,11 @@ describe('matcher failure message verification', () => {
       expect(block).toContain('AssertionError: expected Circle to deeply equal Shape (runtime type mismatch)');
     });
 
-    // TODO: The error message here is opaque — it says "ShapeWrapper vs ShapeWrapper" but the
-    // actual mismatch is in a nested field (Circle vs Square). Improved DX should surface the
-    // field path and nested type information (e.g. "field 'shape': Circle vs Square").
+    // A11: field path context surfaces where the mismatch is (.shape).
+    // TODO: RTM type names in suffix will further improve to show "Circle vs Square".
     test('toEqual nested type mismatch', () => {
       const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toEqual nested type mismatch [should fail]'));
-      expect(block).toContain('AssertionError: expected ShapeWrapper to deeply equal ShapeWrapper (runtime type mismatch)');
+      expect(block).toContain('AssertionError: expected ShapeWrapper to deeply equal ShapeWrapper (runtime type mismatch at .shape)');
     });
   });
 
@@ -388,6 +387,95 @@ describe('matcher failure message verification', () => {
     test('Set vs Array cross-container', () => {
       const block = requireErrorBlock(parsedCli, testPath('container type safety', 'Set vs Array cross-container [should fail]'));
       expect(block).toContain('WASMRuntimeError: Cannot compare deep equality between Set<~lib/string/String> and Array<~lib/string/String>');
+    });
+  });
+
+  // =========================================================================
+  // toEqual PATH CONTEXT
+  // Verifies path information in assertion messages for container elements,
+  // user object fields, and composed field+container paths.
+  // =========================================================================
+
+  describe('toEqual path context', () => {
+    describe('top-level container element', () => {
+      test('Array element runtime type mismatch', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'top-level container element', 'Array element runtime type mismatch [should fail]'));
+        expect(block).toContain('AssertionError: expected [Shape] to deeply equal [Shape] (runtime type mismatch at index [0])');
+      });
+
+      test('Map value runtime type mismatch', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'top-level container element', 'Map value runtime type mismatch [should fail]'));
+        expect(block).toContain('AssertionError: expected Map { "a" => Shape } to deeply equal Map { "a" => Shape } (runtime type mismatch at key ["a"])');
+      });
+
+      test('Set of arrays with incomparable element types', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'top-level container element', 'Set of arrays with incomparable element types [should fail]'));
+        expect(block).toContain('WASMRuntimeError: Cannot compare i32 with String within Set' + INCOMPARABLE_REF_VALUE_SUFFIX);
+      });
+    });
+
+    describe('user object field', () => {
+      test('field value differs', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'user object field', 'field value differs [should fail]'));
+        expect(block).toContain('AssertionError: expected ShapeWrapper to deeply equal ShapeWrapper (differs at .label)');
+      });
+
+      test('nested field value differs', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'user object field', 'nested field value differs [should fail]'));
+        expect(block).toContain('AssertionError: expected Line to deeply equal Line (differs at .start.x)');
+      });
+    });
+
+    describe('composed field and container path', () => {
+      test('array field element differs', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'array field element differs [should fail]'));
+        expect(block).toContain('AssertionError: expected Scoreboard to deeply equal Scoreboard (differs at .scores[1])');
+      });
+
+      test('array field nested object field differs', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'array field nested object field differs [should fail]'));
+        expect(block).toContain('AssertionError: expected Team to deeply equal Team (differs at .members[1].name)');
+      });
+
+      test('map field primitive value differs', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'map field primitive value differs [should fail]'));
+        expect(block).toContain('AssertionError: expected Settings to deeply equal Settings (differs at .config["y"])');
+      });
+
+      test('map field nested object field differs', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'map field nested object field differs [should fail]'));
+        expect(block).toContain('AssertionError: expected Registry to deeply equal Registry (differs at .entries["target"].x)');
+      });
+
+      test('set field element not found', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'set field element not found [should fail]'));
+        expect(block).toContain('AssertionError: expected PointGroup to deeply equal PointGroup (differs at .points)');
+      });
+
+      test('array field sibling subclass RTM', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'array field sibling subclass RTM [should fail]'));
+        expect(block).toContain('AssertionError: expected ShapeList to deeply equal ShapeList (runtime type mismatch at .shapes[0])');
+      });
+
+      test('map field sibling subclass value RTM', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'map field sibling subclass value RTM [should fail]'));
+        expect(block).toContain('AssertionError: expected ShapeRegistry to deeply equal ShapeRegistry (runtime type mismatch at .shapes["a"])');
+      });
+
+      test('array field subclass vs base RTM', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'array field subclass vs base RTM [should fail]'));
+        expect(block).toContain('AssertionError: expected ShapeList to deeply equal ShapeList (runtime type mismatch at .shapes[0])');
+      });
+
+      test('map field subclass vs base value RTM', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'map field subclass vs base value RTM [should fail]'));
+        expect(block).toContain('AssertionError: expected ShapeRegistry to deeply equal ShapeRegistry (runtime type mismatch at .shapes["a"])');
+      });
+
+      test('set field polymorphic no match', () => {
+        const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'set field polymorphic no match [should fail]'));
+        expect(block).toContain('AssertionError: expected ShapeGroup to deeply equal ShapeGroup (differs at .shapes)');
+      });
     });
   });
 

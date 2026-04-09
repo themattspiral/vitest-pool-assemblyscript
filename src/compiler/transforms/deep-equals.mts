@@ -47,6 +47,8 @@ import {
   COMPARE_EQUALS_EXPORT_ALIAS,
   DEEP_EQUALS_INJECTED_METHOD_NAME,
   EQUALITY_RESULT_ENUM_NAME,
+  EQUALS_PATH_POP_GLOBAL_ALIAS,
+  EQUALS_PATH_PUSH_GLOBAL_ALIAS,
   INTERNAL_PATH_LIB_PREFIX,
   ASCommonFlags,
   ASDecoratorKind,
@@ -277,8 +279,10 @@ function generateStructuralBody(classDecl: ClassDeclaration): string {
   for (const field of fields) {
     const fieldName = field.name.text;
     comparisons.push(
-      `__result = ${COMPARE_EQUALS_EXPORT_ALIAS}(this.${fieldName}, other.${fieldName}); `
-      + `if (__result != ${EQ}.Equal) return __result;`
+      `${EQUALS_PATH_PUSH_GLOBAL_ALIAS}(".${fieldName}"); `
+      + `__result = ${COMPARE_EQUALS_EXPORT_ALIAS}(this.${fieldName}, other.${fieldName}); `
+      + `if (__result != ${EQ}.Equal) return __result; `
+      + `${EQUALS_PATH_POP_GLOBAL_ALIAS}();`
     );
   }
 

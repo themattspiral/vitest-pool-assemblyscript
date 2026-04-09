@@ -1,7 +1,7 @@
 import { test, expect, describe } from "vitest-pool-assemblyscript/assembly";
 
 import { Point, Person, Shape, Circle, Square } from "../../assembly-src/user-class-utils";
-import { Team } from "../../assembly-src/user-class-container-utils";
+import { Team } from "../../assembly-src/user-class-container-utils.meta";
 
 describe("arrays", () => {
   test("array equals itself", () => {

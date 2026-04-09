@@ -3,7 +3,7 @@ import { test, expect, describe } from "vitest-pool-assemblyscript/assembly";
 import { Point, Shape, Circle, Square } from "../../assembly-src/user-class-utils";
 import {
   Registry, PointGroup
-} from "../../assembly-src/user-class-container-utils";
+} from "../../assembly-src/user-class-container-utils.meta";
 
 
 describe("maps", () => {

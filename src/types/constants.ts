@@ -68,6 +68,18 @@ export const COMPARE_EQUALS_EXPORT_ALIAS = '__vitest_assemblyscript_compare_equa
  */
 export const EQUALITY_RESULT_ENUM_NAME = '__vitest_assemblyscript_EqualityResult' as const;
 
+/**
+ * Global alias for the path push function used by injected deep equality method field comparisons.
+ * Declared with @global in assembly/compare.ts to be available in all source files without import.
+ */
+export const EQUALS_PATH_PUSH_GLOBAL_ALIAS = '__vitest_assemblyscript_equals_path_push' as const;
+
+/**
+ * Global alias for the path pop function used by injected deep equality method field comparisons.
+ * Declared with @global in assembly/compare.ts to be available in all source files without import.
+ */
+export const EQUALS_PATH_POP_GLOBAL_ALIAS = '__vitest_assemblyscript_equals_path_pop' as const;
+
 /** Error names for AssemblyScript test failures reported to vitest */
 export const TEST_ERROR_NAMES = {
   /** Assertion evaluated to false within a test function */

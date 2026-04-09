@@ -64,14 +64,56 @@ export function equalsPathClear(): void {
   equalsPath.length = 0;
 }
 
+export function equalsPathLength(): i32 {
+  return equalsPath.length;
+}
+
+/**
+ * Global bridge for the deep-equals compiler transform — push a path segment.
+ *
+ * Transform-injected deep equality methods call this to record which field is
+ * being compared, enabling path context like ".shape" or ".members" in error messages.
+ * Declared global to make it available in all source files without import.
+ */
+// @ts-ignore: AS-specific global decorator
+@global
+function __vitest_assemblyscript_equals_path_push(segment: string): void {
+  equalsPathPush(segment);
+}
+
+/**
+ * Global bridge for the deep-equals compiler transform — pop a path segment.
+ *
+ * Called only when a field comparison returns Equal (push/pop discipline).
+ * On non-Equal, the segment is left on the stack so the path accumulates
+ * to the deepest mismatch point.
+ */
+// @ts-ignore: AS-specific global decorator
+@global
+function __vitest_assemblyscript_equals_path_pop(): void {
+  equalsPathPop();
+}
+
 /** Returns " at <path>" or " within <path>" if the path is non-empty, otherwise empty string. */
 function equalsPathAtSuffix(): string {
-  const path = equalsPathString();
-  if (path == "") return "";
-  // Set comparisons use "within" instead of "at" because set elements have no
-  // meaningful identifier — "within Set" reads naturally, "at Set" does not.
-  if (path == "Set") return " within " + path;
-  return " at " + path;
+  if (equalsPath.length == 0) return "";
+
+  // Scan for "Set" anywhere in the path stack. Set elements have no meaningful
+  // identifier, so segments pushed after "Set" (e.g. array indices from inner
+  // comparisons during the set scan) are discarded — they represent aborted
+  // comparison attempts whose segments couldn't be cleaned up because a throw
+  // halted execution. Build the path only up to and including "Set".
+  for (let i = equalsPath.length - 1; i >= 0; i--) {
+    if (equalsPath[i] == "Set") {
+      let path = "";
+      for (let j = 0; j <= i; j++) {
+        path += equalsPath[j];
+      }
+      return " within " + path;
+    }
+  }
+
+  return " at " + equalsPathString();
 }
 
 /**
@@ -93,7 +135,12 @@ function arrayEquals<T extends ArrayLike<unknown>, U extends ArrayLike<unknown>>
   }
 
   for (let i = 0; i < expected.length; i++) {
-    equalsPathPush("index [" + i.toString() + "]");
+    // Context-aware format: "[N]" composes with field paths (e.g. ".members[2]"),
+    // "index [N]" reads well standalone (e.g. "differs at index [2]")
+    const segment = equalsPathLength() > 0
+      ? "[" + i.toString() + "]"
+      : "index [" + i.toString() + "]";
+    equalsPathPush(segment);
     const result = equals(actual[i], expected[i]);
     if (result != __vitest_assemblyscript_EqualityResult.Equal) {
       return result;
@@ -131,10 +178,17 @@ function setEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Equali
     for (let i = 0; i < expectedValues.length; i++) {
       let found = false;
       for (let j = 0; j < actualValues.length; j++) {
-        if (!matched[j] && equals(actualValues[j], expectedValues[i]) == __vitest_assemblyscript_EqualityResult.Equal) {
-          matched[j] = true;
-          found = true;
-          break;
+        if (!matched[j]) {
+          // Save path stack depth before each scan attempt. Failed comparisons
+          // leave stale segments (e.g. ".x" from a Point field) that would corrupt
+          // the pop discipline — restoring ensures "Set" remains the top segment.
+          const pathDepth = equalsPathLength();
+          if (equals(actualValues[j], expectedValues[i]) == __vitest_assemblyscript_EqualityResult.Equal) {
+            matched[j] = true;
+            found = true;
+            break;
+          }
+          equalsPath.length = pathDepth;
         }
       }
       if (!found) {
@@ -178,7 +232,12 @@ function mapEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Equali
 
       for (let i = 0; i < expectedKeys.length; i++) {
         const key = expectedKeys[i];
-        equalsPathPush("key [" + itemMessageString(key) + "]");
+        // Context-aware format: "[key]" composes with field paths (e.g. ".registry[\"x\"]"),
+        // "key [key]" reads well standalone (e.g. "differs at key [\"x\"]")
+        const segment = equalsPathLength() > 0
+          ? "[" + itemMessageString(key) + "]"
+          : "key [" + itemMessageString(key) + "]";
+        equalsPathPush(segment);
 
         if (!castActual.has(key)) {
           return __vitest_assemblyscript_EqualityResult.NotEqual;

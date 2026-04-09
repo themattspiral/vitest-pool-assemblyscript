@@ -163,7 +163,11 @@ npm run emtest    # External meta tests for debugging (setup + run - shortcut)
 
 ### Meta Test Verification
 
-The meta test system needs to verify *how* tests fail, not just *that* they fail. While `toThrowError` can catch both explicit throws and assertion failures (since failed assertions call `abort()`), it only verifies the WASM-side message string. Meta verification tests the full user-facing output after the entire error pipeline: WASM error → pool error handling (`enhanceTestError`) → vitest reporter → rendered CLI output. This includes error names, formatted actual/expected values, diff rendering, and source-mapped stack traces — the complete error block as the user sees it.
+The meta test system needs to verify *how* tests fail, not just *that* they fail. Meta verification tests the full user-facing output after the entire error pipeline: WASM error → pool error handling (`enhanceTestError`) → vitest reporter → rendered CLI output. This includes error names, formatted actual/expected values, diff rendering, and source-mapped stack traces — the complete error block as the user sees it.
+
+#### Why meta-verify for matcher failure messages
+
+For matcher failure output specifically, `toThrowError` is an alternative — it can catch both explicit throws and assertion failures (since failed assertions call `abort()`). However, it only verifies the WASM-side message substring. It cannot verify the **error type classification** (`AssertionError` vs `WASMRuntimeError`) that appears in the user's output — that classification happens in the JS error pipeline after the WASM abort. Since error type is observable behavior per scenario, meta-verify is used to test it without relying on implementation assumptions about the error pipeline.
 
 A [`globalSetup`](../test/meta-verify/helpers/global-setup-capture-meta-run.ts) runs the meta suite once before any verification test workers spawn, capturing output and writing it to a results file. This eliminates duplicate meta suite runs and race conditions on shared output files. The flow:
 
