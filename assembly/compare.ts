@@ -1,4 +1,4 @@
-import { isNull, nan, itemMessageString } from './utils';
+import { stringifyValue } from './utils';
 
 /**
  * Byte offset from an object pointer to the rtId field in the AS managed object header.
@@ -66,6 +66,30 @@ export function equalsPathClear(): void {
 
 export function equalsPathLength(): i32 {
   return equalsPath.length;
+}
+
+/**
+ * Runtime type mismatch name tracking. When equals() detects a runtime type mismatch
+ * (different rtIds on managed objects), it captures the actual and expected runtime type
+ * names via the transform-injected __vitest_assemblyscript_typename method. These are
+ * read by toEqual/toStrictEqual to include type names in the assertion suffix
+ * (e.g. "runtime type mismatch: Circle vs Square").
+ *
+ * Cleared at the start of each toEqual/toStrictEqual call alongside path and visited set.
+ */
+let equalsRtmActualName: string = "";
+let equalsRtmExpectedName: string = "";
+
+export function equalsRtmNamesSuffix(): string {
+  if (equalsRtmActualName != "" && equalsRtmExpectedName != "") {
+    return ": " + equalsRtmActualName + " vs " + equalsRtmExpectedName;
+  }
+  return "";
+}
+
+export function equalsRtmNamesClear(): void {
+  equalsRtmActualName = "";
+  equalsRtmExpectedName = "";
 }
 
 /**
@@ -235,8 +259,8 @@ function mapEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Equali
         // Context-aware format: "[key]" composes with field paths (e.g. ".registry[\"x\"]"),
         // "key [key]" reads well standalone (e.g. "differs at key [\"x\"]")
         const segment = equalsPathLength() > 0
-          ? "[" + itemMessageString(key) + "]"
-          : "key [" + itemMessageString(key) + "]";
+          ? "[" + stringifyValue(key) + "]"
+          : "key [" + stringifyValue(key) + "]";
         equalsPathPush(segment);
 
         if (!castActual.has(key)) {
@@ -536,6 +560,19 @@ export function equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Eq
         // crashes. By returning TypeMismatch, `toEqual` evaluates
         // `result == __vitest_assemblyscript_EqualityResult.Equal` (false), passes that to
         // `assertComparison`, and `.not` can invert it to a pass.
+
+        // Capture runtime type names via virtual dispatch for informative assertion suffix
+        // @ts-ignore
+        if (isDefined(actual.__vitest_assemblyscript_typename)) {
+          // @ts-ignore
+          equalsRtmActualName = (<NonNullable<T>>actual).__vitest_assemblyscript_typename();
+        }
+        // @ts-ignore
+        if (isDefined(expected.__vitest_assemblyscript_typename)) {
+          // @ts-ignore
+          equalsRtmExpectedName = (<NonNullable<U>>expected).__vitest_assemblyscript_typename();
+        }
+
         return __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
       }
 
@@ -555,6 +592,18 @@ export function equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Eq
       // @ts-ignore
       if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
         // see both-managed case above: same reasoning here, just behind a different type check
+        // Unmanaged types don't have virtual dispatch, so typename (if present) returns
+        // compile-time names — consistent with how the type check itself works here.
+        // @ts-ignore
+        if (isDefined(actual.__vitest_assemblyscript_typename)) {
+          // @ts-ignore
+          equalsRtmActualName = (<NonNullable<T>>actual).__vitest_assemblyscript_typename();
+        }
+        // @ts-ignore
+        if (isDefined(expected.__vitest_assemblyscript_typename)) {
+          // @ts-ignore
+          equalsRtmExpectedName = (<NonNullable<U>>expected).__vitest_assemblyscript_typename();
+        }
         return __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
       }
 

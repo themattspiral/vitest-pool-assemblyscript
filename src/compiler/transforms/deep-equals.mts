@@ -1,25 +1,30 @@
 /**
- * AssemblyScript Compiler Transform: Deep Equality for User-Defined Objects
+ * AssemblyScript Compiler Transform: Deep Equality & Stringification for User-Defined Objects
  *
- * Injects a deep equality comparison method into user-defined classes in `afterParse`,
- * enabling `toEqual()` to perform deep value comparison on user objects.
+ * Injects three methods into user-defined classes at `afterParse`:
  *
- * Behavior per class:
- * - If the class defines `@operator("==")`: deep equality method delegates to `this == other`
- * - If the class defines `.equals()`: deep equality method delegates to `this.equals(other)`
- * - Otherwise: deep equality method compares all stored instance fields via the pool's `equals()`
- *   comparison function, which handles primitives, strings, Arrays, Maps, Sets, ArrayBuffers, 
- *   nullables, and recursively dispatches to the deep equality method for nested user types
+ * 1. `__vitest_assemblyscript_deep_equals` — deep equality comparison for `toEqual()`
+ *    - If the class defines `@operator("==")`: delegates to `this == other`
+ *    - If the class defines `.equals()`: delegates to `this.equals(other)`
+ *    - Otherwise: compares all stored instance fields via the pool's `equals()` function
+ *
+ * 2. `__vitest_assemblyscript_typename` — returns the runtime class name via `nameof<ClassName>()`
+ *    - Virtual dispatch ensures correct runtime name even for base-typed variables
+ *    - Used by stringifyValue() for user-facing output and by RTM type name tracking
+ *
+ * 3. `__vitest_assemblyscript_stringify` — returns comma-separated field entries for stringification
+ *    - Always stringifies all stored instance fields regardless of operator==/equals()
+ *    - Follows super chain via isDefined guard, same pattern as deep equality
+ *    - Uses @global bridge __vitest_assemblyscript_stringify_value to call stringifyValue()
  *
  * Scoping:
  * - Only user source files (not node_modules, not AS stdlib)
  * - Blanket injection into all user classes (always enabled)
  *
  * Cross-module function availability:
- * - Structural bodies reference the `equals()` function from assembly/compare.ts ,
- *   which is exported under a wrapper alias and declared with `@global` making it available 
- *   in all source files without import
- * - Loaded transitively: user test → vitest-pool-assemblyscript/assembly → compare.ts
+ * - Structural bodies reference @global functions from assembly/compare.ts and assembly/utils.ts
+ *   which are available in all source files without import
+ * - Loaded transitively: user test → vitest-pool-assemblyscript/assembly → compare.ts → utils.ts
  *
  * AST injection:
  * - Method source is generated as a string, then parsed into an AST node using
@@ -50,6 +55,9 @@ import {
   EQUALS_PATH_POP_GLOBAL_ALIAS,
   EQUALS_PATH_PUSH_GLOBAL_ALIAS,
   INTERNAL_PATH_LIB_PREFIX,
+  STRINGIFY_INJECTED_METHOD_NAME,
+  STRINGIFY_VALUE_GLOBAL_ALIAS,
+  TYPENAME_INJECTED_METHOD_NAME,
   ASCommonFlags,
   ASDecoratorKind,
   ASNodeKind,
@@ -57,7 +65,7 @@ import {
 } from '../../types/constants.js';
 
 /**
- * Visitor that finds class declarations and injects deep equality comparison method.
+ * Visitor that finds class declarations and injects deep equality, typename, and stringify methods.
  * Uses ASTVisitor for full recursive traversal (finds classes inside namespaces, etc).
  */
 class DeepEqualsVisitor extends ASTVisitor {
@@ -74,7 +82,8 @@ class DeepEqualsVisitor extends ASTVisitor {
 }
 
 /**
- * AssemblyScript compiler transform that injects deep equality comparison method into user-defined classes
+ * AssemblyScript compiler transform that injects deep equality, typename, and stringify methods
+ * into user-defined classes
  */
 class DeepEqualsTransform extends Transform {
   afterParse(parser: Parser): void {
@@ -107,48 +116,97 @@ class DeepEqualsTransform extends Transform {
 }
 
 /**
- * Process a class declaration: determine the appropriate deep equality comparison method body and inject it.
+ * Process a class declaration: inject deep equality, typename, and stringify methods.
  */
 function processClass(parser: Parser, classDecl: ClassDeclaration, barrelPath: string): void {
   const className = classDecl.name.text;
 
-  // Skip if the class somehow already has a method with the same name (e.g. user-defined very specific name conflict)
-  if (hasMethod(classDecl, DEEP_EQUALS_INJECTED_METHOD_NAME)) {
-    return;
-  }
+  // Use the barrel path if available, otherwise fall back to the class's own source path
+  const sourcePath = barrelPath || classDecl.range.source.normalizedPath;
 
   // Build the type suffix for generic classes (e.g. "Pair" → "Pair<T>" or "Pair<K, V>")
   const typeSuffix = getTypeParameterSuffix(classDecl);
 
-  // Determine the method body based on user-defined equality semantics.
-  // Each body starts with a changetype cast from the raw usize parameter to the
-  // typed class reference, so all field/method access uses the properly-typed `other`.
+  injectDeepEquals(parser, classDecl, className, typeSuffix, sourcePath);
+  injectTypename(parser, classDecl, className, typeSuffix, sourcePath);
+  injectStringify(parser, classDecl, sourcePath);
+}
+
+/**
+ * Inject the deep equality comparison method into a class.
+ *
+ * Behavior depends on user-defined equality semantics:
+ * - @operator("==") present: delegates to `this == other`
+ * - .equals() present: delegates to `this.equals(other)`
+ * - Neither: field-by-field structural comparison
+ *
+ * All methods use a usize parameter for inheritance compatibility — AS treats child methods
+ * with the same name as overrides, requiring compatible parameter types. Each body casts
+ * the pointer to its own type via changetype.
+ */
+function injectDeepEquals(
+  parser: Parser, classDecl: ClassDeclaration,
+  className: string, typeSuffix: string, sourcePath: string,
+): void {
+  if (hasMethod(classDecl, DEEP_EQUALS_INJECTED_METHOD_NAME)) return;
+
   const typedCast = `const other = changetype<${className}${typeSuffix}>(__other);`;
   const EQ = EQUALITY_RESULT_ENUM_NAME;
   let methodBody: string;
 
   if (hasOperatorEquals(classDecl)) {
-    // Delegate to user's @operator("==") overload
     methodBody = `${typedCast} return (this == other) ? ${EQ}.Equal : ${EQ}.NotEqual;`;
   } else if (hasMethod(classDecl, 'equals')) {
-    // Delegate to user's .equals() method
     methodBody = `${typedCast} return this.equals(other) ? ${EQ}.Equal : ${EQ}.NotEqual;`;
   } else {
-    // field-by-field comparison
     methodBody = `${typedCast} ${generateStructuralBody(classDecl)}`;
   }
 
-  // All deep equality comparison methods use a usize parameter instead of the class type.
-  // This is required for inheritance: AS treats child methods with the same name as
-  // overrides of the parent, and requires compatible parameter types. Using the class's
-  // own type (e.g. Circle vs Shape) causes TS2394 "overload signature not compatible".
-  // A uniform usize signature avoids this at any inheritance depth. Each method body
-  // casts the pointer to its own type via changetype.
   const methodSource =
     `${DEEP_EQUALS_INJECTED_METHOD_NAME}(__other: usize): ${EQ} { ${methodBody} }`;
 
-  // Use the barrel path if available, otherwise fall back to the class's own source path
-  const sourcePath = barrelPath || classDecl.range.source.normalizedPath;
+  injectClassMember(parser, classDecl, methodSource, sourcePath);
+}
+
+/**
+ * Inject the typename method into a class.
+ *
+ * Returns the class's own name via nameof<ClassName>(). No super chain — each class returns
+ * its own name. Virtual dispatch ensures the correct runtime class name is returned even
+ * when the variable is typed as a base class.
+ */
+function injectTypename(
+  parser: Parser, classDecl: ClassDeclaration,
+  className: string, typeSuffix: string, sourcePath: string,
+): void {
+  if (hasMethod(classDecl, TYPENAME_INJECTED_METHOD_NAME)) return;
+
+  const methodSource =
+    `${TYPENAME_INJECTED_METHOD_NAME}(): string { return nameof<${className}${typeSuffix}>(); }`;
+
+  injectClassMember(parser, classDecl, methodSource, sourcePath);
+}
+
+/**
+ * Inject the stringify method into a class.
+ *
+ * Returns comma-separated "fieldName: value" entries for all stored instance fields.
+ * Always stringifies all fields regardless of operator==/equals() — stringify shows
+ * full object state, not equality-relevant fields only.
+ *
+ * Follows the super chain via isDefined guard, same pattern as deep equality.
+ * Uses @global bridge __vitest_assemblyscript_stringify_value to call stringifyValue().
+ */
+function injectStringify(
+  parser: Parser, classDecl: ClassDeclaration,
+  sourcePath: string,
+): void {
+  if (hasMethod(classDecl, STRINGIFY_INJECTED_METHOD_NAME)) return;
+
+  const methodBody = generateStringifyBody(classDecl);
+  const methodSource =
+    `${STRINGIFY_INJECTED_METHOD_NAME}(): string { ${methodBody} }`;
+
   injectClassMember(parser, classDecl, methodSource, sourcePath);
 }
 
@@ -287,6 +345,48 @@ function generateStructuralBody(classDecl: ClassDeclaration): string {
   }
 
   return comparisons.join(' ') + ` return ${EQ}.Equal;`;
+}
+
+/**
+ * Generate the stringify body for a class.
+ * Produces comma-separated "fieldName: value" entries using the @global stringify bridge.
+ * Follows the super chain if the class extends another class.
+ */
+function generateStringifyBody(classDecl: ClassDeclaration): string {
+  const fields = getStoredInstanceFields(classDecl);
+  const hasSuper = classDecl.extendsType !== null;
+  const SV = STRINGIFY_VALUE_GLOBAL_ALIAS;
+  const SUPER_METHOD = STRINGIFY_INJECTED_METHOD_NAME;
+
+  // No fields and no super: return empty string
+  if (fields.length === 0 && !hasSuper) {
+    return `return "";`;
+  }
+
+  const parts: string[] = [];
+  parts.push(`let s = "";`);
+
+  if (hasSuper) {
+    parts.push(
+      `if (isDefined(super.${SUPER_METHOD})) { `
+      + `s += super.${SUPER_METHOD}(); `
+      + `if (s != "") s += ", "; `
+      + `}`
+    );
+  }
+
+  let firstField = true;
+  for (const field of fields) {
+    const fieldName = field.name.text;
+    if (!firstField) {
+      parts.push(`s += ", ";`);
+    }
+    parts.push(`s += "${fieldName}: " + ${SV}(this.${fieldName});`);
+    firstField = false;
+  }
+
+  parts.push(`return s;`);
+  return parts.join(' ');
 }
 
 // =============================================================================

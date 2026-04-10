@@ -40,7 +40,7 @@ export const POOL_INTERNAL_PATHS: string[] = [
   'assembly/expect.ts',
   'assembly/index.ts',
   'assembly/options.ts',
-  'assembly/stringify.ts',
+  'assembly/utils.ts',
   'assembly/test.ts',
 
   // AS compiler source maps these as library paths when running published version
@@ -79,6 +79,18 @@ export const EQUALS_PATH_PUSH_GLOBAL_ALIAS = '__vitest_assemblyscript_equals_pat
  * Declared with @global in assembly/compare.ts to be available in all source files without import.
  */
 export const EQUALS_PATH_POP_GLOBAL_ALIAS = '__vitest_assemblyscript_equals_path_pop' as const;
+
+/** Name of the method injected by the compiler transform that returns the runtime class name */
+export const TYPENAME_INJECTED_METHOD_NAME = '__vitest_assemblyscript_typename' as const;
+
+/** Name of the method injected by the compiler transform that returns stringified field contents */
+export const STRINGIFY_INJECTED_METHOD_NAME = '__vitest_assemblyscript_stringify' as const;
+
+/**
+ * Global alias for the stringifyValue() wrapper used by injected stringify method bodies.
+ * Declared with @global in assembly/utils.ts to be available in all source files without import.
+ */
+export const STRINGIFY_VALUE_GLOBAL_ALIAS = '__vitest_assemblyscript_stringify_value' as const;
 
 /** Error names for AssemblyScript test failures reported to vitest */
 export const TEST_ERROR_NAMES = {

@@ -5,12 +5,13 @@ import {
   equalsPathClear,
   equalsPathString,
   equalsRefPairsClear,
+  equalsRtmNamesClear,
+  equalsRtmNamesSuffix,
   identical,
   InequalityOperation,
-  truthyOrFalsey
+  truthyOrFalsey,
 } from './compare';
-
-import { isNull, nan, itemMessageString } from './utils';
+import { isNull, nan, stringifyValue } from './utils';
 
 // @external functions are imported to the WASM execution environment from pool code
 
@@ -302,18 +303,20 @@ abstract class BaseExpectMatcher<T> {
   toEqual<U>(val: U): void {
     equalsRefPairsClear();
     equalsPathClear();
+    equalsRtmNamesClear();
     const result = equals(this.actual, val);
     const path = equalsPathString();
-    equalsPathClear();
+    const isRtm = result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
 
     let suffix = "";
-    if (result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch) {
-      suffix = path != "" ? " (runtime type mismatch at " + path + ")" : " (runtime type mismatch)";
+    if (isRtm) {
+      const rtmNames = equalsRtmNamesSuffix();
+      suffix = path != "" ? " (runtime type mismatch at " + path + rtmNames + ")" : " (runtime type mismatch" + rtmNames + ")";
     } else if (path != "") {
       suffix = " (differs at " + path + ")";
     }
 
-    this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to deeply equal", true, true, suffix);
+    this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to deeply equal", true, true, suffix, isRtm);
   }
   
   /**
@@ -334,18 +337,20 @@ abstract class BaseExpectMatcher<T> {
   toStrictEqual<U>(val: U): void {
     equalsRefPairsClear();
     equalsPathClear();
+    equalsRtmNamesClear();
     const result = equals(this.actual, val);
     const path = equalsPathString();
-    equalsPathClear();
+    const isRtm = result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
 
     let suffix = "";
-    if (result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch) {
-      suffix = path != "" ? " (runtime type mismatch at " + path + ")" : " (runtime type mismatch)";
+    if (isRtm) {
+      const rtmNames = equalsRtmNamesSuffix();
+      suffix = path != "" ? " (runtime type mismatch at " + path + rtmNames + ")" : " (runtime type mismatch" + rtmNames + ")";
     } else if (path != "") {
       suffix = " (differs at " + path + ")";
     }
 
-    this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to strictly equal", true, true, suffix);
+    this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to strictly equal", true, true, suffix, isRtm);
   }
 
   /**
@@ -474,15 +479,35 @@ abstract class BaseExpectMatcher<T> {
     }
   }
 
-  protected assertComparison<U, V>(rawCondition: bool, actual: U, expected: V, methodStr: string, printExpected: bool, provideDiff: bool = true, suffix: string = ""): void {
+  protected assertComparison<U, V>(rawCondition: bool, actual: U, expected: V, methodStr: string, printExpected: bool, provideDiff: bool = true, suffix: string = "", isRtm: bool = false): void {
     const condition = this.isInverted ? !rawCondition : rawCondition;
 
     if (condition) {
       __assertion_pass();
     } else {
       const notStr = this.isInverted ? "not " : "";
-      const actualStr = itemMessageString(actual);
-      const expectedStr = itemMessageString(expected);
+      // For runtime type mismatches, show the top-level type name only — the mismatched
+      // types in the suffix are the useful information, not field contents of differently-typed
+      // objects. Uses __vitest_assemblyscript_typename (virtual dispatch gives runtime name)
+      // with nameof fallback for types without injection (containers, primitives).
+      // For value mismatches, full stringification shows what values differ.
+      let actualStr: string;
+      let expectedStr: string;
+      if (isRtm) {
+        // @ts-ignore
+        actualStr = isDefined(actual.__vitest_assemblyscript_typename)
+          // @ts-ignore
+          ? (<NonNullable<U>>actual).__vitest_assemblyscript_typename()
+          : nameof<U>();
+        // @ts-ignore
+        expectedStr = isDefined(expected.__vitest_assemblyscript_typename)
+          // @ts-ignore
+          ? (<NonNullable<V>>expected).__vitest_assemblyscript_typename()
+          : nameof<V>();
+      } else {
+        actualStr = stringifyValue(actual);
+        expectedStr = stringifyValue(expected);
+      }
       const msg = `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}${suffix}`;
 
       __assertion_fail<string>(msg, nameof<U>() + " " + nameof<V>(), provideDiff, actualStr, expectedStr);

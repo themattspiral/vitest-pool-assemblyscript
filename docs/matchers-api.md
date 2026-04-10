@@ -143,7 +143,7 @@ User object references of the same runtime type use a deep field-by-field compar
 - User-defined `@operator("==")` or `.equals()` methods are used if present, instead of field-by-field comparison
 - Supports inheritance, generics, and nullable fields
 
->⚠️ AS vs JS Quirk: Objects with different runtime types are **not equal** using `toEqual()` even when they share the same fields & values, which makes `toEqual` and `toStrictEqual()` work identically in the AssemblyScript pool. This differs from vitest's JavaScript `toEqual()`, which compares structurally regardless of constructor / runtime type.
+>⚠️ AS vs JS Quirk: Objects with different runtime types are **not equal** using `toEqual()` even when they share the same fields & values, which makes `toEqual` and `toStrictEqual()` work identically in the AssemblyScript pool. This differs from vitest's JavaScript `toEqual()`, which compares structurally regardless of constructor / runtime type. Failure output identifies the mismatched runtime type names to aid diagnosis.
 
 >ℹ️ If a user class extends a library class (from `node_modules` or AS stdlib), only the user class's own declared fields are compared. Inherited library fields are not included, as deep equality injection is scoped to user source files only.
 
@@ -166,6 +166,19 @@ const c1 = new Color(255, 0, 0, "red");
 const c2 = new Color(255, 0, 0, "scarlet");
 expect(c1).toEqual(c2);
 ```
+
+#### Failure Output
+Failed assertions show stringified actual/expected values with a path suffix indicating where they differ. Value mismatches show full field contents; runtime type mismatches show type names only.
+
+```
+// Value mismatch — full stringification with field path:
+expected Point { x: 1, y: 2 } to deeply equal Point { x: 1, y: 99 } (differs at .y)
+
+// Runtime type mismatch — top-level type names, suffix names the mismatched inner types:
+expected ShapeWrapper to deeply equal ShapeWrapper (runtime type mismatch at .shape: Circle vs Square)
+```
+
+>ℹ️ Stringified output shows all stored fields, even when `@operator("==")` or `.equals()` compares only a subset.
 
 #### SIMD Vector Support (`v128`)
 
