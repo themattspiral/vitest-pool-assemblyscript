@@ -131,12 +131,12 @@
     "tinyrainbow": "^3.0.3"
   },
   "peerDependencies": {
-    "@vitest/coverage-v8": "^3.2.0 || ^4.0.0",
-    "@vitest/runner": "^3.2.0 || ^4.0.0",
-    "@vitest/utils": "^3.2.0 || ^4.0.0",
-    "assemblyscript": "^0.28.9",
+    "@vitest/coverage-v8": "^3.2.0 || ~4.0.0",
+    "@vitest/runner": "^3.2.0 || ~4.0.0",
+    "@vitest/utils": "^3.2.0 || ~4.0.0",
+    "assemblyscript": "~0.28.9",
     "istanbul-lib-coverage": "^3.2.2",
-    "vitest": "^3.2.0 || ^4.0.0"
+    "vitest": "^3.2.0 || ~4.0.0"
   },
   "devDependencies": {
     "@semantic-release/github": "^12.0.3",
@@ -144,9 +144,9 @@
     "@types/istanbul-lib-coverage": "^2.0.6",
     "@types/node": "22.19.1",
     "@types/source-map": "~0.5.2",
-    "@vitest/coverage-v8": "^4.0.18",
-    "@vitest/runner": "^4.0.18",
-    "@vitest/utils": "^4.0.18",
+    "@vitest/coverage-v8": "~4.0.18",
+    "@vitest/runner": "~4.0.18",
+    "@vitest/utils": "~4.0.18",
     "assemblyscript": "~0.28.9",
     "conventional-changelog-conventionalcommits": "^9.1.0",
     "cross-env": "^10.1.0",
@@ -157,6 +157,6 @@
     "tsdown": "^0.20.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "~4.0.18"
   }
 }
