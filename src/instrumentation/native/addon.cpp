@@ -515,7 +515,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         excludedInternalFunctionSubstring = internalFunctionSubstringProperty.As<Napi::String>().Utf8Value();
         
         if (DEBUG) {
-          std::cout << LOG_PREFIX << " - OPTIONS - Excluded Internal Function Name Substring: \"" << excludedLibraryFileOverridePrefix << "\"" << std::endl;
+          std::cout << LOG_PREFIX << " - OPTIONS - Excluded Internal Function Name Substring: \"" << excludedInternalFunctionSubstring << "\"" << std::endl;
         }
       }
     }
