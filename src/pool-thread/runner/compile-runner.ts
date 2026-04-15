@@ -20,6 +20,7 @@ import type {
 } from '../../types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
+  INTERNAL_FUNCTION_NAME_SUBSTRING,
   INTERNAL_PATH_LIB_PREFIX,
   POOL_ERROR_NAMES,
   POOL_INTERNAL_PATHS,
@@ -82,6 +83,7 @@ export async function runCompileAndDiscover(
       ],
       excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
       excludedLibraryFileOverridePrefix: poolOptions._instrumentPoolInternals ? INTERNAL_PATH_LIB_PREFIX : undefined,
+      excludedInternalFunctionSubstring: INTERNAL_FUNCTION_NAME_SUBSTRING,
       coverageMemoryPagesMin: poolOptions.coverageMemoryPagesInitial,
       coverageMemoryPagesMax: poolOptions.coverageMemoryPagesMax,
       debug: poolOptions.debugNative,

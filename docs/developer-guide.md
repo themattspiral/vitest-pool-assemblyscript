@@ -20,7 +20,7 @@ If you're new to the codebase, this reading order will help you build a mental m
 
 1. **Entry point**: [`src/pool/pool-runner-init.ts`](../src/pool/pool-runner-init.ts) - `createAssemblyScriptPool()` factory. This is what vitest calls to create the pool.
 2. **Orchestration**: [`src/pool/pool-worker.ts`](../src/pool/pool-worker.ts) - `AssemblyScriptPoolWorker`. Manages file dispatch, timeout enforcement, and thread pool lifecycle.
-3. **Compilation**: [`src/pool-thread/runner/compile-runner.ts`](../src/pool-thread/runner/compile-runner.ts) - `runCompileAndDiscover()`. Compiles AS to WASM and discovers tests.
+3. **Compilation**: [`src/pool-thread/runner/compile-runner.ts`](../src/pool-thread/runner/compile-runner.ts) - `runCompileAndDiscover()`. Compiles AS to WASM and discovers tests. Compiler setup and transform registration in [`src/compiler/index.ts`](../src/compiler/index.ts); AS compiler transforms (deep equality injection, inline stripping) in [`src/compiler/transforms/`](../src/compiler/transforms/).
 4. **Test execution**: [`src/pool-thread/runner/test-runner.ts`](../src/pool-thread/runner/test-runner.ts) - `runSuite()` and `runTest()`. Runs tests and reports results via RPC.
 5. **WASM executor**: [`src/wasm-executor/index.ts`](../src/wasm-executor/index.ts) - `executeWASMDiscovery()` and `executeWASMTest()`. Creates WASM instances and manages the JS↔WASM boundary.
 6. **Error handling**: [`src/wasm-executor/wasm-errors.ts`](../src/wasm-executor/wasm-errors.ts) - `enhanceTestError()`. Source-maps WASM errors back to AssemblyScript source.
@@ -163,7 +163,13 @@ npm run emtest    # External meta tests for debugging (setup + run - shortcut)
 
 ### Meta Test Verification
 
-The meta test system needs to verify *how* tests fail, not just *that* they fail. A [`globalSetup`](../test/meta-verify/helpers/global-setup-capture-meta-run.ts) runs the meta suite once before any verification test workers spawn, capturing output and writing it to a results file. This eliminates duplicate meta suite runs and race conditions on shared output files. The flow:
+The meta test system needs to verify *how* tests fail, not just *that* they fail. Meta verification tests the full user-facing output after the entire error pipeline: WASM error → pool error handling (`enhanceTestError`) → vitest reporter → rendered CLI output. This includes error names, formatted actual/expected values, diff rendering, and source-mapped stack traces — the complete error block as the user sees it.
+
+#### Why meta-verify for matcher failure messages
+
+For matcher failure output specifically, `toThrowError` is an alternative — it can catch both explicit throws and assertion failures (since failed assertions call `abort()`). However, it only verifies the WASM-side message substring. It cannot verify the **error type classification** (`AssertionError` vs `WASMRuntimeError`) that appears in the user's output — that classification happens in the JS error pipeline after the WASM abort. Since error type is observable behavior per scenario, meta-verify is used to test it without relying on implementation assumptions about the error pipeline.
+
+A [`globalSetup`](../test/meta-verify/helpers/global-setup-capture-meta-run.ts) runs the meta suite once before any verification test workers spawn, capturing output and writing it to a results file. This eliminates duplicate meta suite runs and race conditions on shared output files. The flow:
 
 1. The globalSetup calls [`scripts/run-vitest-external.js`](../scripts/run-vitest-external.js) in **capture mode**, which runs vitest with piped stdio and returns `{ jsonOutput, cliOutput, exitCode }`
 2. The globalSetup writes the captured data (plus `cwd` and `coverageEnabled`) to `tmp/.meta-verify-results.json` at the project root

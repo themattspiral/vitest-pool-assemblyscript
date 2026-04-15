@@ -2,12 +2,16 @@ import {
   closeTo,
   compareInequality,
   equals,
+  equalsPathClear,
+  equalsPathString,
+  equalsRefPairsClear,
+  equalsRtmNamesClear,
+  equalsRtmNamesSuffix,
   identical,
   InequalityOperation,
-  isNull,
-  nan,
-  truthyOrFalsey
+  truthyOrFalsey,
 } from './compare';
+import { isNull, nan, stringifyValue } from './utils';
 
 // @external functions are imported to the WASM execution environment from pool code
 
@@ -33,43 +37,6 @@ declare function __expect_throw(fnPtr: usize, errorMsg?: string): void;
 @external("__as_pool_env__", "__end_expect_throw")
 declare function __end_expect_throw(): void;
 
-
-function itemMessageString<T>(item: T): string {
-  if (isNull(item)) return "null";
-  if (nan(item)) return "NaN";
-
-  if (isReference<T>()) {
-    if (isString<T>()) return `"${item}"`;
-    else if (item instanceof ArrayBuffer) return `ArrayBuffer[${item.byteLength}]`;
-    else if (isArrayLike<T>(item)) return arrayMessageString(item);
-    else if (item instanceof Set || item instanceof Map) return item.toString();
-    else return nameof<T>(item);
-  } else if (isBoolean<T>()){
-    return bool(item).toString();
-  } else if (isInteger<T>(item) || isFloat<T>(item)) {
-    return item.toString();
-  } else {
-    return nameof<T>(item);
-  }
-}
-
-function arrayMessageString<T extends ArrayLike<unknown>>(array: T): string {
-  if (isNullable<T>(array) && array == null) {
-    return "null";
-  }
-
-  let str = "[";
-  for (let i = 0; i < array.length; i++) {
-    str += itemMessageString(array[i]);
-
-    if (i < array.length - 1) {
-      str += ","
-    }
-  }
-  str += "]";
-
-  return str;
-}
 
 /**
  * Expect matcher
@@ -106,6 +73,8 @@ abstract class BaseExpectMatcher<T> {
    *
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
+   * @throws When comparing fundamentally incompatible types: reference vs value type
+   * (e.g. `string` vs `i32`, unless one is null/zero), or `v128` vs non-vector type.
    *
    * @example
    * expect(1 + 1).toBe(2);
@@ -270,24 +239,47 @@ abstract class BaseExpectMatcher<T> {
 
   /**
    * Checks that two values have the same value (deep equality). Primitives and strings
-   * are compared by value. The following reference types are compared with deep equality:
-   * - `Array`: element-by-element using `toEqual()` recursively
-   * - `ArrayBuffer`: byte-level content comparison
-   * - `Set`: membership equality (same elements, order-independent)
-   * - `Map`: key-by-key with values compared using `toEqual()`
-   *
-   * Other object references use `toBe()` rules (reference identity).
-   * ⚠️ IMPORTANT: Does not yet support user-defined object deep equality checking.
-   *
+   * are compared by value, and object references are tested for deep equality.
+   * 
    * Like `toBe`, cross-type numeric comparisons follow AssemblyScript's own `==` operator
    * restrictions. `toBeCloseTo()` is safer for any comparison involving a float and
    * accurately handles precision-loss edge cases.
    * 
+   * Built-in object references are compared with the following deep equality rules:
+   * - `Array`, `StaticArray`, `TypedArray`: element-by-element comparison using `toEqual()` recursively
+   * - `Set`: deep element equality (same elements, order-independent) using `toEqual()`
+   * - `Map`: key-by-key comparison using `toEqual()` on values. Key types must match
+   *   exactly; value types support cross-type comparison
+   * - `ArrayBuffer`: byte-level content comparison
+   *
+   * Arrays, Sets, and Maps support cross-type comparison where element/value types are
+   * compatible (e.g. `Array<i32>` vs `Array<f64>`, `Map<string, i32>` vs `Map<string, f64>`).
+   * For Maps, key types must match exactly - only value types can differ.
+   *
+   * User object references of the same runtime type are compared using a deep field-by-field
+   * comparison of all stored instance fields using `toEqual()` recursively.
+   * - Includes public, protected, and private fields
+   * - Getters are **excluded**
+   * - User-defined `@operator("==")` or `.equals()` methods are used if present, instead 
+   *   of field-by-field comparison
+   * - Supports inheritance, generics, and nullable fields
+   * - Objects with different runtime types are not equal even when they share 
+   *   the same fields & values, making behavior the same as `toStrictEqual` in the
+   *   AssemblyScript pool. This differs from vitest's JavaScript `toEqual()`, 
+   *   which compares structurally regardless of constructor / runtime type
+   * - Note: If a user class extends a library class (from `node_modules` or AS stdlib),
+   *   only the user class's own declared fields are compared. Inherited library fields
+   *   are not included, as deep equality injection is scoped to user source files only
+   *
    * SIMD vectors use WASM's native `==` comparison, which compares at the bit level, 
    * ignoring lane type. 
    *
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
+   * @throws When comparing fundamentally incompatible types: reference vs value type
+   * (e.g. `string` vs `i32`, unless one is null/zero), or `v128` vs non-vector type.
+   * @throws When comparing containers with incompatible element types (e.g. `Array<string>`
+   * vs `Array<i32>`), or precision-loss numeric combinations (e.g. `Array<f32>` vs `Array<i32>`).
    *
    * @example
    * expect([1, 2, 3]).toEqual([1, 2, 3]);
@@ -303,23 +295,62 @@ abstract class BaseExpectMatcher<T> {
    * // SIMD vectors: different lane types with the same underlying bits are equal
    * expect(i64x2(3, 7)).toEqual(i32x4(3, 0, 7, 0));
    *
-   * // user-defined objects use reference equality (deep equality not yet supported)
-   * const x = new MyObject(1);
-   * const y = new MyObject(1);  // same data, different reference
-   * // expect(x).toEqual(y);  // throws — not yet supported
+   * // user-defined objects: deep equality
+   * const p1 = new Point(1, 2);
+   * const p2 = new Point(1, 2);
+   * expect(p1).toEqual(p2);
    */
   toEqual<U>(val: U): void {
-    this.assertComparison(equals(this.actual, val), this.actual, val, "to deeply equal", true);
+    equalsRefPairsClear();
+    equalsPathClear();
+    equalsRtmNamesClear();
+    const result = equals(this.actual, val);
+    const path = equalsPathString();
+    const isRtm = result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
+
+    let suffix = "";
+    if (isRtm) {
+      const rtmNames = equalsRtmNamesSuffix();
+      suffix = path != "" ? " (runtime type mismatch at " + path + rtmNames + ")" : " (runtime type mismatch" + rtmNames + ")";
+    } else if (path != "") {
+      suffix = " (differs at " + path + ")";
+    }
+
+    this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to deeply equal", true, true, suffix, isRtm);
   }
   
   /**
-   * Alias for `toEqual`. Currently no differences in AssemblyScript.
+   * Alias for `toEqual`, no functional difference.
+   * 
+   * In JavaScript, `toEqual` compares structurally regardless of type,
+   * while `toStrictEqual` requires the same runtime type.
+   * 
+   * In AssemblyScript, `toEqual` already requires matching runtime types, 
+   * which is consistent with how most testing frameworks behave for statically-typed 
+   * languages without runtime reflection.
    *
    * @example
-   * expect([1, 2]).toStrictEqual([1, 2]);
+   * const p1 = new Point(1, 2);
+   * const p2 = new Point(1, 2);
+   * expect(p1).toEqual(p2);
    */
   toStrictEqual<U>(val: U): void {
-    this.assertComparison(equals(this.actual, val), this.actual, val, "to strictly equal", true);
+    equalsRefPairsClear();
+    equalsPathClear();
+    equalsRtmNamesClear();
+    const result = equals(this.actual, val);
+    const path = equalsPathString();
+    const isRtm = result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
+
+    let suffix = "";
+    if (isRtm) {
+      const rtmNames = equalsRtmNamesSuffix();
+      suffix = path != "" ? " (runtime type mismatch at " + path + rtmNames + ")" : " (runtime type mismatch" + rtmNames + ")";
+    } else if (path != "") {
+      suffix = " (differs at " + path + ")";
+    }
+
+    this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to strictly equal", true, true, suffix, isRtm);
   }
 
   /**
@@ -382,7 +413,7 @@ abstract class BaseExpectMatcher<T> {
 
   /**
    * Checks that the type of the value is nullable (can hold `null`). This is a type-level
-   * check, not a value check — a bare `null` (which is `usize(0)`) is not itself a nullable type.
+   * check, not a value check - a bare `null` (which is `usize(0)`) is not itself a nullable type.
    * Use `toBeNull()` to check if a value is null.
    *
    * @example
@@ -448,16 +479,36 @@ abstract class BaseExpectMatcher<T> {
     }
   }
 
-  protected assertComparison<U, V>(rawCondition: bool, actual: U, expected: V, methodStr: string, printExpected: bool, provideDiff: bool = true): void {
+  protected assertComparison<U, V>(rawCondition: bool, actual: U, expected: V, methodStr: string, printExpected: bool, provideDiff: bool = true, suffix: string = "", isRtm: bool = false): void {
     const condition = this.isInverted ? !rawCondition : rawCondition;
 
     if (condition) {
       __assertion_pass();
     } else {
       const notStr = this.isInverted ? "not " : "";
-      const actualStr = itemMessageString(actual);
-      const expectedStr = itemMessageString(expected);
-      const msg = `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}`;
+      // For runtime type mismatches, show the top-level type name only — the mismatched
+      // types in the suffix are the useful information, not field contents of differently-typed
+      // objects. Uses __vitest_assemblyscript_typename (virtual dispatch gives runtime name)
+      // with nameof fallback for types without injection (containers, primitives).
+      // For value mismatches, full stringification shows what values differ.
+      let actualStr: string;
+      let expectedStr: string;
+      if (isRtm) {
+        // @ts-ignore
+        actualStr = isDefined(actual.__vitest_assemblyscript_typename)
+          // @ts-ignore
+          ? (<NonNullable<U>>actual).__vitest_assemblyscript_typename()
+          : nameof<U>();
+        // @ts-ignore
+        expectedStr = isDefined(expected.__vitest_assemblyscript_typename)
+          // @ts-ignore
+          ? (<NonNullable<V>>expected).__vitest_assemblyscript_typename()
+          : nameof<V>();
+      } else {
+        actualStr = stringifyValue(actual);
+        expectedStr = stringifyValue(expected);
+      }
+      const msg = `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}${suffix}`;
 
       __assertion_fail<string>(msg, nameof<U>() + " " + nameof<V>(), provideDiff, actualStr, expectedStr);
   

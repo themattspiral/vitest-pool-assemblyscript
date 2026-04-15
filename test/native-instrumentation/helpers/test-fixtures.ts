@@ -12,6 +12,7 @@ import { readFile } from 'fs/promises';
 import type { AssemblyScriptCompilerResult } from '../../../src/types/types.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
+  INTERNAL_FUNCTION_NAME_SUBSTRING,
   POOL_INTERNAL_PATHS,
 } from '../../../src/types/constants.js';
 
@@ -102,6 +103,7 @@ export async function compileAndExtract(
         projectRoot: PROJECT_ROOT,
         relativeExcludedFiles: [fixture.relPath].concat(POOL_INTERNAL_PATHS),
         excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
+        excludedInternalFunctionSubstring: INTERNAL_FUNCTION_NAME_SUBSTRING,
         coverageMemoryPagesMin: 1,
         coverageMemoryPagesMax: 4
       },

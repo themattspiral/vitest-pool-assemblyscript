@@ -6,8 +6,13 @@
   "compilerOptions": {
     "rootDir": "../..",
     "baseUrl": ".",
+
+    // Resolve imports in IDE.
+    // For actual AS code, this is handled by the AS compiler,
+    // specifically by our custom readFile() implementation
     "paths": {
       "vitest-pool-assemblyscript/assembly": ["../../assembly/index.ts"],
+      "vitest-pool-assemblyscript/assembly/__internal": ["../../assembly/index-internal.ts"],
       "*": ["../../node_modules/assemblyscript/std/assembly/*"]
     }
   }

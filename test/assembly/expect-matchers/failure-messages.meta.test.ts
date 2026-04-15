@@ -1,13 +1,12 @@
 import { describe, expect, test, TestOptions } from "vitest-pool-assemblyscript/assembly";
+import { Circle, Line, Person, Point, Shape, Square, ShapeWrapper } from "../../assembly-src/user-class-utils";
+import {
+  PointGroup, Registry, Scoreboard, Settings, ShapeGroup, ShapeList, ShapeRegistry, Team
+} from "../../assembly-src/user-class-container-utils.meta";
 
 // Meta fixture: intentional matcher failures to verify CLI error output formatting.
 // Each test is expected to fail — the meta-verify tests assert on the resulting
 // error type, message text, and diff content in the CLI output.
-
-class SimpleObject {
-  value: i32;
-  constructor(value: i32) { this.value = value; }
-}
 
 // =============================================================================
 // ASSERTION FAILURES (AssertionError)
@@ -27,29 +26,35 @@ describe("toBe", () => {
   });
 
   test("array [should fail]", () => {
-    const a: i32[] = [1, 2];
-    const b: i32[] = [1, 2];
+    const a: i32[] = [1, 2, 3];
+    const b: i32[] = [1, 2, 3];
     expect(a).toBe(b);
   });
 
   test("map [should fail]", () => {
     const a = new Map<string, i32>();
     a.set("x", 1);
+    a.set("y", 2);
     const b = new Map<string, i32>();
     b.set("x", 1);
+    b.set("y", 2);
     expect(a).toBe(b);
   });
 
   test("set [should fail]", () => {
     const a = new Set<i32>();
     a.add(1);
+    a.add(2);
+    a.add(3);
     const b = new Set<i32>();
     b.add(1);
+    b.add(2);
+    b.add(3);
     expect(a).toBe(b);
   });
 
   test("user-defined object [should fail]", () => {
-    expect(new SimpleObject(1)).toBe(new SimpleObject(1));
+    expect(new Point(1, 2)).toBe(new Point(1, 2));
   });
 
   test("ArrayBuffer [should fail]", () => {
@@ -59,8 +64,8 @@ describe("toBe", () => {
     expect(a).toBe(b);
   });
 
-  test.skip("SIMD vector", () => {
-    // TODO: SIMD vector comparison
+  test("SIMD vector [should fail]", () => {
+    expect(i32x4(1, 2, 3, 4)).toBe(i32x4(1, 2, 3, 99));
   });
 });
 
@@ -103,6 +108,18 @@ describe("toEqual", () => {
     expect(a).toEqual(b);
   });
 
+  test("map with integer key [should fail]", () => {
+    const a = new Map<i32, i32>();
+    a.set(7, 100);
+    a.set(8, 200);
+
+    const b = new Map<i32, i32>();
+    b.set(7, 100);
+    b.set(8, 999);
+
+    expect(a).toEqual(b);
+  });
+
   test("set [should fail]", () => {
     const a = new Set<string>();
     a.add("apple");
@@ -128,8 +145,8 @@ describe("toEqual", () => {
     expect(a).toEqual(b);
   });
 
-  test.skip("SIMD vector", () => {
-    // TODO: SIMD vector comparison
+  test("SIMD vector [should fail]", () => {
+    expect(i32x4(1, 2, 3, 4)).toEqual(i32x4(1, 2, 3, 99));
   });
 });
 
@@ -320,7 +337,7 @@ describe("null string", () => {
   });
 });
 
-// --- Cross-type comparison: toEqual only (via equals() idof check) ---
+// --- Cross-type comparison: toEqual only ---
 
 describe("cross-type comparison", () => {
   test("toEqual map vs array [should fail]", () => {
@@ -328,6 +345,86 @@ describe("cross-type comparison", () => {
     m.set("a", 1);
     const a: string[] = ["a"];
     expect(m).toEqual(a);
+  });
+
+  test("toEqual user class type mismatch [should fail]", () => {
+    expect(new Circle("red", 5.0)).toEqual(new Shape("red"));
+  });
+
+  test("toEqual nested type mismatch [should fail]", () => {
+    const a = new ShapeWrapper("w1", new Circle("red", 5.0));
+    const b = new ShapeWrapper("w1", new Square("red", 5.0));
+    expect(a).toEqual(b);
+  });
+});
+
+// --- Container type safety: throws with path context ---
+
+describe("container type safety", () => {
+  test("Array incomparable element types [should fail]", () => {
+    expect([1, 2, 3]).toEqual(["a", "b", "c"]);
+  });
+
+  test("Set incomparable element types [should fail]", () => {
+    const setI32 = new Set<i32>();
+    setI32.add(1);
+    const setStr = new Set<string>();
+    setStr.add("a");
+    expect(setI32).toEqual(setStr);
+  });
+
+  test("Map incomparable value types with string key [should fail]", () => {
+    const mapA = new Map<string, i32>();
+    mapA.set("x", 1);
+    const mapB = new Map<string, string>();
+    mapB.set("x", "one");
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("Map incomparable value types with integer key [should fail]", () => {
+    const mapA = new Map<i32, string>();
+    mapA.set(7, "hello");
+    const mapB = new Map<i32, i32>();
+    mapB.set(7, 42);
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("Array precision loss [should fail]", () => {
+    const a: f32[] = [1.0, 2.0];
+    const b: i32[] = [1, 2];
+    expect(a).toEqual(b);
+  });
+
+  test("Set precision loss [should fail]", () => {
+    const setA = new Set<f32>();
+    setA.add(1.0);
+    const setB = new Set<i32>();
+    setB.add(1);
+    expect(setA).toEqual(setB);
+  });
+
+  test("Map precision loss with string key [should fail]", () => {
+    const mapA = new Map<string, f32>();
+    mapA.set("x", 1.0);
+    const mapB = new Map<string, i32>();
+    mapB.set("x", 1);
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("Map mismatched key types [should fail]", () => {
+    const mapA = new Map<string, i32>();
+    mapA.set("x", 1);
+    const mapB = new Map<i32, string>();
+    mapB.set(1, "x");
+    expect(mapA).toEqual(mapB);
+  });
+
+  test("Set vs Array cross-container [should fail]", () => {
+    const setA = new Set<string>();
+    setA.add("apple");
+    setA.add("cherry");
+    const arrayA = ["apple", "cherry"];
+    expect(setA).toEqual(arrayA);
   });
 });
 
@@ -383,10 +480,141 @@ describe("unsupported types", () => {
   });
 });
 
-// --- Deep equality not implemented: toEqual only (via equals() final throw) ---
+// =============================================================================
+// toEqual PATH CONTEXT
+// Verifies path information in assertion messages for container elements,
+// user object fields, and composed field+container paths.
+// =============================================================================
 
-describe("deep equality", () => {
-  test("toEqual with objects [should fail]", () => {
-    expect(new SimpleObject(1)).toEqual(new SimpleObject(1));
+describe("toEqual path context", () => {
+  describe("top-level container element", () => {
+    test("Array element runtime type mismatch [should fail]", () => {
+      const a: Array<Shape> = [new Circle("red", 5.0)];
+      const b: Array<Shape> = [new Square("red", 5.0)];
+      expect(a).toEqual(b);
+    });
+
+    test("Map value runtime type mismatch [should fail]", () => {
+      const a = new Map<string, Shape>();
+      a.set("a", new Circle("red", 5.0));
+      const b = new Map<string, Shape>();
+      b.set("a", new Square("red", 5.0));
+      expect(a).toEqual(b);
+    });
+
+    test("Set of arrays with incomparable element types [should fail]", () => {
+      const setA = new Set<Array<i32>>();
+      setA.add([1, 2, 3]);
+      const setB = new Set<Array<string>>();
+      setB.add(["a", "b", "c"]);
+      expect(setA).toEqual(setB);
+    });
+  });
+
+  describe("user object field", () => {
+    test("field value differs [should fail]", () => {
+      const a = new ShapeWrapper("hello", new Circle("red", 5.0));
+      const b = new ShapeWrapper("world", new Circle("red", 5.0));
+      expect(a).toEqual(b);
+    });
+
+    test("nested field value differs [should fail]", () => {
+      const a = new Line(new Point(1, 2), new Point(3, 4));
+      const b = new Line(new Point(99, 2), new Point(3, 4));
+      expect(a).toEqual(b);
+    });
+  });
+
+  describe("composed field and container path", () => {
+    test("array field element differs [should fail]", () => {
+      const a = new Scoreboard("team1", [10, 20, 30]);
+      const b = new Scoreboard("team1", [10, 99, 30]);
+      expect(a).toEqual(b);
+    });
+
+    test("array field nested object field differs [should fail]", () => {
+      const a = new Team("squad", [new Person("Alice", 30), new Person("Bob", 25)]);
+      const b = new Team("squad", [new Person("Alice", 30), new Person("Charlie", 25)]);
+      expect(a).toEqual(b);
+    });
+
+    test("map field primitive value differs [should fail]", () => {
+      const configA = new Map<string, i32>();
+      configA.set("x", 1);
+      configA.set("y", 2);
+      const configB = new Map<string, i32>();
+      configB.set("x", 1);
+      configB.set("y", 99);
+      const a = new Settings("s1", configA);
+      const b = new Settings("s1", configB);
+      expect(a).toEqual(b);
+    });
+
+    test("map field nested object field differs [should fail]", () => {
+      const entriesA = new Map<string, Point>();
+      entriesA.set("origin", new Point(0, 0));
+      entriesA.set("target", new Point(5, 10));
+      const entriesB = new Map<string, Point>();
+      entriesB.set("origin", new Point(0, 0));
+      entriesB.set("target", new Point(99, 10));
+      const a = new Registry(entriesA);
+      const b = new Registry(entriesB);
+      expect(a).toEqual(b);
+    });
+
+    test("set field element not found [should fail]", () => {
+      const setA = new Set<Point>();
+      setA.add(new Point(1, 2));
+      setA.add(new Point(3, 4));
+      const setB = new Set<Point>();
+      setB.add(new Point(1, 2));
+      setB.add(new Point(99, 99));
+      const a = new PointGroup(setA);
+      const b = new PointGroup(setB);
+      expect(a).toEqual(b);
+    });
+
+    test("array field sibling subclass RTM [should fail]", () => {
+      const a = new ShapeList("list1", [new Circle("red", 5.0)]);
+      const b = new ShapeList("list1", [new Square("red", 5.0)]);
+      expect(a).toEqual(b);
+    });
+
+    test("map field sibling subclass value RTM [should fail]", () => {
+      const mapA = new Map<string, Shape>();
+      mapA.set("a", new Circle("red", 5.0));
+      const mapB = new Map<string, Shape>();
+      mapB.set("a", new Square("red", 5.0));
+      const a = new ShapeRegistry("reg1", mapA);
+      const b = new ShapeRegistry("reg1", mapB);
+      expect(a).toEqual(b);
+    });
+
+    test("array field subclass vs base RTM [should fail]", () => {
+      const a = new ShapeList("list1", [new Circle("red", 5.0)]);
+      const b = new ShapeList("list1", [new Shape("red")]);
+      expect(a).toEqual(b);
+    });
+
+    test("map field subclass vs base value RTM [should fail]", () => {
+      const mapA = new Map<string, Shape>();
+      mapA.set("a", new Circle("red", 5.0));
+      const mapB = new Map<string, Shape>();
+      mapB.set("a", new Shape("red"));
+      const a = new ShapeRegistry("reg1", mapA);
+      const b = new ShapeRegistry("reg1", mapB);
+      expect(a).toEqual(b);
+    });
+
+    test("set field polymorphic no match [should fail]", () => {
+      const setA = new Set<Shape>();
+      setA.add(new Circle("red", 5.0));
+      const setB = new Set<Shape>();
+      setB.add(new Square("red", 5.0));
+      const a = new ShapeGroup("group1", setA);
+      const b = new ShapeGroup("group1", setB);
+      expect(a).toEqual(b);
+    });
   });
 });
+

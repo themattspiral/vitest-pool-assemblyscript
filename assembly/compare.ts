@@ -1,44 +1,298 @@
-function arrayEquals<T extends ArrayLike<unknown>, U extends ArrayLike<unknown>>(actual: T, expected: U): bool {
+import { stringifyValue } from './utils';
+
+/**
+ * Byte offset from an object pointer to the rtId field in the AS managed object header.
+ * Every managed object has a 20-byte header preceding the payload; rtId is a u32 at offset -8.
+ * See: https://www.assemblyscript.org/runtime.html#memory-layout
+ */
+const MANAGED_OBJECT_RTID_BYTE_OFFSET: usize = 8;
+
+/**
+ * Cycle detection for deep equality comparisons. Tracks which (actual, expected) reference
+ * pairs are currently being compared to prevent infinite recursion on self-referential or
+ * mutually-referential object graphs.
+ *
+ * Pairs are packed as u64 keys: (u64(actualPtr) << 32) | u64(expectedPtr).
+ * Entries are added when a reference comparison starts and never individually removed —
+ * if a pair was previously Equal, revisiting returns Equal (correct); if NotEqual, we
+ * already returned and won't revisit. Cleared at the start of each toEqual/toStrictEqual call.
+ */
+const equalsRefPairs = new Set<u64>();
+
+function equalsRefPairSeen(actualPtr: usize, expectedPtr: usize): bool {
+  const key: u64 = (u64(actualPtr) << 32) | u64(expectedPtr);
+  return equalsRefPairs.has(key);
+}
+
+function equalsRefPairMark(actualPtr: usize, expectedPtr: usize): void {
+  const key: u64 = (u64(actualPtr) << 32) | u64(expectedPtr);
+  equalsRefPairs.add(key);
+}
+
+export function equalsRefPairsClear(): void {
+  equalsRefPairs.clear();
+}
+
+/**
+ * Comparison path tracking for deep equality. Accumulates path segments (e.g. "[0]",
+ * "['key']", "{Set}") as equals() recurses into containers, building a path like
+ * "[2].name" from root to the mismatch point.
+ *
+ * Uses push/pop discipline: pop only on Equal, return-without-pop on non-Equal.
+ * As non-Equal propagates up the call stack, the path naturally accumulates to the
+ * deepest mismatch point. Cleared at the start of each toEqual/toStrictEqual call.
+ */
+const equalsPath: string[] = [];
+
+function equalsPathPush(segment: string): void {
+  equalsPath.push(segment);
+}
+
+function equalsPathPop(): void {
+  equalsPath.pop();
+}
+
+export function equalsPathString(): string {
+  let result = "";
+  for (let i = 0; i < equalsPath.length; i++) {
+    result += equalsPath[i];
+  }
+  return result;
+}
+
+export function equalsPathClear(): void {
+  equalsPath.length = 0;
+}
+
+export function equalsPathLength(): i32 {
+  return equalsPath.length;
+}
+
+/**
+ * Runtime type mismatch name tracking. When equals() detects a runtime type mismatch
+ * (different rtIds on managed objects), it captures the actual and expected runtime type
+ * names via the transform-injected __vitest_assemblyscript_typename method. These are
+ * read by toEqual/toStrictEqual to include type names in the assertion suffix
+ * (e.g. "runtime type mismatch: Circle vs Square").
+ *
+ * Cleared at the start of each toEqual/toStrictEqual call alongside path and visited set.
+ */
+let equalsRtmActualName: string = "";
+let equalsRtmExpectedName: string = "";
+
+export function equalsRtmNamesSuffix(): string {
+  if (equalsRtmActualName != "" && equalsRtmExpectedName != "") {
+    return ": " + equalsRtmActualName + " vs " + equalsRtmExpectedName;
+  }
+  return "";
+}
+
+export function equalsRtmNamesClear(): void {
+  equalsRtmActualName = "";
+  equalsRtmExpectedName = "";
+}
+
+/**
+ * Global bridge for the deep-equals compiler transform — push a path segment.
+ *
+ * Transform-injected deep equality methods call this to record which field is
+ * being compared, enabling path context like ".shape" or ".members" in error messages.
+ * Declared global to make it available in all source files without import.
+ */
+// @ts-ignore: AS-specific global decorator
+@global
+function __vitest_assemblyscript_equals_path_push(segment: string): void {
+  equalsPathPush(segment);
+}
+
+/**
+ * Global bridge for the deep-equals compiler transform — pop a path segment.
+ *
+ * Called only when a field comparison returns Equal (push/pop discipline).
+ * On non-Equal, the segment is left on the stack so the path accumulates
+ * to the deepest mismatch point.
+ */
+// @ts-ignore: AS-specific global decorator
+@global
+function __vitest_assemblyscript_equals_path_pop(): void {
+  equalsPathPop();
+}
+
+/** Returns " at <path>" or " within <path>" if the path is non-empty, otherwise empty string. */
+function equalsPathAtSuffix(): string {
+  if (equalsPath.length == 0) return "";
+
+  // Scan for "Set" anywhere in the path stack. Set elements have no meaningful
+  // identifier, so segments pushed after "Set" (e.g. array indices from inner
+  // comparisons during the set scan) are discarded — they represent aborted
+  // comparison attempts whose segments couldn't be cleaned up because a throw
+  // halted execution. Build the path only up to and including "Set".
+  for (let i = equalsPath.length - 1; i >= 0; i--) {
+    if (equalsPath[i] == "Set") {
+      let path = "";
+      for (let j = 0; j <= i; j++) {
+        path += equalsPath[j];
+      }
+      return " within " + path;
+    }
+  }
+
+  return " at " + equalsPathString();
+}
+
+/**
+ * Result of a deep equality comparison.
+ * Declared global so it is available in all source files without import —
+ * including transform-injected deep equality methods in user classes.
+ */
+// @ts-ignore: AS-specific global decorator
+@global
+export enum __vitest_assemblyscript_EqualityResult {
+  Equal,
+  NotEqual,
+  RuntimeTypeMismatch,
+}
+
+function arrayEquals<T extends ArrayLike<unknown>, U extends ArrayLike<unknown>>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
   if (actual.length != expected.length) {
-    return false;
+    return __vitest_assemblyscript_EqualityResult.NotEqual;
   }
 
   for (let i = 0; i < expected.length; i++) {
-    if (!equals(actual[i], expected[i])) {
-      return false;
+    // Context-aware format: "[N]" composes with field paths (e.g. ".members[2]"),
+    // "index [N]" reads well standalone (e.g. "differs at index [2]")
+    const segment = equalsPathLength() > 0
+      ? "[" + i.toString() + "]"
+      : "index [" + i.toString() + "]";
+    equalsPathPush(segment);
+    const result = equals(actual[i], expected[i]);
+    if (result != __vitest_assemblyscript_EqualityResult.Equal) {
+      return result;
     }
+    equalsPathPop();
   }
 
-  return true;
+  return __vitest_assemblyscript_EqualityResult.Equal;
 }
 
-function setEquals<T, U>(actual: T, expected: U): bool {
+function setEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
   if (actual instanceof Set && expected instanceof Set) {
+    // Exception to push/pop discipline: always pop before returning, regardless of result.
+    // Set elements have no meaningful identifier (no index, no key), so "Set" is only
+    // useful as a terminal path segment — it should not compose with deeper segments
+    // from recursive comparisons inside elements. equalsPathAtSuffix() formats this
+    // as "within Set" instead of "at Set".
+    equalsPathPush("Set");
+
     if (actual.size != expected.size) {
-      return false;
+      equalsPathPop();
+      return __vitest_assemblyscript_EqualityResult.NotEqual;
     }
 
+    const actualValues = actual.values();
     const expectedValues = expected.values();
 
+    // Track which actual elements have been matched to prevent double-counting.
+    // Without this, two expected elements could both match the same actual element.
+    const matched = new Array<bool>(actualValues.length);
+    for (let i = 0; i < matched.length; i++) {
+      matched[i] = false;
+    }
+
     for (let i = 0; i < expectedValues.length; i++) {
-      if (!actual.has(expectedValues[i])) {
-        return false;
+      let found = false;
+      for (let j = 0; j < actualValues.length; j++) {
+        if (!matched[j]) {
+          // Save path stack depth before each scan attempt. Failed comparisons
+          // leave stale segments (e.g. ".x" from a Point field) that would corrupt
+          // the pop discipline — restoring ensures "Set" remains the top segment.
+          const pathDepth = equalsPathLength();
+          if (equals(actualValues[j], expectedValues[i]) == __vitest_assemblyscript_EqualityResult.Equal) {
+            matched[j] = true;
+            found = true;
+            break;
+          }
+          equalsPath.length = pathDepth;
+        }
+      }
+      if (!found) {
+        equalsPathPop();
+        return __vitest_assemblyscript_EqualityResult.NotEqual;
       }
     }
 
-    return true;
+    equalsPathPop();
+    return __vitest_assemblyscript_EqualityResult.Equal;
   }
 
-  return false;
+  return __vitest_assemblyscript_EqualityResult.NotEqual;
 }
 
-function arrayBufferEquals<T, U>(actual: T, expected: U): bool {
+function mapEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
+  if (actual instanceof Map && expected instanceof Map) {
+    // Key types must match exactly — cross-type key comparison is not safe because
+    // .has() and .get() depend on the key's hash and equality semantics, which differ
+    // across types (e.g. string vs i32 keys have incompatible hash/lookup behavior).
+    if (nameof<indexof<T>>() != nameof<indexof<U>>()) {
+      throw new Error("Map key types must match for deep equality comparison: "
+        + nameof<T>() + " and " + nameof<U>()
+        + equalsPathAtSuffix()
+      );
+    }
+
+    if (actual.size != expected.size) {
+      return __vitest_assemblyscript_EqualityResult.NotEqual;
+    }
+
+    // Cast actual to use expected's key type (verified equal above) while preserving
+    // actual's native value type. This lets us iterate expected's keys and look them
+    // up in actual, while equals() handles cross-type value comparison naturally
+    // (e.g. valueof<T>=i32 vs valueof<U>=f64).
+    const castActual = changetype<Map<indexof<U>, valueof<T>>>(actual);
+
+    // instanceof needed after changetype for the compiler to resolve Map methods
+    if (castActual instanceof Map) {
+      const expectedKeys = expected.keys();
+
+      for (let i = 0; i < expectedKeys.length; i++) {
+        const key = expectedKeys[i];
+        // Context-aware format: "[key]" composes with field paths (e.g. ".registry[\"x\"]"),
+        // "key [key]" reads well standalone (e.g. "differs at key [\"x\"]")
+        const segment = equalsPathLength() > 0
+          ? "[" + stringifyValue(key) + "]"
+          : "key [" + stringifyValue(key) + "]";
+        equalsPathPush(segment);
+
+        if (!castActual.has(key)) {
+          return __vitest_assemblyscript_EqualityResult.NotEqual;
+        }
+
+        // Cross-type value comparison delegates to equals(), which handles
+        // compatible numeric types, incomparable types, and precision-loss cases
+        const result = equals(castActual.get(key), expected.get(key));
+        if (result != __vitest_assemblyscript_EqualityResult.Equal) {
+          return result;
+        }
+        equalsPathPop();
+      }
+
+      return __vitest_assemblyscript_EqualityResult.Equal;
+    } else {
+      // will never happen — changetype preserves the underlying Map instance
+      unreachable();
+    }
+  }
+
+  return __vitest_assemblyscript_EqualityResult.NotEqual;
+}
+
+function arrayBufferEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
   if (!(actual instanceof ArrayBuffer) || !(expected instanceof ArrayBuffer)) {
-    return false;
+    return __vitest_assemblyscript_EqualityResult.NotEqual;
   }
 
   if (actual.byteLength != expected.byteLength) {
-    return false;
+    return __vitest_assemblyscript_EqualityResult.NotEqual;
   }
 
   const actualPtr = changetype<usize>(actual);
@@ -49,7 +303,7 @@ function arrayBufferEquals<T, U>(actual: T, expected: U): bool {
   // compare 8 bytes at a time (u64 word-sized comparison)
   for (let i: usize = 0; i < wordCount; i++) {
     if (load<u64>(actualPtr + i * 8) != load<u64>(expectedPtr + i * 8)) {
-      return false;
+      return __vitest_assemblyscript_EqualityResult.NotEqual;
     }
   }
 
@@ -57,37 +311,11 @@ function arrayBufferEquals<T, U>(actual: T, expected: U): bool {
   const remainderOffset = wordCount * 8;
   for (let i: usize = 0; i < remainder; i++) {
     if (load<u8>(actualPtr + remainderOffset + i) != load<u8>(expectedPtr + remainderOffset + i)) {
-      return false;
+      return __vitest_assemblyscript_EqualityResult.NotEqual;
     }
   }
 
-  return true;
-}
-
-function mapEquals<T, U>(actual: T, expected: U): bool {
-  if (actual instanceof Map && expected instanceof Map) {
-    if (actual.size != expected.size) {
-      return false;
-    }
-
-    const expectedKeys = expected.keys();
-
-    for (let i = 0; i < expectedKeys.length; i++) {
-      const key = expectedKeys[i];
-
-      if (!actual.has(key)) {
-        return false;
-      }
-
-      if (!equals(actual.get(key), expected.get(key))) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  return false;
+  return __vitest_assemblyscript_EqualityResult.Equal;
 }
 
 /**
@@ -98,9 +326,11 @@ export function identical<T, U>(actual: T, expected: U): bool {
   // both refs
   if (isReference<T>() && isReference<U>()) {
     const actualIsNullable = isNullable<T>();
-    const actualIsNull = actualIsNullable && actual == null;
+    // Use changetype pointer check instead of `== null` to avoid invoking
+    // user-defined @operator("==") overloads, which reject null arguments
+    const actualIsNull = actualIsNullable && changetype<usize>(actual) == 0;
     const expectedIsNullable = isNullable<U>();
-    const expectedIsNull = expectedIsNullable && expected == null;
+    const expectedIsNull = expectedIsNullable && changetype<usize>(expected) == 0;
     
     // null refs
     if (actualIsNull && expectedIsNull) {
@@ -116,12 +346,26 @@ export function identical<T, U>(actual: T, expected: U): bool {
       // object refs
       return changetype<usize>(actual) == changetype<usize>(expected);
     }
-  } else if (isReference<T>() && !isReference<U>()) { 
-    // actual is null ref, expected bare null
-    return changetype<usize>(actual) == usize(0) && expected == usize(0);
-  } else if (!isReference<T>() && isReference<U>()) { 
-    // actual is bare null, expected is null ref
-    return actual == usize(0) && changetype<usize>(expected) == usize(0);
+  } else if (isReference<T>() && !isReference<U>()) {
+    // Both null/zero: null reference matches bare null (usize(0))
+    if (changetype<usize>(actual) == 0 && expected == usize(0)) {
+      return true;
+    }
+    // Non-null reference vs value type: fundamentally incomparable
+    throw new Error(
+      "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+      + equalsPathAtSuffix() + ": reference and value types are not comparable."
+    );
+  } else if (!isReference<T>() && isReference<U>()) {
+    // Both null/zero: bare null (usize(0)) matches null reference
+    if (actual == usize(0) && changetype<usize>(expected) == 0) {
+      return true;
+    }
+    // Value type vs non-null reference: fundamentally incomparable
+    throw new Error(
+      "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+      + equalsPathAtSuffix() + ": reference and value types are not comparable."
+    );
   } else { // both primitives
     if ( (isBoolean<T>() && !isBoolean<U>()) || (!isBoolean<T>() && isBoolean<U>())
     ) {
@@ -153,6 +397,7 @@ export function identical<T, U>(actual: T, expected: U): bool {
         if (sizeof<U>() >= sizeof<T>()) {
           throw new Error(
             "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+            + equalsPathAtSuffix()
             + ": float precision is insufficient for the integer type's range."
             + " Cast both values to f64 before comparing, e.g. expect(f64(a)).toBe(f64(b))."
             + " Note: large integer values may lose precision when cast to f64, which could cause false positives."
@@ -162,18 +407,24 @@ export function identical<T, U>(actual: T, expected: U): bool {
         if (sizeof<T>() >= sizeof<U>()) {
           throw new Error(
             "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+            + equalsPathAtSuffix()
             + ": float precision is insufficient for the integer type's range."
             + " Cast both values to f64 before comparing, e.g. expect(f64(a)).toBe(f64(b))."
             + " Note: large integer values may lose precision when cast to f64, which could cause false positives."
           );
         }
       }
+
+      // if we got here, cast to f64 is safe without precision loss - cast to compare
       return f64(actual) === f64(expected);
     } else if (isVector<T>() && isVector<U>()) {
       return <v128>actual == <v128>expected;
     } else {
-      return false;
-    } 
+      throw new Error(
+        "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+        + equalsPathAtSuffix() + ": incompatible types."
+      );
+    }
   }
 }
 
@@ -213,9 +464,13 @@ export function closeTo<T, U>(actual: T, expected: U, precision: i32 = 2): bool 
 
 /**
  * Generic value equality comparison. Assumes comparable types for both values.
- * Does not yet support user-defined types.
+ * Supports primitives, strings, Arrays, Sets, Maps, ArrayBuffers, and user-defined
+ * types (via compiler transform-injected deep equality method).
+ *
+ * Returns an __vitest_assemblyscript_EqualityResult enum to distinguish between "not equal" and "type mismatch",
+ * enabling matchers to produce more informative assertion failure messages.
  */
-export function equals<T, U>(actual: T, expected: U): bool {
+export function equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
   let exactMatch: bool = false;
 
   // allow boolean-to-number comparisons here
@@ -229,21 +484,36 @@ export function equals<T, U>(actual: T, expected: U): bool {
 
   if (!isReference<T>() || isString<T>() || isVector<T>()) {
     // non-bool primitives or strings: return result of comparing
-    return exactMatch;
+    return exactMatch ? __vitest_assemblyscript_EqualityResult.Equal : __vitest_assemblyscript_EqualityResult.NotEqual;
   } else if (exactMatch) {
     // primitive / reference comparison passed already
-    return true;
+    return __vitest_assemblyscript_EqualityResult.Equal;
   }
 
   if (isNullable<T>()) {
-    if (actual == null && expected == null) {
-      return true;
+    // Use changetype pointer checks instead of `== null` / `!= null` to avoid
+    // invoking user-defined @operator("==") overloads, which reject null arguments
+    const actualIsNull = changetype<usize>(actual) == 0;
+    const expectedIsNull = changetype<usize>(expected) == 0;
+
+    if (actualIsNull && expectedIsNull) {
+      return __vitest_assemblyscript_EqualityResult.Equal;
     }
 
-    if ( (actual == null && expected != null) || (actual != null && expected == null) ) {
-      return false;
+    if (actualIsNull != expectedIsNull) {
+      return __vitest_assemblyscript_EqualityResult.NotEqual;
     }
   }
+
+  // Cycle detection: if this reference pair is already being compared further up
+  // the call stack, the cycle structure matches — any field-level differences would
+  // have been caught in the non-cyclic part before reaching the cycle.
+  const actualPtr = changetype<usize>(actual);
+  const expectedPtr = changetype<usize>(expected);
+  if (equalsRefPairSeen(actualPtr, expectedPtr)) {
+    return __vitest_assemblyscript_EqualityResult.Equal;
+  }
+  equalsRefPairMark(actualPtr, expectedPtr);
 
   if (isArrayLike<T>(actual) && isArrayLike<U>(expected)) {
     return arrayEquals(actual, expected);
@@ -258,17 +528,131 @@ export function equals<T, U>(actual: T, expected: U): bool {
     return arrayBufferEquals(actual, expected);
   }
 
-  if (idof<T>() != idof<U>()) {
-    throw new Error("Cannot compare equality between " + nameof<T>(actual)
-      + " and " + nameof<U>(expected) + " - this comparison is undefined."
+  // Runtime type checking for reference types.
+  // Managed objects have a header with rtId (runtime type ID) that reflects the actual
+  // runtime type, even when the variable is declared as a base type. Unmanaged objects
+  // lack this header and fall back to compile-time idof checks.
+  if (isManaged<T>() != isManaged<U>()) {
+    // Managed vs unmanaged is a fundamental memory layout incompatibility
+    throw new Error("Cannot compare deep equality between managed and unmanaged types: "
+      + nameof<T>() + " and " + nameof<U>()
+      + equalsPathAtSuffix()
     );
   }
 
-  // TODO value compare
-  throw new Error("Deep equality comparison of user-defined reference types"
-    + " is not yet implemented, and these references are not identical."
-    + " Use toBe() for reference equality."
-  );
+  if (isManaged<T>() && isManaged<U>()) {
+    // Both managed: read runtime type ID from the AS object header
+    const actualRtId = load<u32>(changetype<usize>(actual) - MANAGED_OBJECT_RTID_BYTE_OFFSET);
+    const expectedRtId = load<u32>(changetype<usize>(expected) - MANAGED_OBJECT_RTID_BYTE_OFFSET);
+
+    if (actualRtId != expectedRtId) {
+      // @ts-ignore
+      if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
+        // User-defined classes: return TypeMismatch so the matcher can produce an
+        // informative assertion failure message instead of an opaque error.
+        //
+        // We return here instead of throwing to support `.not.toEqual()` for
+        // polymorphic runtime type mismatches — e.g. a Shape-typed Circle vs
+        // Shape-typed Square, where asserting "not equal" is valid, not a
+        // programmer error. In `toEqual`, `equals()` is called BEFORE
+        // `assertComparison()`. If `equals()` throws, execution never reaches
+        // `assertComparison`, so `.not` inversion cannot run and the test
+        // crashes. By returning TypeMismatch, `toEqual` evaluates
+        // `result == __vitest_assemblyscript_EqualityResult.Equal` (false), passes that to
+        // `assertComparison`, and `.not` can invert it to a pass.
+
+        // Capture runtime type names via virtual dispatch for informative assertion suffix
+        // @ts-ignore
+        if (isDefined(actual.__vitest_assemblyscript_typename)) {
+          // @ts-ignore
+          equalsRtmActualName = (<NonNullable<T>>actual).__vitest_assemblyscript_typename();
+        }
+        // @ts-ignore
+        if (isDefined(expected.__vitest_assemblyscript_typename)) {
+          // @ts-ignore
+          equalsRtmExpectedName = (<NonNullable<U>>expected).__vitest_assemblyscript_typename();
+        }
+
+        return __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
+      }
+
+      // Non-user-defined managed types with mismatched rtIds: cross-container comparisons
+      // (e.g. Map vs Set, Array vs Map) that fell through the instanceof checks above
+      // (which require both operands to be the same container type), or stdlib types
+      throw new Error("Cannot compare deep equality between " + nameof<T>()
+        + " and " + nameof<U>()
+        + equalsPathAtSuffix()
+      );
+    }
+  } else {
+    // Both unmanaged: no object header or idof available, fall back to compile-time
+    // nameof check. This is acceptable because unmanaged types don't participate in
+    // virtual dispatch or polymorphic inheritance — the compile-time type is reliable.
+    if (nameof<T>() != nameof<U>()) {
+      // @ts-ignore
+      if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
+        // see both-managed case above: same reasoning here, just behind a different type check
+        // Unmanaged types don't have virtual dispatch, so typename (if present) returns
+        // compile-time names — consistent with how the type check itself works here.
+        // @ts-ignore
+        if (isDefined(actual.__vitest_assemblyscript_typename)) {
+          // @ts-ignore
+          equalsRtmActualName = (<NonNullable<T>>actual).__vitest_assemblyscript_typename();
+        }
+        // @ts-ignore
+        if (isDefined(expected.__vitest_assemblyscript_typename)) {
+          // @ts-ignore
+          equalsRtmExpectedName = (<NonNullable<U>>expected).__vitest_assemblyscript_typename();
+        }
+        return __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
+      }
+
+      // see both-managed case above: handle potential mismatched type fallthrough
+      // for unmanaged stdlib / container type mismatches
+      throw new Error("Cannot compare deep equality between " + nameof<T>()
+        + " and " + nameof<U>()
+        + equalsPathAtSuffix()
+      );
+    }
+  }
+
+  // @ts-ignore
+  // User-defined reference types: delegate to compiler transform-injected deep equality
+  // method. Uses hard-coded method name because using a variable like `actual[DEEP_EQ_FUNC]`
+  // requires the class to define an index signature.
+  // Cast to NonNullable<T> because AS doesn't narrow nullability from the changetype-based
+  // null checks above — it requires explicit type narrowing to call methods on nullable types.
+  // Safe because both-null and one-null cases return early above.
+  if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
+    const nonNullActual = <NonNullable<T>>actual;
+    // @ts-ignore
+    return nonNullActual.__vitest_assemblyscript_deep_equals(changetype<usize>(expected));
+  }
+
+  // Fall back to reference identity for types without deep equality method
+  return changetype<usize>(actual) == changetype<usize>(expected)
+    ? __vitest_assemblyscript_EqualityResult.Equal
+    : __vitest_assemblyscript_EqualityResult.NotEqual;
+}
+
+/**
+ * Global bridge for the deep-equals compiler transform.
+ *
+ * Injected deep equality methods in user classes call this function for per-field
+ * comparisons. Declared global to make it available in all source files without import,
+ * solving the afterParse import resolution limitation (injected import statements
+ * are not processed by the AS compiler).
+ *
+ * Returns __vitest_assemblyscript_EqualityResult so injected methods can propagate type mismatch information
+ * from nested comparisons back to the top-level matcher.
+ *
+ * Loaded into the compilation transitively: user test imports
+ * vitest-pool-assemblyscript/assembly → index.ts → compare.ts.
+ */
+// @ts-ignore
+@global
+function __vitest_assemblyscript_compare_equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
+  return equals<T, U>(actual, expected);
 }
 
 export enum InequalityOperation {
@@ -402,29 +786,3 @@ export function truthyOrFalsey<T>(actual: T, expected: bool): bool {
   return actual ? expected == true : expected == false;
 }
 
-export function isNull<T>(value: T): bool {
-  if (isReference<T>()) {
-    if (isNullable<T>()) {
-      return value == null;
-    } else {
-      return false;
-    }
-  } else {
-    if (isBoolean<T>()) {
-      return false;
-    } else if (isVector<T>()) {
-      return false;
-    } else {
-      return nameof<T>(value) == 'usize' && value == 0;
-    }
-  }
-}
-
-export function nan<T>(value: T): bool {
-  if (isFloat<T>()) {
-    // @ts-ignore
-    return isNaN<T>(value);
-  } else {
-    return false;
-  }
-}

@@ -30,6 +30,8 @@ export const ASSEMBLYSCRIPT_LIB_PREFIX = '~lib/' as const;
 
 export const INTERNAL_PATH_LIB_PREFIX: string = `${ASSEMBLYSCRIPT_LIB_PREFIX}vitest-pool-assemblyscript/assembly/` as const;
 
+export const INTERNAL_FUNCTION_NAME_SUBSTRING = '__vitest_assemblyscript_' as const;
+
 /** Paths instrumentation exclusions and assetion error stack frame filtering */
 export const POOL_INTERNAL_PATHS: string[] = [
   // AS compiler source maps these as relative paths when running locally
@@ -38,6 +40,7 @@ export const POOL_INTERNAL_PATHS: string[] = [
   'assembly/expect.ts',
   'assembly/index.ts',
   'assembly/options.ts',
+  'assembly/utils.ts',
   'assembly/test.ts',
 
   // AS compiler source maps these as library paths when running published version
@@ -46,8 +49,48 @@ export const POOL_INTERNAL_PATHS: string[] = [
   `${INTERNAL_PATH_LIB_PREFIX}expect.ts`,
   `${INTERNAL_PATH_LIB_PREFIX}index.ts`,
   `${INTERNAL_PATH_LIB_PREFIX}options.ts`,
+  `${INTERNAL_PATH_LIB_PREFIX}stringify.ts`,
   `${INTERNAL_PATH_LIB_PREFIX}test.ts`,
 ] as const;
+
+/** Name of the method injected by the deep-equals compiler transform */
+export const DEEP_EQUALS_INJECTED_METHOD_NAME = '__vitest_assemblyscript_deep_equals' as const;
+
+/**
+ * Export alias for pool's equals() function used by injected deep equal method comparison body.
+ * Declared with @global in assembly/compare.ts to be available in all source files without import.
+ */
+export const COMPARE_EQUALS_EXPORT_ALIAS = '__vitest_assemblyscript_compare_equals' as const;
+
+/**
+ * Name of the @global enum in assembly/compare.ts that represents deep equality comparison results.
+ * Used in transform-generated code to reference enum members (e.g. EqualityResult.Equal).
+ */
+export const EQUALITY_RESULT_ENUM_NAME = '__vitest_assemblyscript_EqualityResult' as const;
+
+/**
+ * Global alias for the path push function used by injected deep equality method field comparisons.
+ * Declared with @global in assembly/compare.ts to be available in all source files without import.
+ */
+export const EQUALS_PATH_PUSH_GLOBAL_ALIAS = '__vitest_assemblyscript_equals_path_push' as const;
+
+/**
+ * Global alias for the path pop function used by injected deep equality method field comparisons.
+ * Declared with @global in assembly/compare.ts to be available in all source files without import.
+ */
+export const EQUALS_PATH_POP_GLOBAL_ALIAS = '__vitest_assemblyscript_equals_path_pop' as const;
+
+/** Name of the method injected by the compiler transform that returns the runtime class name */
+export const TYPENAME_INJECTED_METHOD_NAME = '__vitest_assemblyscript_typename' as const;
+
+/** Name of the method injected by the compiler transform that returns stringified field contents */
+export const STRINGIFY_INJECTED_METHOD_NAME = '__vitest_assemblyscript_stringify' as const;
+
+/**
+ * Global alias for the stringifyValue() wrapper used by injected stringify method bodies.
+ * Declared with @global in assembly/utils.ts to be available in all source files without import.
+ */
+export const STRINGIFY_VALUE_GLOBAL_ALIAS = '__vitest_assemblyscript_stringify_value' as const;
 
 /** Error names for AssemblyScript test failures reported to vitest */
 export const TEST_ERROR_NAMES = {
@@ -96,6 +139,9 @@ export const POOL_ERROR_NAMES = {
 
 export const ASCommonFlags = {
   Static: 32,
+  Abstract: 128,
+  Instance: 262144,
+  Constructor: 524288,
   Get: 2048,
   Set: 4096,
 } as const;

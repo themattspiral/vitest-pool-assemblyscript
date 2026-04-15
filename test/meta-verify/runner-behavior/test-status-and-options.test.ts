@@ -29,34 +29,34 @@ describe('test options & result status verification', () => {
       expect(file.status).toBe('passed');
     });
 
-    test('all 11 tests are pending', () => {
+    test('all 11 tests are skipped', () => {
       expect(file.assertionResults).toHaveLength(11);
       expect(countByStatus(file, 'skipped')).toBe(11);
       expect(countByStatus(file, 'passed')).toBe(0);
       expect(countByStatus(file, 'failed')).toBe(0);
     });
 
-    test('test.skip test is pending', () => {
+    test('test.skip test is skipped', () => {
       const t = requireTest(file, 'should be skipped');
       expect(t.status).toBe('skipped');
     });
 
-    test('TestOptions.skip() test is pending', () => {
+    test('TestOptions.skip() test is skipped', () => {
       const t = requireTest(file, 'should also be skipped');
       expect(t.status).toBe('skipped');
     });
 
-    test('combined test.skip + TestOptions.skip() test is pending', () => {
+    test('combined test.skip + TestOptions.skip() test is skipped', () => {
       const t = requireTest(file, 'skip is idempotent: should be skipped when both `skip` function is used and option is set');
       expect(t.status).toBe('skipped');
     });
 
-    test('test nested in describe.skip is pending', () => {
+    test('test nested in describe.skip is skipped', () => {
       const t = requireTest(file, 'suite using `skip` function should be skipped regardless of options on tests in it > should be skipped because it\'s in a skipped suite');
       expect(t.status).toBe('skipped');
     });
 
-    test('test nested in describe with TestOptions.skip() is pending', () => {
+    test('test nested in describe with TestOptions.skip() is skipped', () => {
       const t = requireTest(file, 'suite with `skip` option set should be skipped regardless of options on tests in it > nested suite should be skipped because it\'s in a skipped suite > plain - should be skipped because it\'s in a nested skipped suite');
       expect(t.status).toBe('skipped');
     });
@@ -73,7 +73,7 @@ describe('test options & result status verification', () => {
       expect(file.status).toBe('passed');
     });
 
-    test('21 total tests: 6 passed, 15 pending', () => {
+    test('21 total tests: 6 passed, 15 skipped', () => {
       expect(file.assertionResults).toHaveLength(21);
       expect(countByStatus(file, 'passed')).toBe(6);
       expect(countByStatus(file, 'skipped')).toBe(15);

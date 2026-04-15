@@ -173,7 +173,7 @@ npx vitest run
 - Suite and test definition using `describe()` and `test()` in AssemblyScript
 - Inline test option configuration for common vitest options: `timeout`, `retry`, `skip`, `only`, `fails`
 - Assertion matching API based on vitest/jest `expect()` API
-  - `.not`, `toBe`, `toBeCloseTo`, `toEqual` (with caveats*), `toStrictEqual`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toHaveLength`, `toThrowError`, `toBeTruthy`, `toBeFalsy`, `toBeNull`, `toBeNullable`, `toBeNaN`
+  - `.not`, `toBe`, `toBeCloseTo`, `toEqual`, `toStrictEqual`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toHaveLength`, `toThrowError`, `toBeTruthy`, `toBeFalsy`, `toBeNull`, `toBeNullable`, `toBeNaN`
   - See [Matchers API](docs/matchers-api.md) for details and differences from JavaScript
 - Highlighted diffs for assertion and runtime failures, which point to source code
 - Source-mapped WASM error stack traces (accurate AssemblyScript source `function file:line:column`)
@@ -264,7 +264,7 @@ The overall goal is tight vitest experience integration - most CLI commands, rep
 
 **Q: Is this an official vitest project?**
 <br/>
-**A:** No, this is a third-party community project. It's not affiliated with or endorsed by the vitest team, though we're grateful for their extensible architecture that makes projects like this possible, and the [other open-source projects](#prior-work) that provide vital functionality and reference architecture.
+**A:** No, this is a third-party, community project. It's not affiliated with the Vitest team or VoidZero directly, though we're grateful for their open-source code and intentionally extensible architecture which make projects like this possible, and to the [other open-source projects](#prior-work) that provide vital functionality and reference architecture.
 
 **Q: Are you a company? A bot?**
 <br/>
@@ -405,7 +405,6 @@ These are known limitations which are currently being worked on.
 - **Function-level coverage only**: No statement, branch, or line coverage yet
 - **No lifecycle hooks**: No setup/teardown hooks yet
 - **Watch mode handles specs only**: Re-runs test files when they are directly changed, but not yet based on changed source files
-- **`toEqual` doesn't reflect**: Doesn't yet support deep inspection of user-defined objects
 
 ### Near Future Roadmap
 
@@ -417,7 +416,6 @@ These are known limitations which are currently being worked on.
 **Epic: Testing DX**
 - Lifecycle hooks (`beforeEach`, `afterEach`, `beforeAll`, `afterAll`)
 - Watch mode: re-run applicable tests on source file changes
-- `toEqual` reflection for deep equality inspection of user objects
 - `describe.for/each` and `test.for/each`
 - expect.soft to prevent fail-fast behavior
 - Allow delegating JS/TS to istanbul coverage provider in addition to v8

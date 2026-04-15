@@ -38,11 +38,12 @@ try {
 const DEBUG_WRITE_FILES = false;
 
 // Path prefix the AS compiler uses when resolving bare `vitest-pool-assemblyscript/assembly` imports
-// via node_modules. Used to detect self-imports and redirect to local assembly/ dir when running in-tree.
+// via node_modules. Used to detect self-imports and redirect to local assembly/ dir when running locally in-tree.
 const POOL_ASSEMBLY_NODE_MODULES_PREFIX = 'node_modules/vitest-pool-assemblyscript/assembly/';
 
-// path assumes that we're running from dist/
+// paths assume that we're running from dist/
 const STRIP_INLINE_TRANSFORM = resolve(import.meta.dirname, './compiler/transforms/strip-inline.mjs');
+const DEEP_EQUALS_TRANSFORM = resolve(import.meta.dirname, './compiler/transforms/deep-equals.mjs');
 
 setImmediate(async () => {
   try {
@@ -50,6 +51,15 @@ setImmediate(async () => {
   } catch {
     throw createPoolError(
       `AS Compiler strip inline transform file not found at "${STRIP_INLINE_TRANSFORM}"`,
+      POOL_ERROR_NAMES.CompilationError
+    );
+  }
+
+  try {
+    await access(DEEP_EQUALS_TRANSFORM);
+  } catch {
+    throw createPoolError(
+      `AS Compiler deep equals transform file not found at "${DEEP_EQUALS_TRANSFORM}"`,
       POOL_ERROR_NAMES.CompilationError
     );
   }
@@ -123,7 +133,10 @@ export async function compileAssemblyScript(
     '--debug',                        // Include debug info
     '--sourceMap',                    // Generate source maps for error reporting
     '--exportStart', '_start',        // Export start function for explicit initialization control
-    '--exportTable'                   // Export function table for direct test execution
+    '--exportTable',                  // Export function table for direct test execution
+
+    // Injects deep equality comparison method into user-defined classes for toEqual support
+    '--transform', DEEP_EQUALS_TRANSFORM,
   ];
 
   // Add transform to strip @inline decorators if requested
