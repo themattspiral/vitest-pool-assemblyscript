@@ -134,108 +134,26 @@ export const POOL_ERROR_NAMES = {
 // AssemblyScript Compiler
 // ============================================================================
 
-// Redefined locally to avoid isolatedModules const enum access issues
-// with assemmblyscript enum exports. Reference assemblyscript.generated.d.ts
+// Original const enum values defined in assemblyscript.generated.d.ts.
+// These are reexported to avoid access issues with `const enum` exports 
+// in assemblyscript, because we're using isolatedModules & isolatedDeclarations
 
-export const ASCommonFlags = {
-  Static: 32,
-  Abstract: 128,
-  Instance: 262144,
-  Constructor: 524288,
-  Get: 2048,
-  Set: 4096,
-} as const;
+import * as ascript from 'assemblyscript';
+import type * as AS from 'assemblyscript';
 
-export const ASNodeKind = {
-  Source: 0,
-  NamedType: 1,
-  FunctionType: 2,
-  TypeName: 3,
-  TypeParameter: 4,
-  Parameter: 5,
-  Identifier: 6,
-  Assertion: 7,
-  Binary: 8,
-  Call: 9,
-  Class: 10,
-  Comma: 11,
-  ElementAccess: 12,
-  False: 13,
-  Function: 14,
-  InstanceOf: 15,
-  Literal: 16,
-  New: 17,
-  Null: 18,
-  Omitted: 19,
-  Parenthesized: 20,
-  PropertyAccess: 21,
-  Ternary: 22,
-  Super: 23,
-  This: 24,
-  True: 25,
-  Constructor: 26,
-  UnaryPostfix: 27,
-  UnaryPrefix: 28,
-  Compiled: 29,
-  Block: 30,
-  Break: 31,
-  Continue: 32,
-  Do: 33,
-  Empty: 34,
-  Export: 35,
-  ExportDefault: 36,
-  ExportImport: 37,
-  Expression: 38,
-  For: 39,
-  ForOf: 40,
-  If: 41,
-  Import: 42,
-  Return: 43,
-  Switch: 44,
-  Throw: 45,
-  Try: 46,
-  Variable: 47,
-  Void: 48,
-  While: 49,
-  Module: 50,
-  ClassDeclaration: 51,
-  EnumDeclaration: 52,
-  EnumValueDeclaration: 53,
-  FieldDeclaration: 54,
-  FunctionDeclaration: 55,
-  ImportDeclaration: 56,
-  InterfaceDeclaration: 57,
-  MethodDeclaration: 58,
-  NamespaceDeclaration: 59,
-  TypeDeclaration: 60,
-  VariableDeclaration: 61,
-  Decorator: 62,
-  ExportMember: 63,
-  SwitchCase: 64,
-  IndexSignature: 65,
-  Comment: 66,
-} as const;
+type NodeKindMap = Record<keyof typeof AS.NodeKind, number>;
+type CommonFlagsMap = Record<keyof typeof AS.CommonFlags, number>;
+type DecoratorKindMap = Record<keyof typeof AS.DecoratorKind, number>;
+type SourceKindMap = Record<keyof typeof AS.SourceKind, number>;
 
-export const ASDecoratorKind = {
-  Custom: 0,
-  Global: 1,
-  Operator: 2,
-  OperatorBinary: 3,
-  OperatorPrefix: 4,
-  OperatorPostfix: 5,
-  Unmanaged: 6,
-  Final: 7,
-  Inline: 8,
-  External: 9,
-  ExternalJs: 10,
-  Builtin: 11,
-  Lazy: 12,
-  Unsafe: 13
-} as const;
+const asRuntime = ascript as unknown as {
+  NodeKind: NodeKindMap;
+  CommonFlags: CommonFlagsMap;
+  DecoratorKind: DecoratorKindMap;
+  SourceKind: SourceKindMap;
+};
 
-export const ASSourceKind = {
-  User: 0,
-  UserEntry: 1,
-  Library: 2,
-  LibraryEntry: 3
-} as const;
+export const ASNodeKind: NodeKindMap = asRuntime.NodeKind;
+export const ASCommonFlags: CommonFlagsMap = asRuntime.CommonFlags;
+export const ASDecoratorKind: DecoratorKindMap = asRuntime.DecoratorKind;
+export const ASSourceKind: SourceKindMap = asRuntime.SourceKind;
