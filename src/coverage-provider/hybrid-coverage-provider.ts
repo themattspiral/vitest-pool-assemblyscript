@@ -243,11 +243,11 @@ export class HybridCoverageProvider implements CoverageProvider {
     debug(`[HybridCoverageProvider] Resolving Coverage Options`);
   
     const definedCoverageOptions = this.projectConfig.coverage as CustomProviderOptions;
-    const resolvedV8Options = this.v8Provider.resolveOptions() as ResolvedCoverageOptions<'v8'>;
+    const resolvedV8Options = this.v8Provider.resolveOptions() as ResolvedCoverageOptions;
 
     // For some reason the v8 provider builds its `excludes` values to include a null byte.
     // Remove null bytes for logging purposes so tools like grep won't complain about binary content.
-    const sanitizedV8Options: ResolvedCoverageOptions<'v8'> = {
+    const sanitizedV8Options: ResolvedCoverageOptions = {
       ...resolvedV8Options,
       include: resolvedV8Options.include?.map(i => i.replace(/\0/g, '')) || undefined,
       exclude: resolvedV8Options.exclude?.map(i => i.replace(/\0/g, '')) || undefined

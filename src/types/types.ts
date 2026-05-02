@@ -188,7 +188,7 @@ export type ResolvedAssemblyScriptPoolOptions =
 
 export type ResolvedHybridProviderOptions = 
   Required<HybridProviderOptions>
-  & Omit<ResolvedCoverageOptions<'v8'>, 'provider'>
+  & Omit<ResolvedCoverageOptions, 'provider'>
   & {
     globbedAssemblyScriptInclude: GlobResult[],
     globbedAssemblyScriptProjectRelativeExcludeOnly: string[],

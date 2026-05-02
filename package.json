@@ -145,9 +145,9 @@
     "@types/istanbul-lib-coverage": "^2.0.6",
     "@types/node": "22.19.1",
     "@types/source-map": "~0.5.2",
-    "@vitest/coverage-v8": "4.1.0",
-    "@vitest/runner": "4.1.0",
-    "@vitest/utils": "4.1.0",
+    "@vitest/coverage-v8": "4.1.1",
+    "@vitest/runner": "4.1.1",
+    "@vitest/utils": "4.1.1",
     "assemblyscript": "~0.28.17",
     "conventional-changelog-conventionalcommits": "^9.1.0",
     "cross-env": "^10.1.0",
@@ -158,6 +158,6 @@
     "tsdown": "^0.20.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "vitest": "4.1.0"
+    "vitest": "4.1.1"
   }
 }

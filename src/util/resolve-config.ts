@@ -100,11 +100,11 @@ export function getProjectSerializedOrGlobalConfig(ctx: Vitest): {
     ...getCompatConfig(testProject.serializedConfig),
     coverage: {
       ...testProject.serializedConfig.coverage,
-      ...(ctx.config.coverage as ResolvedHybridProviderOptions)
+      ...(ctx.config.coverage as unknown as ResolvedHybridProviderOptions)
     }
   } : {
     ...ctx.config,
-    coverage: ctx.config.coverage as ResolvedHybridProviderOptions
+    coverage: ctx.config.coverage as unknown as ResolvedHybridProviderOptions
   };
 
   // @ts-ignore - we build with v4, but this is correct for v3 (has config.poolOptions)
