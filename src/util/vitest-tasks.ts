@@ -14,6 +14,7 @@ import { TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from './debug.js';
 import { createTestExpectedToFailError, createTestTimeoutError } from './pool-errors.js';
 import { extractCallStack } from '../wasm-executor/source-maps.js';
+import { retryCompat } from './resolve-config.js';
 
 // ============================================================================
 // Util
@@ -219,13 +220,14 @@ export function getRunnableTasks(suite: Suite): Task[] {
 // ============================================================================
 
 export function shouldRetryTask(task: Task): boolean {
+  const retry = retryCompat(task.retry);
   return task.result?.state === 'fail'
     && task.retry !== undefined
-    && task.retry > 0
+    && retry > 0
     && (
      task.result.retryCount === undefined
       || task.result.retryCount === 0
-      || (task.result.retryCount < task.retry)
+      || (task.result.retryCount < retry)
     );
 }
 

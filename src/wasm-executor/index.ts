@@ -103,7 +103,6 @@ export async function executeWASMDiscovery(
           sourceMap,
           false,
           logPrefix,
-          threadImports.highlight,
           stack,
           diffOptions
         );
@@ -131,7 +130,6 @@ export async function executeWASMDiscovery(
           sourceMap,
           false,
           logPrefix,
-          threadImports.highlight,
           thrownPoolErr.rawCallStack,
           diffOptions
         );
@@ -296,7 +294,6 @@ export async function executeWASMTest(
       compilation.sourceMap,
       meta.lastErrorValuesProvided ?? false,
       logPrefix,
-      threadImports.highlight,
       meta.lastErrorRawCallStack,
       diffOptions
     );
