@@ -108,12 +108,16 @@ export interface AssemblyScriptPoolOptions {
 }
 
 /**
- * HybridCoverageProvider configuration options.
+ * AssemblyScript-specific coverage fields contributed by the hybrid coverage
+ * provider on top of vitest's standard coverage options.
+ *
+ * Single source of truth for these field declarations: extended by the
+ * vitest module augmentation files in `src/config/` so users get autocomplete
+ * on these fields in their `vitest.config.ts` coverage block, and consumed
+ * internally via `Required<HybridProviderOptions>` in
+ * `ResolvedHybridProviderOptions`.
  */
 export interface HybridProviderOptions {
-  provider: 'custom',
-  customProviderModule: string;
-
   debugIstanbul?: boolean;
 
   /**
@@ -186,12 +190,14 @@ export type ResolvedAssemblyScriptPoolOptions =
   & Partial<Pick<AssemblyScriptPoolOptions, ASPoolOptionsOptionalFields>>
   & { readonly isResolved: true };
 
-export type ResolvedHybridProviderOptions = 
+export type ResolvedHybridProviderOptions =
   Required<HybridProviderOptions>
   & Omit<ResolvedCoverageOptions, 'provider'>
   & {
-    globbedAssemblyScriptInclude: GlobResult[],
-    globbedAssemblyScriptProjectRelativeExcludeOnly: string[],
+    provider: 'custom';
+    customProviderModule: string;
+    globbedAssemblyScriptInclude: GlobResult[];
+    globbedAssemblyScriptProjectRelativeExcludeOnly: string[];
   };
 
 // vitest TestOptions fields that are supported by AssemblyScript tests in this pool

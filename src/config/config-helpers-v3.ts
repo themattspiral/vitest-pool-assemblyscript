@@ -28,7 +28,8 @@ type AnyConfigExport<T extends ViteUserConfig> =
  * use type intersection to add poolOptions.assemblyScript typing.
  *
  * Note: Coverage is NOT included here because it's global-only config in Vitest.
- * Coverage typing comes from the CustomProviderOptions augmentation above.
+ * Coverage typing comes from the `CustomProviderOptions` augmentation loaded
+ * via the `./index-v3.ts` side-effect import.
  */
 export type AssemblyScriptUserConfig<T extends ViteUserConfig> = T & {
   test?: {
