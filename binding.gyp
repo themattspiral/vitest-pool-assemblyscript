@@ -27,7 +27,7 @@
             "-lpthread"
           ],
           # Enable C++ exceptions (node-gyp disables them by default)
-          "cflags_cc": ["-std=c++17", "-fexceptions", "-O3"],
+          "cflags_cc": ["-std=c++20", "-fexceptions", "-O3"],
           "cflags!": ["-fno-exceptions"],
           "cflags_cc!": ["-fno-exceptions"]
         }],
@@ -38,9 +38,9 @@
           "xcode_settings": {
             "GCC_ENABLE_CPP_EXCEPTIONS": "YES",
             "CLANG_CXX_LIBRARY": "libc++",
-            # Minimum macOS deployment target for C++17 support
+            # Minimum macOS deployment target for C++20 support
             "MACOSX_DEPLOYMENT_TARGET": "10.15",
-            "OTHER_CPLUSPLUSFLAGS": ["-std=c++17", "-fexceptions", "-O3"]
+            "OTHER_CPLUSPLUSFLAGS": ["-std=c++20", "-fexceptions", "-O3"]
           }
         }],
         ["OS=='win'", {
@@ -52,7 +52,7 @@
             "VCCLCompilerTool": {
               # Enable C++ exception handling (/EHsc)
               "ExceptionHandling": 1,
-              "AdditionalOptions": ["/std:c++17", "/permissive"]
+              "AdditionalOptions": ["/std:c++20", "/permissive"]
             }
           }
         }]
