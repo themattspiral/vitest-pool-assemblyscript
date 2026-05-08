@@ -8,7 +8,6 @@ import type { RunnerRPC, RuntimeRPC, SerializedConfig, SerializedCoverageConfig 
 import type { TestError } from '@vitest/utils';
 import type { ResolvedConfig, ResolvedCoverageOptions } from 'vitest/node';
 import type { File, Test, TaskMeta, TestOptions } from '@vitest/runner/types';
-import type { Colors } from 'tinyrainbow';
 
 import {
   AS_POOL_WORKER_MSG_FLAG,
@@ -109,12 +108,16 @@ export interface AssemblyScriptPoolOptions {
 }
 
 /**
- * HybridCoverageProvider configuration options.
+ * AssemblyScript-specific coverage fields contributed by the hybrid coverage
+ * provider on top of vitest's standard coverage options.
+ *
+ * Single source of truth for these field declarations: extended by the
+ * vitest module augmentation files in `src/config/` so users get autocomplete
+ * on these fields in their `vitest.config.ts` coverage block, and consumed
+ * internally via `Required<HybridProviderOptions>` in
+ * `ResolvedHybridProviderOptions`.
  */
 export interface HybridProviderOptions {
-  provider: 'custom',
-  customProviderModule: string;
-
   debugIstanbul?: boolean;
 
   /**
@@ -166,7 +169,13 @@ export type ASPoolOptionsFieldsWithDefaultValues = typeof AS_POOL_FIELDS_WITH_DE
 /** Fields with optional values and NO defaults */
 export type ASPoolOptionsOptionalFields = typeof AS_POOL_OPTIONAL_FIELDS[number];
 
-export type AssemblyScriptProjectConfig = (SerializedConfig & {
+// compatibility type for internal consumption - configs from all versions
+// of Vitest are converted to this format for internal consumption
+export type SerializedConfigCompat = SerializedConfig & {
+  retry: number;
+};
+
+export type AssemblyScriptProjectConfig = (SerializedConfigCompat & {
   coverage: SerializedCoverageConfig & ResolvedHybridProviderOptions;
 }) | ResolvedConfig & {
   coverage: ResolvedHybridProviderOptions;
@@ -181,12 +190,14 @@ export type ResolvedAssemblyScriptPoolOptions =
   & Partial<Pick<AssemblyScriptPoolOptions, ASPoolOptionsOptionalFields>>
   & { readonly isResolved: true };
 
-export type ResolvedHybridProviderOptions = 
+export type ResolvedHybridProviderOptions =
   Required<HybridProviderOptions>
-  & Omit<ResolvedCoverageOptions<'v8'>, 'provider'>
+  & Omit<ResolvedCoverageOptions, 'provider'>
   & {
-    globbedAssemblyScriptInclude: GlobResult[],
-    globbedAssemblyScriptProjectRelativeExcludeOnly: string[],
+    provider: 'custom';
+    customProviderModule: string;
+    globbedAssemblyScriptInclude: GlobResult[];
+    globbedAssemblyScriptProjectRelativeExcludeOnly: string[];
   };
 
 // vitest TestOptions fields that are supported by AssemblyScript tests in this pool
@@ -199,11 +210,8 @@ export type AssemblyScriptTestOptions = Required<Pick<TestOptions, 'timeout' | '
 export type VitestVersion = 'v3' | 'v4';
 
 export interface ThreadImports {
-  highlight: HighlightFunc;
   createUserWasmImports?: WasmImportsFactory;
 }
-
-export type HighlightFunc = (code: string, options: { colors: Colors }) => string;
 
 export interface GlobResult {
   absolute: string;
@@ -676,7 +684,7 @@ export interface RunCompileAndDiscoverTask {
   workerId: number;
   port: MessagePort;
   file: File;
-  config: SerializedConfig;
+  config: SerializedConfigCompat;
   isCollectTestsMode: boolean;
 }
 
@@ -686,7 +694,7 @@ export interface RunTestsTask {
   port: MessagePort;
   file: File;
   compilation: WASMCompilation;
-  config: SerializedConfig;
+  config: SerializedConfigCompat;
   isCollectTestsMode: boolean;
   timedOutTest?: Test;
 }
@@ -695,7 +703,7 @@ export interface ProcessPoolRunFileTask {
   dispatchStart: number;
   port: MessagePort;
   file: File;
-  config: SerializedConfig;
+  config: SerializedConfigCompat;
   isCollectTestsMode: boolean;
   timedOutTest?: Test;
   timedOutCompilation?: WASMCompilation;

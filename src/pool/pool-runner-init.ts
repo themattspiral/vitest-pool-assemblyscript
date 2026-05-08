@@ -14,7 +14,7 @@ export function createAssemblyScriptPool(userPoolOptions?: AssemblyScriptPoolOpt
   return {
     name: ASSEMBLYSCRIPT_POOL_NAME,
     createPoolWorker: (opts: PoolOptions) => {
-      const resolvedCoverageOptions = opts.project.config.coverage as ResolvedHybridProviderOptions;
+      const resolvedCoverageOptions = opts.project.config.coverage as unknown as ResolvedHybridProviderOptions;
       return new AssemblyScriptPoolWorker(opts, resolvedUserPoolOptions, resolvedCoverageOptions);
     },
   };

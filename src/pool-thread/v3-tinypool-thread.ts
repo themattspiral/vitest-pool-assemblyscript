@@ -4,8 +4,6 @@
 import { basename } from 'node:path';
 import { threadId, workerData } from 'node:worker_threads';
 import { workerId } from 'tinypool';
-// @ts-ignore - we build with v4, but this is correct for v3 runtime
-import { highlight } from '@vitest/utils';
 
 import type { ProcessPoolRunFileTask, TestFileCompiled, ThreadImports, WasmImportsFactory, WorkerThreadInitData } from '../types/types.js';
 import { AS_POOL_WORKER_MSG_FLAG } from '../types/constants.js';
@@ -54,7 +52,7 @@ export async function runTestFile(taskData: ProcessPoolRunFileTask): Promise<voi
     config.root,
     config.coverage.enabled && COVERAGE_SUPPORTED,
     asCoverageOptions.globbedAssemblyScriptProjectRelativeExcludeOnly ?? [],
-    { highlight, createUserWasmImports } satisfies ThreadImports,
+    { createUserWasmImports } satisfies ThreadImports,
     typeof config.diff === 'object' ? config.diff : undefined,
     config.testNamePattern,
     config.allowOnly,
@@ -80,7 +78,7 @@ export async function runTestFile(taskData: ProcessPoolRunFileTask): Promise<voi
       file,
       logModuleWithId,
       asPoolOptions,
-      { highlight, createUserWasmImports } satisfies ThreadImports,
+      { createUserWasmImports } satisfies ThreadImports,
       'v3',
       config.bail,
       typeof config.diff === 'object' ? config.diff : undefined,

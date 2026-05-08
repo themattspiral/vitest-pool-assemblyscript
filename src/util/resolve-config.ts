@@ -1,5 +1,7 @@
-import type { TestProject, Vitest } from 'vitest/node';
 import { availableParallelism } from 'node:os';
+import type { SerializedConfig } from 'vitest';
+import type { Retry, SerializableRetry } from '@vitest/runner';
+import type { TestProject, Vitest } from 'vitest/node';
 
 import type {
   AssemblyScriptPoolOptions,
@@ -7,6 +9,7 @@ import type {
   ResolvedAssemblyScriptPoolOptions,
   ResolvedHybridProviderOptions,
   AssemblyScriptProjectConfig,
+  SerializedConfigCompat,
 } from '../types/types.js';
 import { AS_POOL_FIELDS_WITH_DEFAULTS } from '../types/types.js';
 import { ASSEMBLYSCRIPT_POOL_NAME, POOL_ERROR_NAMES } from '../types/constants.js';
@@ -57,6 +60,17 @@ export function resolvePoolOptions(userPoolOptions?: any): ResolvedAssemblyScrip
   return resolved;
 }
 
+export function retryCompat(retry?: SerializableRetry | Retry): number {
+  return typeof retry === 'number' ? retry : retry?.count ?? 0;
+}
+
+export function getCompatConfig(config: SerializedConfig): SerializedConfigCompat {
+  return {
+    ...config,
+    retry: retryCompat(config.retry)
+  };
+}
+
 // v3 & hybrid coverage provider: used to get project config & poolOptions, with global coverage on project config
 // poolOptions will be undefined for v4 in coverage provider, but it doesn't need them
 export function getProjectSerializedOrGlobalConfig(ctx: Vitest): {
@@ -83,14 +97,14 @@ export function getProjectSerializedOrGlobalConfig(ctx: Vitest): {
   }
 
   const config = !!testProject ? {
-    ...testProject.serializedConfig,
+    ...getCompatConfig(testProject.serializedConfig),
     coverage: {
       ...testProject.serializedConfig.coverage,
-      ...(ctx.config.coverage as ResolvedHybridProviderOptions)
+      ...(ctx.config.coverage as unknown as ResolvedHybridProviderOptions)
     }
   } : {
     ...ctx.config,
-    coverage: ctx.config.coverage as ResolvedHybridProviderOptions
+    coverage: ctx.config.coverage as unknown as ResolvedHybridProviderOptions
   };
 
   // @ts-ignore - we build with v4, but this is correct for v3 (has config.poolOptions)

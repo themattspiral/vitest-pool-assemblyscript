@@ -3,7 +3,7 @@ import type { RawSourceMap } from 'source-map';
 import c from 'tinyrainbow';
 import type { ParsedStack } from '@vitest/utils';
 
-import { HighlightFunc } from '../types/types.js';
+import { highlightCode } from './highlight-code.js';
 
 const FRAME_POINTER = '❯' as const;
 const CODE_FRAME_INDENT_SPACES = 4 as const;
@@ -28,7 +28,6 @@ export function toVitestLikeStackFrameString(frame: ParsedStack): string {
 export function getSourceCodeFrameString(
   sourceMap: RawSourceMap,
   frame: ParsedStack,
-  highlight: HighlightFunc,
 ): string | undefined {
   if (!sourceMap.sourcesContent) {
     return undefined;
@@ -45,7 +44,7 @@ export function getSourceCodeFrameString(
   }
 
   const highlightedSource = source.length < MAX_CODE_HIGHLIGHT_LENGTH
-    ? highlight(source, { colors: c })
+    ? highlightCode(source)
     : source;
 
   return generateCodeFrame(highlightedSource, CODE_FRAME_INDENT_SPACES, frame);

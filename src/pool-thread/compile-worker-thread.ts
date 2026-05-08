@@ -2,7 +2,6 @@
  * Worker entry point - Compile Worker (vitest v4)
  */
 import { threadId, workerData } from 'node:worker_threads';
-import { highlight } from '@vitest/utils/highlight';
 
 import type {
   WorkerThreadInitData,
@@ -52,7 +51,7 @@ export async function runCompileAndDiscoverSpec(data: RunCompileAndDiscoverTask)
     config.root,
     config.coverage.enabled && COVERAGE_SUPPORTED,
     asCoverageOptions.globbedAssemblyScriptProjectRelativeExcludeOnly ?? [],
-    { highlight, createUserWasmImports } satisfies ThreadImports,
+    { createUserWasmImports } satisfies ThreadImports,
     typeof config.diff === 'object' ? config.diff : undefined,
     config.testNamePattern,
     config.allowOnly,

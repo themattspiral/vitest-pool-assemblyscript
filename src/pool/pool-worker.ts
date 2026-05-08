@@ -3,7 +3,6 @@ import { resolve } from 'node:path';
 import { access } from 'node:fs/promises';
 import type { MessagePort } from 'node:worker_threads';
 import type { Test } from '@vitest/runner/types';
-import type { SerializedConfig } from 'vitest';
 import type { PoolWorker, PoolOptions, WorkerRequest, PoolTask, WorkerResponse } from 'vitest/node';
 import Tinypool from 'tinypool';
 
@@ -13,6 +12,7 @@ import type {
   ResolvedHybridProviderOptions,
   RunCompileAndDiscoverTask,
   RunTestsTask,
+  SerializedConfigCompat,
   TestExecutionEnd,
   TestExecutionStart,
   TestRunRecord,
@@ -31,6 +31,7 @@ import {
 import { debug, setGlobalDebugMode } from '../util/debug.js';
 import { createPoolError, createPoolErrorFromAnyError, isAbortError } from '../util/pool-errors.js';
 import { createWorkerRPCChannel } from './worker-rpc-channel.js';
+import { getCompatConfig } from '../util/resolve-config.js';
 
 type GlobalThreadPools = { compilePool: Tinypool, runPool: Tinypool };
 type EventCallback = (arg: any) => void;
@@ -69,7 +70,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   // for this particular PoolWorker instance (1 per `maxWorkers`)
   private currentWorkerId: number | undefined;
   private isWorkerRunning: boolean = false;
-  private config: SerializedConfig | undefined; // provided with "start" message
+  private config: SerializedConfigCompat | undefined; // provided with "start" message
 
   // registry holding vitest callbacks so we can communicate on behalf of the worker thread
   private listenerRegistry: Map<string, Set<EventCallback>>;
@@ -145,7 +146,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       // this happens AFTER start() is called (start() is for PoolWorker, "start" is for thread)
       case 'start':
         this.currentWorkerId = message.workerId;
-        this.config = message.context.config;
+        this.config = getCompatConfig(message.context.config);
         debug(`[${this.logModuleWithId}] send: vitest sent "start" message | Captured workerId and config`);
 
         setImmediate(async () => {

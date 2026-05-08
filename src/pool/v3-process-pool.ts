@@ -5,7 +5,6 @@
 import { resolve, basename } from 'node:path';
 import { access } from 'node:fs/promises';
 import Tinypool from 'tinypool';
-import type { SerializedConfig } from 'vitest';
 import type { Vitest, ProcessPool, TestSpecification } from 'vitest/node';
 import type { Test } from '@vitest/runner/types';
 
@@ -21,6 +20,7 @@ import type {
   TestRunRecord,
   AssemblyScriptPoolWorkerMessage,
   WorkerThreadInitData,
+  SerializedConfigCompat,
 } from '../types/types.js';
 import { setGlobalDebugMode, debug } from '../util/debug.js';
 import { createWorkerRPCChannel } from './worker-rpc-channel.js';
@@ -33,7 +33,7 @@ import {
   flagTestTerminated,
 } from '../util/vitest-tasks.js';
 import { createInitialFileTask } from '../util/vitest-file-tasks.js';
-import { getProjectSerializedOrGlobalConfig } from '../util/resolve-config.js';
+import { getCompatConfig, getProjectSerializedOrGlobalConfig } from '../util/resolve-config.js';
 
 // path assumes that we're running from dist/
 const WORKER_PATH = resolve(import.meta.dirname, 'pool-thread/v3-tinypool-thread.mjs');
@@ -42,7 +42,7 @@ const POOL_THREAD_IDLE_TIMEOUT_MS = 3_600_000;
 
 async function dispatchFullWorkerRun(
   spec: TestSpecification,
-  config: SerializedConfig,
+  config: SerializedConfigCompat,
   isCollectTestsMode: boolean,
   pool: Tinypool,
   poolAbortSignal: AbortSignal,
@@ -215,10 +215,12 @@ async function runTests(
   // Create worker for each file
   const fileWorkers: Promise<void>[] = specs.map(async (spec: TestSpecification): Promise<void> => {
     const { serializedConfig } = spec.project;
-    let timedOutTest = await dispatchFullWorkerRun(spec, serializedConfig, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache);
+    const compatConfig: SerializedConfigCompat = getCompatConfig(serializedConfig);
+    
+    let timedOutTest = await dispatchFullWorkerRun(spec, compatConfig, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache);
     
     while (timedOutTest) {
-      timedOutTest = await dispatchFullWorkerRun(spec, serializedConfig, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache, timedOutTest);
+      timedOutTest = await dispatchFullWorkerRun(spec, compatConfig, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache, timedOutTest);
     }
   });
 

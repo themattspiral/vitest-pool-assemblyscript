@@ -3,7 +3,6 @@
  */
 import { basename } from 'node:path';
 import { threadId, workerData } from 'node:worker_threads';
-import { highlight } from '@vitest/utils/highlight';
 
 import type { RunTestsTask, ThreadImports, WasmImportsFactory, WorkerThreadInitData } from '../types/types.js';
 import { debug, setGlobalDebugMode } from '../util/debug.js';
@@ -55,7 +54,7 @@ export async function runFileSpec(data: RunTestsTask): Promise<void> {
     file,
     logModuleWithId,
     asPoolOptions,
-    { highlight, createUserWasmImports } satisfies ThreadImports,
+    { createUserWasmImports } satisfies ThreadImports,
     'v4',
     config.bail,
     typeof config.diff === 'object' ? config.diff : undefined,
