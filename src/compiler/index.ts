@@ -18,6 +18,7 @@ import { POOL_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
 import { createPoolError, throwPoolErrorIfAborted } from '../util/pool-errors.js';
 import { clearNativeBuildError, hasNativeBuildError, warnASInstrumentationNotLoaded } from '../util/feature-check.js';
+import { toForwardSlash } from '../util/path-utils.js';
 
 let nativeAddon: NativeAddonInterface | undefined;
 try {
@@ -183,8 +184,9 @@ export async function compileAssemblyScript(
         return await readFile(filePath, { encoding: 'utf-8' });
       } catch {
         // Fallback: when running in-tree, redirect pool assembly imports to local assembly/ dir
-        if (filename.startsWith(POOL_ASSEMBLY_NODE_MODULES_PREFIX)) {
-          const localSubpath = filename.substring(POOL_ASSEMBLY_NODE_MODULES_PREFIX.length);
+        const normalizedFilename = toForwardSlash(filename);
+        if (normalizedFilename.startsWith(POOL_ASSEMBLY_NODE_MODULES_PREFIX)) {
+          const localSubpath = normalizedFilename.substring(POOL_ASSEMBLY_NODE_MODULES_PREFIX.length);
           const localPath = resolve(baseDir, 'assembly', localSubpath);
 
           try {
