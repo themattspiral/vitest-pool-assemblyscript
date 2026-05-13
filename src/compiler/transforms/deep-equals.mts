@@ -54,6 +54,8 @@ import {
   EQUALITY_RESULT_ENUM_NAME,
   EQUALS_PATH_POP_GLOBAL_ALIAS,
   EQUALS_PATH_PUSH_GLOBAL_ALIAS,
+  ESCAPE_TO_DIFF_STRING_GLOBAL_ALIAS,
+  INDENT_GLOBAL_ALIAS,
   INTERNAL_PATH_LIB_PREFIX,
   STRINGIFY_INJECTED_METHOD_NAME,
   STRINGIFY_VALUE_GLOBAL_ALIAS,
@@ -195,7 +197,9 @@ function injectTypename(
  * full object state, not equality-relevant fields only.
  *
  * Follows the super chain via isDefined guard, same pattern as deep equality.
- * Uses @global bridge __vitest_assemblyscript_stringify_value to call stringifyValue().
+ * 
+ * Uses @global bridge __vitest_assemblyscript_stringify_value to call stringifyValue(),
+ * so that we don't need to import from utils in every user file where this is injected.
  */
 function injectStringify(
   parser: Parser, classDecl: ClassDeclaration,
@@ -205,7 +209,7 @@ function injectStringify(
 
   const methodBody = generateStringifyBody(classDecl);
   const methodSource =
-    `${STRINGIFY_INJECTED_METHOD_NAME}(): string { ${methodBody} }`;
+    `${STRINGIFY_INJECTED_METHOD_NAME}(formatForDiff: bool = true, depth: i32 = 0): string { ${methodBody} }`;
 
   injectClassMember(parser, classDecl, methodSource, sourcePath);
 }
@@ -355,8 +359,6 @@ function generateStructuralBody(classDecl: ClassDeclaration): string {
 function generateStringifyBody(classDecl: ClassDeclaration): string {
   const fields = getStoredInstanceFields(classDecl);
   const hasSuper = classDecl.extendsType !== null;
-  const SV = STRINGIFY_VALUE_GLOBAL_ALIAS;
-  const SUPER_METHOD = STRINGIFY_INJECTED_METHOD_NAME;
 
   // No fields and no super: return empty string
   if (fields.length === 0 && !hasSuper) {
@@ -364,24 +366,34 @@ function generateStringifyBody(classDecl: ClassDeclaration): string {
   }
 
   const parts: string[] = [];
+  parts.push(`const sep: string = formatForDiff ? ",\\n" : ", ";`);
+  // Per-line indent prefix for diff output. Each field/super line sits at depth+1.
+  // Short-form output stays single-line, so the prefix is empty there.
+  parts.push(`const linePrefix: string = formatForDiff ? ${INDENT_GLOBAL_ALIAS}(depth + 1) : "";`);
   parts.push(`let s = "";`);
 
+  // Super's fields share the same nesting level as ours, so pass `depth` unchanged.
+  // Super's own emit applies the same linePrefix internally; no need to prepend it here.
   if (hasSuper) {
     parts.push(
-      `if (isDefined(super.${SUPER_METHOD})) { `
-      + `s += super.${SUPER_METHOD}(); `
-      + `if (s != "") s += ", "; `
+      `if (isDefined(super.${STRINGIFY_INJECTED_METHOD_NAME})) { `
+      + `s += super.${STRINGIFY_INJECTED_METHOD_NAME}(formatForDiff, depth); `
+      + `if (s != "") s += sep; `
       + `}`
     );
   }
 
+  parts.push(`let fieldName: string = "";`);
   let firstField = true;
   for (const field of fields) {
     const fieldName = field.name.text;
     if (!firstField) {
-      parts.push(`s += ", ";`);
+      parts.push(`s += sep;`);
     }
-    parts.push(`s += "${fieldName}: " + ${SV}(this.${fieldName});`);
+    parts.push(`fieldName = formatForDiff ? ${ESCAPE_TO_DIFF_STRING_GLOBAL_ALIAS}("${fieldName}") : "${fieldName}";`);
+    // Field values sit one nesting level deeper than this object — pass depth + 1
+    // so that any nested object's content/closing brace land at the right indent.
+    parts.push(`s += linePrefix + fieldName + ": " + ${STRINGIFY_VALUE_GLOBAL_ALIAS}(this.${fieldName}, formatForDiff, depth + 1);`);
     firstField = false;
   }
 

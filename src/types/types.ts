@@ -579,9 +579,9 @@ export type AssemblyScriptConsoleLogHandler = (msg: string, isError?: boolean) =
 export interface FailedAssertion {
   expected?: string;
   actual?: string;
-  valuesProvided?: boolean;
-  typeName?: string;
-  message?: string;
+  valuesProvided: boolean;
+  typeName: string;
+  message: string;
 }
 
 export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {

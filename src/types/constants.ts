@@ -80,17 +80,39 @@ export const EQUALS_PATH_PUSH_GLOBAL_ALIAS = '__vitest_assemblyscript_equals_pat
  */
 export const EQUALS_PATH_POP_GLOBAL_ALIAS = '__vitest_assemblyscript_equals_path_pop' as const;
 
+/**
+ * Global alias for the stringifyValue() wrapper used by injected stringify method bodies.
+ * Declared with @global in assembly/utils.ts to be available in all source files without import.
+ */
+export const STRINGIFY_VALUE_GLOBAL_ALIAS = '__vitest_assemblyscript_stringify_value' as const;
+
+/**
+ * Global alias for the escapeToJSONString() wrapper used by injected stringify method bodies.
+ * Declared with @global in assembly/utils.ts to be available in all source files without import.
+ */
+export const ESCAPE_TO_JSON_STRING_GLOBAL_ALIAS = '__vitest_assemblyscript_escape_to_json_string' as const;
+
+/**
+ * Global alias for the escapeToDiffString() wrapper used by injected stringify method bodies.
+ * Matches pretty-format's `escapeString: true` (vitest's diff display default) — escapes only
+ * `"` and `\`, all other characters pass through literally.
+ * Declared with @global in assembly/utils.ts to be available in all source files without import.
+ */
+export const ESCAPE_TO_DIFF_STRING_GLOBAL_ALIAS = '__vitest_assemblyscript_escape_to_diff_string' as const;
+
+/**
+ * Global alias for the indent helper used by injected stringify method bodies to produce
+ * pretty-format-style nested indentation (2 spaces per depth level) in diff output.
+ * Declared with @global in assembly/utils.ts to be available in all source files without import.
+ */
+export const INDENT_GLOBAL_ALIAS = '__vitest_assemblyscript_stringify_indent' as const;
+
 /** Name of the method injected by the compiler transform that returns the runtime class name */
 export const TYPENAME_INJECTED_METHOD_NAME = '__vitest_assemblyscript_typename' as const;
 
 /** Name of the method injected by the compiler transform that returns stringified field contents */
 export const STRINGIFY_INJECTED_METHOD_NAME = '__vitest_assemblyscript_stringify' as const;
 
-/**
- * Global alias for the stringifyValue() wrapper used by injected stringify method bodies.
- * Declared with @global in assembly/utils.ts to be available in all source files without import.
- */
-export const STRINGIFY_VALUE_GLOBAL_ALIAS = '__vitest_assemblyscript_stringify_value' as const;
 
 /** Error names for AssemblyScript test failures reported to vitest */
 export const TEST_ERROR_NAMES = {

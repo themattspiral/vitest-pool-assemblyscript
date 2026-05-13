@@ -284,8 +284,9 @@ export function createTestExecutionImports(
       },
 
       __assertion_fail(msgPtr: number, typeNamePtr: number, valuesProvided: boolean, actualPtr?: number, expectedPtr?: number) {
-        const errorMsg = liftString(memory, msgPtr);
-        const assertionValueType = liftString(memory, typeNamePtr);
+        const errorMsg = liftString(memory, msgPtr) ?? '';
+        const assertionValueType = liftString(memory, typeNamePtr) ?? '';
+
         let actual: string | undefined;
         let expected: string | undefined;
         

@@ -486,31 +486,40 @@ abstract class BaseExpectMatcher<T> {
       __assertion_pass();
     } else {
       const notStr = this.isInverted ? "not " : "";
-      // For runtime type mismatches, show the top-level type name only — the mismatched
-      // types in the suffix are the useful information, not field contents of differently-typed
-      // objects. Uses __vitest_assemblyscript_typename (virtual dispatch gives runtime name)
-      // with nameof fallback for types without injection (containers, primitives).
-      // For value mismatches, full stringification shows what values differ.
-      let actualStr: string;
-      let expectedStr: string;
-      if (isRtm) {
-        // @ts-ignore
-        actualStr = isDefined(actual.__vitest_assemblyscript_typename)
-          // @ts-ignore
-          ? (<NonNullable<U>>actual).__vitest_assemblyscript_typename()
-          : nameof<U>();
-        // @ts-ignore
-        expectedStr = isDefined(expected.__vitest_assemblyscript_typename)
-          // @ts-ignore
-          ? (<NonNullable<V>>expected).__vitest_assemblyscript_typename()
-          : nameof<V>();
-      } else {
-        actualStr = stringifyValue(actual);
-        expectedStr = stringifyValue(expected);
-      }
-      const msg = `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}${suffix}`;
 
-      __assertion_fail<string>(msg, nameof<U>() + " " + nameof<V>(), provideDiff, actualStr, expectedStr);
+      // Type strings use __vitest_assemblyscript_typename (virtual dispatch gives runtime name)
+      // with `nameof` fallback for types without injection (containers, primitives)
+      // @ts-ignore
+      const actualType: string = isDefined(actual.__vitest_assemblyscript_typename)
+        // @ts-ignore
+        ? (<NonNullable<U>>actual).__vitest_assemblyscript_typename()
+        : nameof<U>();
+      // @ts-ignore
+      const expectedType: string = isDefined(expected.__vitest_assemblyscript_typename)
+        // @ts-ignore
+        ? (<NonNullable<V>>expected).__vitest_assemblyscript_typename()
+        : nameof<V>();
+
+      let actualShort: string = "";
+      let expectedShort: string = "";
+      let actualDiff: string = "";
+      let expectedDiff: string = "";
+      
+      if (isRtm) {
+        // For runtime type mismatches, show the top-level type name only. The mismatched
+        // types in the suffix are the useful information, not field contents of differently-typed
+        actualShort = actualDiff = actualType;
+        expectedShort = expectedDiff = expectedType;
+      } else {
+        // For value mismatches, stringification shows what values differ
+        actualShort = stringifyValue(actual, false);
+        expectedShort = stringifyValue(expected, false);
+        actualDiff = stringifyValue(actual, true);
+        expectedDiff = stringifyValue(expected, true);
+      }
+      const msg = `expected ${actualShort} ${notStr}${methodStr}${printExpected ? ` ${expectedShort}` : ""}${suffix}`;
+
+      __assertion_fail<string>(msg, actualType + " " + expectedType, provideDiff, actualDiff, expectedDiff);
   
       // Abort on failure - terminates WASM execution - must be called from WASM.
       // Imported abort handler will handle this and mark the test as failed.

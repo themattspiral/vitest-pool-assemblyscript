@@ -26,9 +26,11 @@ export default defineConfig({
         'test/assembly-src/**/*.meta.ts'
       ],
 
-      // wide console for our CLI output verification
       reporter: [
-        ['text', { maxCols: 200 }],
+        ['text', {
+          maxCols: 200,   // wide console for our CLI output verification
+          skipFull: false // vitest forces skipFull: true on the text reporter in AI-agent environments
+        }],
         ['html', {}],
         ['json', {}],
       ],
