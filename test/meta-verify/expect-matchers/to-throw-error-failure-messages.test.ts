@@ -18,17 +18,17 @@ describe('toThrowError failure message verification', () => {
   describe('matching failures', () => {
     test('expect any error, but no error received', () => {
       const block = requireErrorBlock(parsedCli, testPath('toThrowError', 'matching failures', 'expect any error, but no error received [should fail]'));
-      expect(block).toContain('AssertionError: expected function to throw any error - did not throw');
+      expect(block).toContain('AssertionError: function did not throw, but was expected to throw error: "<any>"');
     });
 
     test('expect specific error, but no error received', () => {
       const block = requireErrorBlock(parsedCli, testPath('toThrowError', 'matching failures', 'expect specific error, but no error received [should fail]'));
-      expect(block).toContain('AssertionError: expected function to throw "Index out of range" error - did not throw');
+      expect(block).toContain('AssertionError: function did not throw, but was expected to throw error: "Index out of range"');
     });
 
     test('expect specific error, but different error received', () => {
       const block = requireErrorBlock(parsedCli, testPath('toThrowError', 'matching failures', 'expect specific error, but different error received [should fail]'));
-      expect(block).toContain('AssertionError: expected function to throw "will not match" error but received "Index out of range"');
+      expect(block).toContain('AssertionError: expected function to throw error "will not match", but received error "Index out of range"');
     });
   });
 

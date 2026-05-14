@@ -23,10 +23,11 @@ declare function __assertion_pass(): void;
 @external("__as_pool_env__", "__assertion_fail")
 declare function __assertion_fail<T>(
   msg: string,
-  typeName: string,
+  actualTypeName: string,
+  expectedTypeName: string,
   valuesProvided: bool,
-  actual?: T,
-  expected?: T
+  actual?: string,
+  expected?: string
 ): void;
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
@@ -519,7 +520,7 @@ abstract class BaseExpectMatcher<T> {
       }
       const msg = `expected ${actualShort} ${notStr}${methodStr}${printExpected ? ` ${expectedShort}` : ""}${suffix}`;
 
-      __assertion_fail<string>(msg, actualType + " " + expectedType, provideDiff, actualDiff, expectedDiff);
+      __assertion_fail<string>(msg, actualType, expectedType, provideDiff, actualDiff, expectedDiff);
   
       // Abort on failure - terminates WASM execution - must be called from WASM.
       // Imported abort handler will handle this and mark the test as failed.

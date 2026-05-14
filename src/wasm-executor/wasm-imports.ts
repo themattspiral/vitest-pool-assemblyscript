@@ -228,8 +228,11 @@ export function createTestExecutionImports(
 
         let failureMessage = message;
 
+        // handle expected aborts for thrown errors
         if (isExpectingError) {
+          // TODO: decide if .includes is correct here or not
           if (!expectedErrorMsgStr || message.includes(expectedErrorMsgStr)) {
+            // either no specifically expected error (any error), or error message matches
             (test.meta as AssemblyScriptTestTaskMeta).assertionsPassedCount++;
             
             debug(`${logPrefix} - Thrown error matches expected - assertion passes`);
@@ -239,17 +242,19 @@ export function createTestExecutionImports(
               POOL_ERROR_NAMES.WASMExecutionAbortError
             );
           } else {
-            failureMessage = `expected function to throw "${expectedErrorMsgStr}" error but received "${message}"`;
+            // error message mismatch
+            failureMessage = `expected function to throw error "${expectedErrorMsgStr ?? '<any>'}", but received error "${message}"`;
 
             (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push({
               message: failureMessage,
-              typeName: 'Error',
+              actualTypeName: 'string',
+              expectedTypeName: 'string',
               valuesProvided: true,
               actual: message,
               expected: expectedErrorMsgStr
             } satisfies FailedAssertion);
 
-            const errStr = `Thrown error does not match expected | Expected: "${expectedErrorMsgStr}" | Actual: "${message}"`
+            const errStr = `Thrown error does not match expected | Expected: "${expectedErrorMsgStr ?? '<any>'}" | Actual: "${message}"`
             debug(`${logPrefix} - Assertion failed: ${errStr}`);
           }
         }
@@ -283,29 +288,28 @@ export function createTestExecutionImports(
         (test.meta as AssemblyScriptTestTaskMeta).assertionsPassedCount++;
       },
 
-      __assertion_fail(msgPtr: number, typeNamePtr: number, valuesProvided: boolean, actualPtr?: number, expectedPtr?: number) {
+      __assertion_fail(msgPtr: number, actualTypeNamePtr: number, expectedTypeNamePtr: number, valuesProvided: boolean, actualPtr?: number, expectedPtr?: number) {
         const errorMsg = liftString(memory, msgPtr) ?? '';
-        const assertionValueType = liftString(memory, typeNamePtr) ?? '';
-
-        let actual: string | undefined;
-        let expected: string | undefined;
+        const actualTypeName = liftString(memory, actualTypeNamePtr) ?? '';
+        const expectedTypeName = liftString(memory, expectedTypeNamePtr) ?? '';
+        let valuesMsg =  ' | No Values Provided';
         
         const assertionFailure: FailedAssertion = {
+          actualTypeName,
+          expectedTypeName,
           message: errorMsg,
-          typeName: assertionValueType,
           valuesProvided: Boolean(valuesProvided)
         };
+
+        (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push(assertionFailure);
         
         if (valuesProvided && actualPtr && expectedPtr) {
           assertionFailure.actual = liftString(memory, actualPtr);
           assertionFailure.expected = liftString(memory, expectedPtr);
+          valuesMsg = ` | Actual Type: ${actualTypeName} | Expected Type: ${expectedTypeName}`
+            + ` | Actual Value: \`${assertionFailure.actual}\` | Expected Value: \`${assertionFailure.expected}\``;
         }
         
-        (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push(assertionFailure);
-        
-        const valuesMsg = valuesProvided ? ` | Value Type: ${assertionValueType}`
-          + ` | Expected: \`${expected !== undefined ? expected : ''}\` | Actual: \`${actual !== undefined ? actual : ''}\``
-          : '';
         debug(`${logPrefix} - Assertion failed: ${errorMsg}${valuesMsg}`);
       },
 
@@ -355,15 +359,13 @@ export function createTestExecutionImports(
 
       __end_expect_throw() {
         if (isExpectingError) {
-          const isAnyErr: boolean = !!expectedErrorMsgStr;
-          const failureMessage = `expected function to throw ${isAnyErr ?
-            `"${expectedErrorMsgStr}"` : 'any'
-          } error - did not throw`;
+          const failureMessage = `function did not throw, but was expected to throw error: "${expectedErrorMsgStr ?? '<any>'}"`;
 
           (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push({
               message: failureMessage,
-              typeName: 'Error',
-              valuesProvided: !isAnyErr,
+              actualTypeName: 'undefined',
+              expectedTypeName: 'string',
+              valuesProvided: true,
               actual: undefined,
               expected: expectedErrorMsgStr
             } satisfies FailedAssertion);

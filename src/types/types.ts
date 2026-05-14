@@ -580,7 +580,8 @@ export interface FailedAssertion {
   expected?: string;
   actual?: string;
   valuesProvided: boolean;
-  typeName: string;
+  actualTypeName: string;
+  expectedTypeName: string;
   message: string;
 }
 
