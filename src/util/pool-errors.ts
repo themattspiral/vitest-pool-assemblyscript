@@ -130,3 +130,7 @@ export function getTestErrorFromAnyError(
     cause: getTestErrorFromAnyError(error?.cause)
   };
 }
+
+export function getExpectedMessageOrAny(expectedMsgStr?: string): string {
+  return expectedMsgStr ? `"${expectedMsgStr}"` : '<any>';
+}

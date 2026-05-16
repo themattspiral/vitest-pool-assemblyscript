@@ -18,7 +18,7 @@ describe('toThrowError failure message verification', () => {
   describe('matching failures', () => {
     test('expect any error, but no error received', () => {
       const block = requireErrorBlock(parsedCli, testPath('toThrowError', 'matching failures', 'expect any error, but no error received [should fail]'));
-      expect(block).toContain('AssertionError: function did not throw, but was expected to throw error: "<any>"');
+      expect(block).toContain('AssertionError: function did not throw, but was expected to throw error: <any>');
     });
 
     test('expect specific error, but no error received', () => {

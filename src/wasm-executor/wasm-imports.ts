@@ -10,7 +10,11 @@ import type {
 } from '../types/types.js';
 import { AS_POOL_WASM_IMPORTS_ENV, POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
-import { createPoolError, createPoolErrorFromAnyError } from '../util/pool-errors.js';
+import {
+  createPoolError,
+  createPoolErrorFromAnyError,
+  getExpectedMessageOrAny
+} from '../util/pool-errors.js';
 import { liftString } from '../util/assemblyscript/binding-helpers.js';
 import { extractCallStack } from './source-maps.js';
 import { decodeAbortInfo } from './wasm-memory.js';
@@ -242,8 +246,10 @@ export function createTestExecutionImports(
               POOL_ERROR_NAMES.WASMExecutionAbortError
             );
           } else {
+            const expected = getExpectedMessageOrAny(expectedErrorMsgStr);
+
             // error message mismatch
-            failureMessage = `expected function to throw error "${expectedErrorMsgStr ?? '<any>'}", but received error "${message}"`;
+            failureMessage = `expected function to throw error ${expected}, but received error "${message}"`;
 
             (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push({
               message: failureMessage,
@@ -254,7 +260,7 @@ export function createTestExecutionImports(
               expected: expectedErrorMsgStr
             } satisfies FailedAssertion);
 
-            const errStr = `Thrown error does not match expected | Expected: "${expectedErrorMsgStr ?? '<any>'}" | Actual: "${message}"`
+            const errStr = `Thrown error does not match expected | Expected: ${expected} | Actual: "${message}"`;
             debug(`${logPrefix} - Assertion failed: ${errStr}`);
           }
         }
@@ -319,9 +325,7 @@ export function createTestExecutionImports(
           expectedErrorMsgStr = liftString(memory, expectedErrorMsgPtr);
         }
 
-        debug(`${logPrefix} - Registered expected error throw: ${expectedErrorMsgStr !== undefined
-          ? `"${expectedErrorMsgStr}"` : '<any>'}`
-        );
+        debug(`${logPrefix} - Registered expected error throw: ${getExpectedMessageOrAny(expectedErrorMsgStr)}`);
 
         if (wasmFunctionTable && typeof wasmFunctionTable.get === 'function') {
           const fn = wasmFunctionTable.get(fnIndex);
@@ -359,7 +363,7 @@ export function createTestExecutionImports(
 
       __end_expect_throw() {
         if (isExpectingError) {
-          const failureMessage = `function did not throw, but was expected to throw error: "${expectedErrorMsgStr ?? '<any>'}"`;
+          const failureMessage = `function did not throw, but was expected to throw error: ${getExpectedMessageOrAny(expectedErrorMsgStr)}`;
 
           (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push({
               message: failureMessage,
