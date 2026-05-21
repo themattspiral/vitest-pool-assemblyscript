@@ -101,7 +101,7 @@ export function equalsRtmNamesClear(): void {
  */
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @global
-function __vitest_assemblyscript_equals_path_push(segment: string): void {
+function __vitest_assemblyscript_compare_equals_path_push(segment: string): void {
   equalsPathPush(segment);
 }
 
@@ -114,7 +114,7 @@ function __vitest_assemblyscript_equals_path_push(segment: string): void {
  */
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @global
-function __vitest_assemblyscript_equals_path_pop(): void {
+function __vitest_assemblyscript_compare_equals_path_pop(): void {
   equalsPathPop();
 }
 
@@ -641,15 +641,12 @@ export function equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Eq
  * Global bridge for the deep-equals compiler transform.
  *
  * Injected deep equality methods in user classes call this function for per-field
- * comparisons. Declared global to make it available in all source files without import,
- * solving the afterParse import resolution limitation (injected import statements
- * are not processed by the AS compiler).
+ * comparisons. Declared global to make it available in all user source files without import.
+ * (solves the `afterParse` import resolution limitation where injected import statements
+ * are not processed by the AS compiler)
  *
  * Returns __vitest_assemblyscript_EqualityResult so injected methods can propagate type mismatch information
  * from nested comparisons back to the top-level matcher.
- *
- * Loaded into the compilation transitively: user test imports
- * vitest-pool-assemblyscript/assembly → index.ts → compare.ts.
  */
 // @ts-ignore
 @global

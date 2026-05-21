@@ -25,25 +25,13 @@ export function nan<T>(value: T): bool {
   }
 }
 
-
 /**
- * Encodes a string as a diff-friendly string literal, matching pretty-format's
- * `escapeString: true` (vitest's diff display default) behavior.
- *
- * Escapes ONLY the two characters that would otherwise be ambiguous inside a quoted literal:
- * - quotation mark (U+0022) → \"
- * - reverse solidus (U+005C) → \\
- *
- * All other characters — including raw control characters (newlines, tabs, etc.), surrogates,
- * U+2028, and U+2029 — pass through literally. This is intentional: vitest's diff renders
- * these as raw whitespace so the diff display can break naturally on newlines within strings
- * and each visible line gets its own +/− marker.
- *
- * Wraps the result in surrounding quotation marks, producing a complete diff-form string literal.
+ * Encodes a string as a quoted diff-form literal, matching pretty-format's
+ * `escapeString: true` behavior (vitest's diff display default)
  */
 export function escapeToDiffString(value: string): string {
-  // Fast path: if the string contains neither " nor \, no escaping is needed and we can
-  // skip the per-character allocation work below.
+  // Only `"` and `\` are escaped - All other characters (control chars, surrogates, etc)
+  // pass through raw so vitest's diff can break on newlines naturally
   let firstEscape = -1;
   for (let i = 0; i < value.length; i++) {
     const c = value.charCodeAt(i);
@@ -52,11 +40,10 @@ export function escapeToDiffString(value: string): string {
       break;
     }
   }
+  // Fast path: no escapes needed
   if (firstEscape === -1) return `"${value}"`;
 
-  // Slow path: copy the verbatim prefix in one shot, then escape from firstEscape onward.
-  // Uses the same Array<string> + join("") strategy as escapeToJSONString to avoid O(n²)
-  // string concatenation.
+  // Array<string> + join("") avoids O(n^2) concatenation on the slow path
   const parts = new Array<string>();
   parts.push("\"");
   parts.push(value.substring(0, firstEscape));
@@ -85,6 +72,8 @@ export function escapeToDiffString(value: string): string {
  */
 const stringifyVisited = new Set<usize>();
 
+// @ts-ignore: top level decorators are supported in AssemblyScript
+@inline
 function stringifyIndent(depth: i32): string {
   if (depth <= 0) return "";
   let s = "";
@@ -92,15 +81,12 @@ function stringifyIndent(depth: i32): string {
   return s;
 }
 
-/**
- * Character budget for short-form (single-line) stringification
- */
+/** Character budget for short-form (single-line) stringification */
 export const STRINGIFY_SHORT_FORM_BUDGET: i32 = 40;
 
 /**
- * Returns true when adding the next piece (plus its trailing separator and the room
- * needed for a `…(N)` truncation marker) would push the accumulated content past
- * `budget`. A negative budget is the "unlimited" sentinel (diff mode)
+ * Returns true when the next piece + separator + truncation marker would push
+ * accumulated content past `budget` (`budget < 0` is the unlimited sentinel for diff mode)
  */
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @inline
@@ -109,26 +95,21 @@ function exceedsBudget(used: i32, pieceLen: i32, sepLen: i32, truncMarkerLen: i3
 }
 
 /**
- * Renders a string value as a short-form literal subject to `budget`:
- * - `budget < 0` (unlimited) or the full `"<s>"` fits → returned unchanged
- * - Otherwise produces `"<sliced>…"`, where the closing quote and ellipsis count
- *   as 3 chars of fixed scaffolding which is always emitted — even when
- *   `budget < 3`, so output may exceed `budget` in that corner case. This
- *   guarantees the user always sees an identifiable string token rather than
- *   collapsing to nothing.
- *
- * Surrogate-aware: if the cut would leave a lone high surrogate (the matching
- * low surrogate falls in the dropped portion), back off by one code unit so the
- * truncated string remains well-formed UTF-16.
+ * Renders a string as a short-form literal `"<s>"` constrained by `budget`,
+ * producing `"<sliced>…"` when the full literal would overflow
+ * (`budget < 0` is the unlimited sentinel for diff mode)
  */
 function truncateStringContent(s: string, budget: i32): string {
   if (budget < 0 || 2 + s.length <= budget) {
     return `"${s}"`;
   }
+  // Output scaffolding is opening quote + ellipsis + closing quote = 3 chars, always
+  // emitted even when budget < 3 so the user still sees an identifiable string token
   let sliceLen = budget - 3;
   if (sliceLen < 0) sliceLen = 0;
   if (sliceLen > 0) {
     const code = s.charCodeAt(sliceLen - 1);
+    // Don't leave a lone high surrogate from a surrogate pair
     if (code >= 0xD800 && code <= 0xDBFF) {
       sliceLen -= 1;
     }
@@ -172,19 +153,16 @@ export function stringifyValue<T>(item: T, formatForDiff: bool = true, depth: i3
       const nonNullItem = <NonNullable<T>>item;
       const spaceAfterType = formatForDiff ? " " : "";
       const nl = formatForDiff ? "\n" : " ";
-      // Closing brace sits at the depth of this value (one less than its inner content's depth).
-      // In short-form mode no indent applies — everything stays on a single line.
+      // Close brace sits at this value's depth (one less than its inner content)
       const closeIndent = formatForDiff ? stringifyIndent(depth) : "";
 
       // @ts-ignore
       const typeName: string = nonNullItem.__vitest_assemblyscript_typename();
       // @ts-ignore
       if (isDefined(nonNullItem.__vitest_assemblyscript_stringify)) {
-        // Short-form scaffolding is `${typeName}{ ` + ` }` = typeName.length + 4 chars.
-        // The injected method emits only the content (no scaffolding), so we hand it
-        // contentBudget = max(0, budget - scaffolding). The max(0, ...) clamp keeps
-        // tight-but-positive arithmetic from underflowing into the `< 0` "unlimited"
-        // sentinel meaning. Diff form passes budget = -1 → contentBudget = -1.
+        // Reserve scaffolding (`${typeName}{ ` + ` }` = typeName.length + 4) from the budget
+        // before passing the remainder to the injected method, which emits only the content.
+        // max(0, ...) keeps tight arithmetic from crossing into the `< 0` unlimited sentinel.
         const contentBudget = budget < 0 ? -1 : max(0, budget - typeName.length - 4);
         // @ts-ignore
         const fields: string = nonNullItem.__vitest_assemblyscript_stringify(formatForDiff, depth, contentBudget);
@@ -207,12 +185,11 @@ export function stringifyValue<T>(item: T, formatForDiff: bool = true, depth: i3
   }
 }
 
-/**
- * Global bridge for the compiler transform's injected stringify methods.
- *
- * Transform-injected __vitest_assemblyscript_stringify methods call this to format each
- * field value. Declared global to make it available in all user source files without importing.
- */
+// Global bridge functions for the deep-equals transform's injected stringify methods.
+// Declared global to make them available in all user source files without importing.
+// (solves the `afterParse` import resolution limitation where injected import statements
+// are not processed by the AS compiler)
+
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @global
 function __vitest_assemblyscript_stringify_value<T>(item: T, formatForDiff: bool = true, depth: i32 = 0, budget: i32 = -1): string {
@@ -233,7 +210,7 @@ function __vitest_assemblyscript_stringify_indent(depth: i32): string {
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @global @inline
-function __vitest_assemblyscript_exceeds_budget(used: i32, pieceLen: i32, sepLen: i32, truncMarkerLen: i32, budget: i32): bool {
+function __vitest_assemblyscript_stringify_exceeds_budget(used: i32, pieceLen: i32, sepLen: i32, truncMarkerLen: i32, budget: i32): bool {
   return exceedsBudget(used, pieceLen, sepLen, truncMarkerLen, budget);
 }
 
@@ -246,10 +223,8 @@ function arrayMessageString<T extends ArrayLike<unknown>>(array: T, formatForDif
   const sep = formatForDiff ? ",\n" : ", ";
   const close = formatForDiff ? `\n${stringifyIndent(depth)}]` : "]";
 
-  // Clamp contentBudget to non-negative when budget >= 0 so the truncMarker still
-  // fires even if scaffolding has already consumed the entire budget; the clamp also
-  // keeps tight arithmetic from accidentally crossing into the `< 0` "unlimited"
-  // sentinel meaning. Diff form passes budget = -1 → contentBudget = -1.
+  // Reserve open/close scaffolding from the budget. max(0, ...) keeps the truncMarker firing
+  // even when scaffolding consumed it all, and prevents crossing into the `< 0` sentinel.
   const contentBudget = budget < 0 ? -1 : max(0, budget - open.length - close.length);
 
   const n = array.length;
@@ -330,9 +305,8 @@ function mapMessageString<T>(map: T, formatForDiff: bool, depth: i32, budget: i3
     const sepLen = isLast ? 0 : sep.length;
     const truncMarker = contentBudget < 0 ? "" : `…(${n - i})`;
     const childBudget = contentBudget < 0 ? -1 : max(0, contentBudget - used - sepLen - truncMarker.length);
-    // Map entry: key gets parent's full remaining budget; value gets remaining minus
-    // the rendered key length and the " => " separator (4 chars). Mirrors loupe — keys
-    // are typically short, so most of the budget naturally falls through to the value.
+    // key gets the full remaining budget; value gets what's left after key + " => " (4 chars)
+    // (mirrors loupe lib used by chai/vitest)
     const keyStr = stringifyValue(keys[i], formatForDiff, depth + 1, childBudget);
     const valBudget = childBudget < 0 ? -1 : max(0, childBudget - keyStr.length - 4);
     const valStr = stringifyValue(map.get(keys[i]), formatForDiff, depth + 1, valBudget);
