@@ -107,6 +107,15 @@ export const ESCAPE_TO_DIFF_STRING_GLOBAL_ALIAS = '__vitest_assemblyscript_escap
  */
 export const INDENT_GLOBAL_ALIAS = '__vitest_assemblyscript_stringify_indent' as const;
 
+/**
+ * Global alias for the short-form budget overflow predicate used by injected stringify
+ * method bodies. Returns true when adding the next piece (+ separator + truncation
+ * marker length) would push the accumulated content past the budget. A negative budget
+ * is the "unlimited" sentinel — diff mode — and the check never fires.
+ * Declared with @global @inline in assembly/utils.ts to be available in all source files without import.
+ */
+export const EXCEEDS_BUDGET_GLOBAL_ALIAS = '__vitest_assemblyscript_exceeds_budget' as const;
+
 /** Name of the method injected by the compiler transform that returns the runtime class name */
 export const TYPENAME_INJECTED_METHOD_NAME = '__vitest_assemblyscript_typename' as const;
 

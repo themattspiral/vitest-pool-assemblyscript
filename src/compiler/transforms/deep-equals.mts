@@ -16,6 +16,14 @@
  *    - Always stringifies all stored instance fields regardless of operator==/equals()
  *    - Follows super chain via isDefined guard, same pattern as deep equality
  *    - Uses @global bridge __vitest_assemblyscript_stringify_value to call stringifyValue()
+ *    - Threads a `budget` parameter (default -1 = unlimited / diff mode) through the
+ *      generated body. When non-negative, fields are emitted as a sequence of guarded
+ *      `if (!truncated) { ... }` blocks sharing a single `truncated` flag — once a
+ *      piece would push past the budget, the block appends a `…(N)` marker and sets
+ *      the flag, so subsequent guarded blocks become no-ops. Super (when present) is
+ *      treated as an atomic single piece: called with budget=-1 (full output) and
+ *      then accepted-whole or rejected-whole at this level, keeping at most one
+ *      truncation marker per nesting level.
  *
  * Scoping:
  * - Only user source files (not node_modules, not AS stdlib)
@@ -55,6 +63,7 @@ import {
   EQUALS_PATH_POP_GLOBAL_ALIAS,
   EQUALS_PATH_PUSH_GLOBAL_ALIAS,
   ESCAPE_TO_DIFF_STRING_GLOBAL_ALIAS,
+  EXCEEDS_BUDGET_GLOBAL_ALIAS,
   INDENT_GLOBAL_ALIAS,
   INTERNAL_PATH_LIB_PREFIX,
   STRINGIFY_INJECTED_METHOD_NAME,
@@ -196,10 +205,20 @@ function injectTypename(
  * Always stringifies all fields regardless of operator==/equals() — stringify shows
  * full object state, not equality-relevant fields only.
  *
- * Follows the super chain via isDefined guard, same pattern as deep equality.
- * 
- * Uses @global bridge __vitest_assemblyscript_stringify_value to call stringifyValue(),
- * so that we don't need to import from utils in every user file where this is injected.
+ * The `budget` parameter (default -1 = unlimited / diff mode) carries the short-form
+ * character budget for this object's content. When non-negative, fields are emitted
+ * as a sequence of guarded `if (!truncated) { ... }` blocks sharing a single
+ * `truncated` flag — once a field's render would push past the budget, the block
+ * appends a `…(N)` marker and sets the flag, so subsequent blocks become no-ops.
+ *
+ * Follows the super chain via isDefined guard, same pattern as deep equality. Super
+ * is treated as an atomic single piece: called with budget=-1 (full output) and
+ * then accepted-whole or rejected-whole at this level. This keeps at most one
+ * truncation marker per nesting level (in exchange for a slightly imprecise `N` when
+ * super gets rejected — it counts only this level's pieces, not chain-wide fields).
+ *
+ * Uses @global bridges __vitest_assemblyscript_stringify_value and
+ * __vitest_assemblyscript_exceeds_budget to call into utils.ts without imports.
  */
 function injectStringify(
   parser: Parser, classDecl: ClassDeclaration,
@@ -209,7 +228,7 @@ function injectStringify(
 
   const methodBody = generateStringifyBody(classDecl);
   const methodSource =
-    `${STRINGIFY_INJECTED_METHOD_NAME}(formatForDiff: bool = true, depth: i32 = 0): string { ${methodBody} }`;
+    `${STRINGIFY_INJECTED_METHOD_NAME}(formatForDiff: bool = true, depth: i32 = 0, budget: i32 = -1): string { ${methodBody} }`;
 
   injectClassMember(parser, classDecl, methodSource, sourcePath);
 }
@@ -353,8 +372,27 @@ function generateStructuralBody(classDecl: ClassDeclaration): string {
 
 /**
  * Generate the stringify body for a class.
- * Produces comma-separated "fieldName: value" entries using the @global stringify bridge.
- * Follows the super chain if the class extends another class.
+ *
+ * Produces "fieldName: value" entries, threading the `budget` parameter through to
+ * each field via the @global stringify bridge. When `budget >= 0` (short form), the
+ * body emits each field as a guarded `if (!truncated) { ... }` block sharing a
+ * single `truncated` flag — a field whose addition would overflow the budget appends
+ * a `…(N)` marker and sets the flag (subsequent blocks become no-ops). When
+ * `budget < 0` (diff mode), the marker strings are empty and the exceedsBudget check
+ * never fires, so the body emits every piece unconditionally.
+ *
+ * Super chain: super is treated as an atomic single piece. We call
+ * `super.__vitest_assemblyscript_stringify(formatForDiff, depth, -1)` so super
+ * produces its full output, then measure as one piece and accept-whole or reject-
+ * whole against our budget. If rejected, our marker `…(1 + fields.length)` absorbs
+ * both super and our remaining fields. The `-1` is passed explicitly rather than
+ * relying on the default, because AS routes default-arg fill through an `@varargs`
+ * trampoline that does virtual dispatch on `this` — for a subclass super call that
+ * dispatches back to the subclass override, causing infinite recursion.
+ *
+ * Uses template literal style for piece construction: multi-piece `${a}${b}${c}`
+ * lowers to a single `StaticArray<string>#join("")` allocation in AS, while a `+`
+ * chain allocates one intermediate string per operator.
  */
 function generateStringifyBody(classDecl: ClassDeclaration): string {
   const fields = getStoredInstanceFields(classDecl);
@@ -371,30 +409,70 @@ function generateStringifyBody(classDecl: ClassDeclaration): string {
   // Short-form output stays single-line, so the prefix is empty there.
   parts.push(`const linePrefix: string = formatForDiff ? ${INDENT_GLOBAL_ALIAS}(depth + 1) : "";`);
   parts.push(`let s = "";`);
+  parts.push(`let used: i32 = 0;`);
+  parts.push(`let truncated: bool = false;`);
 
-  // Super's fields share the same nesting level as ours, so pass `depth` unchanged.
-  // Super's own emit applies the same linePrefix internally; no need to prepend it here.
+  // Super chain: atomic single piece. Called with explicit budget=-1 (full output);
+  // either accept-whole or reject-whole at this level — keeps at most one truncation
+  // marker per nesting level.
   if (hasSuper) {
-    parts.push(
-      `if (isDefined(super.${STRINGIFY_INJECTED_METHOD_NAME})) { `
-      + `s += super.${STRINGIFY_INJECTED_METHOD_NAME}(formatForDiff, depth); `
-      + `if (s != "") s += sep; `
-      + `}`
-    );
+    const totalIncludingSuper = fields.length + 1;
+    const superTrailingSepLen = fields.length > 0 ? 'sep.length' : '0';
+    parts.push(`if (!truncated) {`);
+    parts.push(`  if (isDefined(super.${STRINGIFY_INJECTED_METHOD_NAME})) {`);
+    // Pass `-1` (the budget-unlimited sentinel) explicitly rather than relying on
+    // the default parameter. AS generates a @varargs trampoline when a caller doesn't
+    // supply all args of a method with defaults, and that trampoline does VIRTUAL
+    // dispatch on `this` — for a subclass instance calling super via the trampoline,
+    // dispatch resolves back to the subclass override and causes infinite recursion.
+    // Passing all three args here keeps the call a direct super dispatch.
+    parts.push(`    const superStr: string = super.${STRINGIFY_INJECTED_METHOD_NAME}(formatForDiff, depth, -1);`);
+    parts.push(`    if (superStr != "") {`);
+    parts.push(`      const truncMarker: string = budget >= 0 ? "…(${totalIncludingSuper})" : "";`);
+    parts.push(`      const trailingSepLen: i32 = ${superTrailingSepLen};`);
+    parts.push(`      if (${EXCEEDS_BUDGET_GLOBAL_ALIAS}(used, superStr.length, trailingSepLen, truncMarker.length, budget)) {`);
+    parts.push(`        s += truncMarker;`);
+    parts.push(`        truncated = true;`);
+    parts.push(`      } else {`);
+    parts.push(`        s += superStr;`);
+    parts.push(`        used += superStr.length;`);
+    if (fields.length > 0) {
+      parts.push(`        s += sep;`);
+      parts.push(`        used += sep.length;`);
+    }
+    parts.push(`      }`);
+    parts.push(`    }`);
+    parts.push(`  }`);
+    parts.push(`}`);
   }
 
-  parts.push(`let fieldName: string = "";`);
-  let firstField = true;
-  for (const field of fields) {
-    const fieldName = field.name.text;
-    if (!firstField) {
-      parts.push(`s += sep;`);
+  // Each field as a guarded `if (!truncated) { ... }` block. Compute marker +
+  // childBudget, render the piece, then either append (piece + sep) or set truncated
+  // and append the marker. Field values sit one nesting level deeper — pass depth + 1
+  // so nested content/braces land at the right indent.
+  for (let i = 0; i < fields.length; i++) {
+    const field = fields[i];
+    const fieldName = field?.name?.text;
+    const isLast = i === fields.length - 1;
+    const remainingPieces = fields.length - i; // includes the current field
+    parts.push(`if (!truncated) {`);
+    parts.push(`  const fieldName: string = formatForDiff ? ${ESCAPE_TO_DIFF_STRING_GLOBAL_ALIAS}("${fieldName}") : "${fieldName}";`);
+    parts.push(`  const truncMarker: string = budget >= 0 ? "…(${remainingPieces})" : "";`);
+    parts.push(`  const fieldSepLen: i32 = ${isLast ? '0' : 'sep.length'};`);
+    parts.push(`  const childBudget: i32 = budget < 0 ? -1 : max(0, budget - used - fieldSepLen - truncMarker.length);`);
+    parts.push(`  const piece: string = \`\${linePrefix}\${fieldName}: \${${STRINGIFY_VALUE_GLOBAL_ALIAS}(this.${fieldName}, formatForDiff, depth + 1, childBudget)}\`;`);
+    parts.push(`  if (${EXCEEDS_BUDGET_GLOBAL_ALIAS}(used, piece.length, fieldSepLen, truncMarker.length, budget)) {`);
+    parts.push(`    s += truncMarker;`);
+    parts.push(`    truncated = true;`);
+    parts.push(`  } else {`);
+    parts.push(`    s += piece;`);
+    parts.push(`    used += piece.length;`);
+    if (!isLast) {
+      parts.push(`    s += sep;`);
+      parts.push(`    used += sep.length;`);
     }
-    parts.push(`fieldName = formatForDiff ? ${ESCAPE_TO_DIFF_STRING_GLOBAL_ALIAS}("${fieldName}") : "${fieldName}";`);
-    // Field values sit one nesting level deeper than this object — pass depth + 1
-    // so that any nested object's content/closing brace land at the right indent.
-    parts.push(`s += linePrefix + fieldName + ": " + ${STRINGIFY_VALUE_GLOBAL_ALIAS}(this.${fieldName}, formatForDiff, depth + 1);`);
-    firstField = false;
+    parts.push(`  }`);
+    parts.push(`}`);
   }
 
   parts.push(`return s;`);

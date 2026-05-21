@@ -111,15 +111,7 @@ export function createWebAssemblyCallSite(
     return callSite;
   }
 
-  debug(`${loggingPrefix} - Failed to source-map stack-location: ${debugString}`);
-
-  // Fallback to WAT position
-  return {
-    functionName,
-    location: {
-      filePath: fileName,
-      line: watLine || -1,
-      column: watColumn || -1
-    }
-  };
+  debug(`${loggingPrefix} - Cannot source-map stack-location: ${debugString}`);
+  
+  return null;
 }

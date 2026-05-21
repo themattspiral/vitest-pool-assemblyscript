@@ -19,7 +19,7 @@ import type {
   WASMCompilation,
   WorkerRPC,
 } from '../../types/types.js';
-import { AS_POOL_WORKER_MSG_FLAG } from '../../types/constants.js';
+import { AS_POOL_WORKER_MSG_FLAG, POOL_ERROR_NAMES } from '../../types/constants.js';
 import { executeWASMTest } from '../../wasm-executor/index.js';
 import { debug } from '../../util/debug.js';
 import {
@@ -29,6 +29,8 @@ import {
   reportUserConsoleLogs,
   reportSuitePrepare,
   reportSuiteFinished,
+  flushRpcUpdates,
+  reportFileError,
 } from '../rpc-reporter.js';
 import {
   checkFailsAndInvertResult,
@@ -45,6 +47,8 @@ import {
   isSuiteOwnFile
 } from '../../util/vitest-tasks.js';
 import { mergeCoverageData } from '../../coverage-provider/coverage-merge.js';
+import { createPoolErrorFromAnyError, getTestErrorFromPoolError } from '../../util/pool-errors.js';
+import { failFile } from '../../util/vitest-file-tasks.js';
 
 async function bailIfNeeded(
   rpc: WorkerRPC,
@@ -243,12 +247,13 @@ export async function runSuite(
     }`);
   }
 
+  try {
+
+  // ensure suite-prepare will only be sent once if a test
+  // times out and the file worker thread gets re-launched
   if (!suiteMeta.suitePreparedSent) {
     setSuitePrepareResult(suite);
     await reportSuitePrepare(rpc, suite, logModule, base);
-
-    // ensure suite-prepare will only be sent once if a test
-    // times out and the file worker thread gets re-launched
     suiteMeta.suitePreparedSent = true;
   }
 
@@ -349,9 +354,24 @@ export async function runSuite(
   // ensure completed test will not be run again if another test
   // times out later and the file worker thread gets re-launched
   finalizeSuiteResult(suite);
+  } catch (error) {
+    const poolError = createPoolErrorFromAnyError(
+      `${suiteLogPrefix} - runSuite failure in worker`,
+      POOL_ERROR_NAMES.WASMExecutionHarnessError,
+      error
+    );
+    const testError = getTestErrorFromPoolError(poolError);
 
-  const suiteTime = performance.now() - suiteStart;
-  debug(`${suiteLogPrefix} - Suite Run Complete | TIMING ${suiteTime.toFixed(2)} ms`);
+    failFile(suite.file, testError, suiteStart);
+
+    await reportFileError(rpc, suite.file, logModule, suiteLogPrefix);
+
+    debug(`${suiteLogPrefix} - Reported file error`);
+  } finally {
+    await flushRpcUpdates(rpc);
+    const suiteTime = performance.now() - suiteStart;
+    debug(`${suiteLogPrefix} - runSuite Completed | TIMING ${suiteTime.toFixed(2)} ms`);
+  }
 
   return suite;
 }

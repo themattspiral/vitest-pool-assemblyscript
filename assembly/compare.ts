@@ -99,7 +99,7 @@ export function equalsRtmNamesClear(): void {
  * being compared, enabling path context like ".shape" or ".members" in error messages.
  * Declared global to make it available in all source files without import.
  */
-// @ts-ignore: AS-specific global decorator
+// @ts-ignore: top level decorators are supported in AssemblyScript
 @global
 function __vitest_assemblyscript_equals_path_push(segment: string): void {
   equalsPathPush(segment);
@@ -112,7 +112,7 @@ function __vitest_assemblyscript_equals_path_push(segment: string): void {
  * On non-Equal, the segment is left on the stack so the path accumulates
  * to the deepest mismatch point.
  */
-// @ts-ignore: AS-specific global decorator
+// @ts-ignore: top level decorators are supported in AssemblyScript
 @global
 function __vitest_assemblyscript_equals_path_pop(): void {
   equalsPathPop();
@@ -145,7 +145,7 @@ function equalsPathAtSuffix(): string {
  * Declared global so it is available in all source files without import —
  * including transform-injected deep equality methods in user classes.
  */
-// @ts-ignore: AS-specific global decorator
+// @ts-ignore: top level decorators are supported in AssemblyScript
 @global
 export enum __vitest_assemblyscript_EqualityResult {
   Equal,
@@ -233,6 +233,7 @@ function mapEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Equali
     // Key types must match exactly — cross-type key comparison is not safe because
     // .has() and .get() depend on the key's hash and equality semantics, which differ
     // across types (e.g. string vs i32 keys have incompatible hash/lookup behavior).
+    // @ts-ignore
     if (nameof<indexof<T>>() != nameof<indexof<U>>()) {
       throw new Error("Map key types must match for deep equality comparison: "
         + nameof<T>() + " and " + nameof<U>()
@@ -248,6 +249,7 @@ function mapEquals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Equali
     // actual's native value type. This lets us iterate expected's keys and look them
     // up in actual, while equals() handles cross-type value comparison naturally
     // (e.g. valueof<T>=i32 vs valueof<U>=f64).
+    // @ts-ignore
     const castActual = changetype<Map<indexof<U>, valueof<T>>>(actual);
 
     // instanceof needed after changetype for the compiler to resolve Map methods
@@ -616,13 +618,13 @@ export function equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Eq
     }
   }
 
-  // @ts-ignore
   // User-defined reference types: delegate to compiler transform-injected deep equality
   // method. Uses hard-coded method name because using a variable like `actual[DEEP_EQ_FUNC]`
   // requires the class to define an index signature.
   // Cast to NonNullable<T> because AS doesn't narrow nullability from the changetype-based
   // null checks above — it requires explicit type narrowing to call methods on nullable types.
   // Safe because both-null and one-null cases return early above.
+  // @ts-ignore
   if (isDefined(actual.__vitest_assemblyscript_deep_equals)) {
     const nonNullActual = <NonNullable<T>>actual;
     // @ts-ignore

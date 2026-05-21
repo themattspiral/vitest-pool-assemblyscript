@@ -24,6 +24,20 @@ import {
 
 const POOL_INTERNAL_PATHS_SET = new Set(POOL_INTERNAL_PATHS);
 
+function passthroughCallSite(callSite: NodeJS.CallSite): ParsedStack {
+  const fileName = callSite.getFileName();
+  const watLine = callSite.getLineNumber();
+  const watColumn = callSite.getColumnNumber();
+  const functionName = callSite.getFunctionName() || 'wasm-function[unknown]'
+
+  return {
+    method: functionName,
+    file: fileName ?? 'unknown-file',
+    line: watLine || -1,
+    column: watColumn || -1
+  };
+}
+
 async function sourceMapRawCallStack(
   rawCallStack: NodeJS.CallSite[],
   sourceMap: RawSourceMap,
@@ -43,7 +57,7 @@ async function sourceMapRawCallStack(
     if (mappedCallSite) {
       mappedStack.push(mappedCallSite);
     }
-  }); 
+  });
   
   sourceMapConsumer.destroy();
 
@@ -75,11 +89,17 @@ export async function processWASMErrorStack(
 
   // map stack call sites from WASM locations to source code locations  
   const sourceMappedStack = await sourceMapRawCallStack(rawCallStack, sourceMapObj, loggingPrefix);
-
   debug(`${loggingPrefix} - Mapped ${rawCallStack.length} call sites to ${sourceMappedStack.length} source locations`);
 
+  const parsedStack = parseMappedStack(sourceMappedStack);
+  if (parsedStack.length === 0) {
+    rawCallStack.forEach(callSite => {
+      parsedStack.push(passthroughCallSite(callSite));
+    });
+  }
+
   return {
-    parsedStack: parseMappedStack(sourceMappedStack),
+    parsedStack,
     parsedSourceMap: sourceMapObj,
   };
 }
@@ -140,14 +160,17 @@ export async function enhanceTestError(
   // Use the diff field as our way to show all output (other than result.error.stacks)
   if (isAssertionFailure) {
     error.diff = [
-      `${expectedVsActualDiffString}${expectedVsActualDiffString ? '\n\n' : ''}`,
-      `${primaryStackFrameString}\n`,
-      `${highlightedSourceCodeFrameString}`,
+      expectedVsActualDiffString,
+      expectedVsActualDiffString ? '\n\n' : '',
+      primaryStackFrameString ?? '',
+      highlightedSourceCodeFrameString ? '\n' : '',
+      highlightedSourceCodeFrameString ?? ''
     ].join('');
   } else {
     error.diff = [
-      `${primaryStackFrameString}\n`,
-      `${highlightedSourceCodeFrameString}`,
+      primaryStackFrameString ?? '',
+      highlightedSourceCodeFrameString ? '\n' : '',
+      highlightedSourceCodeFrameString ?? ''
     ].join('');
   }
 

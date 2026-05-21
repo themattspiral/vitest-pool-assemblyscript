@@ -168,14 +168,27 @@ expect(c1).toEqual(c2);
 ```
 
 #### Failure Output
-Failed assertions show stringified actual/expected values with a path suffix indicating where they differ. Value mismatches show full field contents; runtime type mismatches show type names only.
+Failed assertions show stringified actual/expected values with a path suffix indicating where they differ. The inline `expected X to deeply equal Y` line is short-form (single-line, character-budgeted) so it stays readable for large or deeply nested values; the multi-line diff body rendered below the line shows complete content without truncation.
 
 ```
-// Value mismatch — full stringification with field path:
-expected Point { x: 1, y: 2 } to deeply equal Point { x: 1, y: 99 } (differs at .y)
+// Value mismatch — short-form line + path suffix:
+expected Point{ x: 1, y: 2 } to deeply equal Point{ x: 1, y: 99 } (differs at .y)
 
 // Runtime type mismatch — top-level type names, suffix names the mismatched inner types:
 expected ShapeWrapper to deeply equal ShapeWrapper (runtime type mismatch at .shape: Circle vs Square)
+```
+
+**Short-form truncation for large or deep values.** When the short-form rendering would exceed the inline character budget, container and user-object renderers emit a `…(N)` marker indicating how many elements/fields were truncated. String values are truncated with a trailing ellipsis inside the quotes. The multi-line diff body below the inline line is *not* truncated - it always shows the complete value.
+
+```
+// Object with many fields — first field fits, rest truncates to "…(N)":
+expected GameState{ level: 3, …(15) } to deeply equal GameState{ level: 99, …(15) } (differs at .level)
+
+// Array of nested objects — only the first object fits:
+expected [Point{ x: 1, y: 1 }, …(9)] to deeply equal [Point{ x: 1, y: 1 }, …(9)] (differs at index [4].x)
+
+// Long string value — content trimmed with trailing "…" inside the quotes:
+expected ["one really long string value th…"] to deeply equal ["x"] (differs at index [0])
 ```
 
 >ℹ️ Stringified output shows all stored fields, even when `@operator("==")` or `.equals()` compares only a subset.

@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import { type ParsedCliOutput, loadParsedCliOutput, requireErrorBlock, TEST_FILE_PREFIX } from '../helpers/shared.js';
 
-const FIXTURE_FILE = `${TEST_FILE_PREFIX}test/assembly/expect-matchers/to-throw-error-failure-messages.meta.test.ts`;
+const FIXTURE_FILE = `${TEST_FILE_PREFIX}test/assembly/expect-matchers/failure-messages-to-throw-error.meta.test.ts`;
 
 /** Construct the full test path as it appears in vitest's CLI FAIL header. */
 function testPath(...segments: string[]): string {

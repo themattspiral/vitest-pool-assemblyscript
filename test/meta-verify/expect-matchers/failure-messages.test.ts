@@ -421,7 +421,7 @@ describe('matcher failure message verification', () => {
       test('field value differs', () => {
         const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'user object field', 'field value differs [should fail]'));
         // error message
-        expect(block).toContain('AssertionError: expected ShapeWrapper{ label: "hello", shape: Circle{ color: "red", radius: 5.0 } } to deeply equal ShapeWrapper{ label: "world", shape: Circle{ color: "red", radius: 5.0 } } (differs at .label)');
+        expect(block).toContain('AssertionError: expected ShapeWrapper{ label: "hello", …(1) } to deeply equal ShapeWrapper{ label: "world", …(1) } (differs at .label)');
         // strigified diff
         expect(block).toContain([
           '  ShapeWrapper {',
@@ -438,7 +438,7 @@ describe('matcher failure message verification', () => {
       test('nested field value differs', () => {
         const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'user object field', 'nested field value differs [should fail]'));
         // error message
-        expect(block).toContain('AssertionError: expected Line{ start: Point{ x: 1, y: 2 }, end: Point{ x: 3, y: 4 } } to deeply equal Line{ start: Point{ x: 99, y: 2 }, end: Point{ x: 3, y: 4 } } (differs at .start.x)');
+        expect(block).toContain('AssertionError: expected Line{ start: Point{ x: 1, y: 2 }, …(1) } to deeply equal Line{ …(2) } (differs at .start.x)');
         // strigified diff
         expect(block).toContain([
           '  Line {',
@@ -453,7 +453,7 @@ describe('matcher failure message verification', () => {
       test("multiple field values differ", () => {
         const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'user object field', 'multiple field values differ'));
         // error message
-        expect(block).toContain('AssertionError: expected GameState{ level: 3, score: 1500.5, active: true, playerName: "Hero", position: Point{ x: 10, y: 20 }, target: Point{ x: 50, y: 50 }, inventory: Map { "sword" => 1, "potion" => 5 }, tags: Set { "warrior", "guild-member" }, scores: [10, 20, 30], fixedRatios: [1.5, 2.5], rawScores: [100, 200, 300], waypoints: [Point{ x: 1, y: 2 }, Point{ x: 3, y: 4 }], landmarks: Map { "spawn" => Point{ x: 0, y: 0 }, "boss" => Point{ x: 99, y: 99 } }, visited: Set { Point{ x: 1, y: 1 }, Point{ x: 2, y: 2 } }, direction: v128, rawData: ArrayBuffer[4] } to deeply equal GameState{ level: 99, score: 1500.5, active: true, playerName: "Matt", position: Point{ x: 10, y: 20 }, target: Point{ x: 50, y: 50 }, inventory: Map { "sword" => 1, "potion" => 5 }, tags: Set { "warrior", "guild-member" }, scores: [10, 20, 30], fixedRatios: [1.5, 2.5], rawScores: [100, 200, 300], waypoints: [Point{ x: 1, y: 2 }, Point{ x: 3, y: 4 }], landmarks: Map { "spawn" => Point{ x: 0, y: 0 }, "boss" => Point{ x: 99, y: 99 } }, visited: Set { Point{ x: 1, y: 1 }, Point{ x: 2, y: 2 }, Point{ x: 3, y: 3 } }, direction: v128, rawData: ArrayBuffer[4] } (differs at .level)');
+        expect(block).toContain('AssertionError: expected GameState{ level: 3, …(15) } to deeply equal GameState{ level: 99, …(15) } (differs at .level)');
         // strigified diffs
         expect(block).toContain([
           '  GameState {',
@@ -477,7 +477,7 @@ describe('matcher failure message verification', () => {
       test('array field element differs', () => {
         const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'array field element differs [should fail]'));
         // error message
-        expect(block).toContain('AssertionError: expected Scoreboard{ name: "team1", scores: [10, 20, 30] } to deeply equal Scoreboard{ name: "team1", scores: [10, 99, 30] } (differs at .scores[1])');
+        expect(block).toContain('AssertionError: expected Scoreboard{ name: "team1", …(1) } to deeply equal Scoreboard{ name: "team1", …(1) } (differs at .scores[1])');
         // strigified diff
         expect(block).toContain([
           '  Scoreboard {',
@@ -496,7 +496,7 @@ describe('matcher failure message verification', () => {
       test('array field nested object field differs', () => {
         const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'array field nested object field differs [should fail]'));
         // error message
-        expect(block).toContain('AssertionError: expected Team{ teamName: "squad", members: [Person{ name: "Alice", age: 30 }, Person{ name: "Bob", age: 25 }] } to deeply equal Team{ teamName: "squad", members: [Person{ name: "Alice", age: 30 }, Person{ name: "Charlie", age: 25 }] } (differs at .members[1].name)');
+        expect(block).toContain('AssertionError: expected Team{ teamName: "squad", …(1) } to deeply equal Team{ teamName: "squad", …(1) } (differs at .members[1].name)');
         // strigified diff
         expect(block).toContain([
           '      Person {',
@@ -510,7 +510,7 @@ describe('matcher failure message verification', () => {
       test('map field primitive value differs', () => {
         const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'map field primitive value differs [should fail]'));
         // error message
-        expect(block).toContain('AssertionError: expected Settings{ label: "s1", config: Map { "x" => 1, "y" => 2 } } to deeply equal Settings{ label: "s1", config: Map { "x" => 1, "y" => 99 } } (differs at .config["y"])');
+        expect(block).toContain('AssertionError: expected Settings{ label: "s1", …(1) } to deeply equal Settings{ label: "s1", …(1) } (differs at .config["y"])');
         // strigified diff
         expect(block).toContain([
           '  Settings {',
@@ -527,7 +527,7 @@ describe('matcher failure message verification', () => {
       test('map field nested object field differs', () => {
         const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'map field nested object field differs [should fail]'));
         // error message
-        expect(block).toContain('AssertionError: expected Registry{ entries: Map { "origin" => Point{ x: 0, y: 0 }, "target" => Point{ x: 5, y: 10 } } } to deeply equal Registry{ entries: Map { "origin" => Point{ x: 0, y: 0 }, "target" => Point{ x: 99, y: 10 } } } (differs at .entries["target"].x)');
+        expect(block).toContain('AssertionError: expected Registry{ entries: Map { …(2) } } to deeply equal Registry{ entries: Map { …(2) } } (differs at .entries["target"].x)');
         // strigified diff
         expect(block).toContain([
           '      "target" => Point {',
@@ -541,7 +541,7 @@ describe('matcher failure message verification', () => {
       test('set field element not found', () => {
         const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'set field element not found [should fail]'));
         // error message
-        expect(block).toContain('AssertionError: expected PointGroup{ points: Set { Point{ x: 1, y: 2 }, Point{ x: 3, y: 4 } } } to deeply equal PointGroup{ points: Set { Point{ x: 1, y: 2 }, Point{ x: 99, y: 99 } } } (differs at .points)');
+        expect(block).toContain('AssertionError: expected PointGroup{ points: Set { …(2) } } to deeply equal PointGroup{ points: Set { …(2) } } (differs at .points)');
         // strigified diff
         expect(block).toContain([
           '      Point {',
@@ -576,7 +576,7 @@ describe('matcher failure message verification', () => {
       test('set field polymorphic no match', () => {
         const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'set field polymorphic no match [should fail]'));
         // error message
-        expect(block).toContain('AssertionError: expected ShapeGroup{ label: "group1", shapes: Set { Circle{ color: "red", radius: 5.0 } } } to deeply equal ShapeGroup{ label: "group1", shapes: Set { Square{ color: "red", side: 5.0 } } } (differs at .shapes)');
+        expect(block).toContain('AssertionError: expected ShapeGroup{ label: "group1", …(1) } to deeply equal ShapeGroup{ label: "group1", …(1) } (differs at .shapes)');
         // strigified diff
         expect(block).toContain([
           '    "shapes": Set {',

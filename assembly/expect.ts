@@ -11,7 +11,12 @@ import {
   InequalityOperation,
   truthyOrFalsey,
 } from './compare';
-import { isNull, nan, stringifyValue } from './utils';
+import {
+  isNull,
+  nan,
+  stringifyValue,
+  STRINGIFY_SHORT_FORM_BUDGET
+} from './utils';
 
 // @external functions are imported to the WASM execution environment from pool code
 
@@ -307,6 +312,7 @@ abstract class BaseExpectMatcher<T> {
     equalsRtmNamesClear();
     const result = equals(this.actual, val);
     const path = equalsPathString();
+    // @ts-ignore: global
     const isRtm = result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
 
     let suffix = "";
@@ -317,6 +323,7 @@ abstract class BaseExpectMatcher<T> {
       suffix = " (differs at " + path + ")";
     }
 
+    // @ts-ignore: global
     this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to deeply equal", true, true, suffix, isRtm);
   }
   
@@ -341,6 +348,7 @@ abstract class BaseExpectMatcher<T> {
     equalsRtmNamesClear();
     const result = equals(this.actual, val);
     const path = equalsPathString();
+    // @ts-ignore: global
     const isRtm = result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
 
     let suffix = "";
@@ -351,6 +359,7 @@ abstract class BaseExpectMatcher<T> {
       suffix = " (differs at " + path + ")";
     }
 
+    // @ts-ignore: global
     this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to strictly equal", true, true, suffix, isRtm);
   }
 
@@ -460,10 +469,10 @@ abstract class BaseExpectMatcher<T> {
         const nonNullActual = <NonNullable<T>>this.actual;
 
         if (isFloat<U>()) {
-          // @ts-ignore: .length is i32; use closeTo for float comparison
+          // @ts-ignore: TS doesn't know that nonNullActual is still array-like
           this.assertComparison<i32, U>(closeTo<i32, U>(nonNullActual.length, length), nonNullActual.length, length, "to have length", true);
         } else {
-          // @ts-ignore: .length is i32; compare as integers
+          // @ts-ignore: TS doesn't know that nonNullActual is still array-like
           this.assertComparison<i32, U>(identical<i32, U>(nonNullActual.length, length), nonNullActual.length, length, "to have length", true);
         }
       } else {
@@ -507,14 +516,13 @@ abstract class BaseExpectMatcher<T> {
       let expectedDiff: string = "";
       
       if (isRtm) {
-        // For runtime type mismatches, show the top-level type name only. The mismatched
-        // types in the suffix are the useful information, not field contents of differently-typed
+        // For runtime type mismatches, show the top-level type name only
         actualShort = actualDiff = actualType;
         expectedShort = expectedDiff = expectedType;
       } else {
         // For value mismatches, stringification shows what values differ
-        actualShort = stringifyValue(actual, false);
-        expectedShort = stringifyValue(expected, false);
+        actualShort = stringifyValue(actual, false, 0, STRINGIFY_SHORT_FORM_BUDGET);
+        expectedShort = stringifyValue(expected, false, 0, STRINGIFY_SHORT_FORM_BUDGET);
         actualDiff = stringifyValue(actual, true);
         expectedDiff = stringifyValue(expected, true);
       }

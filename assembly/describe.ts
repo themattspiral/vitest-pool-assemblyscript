@@ -28,7 +28,7 @@ declare function __end_register_suite(name: string): void;
 export function describe<T = TestCallback, U = TestOptions>(
   name: string,
   optionsOrFn: T,
-  // @ts-ignore
+  // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
   fnOrOptions: U = DEFAULT_TEST_OPTIONS  // defaults all undefined here, merged with config in JS
 ): void {
   let fn: TestCallback;
@@ -62,7 +62,7 @@ function describeWithMergedOption<T = TestCallback, U = TestOptions>(
   name: string,
   optionToMerge: TestOptions,
   optionsOrFn: T,
-  // @ts-ignore
+  // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
   fnOrOptions: U = DEFAULT_TEST_OPTIONS
 ): void {
   let fn: TestCallback;
@@ -87,7 +87,7 @@ export namespace describe {
   export function skip<T = TestCallback, U = TestOptions>(
     name: string,
     optionsOrFn: T,
-    // @ts-ignore
+    // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
     fnOrOptions: U = DEFAULT_TEST_OPTIONS
   ): void {
     return describeWithMergedOption(name, TestOptions.skip(), optionsOrFn, fnOrOptions);
@@ -96,7 +96,7 @@ export namespace describe {
   export function only<T = TestCallback, U = TestOptions>(
     name: string,
     optionsOrFn: T,
-    // @ts-ignore
+    // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
     fnOrOptions: U = DEFAULT_TEST_OPTIONS
   ): void {
     return describeWithMergedOption(name, TestOptions.only(), optionsOrFn, fnOrOptions);

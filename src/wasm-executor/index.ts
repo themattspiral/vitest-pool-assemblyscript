@@ -19,7 +19,7 @@ import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
 import { enhanceTestError } from './wasm-errors.js';
 import { createPoolError, createPoolErrorFromAnyError } from '../util/pool-errors.js';
-import { getTaskLogLabel } from '../util/vitest-tasks.js';
+import { failTest, getTaskLogLabel } from '../util/vitest-tasks.js';
 import { extractCallStack } from './source-maps.js';
 
 const SIG_MISMATCH_ERROR_MSG = `WASM RuntimeError indicates function signature type mismatch during test suite collection.`
@@ -266,20 +266,28 @@ export async function executeWASMTest(
     testTimings.execEnd = performance.now();
 
     const thrownErrAny = error as any;
-    // If this is NOT a WASMExecutionAbort error, it means it did NOT originate from the
-    // wasm abort() import and is unexpected, so we throw as a PoolError.
+
+    // If this is an WASMExecutionAbort error, it means it originated from the wasm abort() import
+    // and the test has the appropriate error message and stack in its metadata already, so
+    // it is ready to be enhanced below already.
     //
-    // Otherwise this IS a WASMExecutionAbort error and the wasm abort() import threw it as a
-    // known test error (assertion or wasm runtime), so we continue to prepare the test result 
+    // Otherwise, the error is unexpected (e.g. a stack overflow, or bug in internal code),
+    // so if we have actual Error info, we fail the test like abort() does to prepare its metadata,
+    // then it is ready to be enhanced below like a standard abort()-flow error.
     const isUnexpectedError = thrownErrAny?.name !== POOL_ERROR_NAMES.WASMExecutionAbortError;
 
     if (isUnexpectedError) {
-      throw createExecutorPoolError(
-        testFileBasename,
-        'executeWASMTest',
-        `Unexpected execution error: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
-        (error as any)?.cause
-      );
+      if (error instanceof Error) {
+        const errorMessage = `${error.name}: ${error.message}`;
+        failTest(test, errorMessage, error, logPrefix);
+      } else {
+        // no Error info to set on test metadata, so throw a pool error (fails the file)
+        throw createExecutorPoolError(
+          testFileBasename,
+          'executeWASMTest',
+          `Unexpected execution error: ${String(error)}`
+        );
+      }
     }
   }
 

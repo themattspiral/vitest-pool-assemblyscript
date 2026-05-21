@@ -27,7 +27,7 @@ export type TestCallback = () => void;
 export function test<T = TestCallback, U = TestOptions>(
   name: string,
   optionsOrFn: T,
-  // @ts-ignore
+  // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
   fnOrOptions: U = DEFAULT_TEST_OPTIONS  // defaults all undefined here, merged with config & suite in JS
 ): void {
   let fn: TestCallback;
@@ -58,7 +58,7 @@ function testWithMergedOption<T = TestCallback, U = TestOptions>(
   name: string,
   optionToMerge: TestOptions,
   optionsOrFn: T,
-  // @ts-ignore
+  // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
   fnOrOptions: U = DEFAULT_TEST_OPTIONS
 ): void {
   let fn: TestCallback;
@@ -83,7 +83,7 @@ export namespace test {
   export function skip<T = TestCallback, U = TestOptions>(
     name: string,
     optionsOrFn: T,
-    // @ts-ignore
+    // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
     fnOrOptions: U = DEFAULT_TEST_OPTIONS
   ): void {
     return testWithMergedOption(name, TestOptions.skip(), optionsOrFn, fnOrOptions);
@@ -92,7 +92,7 @@ export namespace test {
   export function only<T = TestCallback, U = TestOptions>(
     name: string,
     optionsOrFn: T,
-    // @ts-ignore
+    // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
     fnOrOptions: U = DEFAULT_TEST_OPTIONS
   ): void {
     return testWithMergedOption(name, TestOptions.only(), optionsOrFn, fnOrOptions);
@@ -101,7 +101,7 @@ export namespace test {
   export function fails<T = TestCallback, U = TestOptions>(
     name: string,
     optionsOrFn: T,
-    // @ts-ignore
+    // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
     fnOrOptions: U = DEFAULT_TEST_OPTIONS
   ): void {
     return testWithMergedOption(name, TestOptions.fails(), optionsOrFn, fnOrOptions);
@@ -111,7 +111,7 @@ export namespace test {
 export function it<T = TestCallback, U = TestOptions>(
   name: string,
   optionsOrFn: T,
-  // @ts-ignore
+  // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
   fnOrOptions: U = DEFAULT_TEST_OPTIONS
 ): void {
   return test(name, optionsOrFn, fnOrOptions);
@@ -121,7 +121,7 @@ export namespace it {
   export function skip<T = TestCallback, U = TestOptions>(
     name: string,
     optionsOrFn: T,
-    // @ts-ignore
+    // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
     fnOrOptions: U = DEFAULT_TEST_OPTIONS
   ): void {
     return testWithMergedOption(name, TestOptions.skip(), optionsOrFn, fnOrOptions);
@@ -130,7 +130,7 @@ export namespace it {
   export function only<T = TestCallback, U = TestOptions>(
     name: string,
     optionsOrFn: T,
-    // @ts-ignore
+    // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
     fnOrOptions: U = DEFAULT_TEST_OPTIONS
   ): void {
     return testWithMergedOption(name, TestOptions.only(), optionsOrFn, fnOrOptions);
@@ -139,7 +139,7 @@ export namespace it {
   export function fails<T = TestCallback, U = TestOptions>(
     name: string,
     optionsOrFn: T,
-    // @ts-ignore
+    // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
     fnOrOptions: U = DEFAULT_TEST_OPTIONS
   ): void {
     return testWithMergedOption(name, TestOptions.fails(), optionsOrFn, fnOrOptions);
