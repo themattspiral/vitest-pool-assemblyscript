@@ -28,7 +28,7 @@ function passthroughCallSite(callSite: NodeJS.CallSite): ParsedStack {
   const fileName = callSite.getFileName();
   const watLine = callSite.getLineNumber();
   const watColumn = callSite.getColumnNumber();
-  const functionName = callSite.getFunctionName() || 'wasm-function[unknown]'
+  const functionName = callSite.getFunctionName() || 'wasm-function[unknown]';
 
   return {
     method: functionName,

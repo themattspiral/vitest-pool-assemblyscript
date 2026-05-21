@@ -1,18 +1,3 @@
-/**
- * Verifies the rendered short-form (`expected X to deeply equal Y`) output of the
- * truncation fixture suite (test/assembly/expect-matchers/truncation.meta.test.ts).
- *
- * Each assertion is the literal short-form line, derived independently from the
- * truncation algorithm — never copied from observed output. The expected values
- * encode:
- *   - placement and count of `…(N)` markers at element boundaries
- *   - string-value ellipsis (with surrogate-pair preservation)
- *   - scaffolding precedence (class names / container braces emitted even when
- *     they push the line past the nominal budget)
- *   - the map key/value budget split (key gets the parent budget; value gets the
- *     remainder after subtracting key length + " => " separator length)
- */
-
 import { describe, test, expect, beforeAll } from 'vitest';
 import { type ParsedCliOutput, loadParsedCliOutput, requireErrorBlock, TEST_FILE_PREFIX } from '../helpers/shared.js';
 

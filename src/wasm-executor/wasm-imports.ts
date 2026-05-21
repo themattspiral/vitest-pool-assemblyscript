@@ -298,7 +298,7 @@ export function createTestExecutionImports(
         const errorMsg = liftString(memory, msgPtr) ?? '';
         const actualTypeName = liftString(memory, actualTypeNamePtr) ?? '';
         const expectedTypeName = liftString(memory, expectedTypeNamePtr) ?? '';
-        let valuesMsg =  ' | No Values Provided';
+        let valuesMsg = ' | No Values Provided';
         
         const assertionFailure: FailedAssertion = {
           actualTypeName,

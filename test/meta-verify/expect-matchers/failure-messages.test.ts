@@ -471,6 +471,7 @@ describe('matcher failure message verification', () => {
           '-       "y": 3',
           '      }'
         ].join('\n'));
+      });
     });
 
     describe('composed field and container path', () => {
@@ -491,7 +492,6 @@ describe('matcher failure message verification', () => {
           '  }'
         ].join('\n'));
       });
-    });
 
       test('array field nested object field differs', () => {
         const block = requireErrorBlock(parsedCli, testPath('toEqual path context', 'composed field and container path', 'array field nested object field differs [should fail]'));
@@ -591,5 +591,4 @@ describe('matcher failure message verification', () => {
       });
     });
   });
-
 });

@@ -1,16 +1,3 @@
-/**
- * Short-form failure message truncation: fixtures.
- *
- * Each test deliberately fails so that the meta-verify suite (in
- * test/meta-verify/expect-matchers/truncation.test.ts) can verify the rendered
- * `expected X to deeply equal Y` short-form output — specifically the placement
- * of `…(N)` truncation markers, string-value ellipses, and how scaffolding
- * (type names, container braces) is preserved when budget is tight.
- *
- * All assertions use toEqual so the failure message exercises the full
- * stringification path (both actual and expected sides).
- */
-
 import { describe, expect, test } from "vitest-pool-assemblyscript/assembly";
 
 import { Point } from "../../assembly-src/user-class-utils";
