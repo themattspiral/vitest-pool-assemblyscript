@@ -87,12 +87,6 @@ export const EQUALS_PATH_POP_GLOBAL_ALIAS = '__vitest_assemblyscript_equals_path
 export const STRINGIFY_VALUE_GLOBAL_ALIAS = '__vitest_assemblyscript_stringify_value' as const;
 
 /**
- * Global alias for the escapeToJSONString() wrapper used by injected stringify method bodies.
- * Declared with @global in assembly/utils.ts to be available in all source files without import.
- */
-export const ESCAPE_TO_JSON_STRING_GLOBAL_ALIAS = '__vitest_assemblyscript_escape_to_json_string' as const;
-
-/**
  * Global alias for the escapeToDiffString() wrapper used by injected stringify method bodies.
  * Matches pretty-format's `escapeString: true` (vitest's diff display default) — escapes only
  * `"` and `\`, all other characters pass through literally.
