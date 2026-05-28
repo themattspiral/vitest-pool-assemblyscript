@@ -9,7 +9,9 @@ import type { SerializedDiffOptions } from '@vitest/utils/diff';
 import type {
   AssemblyScriptConsoleLog,
   AssemblyScriptConsoleLogHandler,
+  AssemblyScriptPoolError,
   AssemblyScriptSuiteTaskMeta,
+  AssemblyScriptTestError,
   AssemblyScriptTestTaskMeta,
   ResolvedAssemblyScriptPoolOptions,
   TestExecutionEnd,
@@ -19,7 +21,7 @@ import type {
   WASMCompilation,
   WorkerRPC,
 } from '../../types/types.js';
-import { AS_POOL_WORKER_MSG_FLAG, POOL_ERROR_NAMES } from '../../types/constants.js';
+import { AS_POOL_ERROR_WRAPPER_FLAG, AS_POOL_WORKER_MSG_FLAG, POOL_ERROR_NAMES } from '../../types/constants.js';
 import { executeWASMTest } from '../../wasm-executor/index.js';
 import { debug } from '../../util/debug.js';
 import {
@@ -47,8 +49,9 @@ import {
   isSuiteOwnFile
 } from '../../util/vitest-tasks.js';
 import { mergeCoverageData } from '../../coverage-provider/coverage-merge.js';
-import { createPoolErrorFromAnyError, getTestErrorFromPoolError } from '../../util/pool-errors.js';
 import { failFile } from '../../util/vitest-file-tasks.js';
+import { extractCallStack } from '../../wasm-executor/source-maps.js';
+import { enhanceTestError } from '../../wasm-executor/wasm-errors.js';
 
 async function bailIfNeeded(
   rpc: WorkerRPC,
@@ -111,6 +114,7 @@ async function runTest(
   logModule: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   threadImports: ThreadImports,
+  projectRoot: string,
   bail?: number,
   diffOptions?: SerializedDiffOptions,
 ): Promise<void> {
@@ -147,12 +151,12 @@ async function runTest(
     executeWASMTest(
       test,
       compilation,
-      base,
       poolOptions,
       collectCoverage,
       handleLog,
       logModule,
       threadImports,
+      projectRoot,
       diffOptions
     )
   ]);
@@ -188,7 +192,7 @@ async function runTest(
 
     await runTest(
       rpc, port, base, collectCoverage, compilation,
-      test, logModule, poolOptions, threadImports, bail, diffOptions
+      test, logModule, poolOptions, threadImports, projectRoot, bail, diffOptions
     );
 
     willRetry = shouldRetryTask(test);
@@ -225,11 +229,12 @@ export async function runSuite(
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   threadImports: ThreadImports,
   vitestVersion: VitestVersion,
+  projectRoot: string,
   bail?: number,
   diffOptions?: SerializedDiffOptions,
   timedOutTest?: Test,
 ): Promise<Suite> {
-  const suiteStart = performance.now();
+  const suiteStartPerf = performance.now();
   const suiteMeta = suite.meta as AssemblyScriptSuiteTaskMeta;
   const suiteLogPrefix = getTaskLogPrefix(logModule, base, suite);
   const isTimedOutTestInSuite: boolean = timedOutTest?.suite?.id === suite.id;
@@ -269,7 +274,7 @@ export async function runSuite(
 
         await runSuite(
           rpc, port, base, collectCoverage, compilation, task, logModule,
-          poolOptions, threadImports, vitestVersion, bail, diffOptions, timedOutTest
+          poolOptions, threadImports, vitestVersion, projectRoot, bail, diffOptions, timedOutTest
         );
 
         // merge suite task coverage into parent suite coverage
@@ -309,7 +314,7 @@ export async function runSuite(
             //  - if it fails again, it will end up in the else block below
             await runTest(
               rpc, port, base, collectCoverage, compilation,
-              task, logModule, poolOptions, threadImports, bail, diffOptions
+              task, logModule, poolOptions, threadImports, projectRoot, bail, diffOptions
             );
           } else {
             debug(`${testLogPrefix} - Timed-out test has no retries left`
@@ -335,7 +340,7 @@ export async function runSuite(
           debug(`${testLogPrefix} - Running test task | state: "${task.result?.state}"`);
           await runTest(
             rpc, port, base, collectCoverage, compilation,
-            task, logModule, poolOptions, threadImports, bail, diffOptions
+            task, logModule, poolOptions, threadImports, projectRoot, bail, diffOptions
           );
         }
 
@@ -350,25 +355,59 @@ export async function runSuite(
     updateSuiteFinishedResult(suite, suiteLogPrefix);
     await reportSuiteFinished(rpc, suite, logModule, base, vitestVersion);
 
-    // ensure completed test will not be run again if another test
+    // ensure completed suite will not be run again if another test
     // times out later and the file worker thread gets re-launched
     finalizeSuiteResult(suite);
-  } catch (error) {
-    const poolError = createPoolErrorFromAnyError(
-      `${suiteLogPrefix} - runSuite failure in worker`,
-      POOL_ERROR_NAMES.WASMExecutionHarnessError,
-      error
-    );
-    const testError = getTestErrorFromPoolError(poolError);
+  } catch (error: any) {
+    let testError: AssemblyScriptTestError;
+    let stack: NodeJS.CallSite[];
+    let allowStackJS: boolean;
+    let applyStackToTestErrorCause: boolean;
 
-    failFile(suite.file, testError, suiteStart);
+    if (error && error[AS_POOL_ERROR_WRAPPER_FLAG]) {
+      const wrapper = error as AssemblyScriptPoolError;
+      testError = wrapper.testError;
+      stack = wrapper.originalErrorRawStack;
+      allowStackJS = wrapper.originalErrorMayContainJS;
+      applyStackToTestErrorCause = wrapper.applyStackToTestErrorCause;
+    } else if (error instanceof Error) {
+      testError = {
+        name: POOL_ERROR_NAMES.WASMExecutionHarnessError,
+        message: `${error.name}: ${error.message}`
+      };
+      stack = extractCallStack(error);
+      allowStackJS = true;
+      applyStackToTestErrorCause = false;
+    } else {
+      testError = {
+        name: POOL_ERROR_NAMES.WASMExecutionHarnessError,
+        message: `Unexpected WASM test runner error: ${String(error)}`
+      };
+      stack = extractCallStack(new Error());
+      allowStackJS = true;
+      applyStackToTestErrorCause = false;
+    }
+
+    await enhanceTestError(
+      testError,
+      suite.file,
+      compilation?.sourceMap ?? '',
+      suiteLogPrefix,
+      allowStackJS,
+      projectRoot,
+      applyStackToTestErrorCause,
+      stack,
+      diffOptions
+    );
+
+    failFile(suite.file, testError, suiteStartPerf);
 
     await reportFileError(rpc, suite.file, logModule, suiteLogPrefix);
 
     debug(`${suiteLogPrefix} - Reported file error`);
   } finally {
     await flushRpcUpdates(rpc);
-    const suiteTime = performance.now() - suiteStart;
+    const suiteTime = performance.now() - suiteStartPerf;
     debug(`${suiteLogPrefix} - runSuite Completed | TIMING ${suiteTime.toFixed(2)} ms`);
   }
 

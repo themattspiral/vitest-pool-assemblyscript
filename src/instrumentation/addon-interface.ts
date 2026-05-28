@@ -59,10 +59,11 @@ try {
     addon = nodeGypBuild(rootFromSrc);
   } catch (err) {
     throw createPoolError(
+      POOL_ERROR_NAMES.WASMInstrumentationError,
       `vitest-pool-assemblyscript native instrumentation addon not found. Searched from ${rootFromDist} and ${rootFromSrc}. `
-      + `Ensure prebuilds are available or run 'node node_modules/vitest-pool-assemblyscript/scripts/install-native-addon.js'`
-      + ` to compile from source. Original error: ${err instanceof Error ? err.message : String(err)}`,
-      POOL_ERROR_NAMES.WASMInstrumentationError
+        + `Ensure prebuilds are available or run 'node node_modules/vitest-pool-assemblyscript/scripts/install-native-addon.js'`
+        + ` to compile from source. Original error:`
+        + `\n${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
@@ -87,8 +88,8 @@ function convertLocation(
 
   if (!filePath) {
     throw createPoolError(
+      POOL_ERROR_NAMES.WASMInstrumentationError,
       `No debug source file with index: ${rawLocation.fileIndex}}`,
-      POOL_ERROR_NAMES.WASMInstrumentationError
     );
   }
 
@@ -255,10 +256,10 @@ function transformDebugInfo(
       }
 
       throw createPoolError(
-        `ERROR - Function Debug Position Collision at ${filePath}:${positionKey}: "${getShortFunctionName(existingName)}"`
-        + ` will be replaced by "${getShortFunctionName(func.name)}". This is a bug. Please report it at:`
-        + ` https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new`,
-        POOL_ERROR_NAMES.WASMInstrumentationError
+        POOL_ERROR_NAMES.WASMInstrumentationError,
+        `Function Debug Position Collision at ${filePath}:${positionKey}: "${getShortFunctionName(existingName)}"`
+          + ` will be replaced by "${getShortFunctionName(func.name)}". This is a bug. Please report it at:`
+          + ` https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new`,
       );
     }
 
@@ -309,14 +310,14 @@ export const instrumentForCoverage: InstrumentForCoverageFunc = (
 ): InstrumentationResult => {
   if (!Buffer.isBuffer(wasmBuffer)) {
     throw createPoolError(
-      'instrumentForCoverage - wasmBuffer must be a Buffer',
-      POOL_ERROR_NAMES.WASMInstrumentationError
+      POOL_ERROR_NAMES.WASMInstrumentationError,
+      `instrumentForCoverage - wasmBuffer must be a Buffer (got ${typeof wasmBuffer})`,
     );
   }
   if (!Buffer.isBuffer(sourceMapBuffer)) {
     throw createPoolError(
-      'instrumentForCoverage - sourceMapBuffer must be a Buffer',
-      POOL_ERROR_NAMES.WASMInstrumentationError
+      POOL_ERROR_NAMES.WASMInstrumentationError,
+      `instrumentForCoverage - sourceMapBuffer must be a Buffer (got ${typeof sourceMapBuffer})`,
     );
   }
 
@@ -342,8 +343,8 @@ export const instrumentForCoverage: InstrumentForCoverageFunc = (
 
   if (nativeResult.errors?.length) {
     throw createPoolError(
-      `Errors encountered duriing native instrumentation: ${nativeResult.errors.join('\n')}`,
       POOL_ERROR_NAMES.WASMInstrumentationError,
+      `Errors encountered duriing native instrumentation: ${nativeResult.errors.join('\n')}`,
     );
   }
 

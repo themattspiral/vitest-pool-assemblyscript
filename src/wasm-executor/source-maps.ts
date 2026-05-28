@@ -11,25 +11,14 @@ import { type RawSourceMap, SourceMapConsumer } from 'source-map';
 
 import { debug } from '../util/debug.js';
 import type { WebAssemblyCallSite } from '../types/types.js';
-import { createPoolErrorFromAnyError } from '../util/pool-errors.js';
-import { POOL_ERROR_NAMES } from '../types/constants.js';
 
 export function parseSourceMap(sourceMap: string): RawSourceMap {
   // Remove sourceRoot if present to prevent source-map library from prepending it to paths
   //   AS compiler sets sourceRoot: "./output" which would make paths like "output/tests/..."
   //   instead of "tests/..." - these paths don't exist and won't be found by Vitest
-  try {
-    const sourceMapObj: RawSourceMap = JSON.parse(sourceMap);
-    delete sourceMapObj.sourceRoot;
-    return sourceMapObj;
-  }
-  catch (err) {
-    throw createPoolErrorFromAnyError(
-      `parseSourceMap error`,
-      POOL_ERROR_NAMES.PoolError,
-      err
-    )
-  }
+  const sourceMapObj: RawSourceMap = JSON.parse(sourceMap);
+  delete sourceMapObj.sourceRoot;
+  return sourceMapObj;
 }
 
 /**
@@ -72,20 +61,43 @@ export function createWebAssemblyCallSite(
   callSite: NodeJS.CallSite,
   sourceMapConsumer: SourceMapConsumer,
   loggingPrefix: string,
+  allowJS: boolean,
 ): WebAssemblyCallSite | null {
   const fileName = callSite.getFileName();
-
-  // Only process WASM call sites
-  if (!fileName || !fileName.startsWith('wasm://')) {
-    return null;
-  }
-
   const watLine = callSite.getLineNumber();
   const watColumn = callSite.getColumnNumber();
-  const functionName = callSite.getFunctionName() || 'wasm-function[unknown]';
-  const debugString = `function: "${functionName}" | wasm: ${fileName}:${watLine}:${watColumn}`;
+  const functionName = callSite.getFunctionName() ?? 'function[unknown]';
+  const debugString = `function: "${functionName}" | file: ${fileName}:${watLine}:${watColumn}`;
 
-  // Try to map to source
+  // Only process WASM call sites
+  if (!fileName) {
+    debug(`${loggingPrefix} - Skipping source-mapping of invalid frame (no file): ${debugString}`);
+    return null;
+  }
+  
+  if (!fileName.startsWith('wasm://')) {
+    if (allowJS) {
+      if (!watLine || !watColumn) {
+        debug(`${loggingPrefix} - Failed to pass through invalid JS stack location: ${debugString}`);
+        return null;
+      }
+
+      debug(`${loggingPrefix} - Passing through JS stack location: ${debugString}`);
+      return {
+        functionName,
+        location: {
+          filePath: fileName,
+          line: watLine,
+          column: watColumn
+        }
+      };    
+    } else {
+      debug(`${loggingPrefix} - Skipping source-mapping of non-WASM stack location: ${debugString}`);
+      return null;
+    }
+  }
+
+  // Try to map WAT location to source location using source map
   if (watLine && watColumn) {
     const original = sourceMapConsumer.originalPositionFor({
       line: watLine,
@@ -98,8 +110,7 @@ export function createWebAssemblyCallSite(
     }
 
     debug(`${loggingPrefix} - Source-mapped stack location: ${debugString}  →  ${original.source}:${original.line}:${original.column}`);
-    
-    const callSite: WebAssemblyCallSite = {
+    return {
       functionName,
       location: {
         filePath: original.source,
@@ -107,11 +118,8 @@ export function createWebAssemblyCallSite(
         column: original.column
       }
     };
-
-    return callSite;
   }
 
   debug(`${loggingPrefix} - Cannot source-map stack-location: ${debugString}`);
-  
   return null;
 }

@@ -6,12 +6,12 @@ import { basename, relative } from 'node:path';
 import type { File } from '@vitest/runner/types';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
 
-import { toForwardSlash } from '../../util/path-utils.js';
-
 import type {
   AssemblyScriptCompilerOptions,
   AssemblyScriptConsoleLog,
   AssemblyScriptConsoleLogHandler,
+  AssemblyScriptPoolError,
+  AssemblyScriptTestError,
   InstrumentationOptions,
   ResolvedAssemblyScriptPoolOptions,
   ThreadImports,
@@ -19,6 +19,7 @@ import type {
   WorkerRPC,
 } from '../../types/types.js';
 import {
+  AS_POOL_ERROR_WRAPPER_FLAG,
   ASSEMBLYSCRIPT_LIB_PREFIX,
   INTERNAL_FUNCTION_NAME_SUBSTRING,
   INTERNAL_PATH_LIB_PREFIX,
@@ -27,6 +28,7 @@ import {
 } from '../../types/constants.js';
 import { executeWASMDiscovery } from '../../wasm-executor/index.js';
 import { debug } from '../../util/debug.js';
+import { toForwardSlash } from '../../util/path-utils.js';
 import {
   reportFileQueued,
   reportFileCollected,
@@ -34,7 +36,6 @@ import {
   flushRpcUpdates,
   reportFileError,
 } from '../rpc-reporter.js';
-import { createPoolErrorFromAnyError, getTestErrorFromPoolError } from '../../util/pool-errors.js';
 import { compileAssemblyScript } from '../../compiler/index.js';
 import {
   getTaskLogLabel,
@@ -45,6 +46,9 @@ import {
   getFullTaskHierarchy,
   prepareFileTaskForCollection,
 } from '../../util/vitest-file-tasks.js';
+import { getWasmMemoryRequirements } from '../../wasm-executor/wasm-memory.js';
+import { extractCallStack } from '../../wasm-executor/source-maps.js';
+import { enhanceTestError } from '../../wasm-executor/wasm-errors.js';
 
 let threadCompilationCount: number = 0;
 
@@ -52,7 +56,7 @@ export async function runCompileAndDiscover(
   file: File,
   logModule: string,
   rpc: WorkerRPC,
-  poolOptions: ResolvedAssemblyScriptPoolOptions,
+  asPoolOptions: ResolvedAssemblyScriptPoolOptions,
   projectRoot: string,
   collectCoverage: boolean,
   relativeUserCoverageExclusions: string[],
@@ -67,7 +71,7 @@ export async function runCompileAndDiscover(
 
   debug(`${fileLogPrefix} - Beginning runCompileAndDiscover for "${file.filepath}" at ${Date.now()}`);
 
-  const runStart = performance.now();
+  const runStartPerf = performance.now();
   let compilation: WASMCompilation | undefined;
 
   try {
@@ -78,22 +82,22 @@ export async function runCompileAndDiscover(
       projectRoot,
       relativeExcludedFiles: [
         relativeTestFilePath,
-        ...(poolOptions._instrumentPoolInternals ? [] : POOL_INTERNAL_PATHS),
+        ...(asPoolOptions._instrumentPoolInternals ? [] : POOL_INTERNAL_PATHS),
         ...relativeUserCoverageExclusions,
       ],
       excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
-      excludedLibraryFileOverridePrefix: poolOptions._instrumentPoolInternals ? INTERNAL_PATH_LIB_PREFIX : undefined,
+      excludedLibraryFileOverridePrefix: asPoolOptions._instrumentPoolInternals ? INTERNAL_PATH_LIB_PREFIX : undefined,
       excludedInternalFunctionSubstring: INTERNAL_FUNCTION_NAME_SUBSTRING,
-      coverageMemoryPagesMin: poolOptions.coverageMemoryPagesInitial,
-      coverageMemoryPagesMax: poolOptions.coverageMemoryPagesMax,
-      debug: poolOptions.debugNative,
+      coverageMemoryPagesMin: asPoolOptions.coverageMemoryPagesInitial ?? 1,
+      coverageMemoryPagesMax: asPoolOptions.coverageMemoryPagesMax ?? 4,
+      debug: asPoolOptions.debugNative,
     };
     const compilerOptions: AssemblyScriptCompilerOptions = {
-      stripInline: poolOptions.stripInline,
-      projectRoot: projectRoot,
+      stripInline: asPoolOptions.stripInline,
+      projectRoot,
       shouldInstrument: collectCoverage,
       instrumentationOptions,
-      extraFlags: poolOptions.extraCompilerFlags
+      extraFlags: asPoolOptions.extraCompilerFlags
     };
 
     const { binary, sourceMap, debugInfo, compileTiming } = await compileAssemblyScript(
@@ -108,31 +112,39 @@ export async function runCompileAndDiscover(
     debug(`${fileLogPrefix} - TIMING compileAssemblyScript total `
       + `(thread comp # ${threadCompilationCount}): ${compileTiming.toFixed(2)} ms`
     );
+
+    const requiredMemory = getWasmMemoryRequirements(binary);
+    debug(`${fileLogPrefix} - Compilation Required Memory:`, requiredMemory);
+
+    compilation = {
+      filePath: file.filepath,
+      binary,
+      sourceMap,
+      debugInfo,
+      requiredMemory
+    };
     
     const logMessages: AssemblyScriptConsoleLog[] = [];
     const handleLog: AssemblyScriptConsoleLogHandler = (msg: string, isError: boolean = false): void => {
       logMessages.push({ msg, time: Date.now(), isError });
     };
     
-    const discoverStart = performance.now();
+    const discoverStartPerf = performance.now();
 
     await executeWASMDiscovery(
-      binary,
-      sourceMap,
-      base,
-      poolOptions,
+      compilation,
+      asPoolOptions,
       collectCoverage,
       handleLog,
       file,
       logModule,
       threadImports,
-      diffOptions
     );
 
     // set skips when using only and/or user test name pattern, skip file task if all tests skipped
     prepareFileTaskForCollection(file, testNamePattern, allowOnly);
 
-    file.collectDuration = performance.now() - discoverStart;
+    file.collectDuration = performance.now() - discoverStartPerf;
     debug(`${fileLogPrefix} - TIMING Discovery Phase: ${file.collectDuration.toFixed(2)} ms`);
 
     // vitest collect - report discovery results
@@ -146,29 +158,55 @@ export async function runCompileAndDiscover(
 
     debug(() => `${fileLogPrefix} - Collected Test Suite Hierarchy:\n${getFullTaskHierarchy(file)}`);
 
-    const totalTime = performance.now() - runStart;
+    const totalTime = performance.now() - runStartPerf;
     debug(`${fileLogPrefix} - TIMING Compilation and Discovery: ${totalTime.toFixed(2)} ms`);
+  } catch (error: any) {
+    let testError: AssemblyScriptTestError;
+    let stack: NodeJS.CallSite[];
+    let allowStackJS: boolean;
+    let applyStackToTestErrorCause: boolean;
 
-    compilation = {
-      filePath: file.filepath,
-      binary,
-      sourceMap,
-      debugInfo,
-    };
-  } catch (error) {
-    const poolError = createPoolErrorFromAnyError(
-      `${fileLogLabel} - runCompileAndDiscover failure in worker`,
-      POOL_ERROR_NAMES.WASMExecutionHarnessError,
-      error
+    if (error && error[AS_POOL_ERROR_WRAPPER_FLAG]) {
+      const wrapper = error as AssemblyScriptPoolError;
+      testError = wrapper.testError;
+      stack = wrapper.originalErrorRawStack;
+      allowStackJS = wrapper.originalErrorMayContainJS;
+      applyStackToTestErrorCause = wrapper.applyStackToTestErrorCause;
+    } else if (error instanceof Error) {
+      testError = {
+        name: POOL_ERROR_NAMES.WASMExecutionHarnessError,
+        message: `${error.name}: ${error.message}`
+      };
+      stack = extractCallStack(error);
+      allowStackJS = true;
+      applyStackToTestErrorCause = false;
+    } else {
+      testError = {
+        name: POOL_ERROR_NAMES.WASMExecutionHarnessError,
+        message: `Unexpected WASM compile runner error: ${String(error)}`
+      };
+      stack = extractCallStack(new Error());
+      allowStackJS = true;
+      applyStackToTestErrorCause = false;
+    }
+
+    await enhanceTestError(
+      testError,
+      file,
+      compilation?.sourceMap,
+      fileLogPrefix,
+      allowStackJS,
+      projectRoot,
+      applyStackToTestErrorCause,
+      stack,
+      diffOptions
     );
-    const testError = getTestErrorFromPoolError(poolError);
 
-    failFile(file, testError, runStart);
+    failFile(file, testError, runStartPerf);
 
-    await reportFileQueued(rpc, file, logModule, fileLogLabel);
     await reportFileError(rpc, file, logModule, fileLogLabel);
 
-    debug(`${fileLogPrefix} - Reported file error`);
+    debug(`${fileLogPrefix} - runCompileAndDiscover - Reported file error:`, testError);
   } finally {
     await flushRpcUpdates(rpc);
     debug(`${fileLogPrefix} - runCompileAndDiscover Completed`);

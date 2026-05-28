@@ -14,18 +14,17 @@ import {
   POOL_ERROR_NAMES,
 } from '../types/constants.js';
 import type {
-  ResolvedHybridProviderOptions,
   ProcessPoolRunFileTask,
   WASMCompilation,
   TestRunRecord,
   AssemblyScriptPoolWorkerMessage,
   WorkerThreadInitData,
   SerializedConfigCompat,
+  ResolvedAssemblyScriptPoolOptions,
 } from '../types/types.js';
 import { setGlobalDebugMode, debug } from '../util/debug.js';
 import { createWorkerRPCChannel } from './worker-rpc-channel.js';
 import {
-  createPoolErrorFromAnyError,
   isAbortError,
 } from '../util/pool-errors.js';
 import {
@@ -33,7 +32,7 @@ import {
   flagTestTerminated,
 } from '../util/vitest-tasks.js';
 import { createInitialFileTask } from '../util/vitest-file-tasks.js';
-import { getCompatConfig, getProjectSerializedOrGlobalConfig } from '../util/resolve-config.js';
+import { getCompatConfig, getConfigs } from '../util/resolve-config.js';
 
 // path assumes that we're running from dist/
 const WORKER_PATH = resolve(import.meta.dirname, 'pool-thread/v3-tinypool-thread.mjs');
@@ -43,6 +42,7 @@ const POOL_THREAD_IDLE_TIMEOUT_MS = 3_600_000;
 async function dispatchFullWorkerRun(
   spec: TestSpecification,
   config: SerializedConfigCompat,
+  asPoolOptions: ResolvedAssemblyScriptPoolOptions,
   isCollectTestsMode: boolean,
   pool: Tinypool,
   poolAbortSignal: AbortSignal,
@@ -149,6 +149,7 @@ async function dispatchFullWorkerRun(
       port: workerPort,
       file,
       config,
+      asPoolOptions,
       isCollectTestsMode,
       timedOutTest: previousTimedOutTest,
       timedOutCompilation: fileCompilation
@@ -177,9 +178,10 @@ async function dispatchFullWorkerRun(
         // swallow abort error, this file worker run is done
         return;
       }
+    } else {
+      // abort errors are expected, otherwise rethrow
+      throw error;
     }
-
-    throw createPoolErrorFromAnyError(`${base} - unhandled file worker failure`, POOL_ERROR_NAMES.PoolError, error);
   } finally {
     debug(`[Pool] ${base} - Finished File Worker Execution`);
   }
@@ -190,6 +192,13 @@ async function dispatchFullWorkerRun(
  */
 async function runTests(
   specs: TestSpecification[],
+  projectConfigs: {
+    [key: string]: {
+      config: SerializedConfigCompat,
+      v3PoolOptions?: ResolvedAssemblyScriptPoolOptions
+    }
+  },
+  fallbackPoolOptions: ResolvedAssemblyScriptPoolOptions,
   isCollectTestsMode: boolean,
   pool: Tinypool,
   poolAbortController: AbortController,
@@ -216,11 +225,12 @@ async function runTests(
   const fileWorkers: Promise<void>[] = specs.map(async (spec: TestSpecification): Promise<void> => {
     const { serializedConfig } = spec.project;
     const compatConfig: SerializedConfigCompat = getCompatConfig(serializedConfig);
+    const asPoolOptions = projectConfigs[spec.project.name]?.v3PoolOptions ?? fallbackPoolOptions;
     
-    let timedOutTest = await dispatchFullWorkerRun(spec, compatConfig, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache);
+    let timedOutTest = await dispatchFullWorkerRun(spec, compatConfig, asPoolOptions, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache);
     
     while (timedOutTest) {
-      timedOutTest = await dispatchFullWorkerRun(spec, compatConfig, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache, timedOutTest);
+      timedOutTest = await dispatchFullWorkerRun(spec, compatConfig, asPoolOptions, isCollectTestsMode, pool, poolAbortController.signal, fileCache, testTimeoutCache, timedOutTest);
     }
   });
 
@@ -267,42 +277,21 @@ async function runTests(
 }
 
 export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
-  const { config, foundProjectSerializedConfig, v3PoolOptions } = getProjectSerializedOrGlobalConfig(ctx);
+  const { coverage, projects, fallbackPoolOptions } = getConfigs(ctx);
   
-  if (!v3PoolOptions) {
-    throw {
-      name: POOL_ERROR_NAMES.PoolError,
-      message: `Could not parse poot options or generate defaults. This is a bug in vitest-pool-assemblyscript, please report it.`,
-    };
-  }
-  setGlobalDebugMode(v3PoolOptions.debug);
+  setGlobalDebugMode(fallbackPoolOptions.debug);
 
   debug('[Pool] Initializing AssemblyScript Pool');
-
-  if (foundProjectSerializedConfig) {
-    debug(`[Pool] Multi-project mode: Using config from project: "${config.name}"`);
-  } else {
-    debug('[Pool] Single-project mode: No project config found using vitest-pool-assemblyscript pool - Using global config with AssemblyScript pool defaults');
-  }
-
   debug(`[Pool] Worker thread path: "${WORKER_PATH}"`);
-  debug(`[Pool] Worker thread configuration - maxThreads: ${v3PoolOptions.maxThreadsV3}`);
+  debug(`[Pool] Worker thread configuration - maxThreads: ${fallbackPoolOptions.maxThreadsV3}`);
 
   setImmediate(async () => {
-    const userImportsFactoryPath = resolve(config.root, v3PoolOptions.wasmImportsFactory ?? '');
     const results = await Promise.allSettled([
-      access(WORKER_PATH),
-      v3PoolOptions.wasmImportsFactory ? access(userImportsFactoryPath) : Promise.resolve()
+      access(WORKER_PATH)
     ]);
 
     if (results[0].status === 'rejected') {
       throw new Error(`Cannot access worker thread file at path: "${WORKER_PATH}"`);
-    }
-    if (results[1].status === 'rejected') {
-      throw new Error(`Cannot access user WasmImportsFactory at path: "${userImportsFactoryPath}".`
-        + ` Ensure that your module path is relative to the project root (location of shallowest vitest config),`
-        + ` and that it has a default export matching () => WebAssembly.Imports`
-      );
     }
   });
 
@@ -310,13 +299,11 @@ export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
   const pool = new Tinypool({
     filename: WORKER_PATH,
     minThreads: 1,
-    maxThreads: v3PoolOptions.maxThreadsV3,
+    maxThreads: fallbackPoolOptions.maxThreadsV3,
     idleTimeout: POOL_THREAD_IDLE_TIMEOUT_MS,
     isolateWorkers: false,
     workerData: {
-      asPoolOptions: v3PoolOptions,
-      asCoverageOptions: config.coverage as ResolvedHybridProviderOptions,
-      projectRoot: config.root,
+      asCoverageOptions: coverage,
     } satisfies WorkerThreadInitData,
   });
 
@@ -335,12 +322,12 @@ export function createAssemblyScriptProcessPool(ctx: Vitest): ProcessPool {
     // runs when executing vitest list
     async collectTests(specs: TestSpecification[]) {
       const isCollectTestsMode = true;
-      return runTests(specs, isCollectTestsMode, pool, poolAbortController);
+      return runTests(specs, projects, fallbackPoolOptions, isCollectTestsMode, pool, poolAbortController);
     },
 
     async runTests(specs: TestSpecification[], invalidates?: string[]) {
       const isCollectTestsMode = false;
-      return runTests(specs, isCollectTestsMode, pool, poolAbortController, invalidates);
+      return runTests(specs, projects, fallbackPoolOptions, isCollectTestsMode, pool, poolAbortController, invalidates);
     },
 
     // Cleanup when shutting down

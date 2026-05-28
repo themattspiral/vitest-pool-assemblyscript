@@ -38,6 +38,7 @@ export default defineConfig({
       debugIstanbul: false,
     },
 
+    // TS Meta examples (to combine with AS coverage results)
     projects: [
       defineProject({
         test: {
@@ -49,20 +50,39 @@ export default defineConfig({
         }
       }),
 
+      // AS Meta - Failure conditions, and other external behavior verification (e.g. timeouts, retries)
       defineProject({
         test: {
           name: { label: 'as-pool-meta', color: 'yellow' },
           include: ['test/assembly/**/*.meta.test.ts'],
           pool: createAssemblyScriptPool({
-            debug: false,
-            debugNative: false,
-            debugCoverageExtract: false,
             wasmImportsFactory: 'test/helpers/create-user-imports.js',
             extraCompilerFlags: ['--enable', 'simd'],
-            _instrumentPoolInternals: false,
           }),
         }
-      })
+      }),
+      
+      // AS Meta Alt Config - user import failure
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-imports-fail', color: 'yellow' },
+          include: ['test/assembly/**/*.meta-imports-fail.test.ts'],
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: 'test/helpers/failing-create-user-imports.js',
+          }),
+        }
+      }),
+      
+      // AS Meta Alt Config - small test memory limit
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-small-mem', color: 'yellow' },
+          include: ['test/assembly/**/*.meta-small-mem.test.ts'],
+          pool: createAssemblyScriptPool({
+            testMemoryPagesMax: 1,
+          }),
+        }
+      }),
     ]
   },
 });

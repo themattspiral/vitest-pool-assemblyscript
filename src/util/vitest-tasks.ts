@@ -13,7 +13,6 @@ import type {
 import { TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from './debug.js';
 import { createTestExpectedToFailError, createTestTimeoutError } from './pool-errors.js';
-import { extractCallStack } from '../wasm-executor/source-maps.js';
 import { retryCompat } from './resolve-config.js';
 
 // ============================================================================
@@ -285,11 +284,9 @@ export function flagTestFinalized(test: Test): void {
   (test.meta as AssemblyScriptTestTaskMeta).resultFinal = true;
 }
 
-export function failTest(
+function failTest(
   test: Test,
-  errorMessage: string,
-  capturedError: Error,
-  logPrefix: string,
+  testError: AssemblyScriptTestError,
 ): void {
   if (test.result) {
     test.result.state = 'fail';
@@ -297,36 +294,48 @@ export function failTest(
     test.result = { state: 'fail' };
   }
 
+  if (test.result.errors) {
+    test.result.errors.push(testError);
+  } else {
+    test.result.errors = [testError];
+  }
+}
+
+export function failTestRuntimeError(
+  test: Test,
+  errorMessagePrefix: string,
+  errorMessage: string,
+): AssemblyScriptTestError {
+  const prefixStr = errorMessagePrefix ? `${errorMessagePrefix}: ` : '';
   const testError: AssemblyScriptTestError = {
     name: TEST_ERROR_NAMES.WASMRuntimeError,
-    message: errorMessage
+    message: `${prefixStr}${errorMessage}`
   };
 
-  const meta = test.meta as AssemblyScriptTestTaskMeta;
-          
-  // determine if this was an assertion failure
-  if (meta.assertionsFailed?.length > 0) {
-    testError.name = TEST_ERROR_NAMES.AssertionError;
-
-    const assertion: FailedAssertion = meta.assertionsFailed[meta.assertionsFailed.length - 1]!;
-
-    // set actual and expected values as strings, if provided
-    if (assertion.valuesProvided) {
-      meta.lastErrorValuesProvided = true;
-      testError.expected = assertion.expected !== undefined ? String(assertion.expected) : undefined;
-      testError.actual = assertion.actual !== undefined ? String(assertion.actual) : undefined;
-    }
-  }
+  failTest(test, testError);
   
-  // Set error to report to vitest on the test meta.
-  // Stack gets updated when executor enhances/source-maps the error, post-abort
-  meta.lastError = testError;
+  return testError;
+}
 
-  // Create error to capture V8 stack trace and extract V8 call stack before throwing.
-  // This gives us WAT line:column positions that can be mapped to AS source
-  meta.lastErrorRawCallStack = extractCallStack(capturedError);
+export function failTestAssertionError(
+  test: Test,
+  assertion: FailedAssertion
+): AssemblyScriptTestError {
+  (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push(assertion);
 
-  debug(`${logPrefix} - Captured raw V8 call stack with ${meta.lastErrorRawCallStack.length} frames`);
+  const testError: AssemblyScriptTestError = {
+    name: TEST_ERROR_NAMES.AssertionError,
+    message: assertion.message
+  };
+     
+  if (assertion?.valuesProvided) {
+    testError.expected = assertion.expected !== undefined ? String(assertion.expected) : undefined;
+    testError.actual = assertion.actual !== undefined ? String(assertion.actual) : undefined;
+  }
+
+  failTest(test, testError);
+  
+  return testError;
 }
 
 export function failTestWithTimeoutError (test: Test, startTime: number, duration: number): void {
@@ -406,6 +415,7 @@ export function resetTestForRetry(test: Test, startTime: number): void {
   delete meta.lastError;
   delete meta.lastErrorValuesProvided;
   delete meta.lastErrorRawCallStack;
+  delete meta.lastErrorCallStackRef;
   delete meta.lastTimeoutTerminationTime;
   delete meta.coverageData;
 }

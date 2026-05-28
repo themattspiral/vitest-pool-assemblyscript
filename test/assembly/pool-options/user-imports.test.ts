@@ -3,7 +3,7 @@ import {
   runUserFunction,
   runOtherUserFunction,
   runParseIntStringFunction,
-} from "./user-import-wrapper";
+} from "../../assembly-src/user-import-wrapper";
 
 describe("default \"env\" module", () => {
   test("user imported function is executed", () => {

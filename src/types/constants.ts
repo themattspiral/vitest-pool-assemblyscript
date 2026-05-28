@@ -11,11 +11,15 @@
 
 export const ASSEMBLYSCRIPT_POOL_NAME = 'assemblyscript' as const;
 
+export const AS_POOL_ERROR_WRAPPER_FLAG = '__as_pool_wrapper__' as const;
+
 export const AS_POOL_ERROR_TYPE_FLAG = '__as_pool__' as const;
 
 export const AS_POOL_WORKER_MSG_FLAG = '__as_pool__' as const;
 
 export const AS_POOL_WASM_IMPORTS_ENV = '__as_pool_env__' as const;
+
+export const AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME = '__coverage_memory' as const;
 
 export const VITEST_WORKER_REQUEST_MSG_FLAG = '__vitest_worker_request__' as const;
 
@@ -67,7 +71,9 @@ export const POOL_ERROR_NAMES = {
   CompilationError: 'CompilationError',
   /** Native instrumentation and debug info extraction error */
   WASMInstrumentationError: 'WASMInstrumentationError',
-  /** Unexpected WASM execution error (not a known test error path) */
+  /** Error importing/creating user imports for WASM environment */
+  WASMUserImportsError: 'WASMUserImportsError',
+  /** Unexpected WASM execution error */
   WASMExecutionHarnessError: 'WASMExecutionHarnessError',
   /** Hybrid coverage provider error */
   HybridCoverageProviderError: 'HybridCoverageProviderError',
@@ -75,10 +81,10 @@ export const POOL_ERROR_NAMES = {
   PoolReportingError: 'PoolReportingError',
   /** User configuration error */
   PoolConfigError: 'PoolConfigError',
+  /** User syntax error in `test`/`suite`/`expect` */
+  PoolSyntaxError: 'PoolSyntaxError',
   /** Generic AssemblyScript pool error */
   PoolError: 'PoolError',
-  /** User syntax error in test/suite/expect */
-  PoolSyntaxError: 'PoolSyntaxError',
 
   /** Flow Control: Indicates intentional abort */
   PoolRunAbortedError: 'PoolRunAbortedError',
@@ -87,6 +93,7 @@ export const POOL_ERROR_NAMES = {
    * and should be handled by reporting an AssemblyScriptTestError to vitest
    */
   WASMExecutionAbortError: 'WASMExecutionAbortError',
+  WASMExecutionAbortSuccess: 'WASMExecutionAbortSuccess',
   /** Flow Control: Indicates WASM execution halt because test timeout elapsed */
   WASMExecutionTimeoutError: 'WASMExecutionTimeoutError',
 } as const;

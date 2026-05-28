@@ -4,23 +4,114 @@ import type {
   AssemblyScriptPoolError,
   AssemblyScriptTestError,
   PoolErrorName,
-  TestErrorName
 } from '../types/types.js';
 import {
-  AS_POOL_ERROR_TYPE_FLAG,
+  AS_POOL_ERROR_WRAPPER_FLAG,
   POOL_ERROR_NAMES,
   TEST_ERROR_NAMES
 } from '../types/constants.js';
 import { getYellowString } from './test-error-formatting.js';
+import { extractCallStack } from '../wasm-executor/source-maps.js';
+
+export function abortWASMExecutionOnSuccess(): AssemblyScriptPoolError {
+  return {
+    [AS_POOL_ERROR_WRAPPER_FLAG]: true,
+    name: POOL_ERROR_NAMES.WASMExecutionAbortSuccess,
+    testError: {} as AssemblyScriptTestError,
+    originalErrorMayContainJS: false,
+    originalErrorRawStack: [],
+    applyStackToTestErrorCause: false
+  };
+}
+
+export function abortWASMExecution(
+  testError: AssemblyScriptTestError,
+  errorForStack?: Error,
+): AssemblyScriptPoolError {
+  return {
+    [AS_POOL_ERROR_WRAPPER_FLAG]: true,
+    name: POOL_ERROR_NAMES.WASMExecutionAbortError,
+    testError,
+    originalErrorMayContainJS: false,
+    originalErrorRawStack: errorForStack ? extractCallStack(errorForStack) : [],
+    applyStackToTestErrorCause: false
+  };
+}
+
+export function wrapPoolError(
+  name: PoolErrorName,
+  originalError: any,
+  originalErrorMayContainJS: boolean = false,
+): AssemblyScriptPoolError {
+  let originalErrorName: string | undefined;
+  let originalErrorMessage: string;
+  let originalErrorRawStack: NodeJS.CallSite[];
+
+  if (originalError && originalError instanceof Error) {
+    originalErrorName = originalError.name;
+    originalErrorMessage = originalError.message;
+    originalErrorRawStack = extractCallStack(originalError);
+  } else if (originalError) {
+    originalErrorMessage = String(originalError);
+    originalErrorRawStack = [];
+  } else {
+    originalErrorMessage = 'Unknown Error';
+    originalErrorRawStack = [];
+  }
+
+  const namePrefix = originalErrorName ? `${originalErrorName}: ` : '';
+  const testError: AssemblyScriptTestError = {
+    name,
+    message: `${namePrefix}${originalErrorMessage}`
+  };
+
+  return {
+    [AS_POOL_ERROR_WRAPPER_FLAG]: true,
+    name,
+    message: 'Wrapped error',
+    originalErrorRawStack,
+    originalErrorMayContainJS,
+    testError,
+    applyStackToTestErrorCause: false
+  };
+}
 
 export function createPoolError(
-  message: string,
   name: PoolErrorName,
-  stack?: string,
-  cause?: any,
-  rawCallStack?: NodeJS.CallSite[],
+  message: string,
+  originalError?: any,
+  originalErrorMayContainJS: boolean = true,
 ): AssemblyScriptPoolError {
-  return { name, message, stack, cause, rawCallStack, [AS_POOL_ERROR_TYPE_FLAG]: true };
+  let originalErrorRawStack: NodeJS.CallSite[] = [];
+  let applyStackToTestErrorCause: boolean = false;
+  const testError: AssemblyScriptTestError = {
+    name,
+    message
+  };
+
+  if (originalError && originalError instanceof Error) {
+    testError.cause = {
+      name: originalError.name,
+      message: `${originalError.message}`
+    };
+    originalErrorRawStack = extractCallStack(originalError);
+    applyStackToTestErrorCause = true;
+  } else if (originalError) {
+    testError.cause = {
+      name: POOL_ERROR_NAMES.PoolError,
+      message: String(originalError)
+    }
+  }
+
+  return {
+    [AS_POOL_ERROR_WRAPPER_FLAG]: true,
+    name,
+    message,
+    originalErrorRawStack,
+    originalErrorMayContainJS,
+    testError,
+    applyStackToTestErrorCause
+  };
 }
 
 export function createTestTimeoutError(
@@ -47,14 +138,6 @@ export function createTestExpectedToFailError(test: Test): AssemblyScriptTestErr
   return err;
 }
 
-export function throwPoolErrorIfAborted(signal?: AbortSignal): void {
-  if (!signal || !signal.aborted) {
-    return;
-  }
-
-  throw createPoolError(signal.reason, POOL_ERROR_NAMES.PoolRunAbortedError);
-}
-
 export function isAbortErrorString(item: any): boolean {
   return item === POOL_ERROR_NAMES.PoolRunAbortedError || item === 'AbortError';
 }
@@ -65,69 +148,17 @@ export function isAbortError(error: any): boolean {
     || error?.message === 'Terminating worker thread';
 }
 
-export function createPoolErrorFromAnyError(
-  context: string,
-  contextErrorName: PoolErrorName,
-  error: any
-): AssemblyScriptPoolError {
-  const isErrorAbortString = isAbortErrorString(error);
-  if (isErrorAbortString) {
-    const msg = `${contextErrorName}: ${context} - Aborted, Unknown Cause`;
-    return createPoolError(msg, POOL_ERROR_NAMES.PoolRunAbortedError);
-  }
-
-  if (error[AS_POOL_ERROR_TYPE_FLAG]) {
-    return error as AssemblyScriptPoolError;
-  }
-
-  if (error instanceof Error) {
-    const isAbortError = isAbortErrorString(error.name);
-    const asErr = createPoolError(
-      `${context} - ${error.name}: ${error.message}`,
-      isAbortError ? POOL_ERROR_NAMES.PoolRunAbortedError : contextErrorName,
-      error.stack,
-      error.cause
-    );
-    return asErr;
-  }
-
-  const errorMsg = String(error);
-  return createPoolError(`${context} - ${errorMsg}`, contextErrorName);
-}
-
-export function getTestErrorFromPoolError(error: AssemblyScriptPoolError): AssemblyScriptTestError {
-  const anyCause: any = error?.cause;
-  if (error.causeIsEnhancedError) {
-    return error.cause as AssemblyScriptTestError;
-  }
-
-  const message = error.message ?? anyCause.message ?? 'Unknown error';
-  return {
-    name: error.name ?? anyCause.name ?? POOL_ERROR_NAMES.PoolError,
-    message,
-    stack: anyCause?.stack ?? error.stack ?? message,
-    stacks: anyCause?.stacks ,
-    cause: getTestErrorFromAnyError(anyCause?.cause),
-    diff: anyCause?.diff
-  };
-}
-
 export function getTestErrorFromAnyError(
   error: any,
-  context: string = '',
-  fallbackName: TestErrorName | PoolErrorName = POOL_ERROR_NAMES.PoolError
-): AssemblyScriptTestError | undefined {
-  if (!error) {
-    return undefined;
-  }
+): AssemblyScriptTestError {
+  const message: string = error?.message ?? String(error);
 
-  const message = `${context ?? ''}${error?.message ?? ''}`;
   return {
-    name: error?.name ?? fallbackName,
+    name: error?.name ?? POOL_ERROR_NAMES.PoolError,
     message,
     stack: error?.stack ?? message,
     stacks: error?.stacks,
-    cause: getTestErrorFromAnyError(error?.cause)
+    cause: error?.cause ? getTestErrorFromAnyError(error.cause) : undefined
   };
 }
 

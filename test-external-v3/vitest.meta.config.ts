@@ -58,12 +58,38 @@ export default defineConfig({
           pool: 'vitest-pool-assemblyscript/v3',
           poolOptions: {
             assemblyScript: {
-              debug: false,
-              debugNative: false,
-              debugCoverageExtract: false,
               wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
               extraCompilerFlags: ['--enable', 'simd'],
-              _instrumentPoolInternals: false,
+            }
+          },
+        }
+      }),
+
+      defineAssemblyScriptProject({
+        test: {
+          name: { label: 'as-pool-meta-imports-fail', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-fail.test.ts'
+          ],
+          pool: 'vitest-pool-assemblyscript/v3',
+          poolOptions: {
+            assemblyScript: {
+              wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/failing-create-user-imports.js',
+            }
+          },
+        }
+      }),
+      
+      defineAssemblyScriptProject({
+        test: {
+          name: { label: 'as-pool-meta-small-mem', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-small-mem.test.ts'
+          ],
+          pool: 'vitest-pool-assemblyscript/v3',
+          poolOptions: {
+            assemblyScript: {
+              testMemoryPagesMax: 1,
             }
           },
         }

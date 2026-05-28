@@ -21,6 +21,11 @@ export function fails(): i32 {
   return value;
 }
 
+export function crash(num: i32, str: string): string {
+  // infinite recursion - will overflow, crash runtime, and get caught by executor
+  return str + crash(num + 1, str);
+}
+
 export function failsSingleLine(): i32 { const arr: i32[] = [1, 2, 3]; const value = arr[10]; return value; }
 
 export function failNamedFunc(): i32 {
@@ -77,4 +82,25 @@ export class ClassWithFailingMethods {
     const value = arr[10]; // Out of bounds - will abort
     return value;
   }
+
+  crash(num: i32, str: string): string {
+    // infinite recursion - will overflow, crash runtime, and get caught by executor
+    return str + this.crash(num + 1, str);
+  }
+}
+
+export function growBoom(): string {
+  let str = "";
+  for (let i: u64 = 0; i < 3_000_000_000; i++) {
+    str += i.toString();
+  }
+  return str;
+}
+
+export function badLoad(): i32 {
+  return load<i32>(-1);
+}
+
+export function badDiv(): i32 {
+  return 5 / 0;
 }

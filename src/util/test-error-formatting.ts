@@ -1,4 +1,6 @@
 import { stripVTControlCharacters } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import type { RawSourceMap } from 'source-map';
 import c from 'tinyrainbow';
 import type { ParsedStack } from '@vitest/utils';
@@ -25,20 +27,24 @@ export function toVitestLikeStackFrameString(frame: ParsedStack): string {
   );
 }
 
-export function getSourceCodeFrameString(
-  sourceMap: RawSourceMap,
+export async function getSourceCodeFrameString(
+  sourceMap: RawSourceMap | undefined,
   frame: ParsedStack,
-): string | undefined {
-  if (!sourceMap.sourcesContent) {
+): Promise<string | undefined> {
+  let source: string | undefined;
+
+  if (!sourceMap) {
     return undefined;
   }
 
   const fileIndex = sourceMap.sources.indexOf(frame.file);
-  if (fileIndex < 0) {
-    return undefined;
+  if (fileIndex < 0 || !sourceMap.sourcesContent) {
+    const framePath = fileURLToPath(frame.file);
+    source = await readFile(framePath, 'utf-8');
+  } else {
+    source = sourceMap.sourcesContent[fileIndex];
   }
 
-  const source = sourceMap.sourcesContent[fileIndex];
   if (!source) {
     return undefined;
   }

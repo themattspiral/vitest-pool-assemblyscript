@@ -6,6 +6,7 @@
  * file:line:column information for better developer experience.
  */
 
+import { relative } from 'node:path';
 import { type ParsedStack } from '@vitest/utils';
 import { diff, type SerializedDiffOptions } from '@vitest/utils/diff';
 import type { Test, Suite } from '@vitest/runner/types';
@@ -14,7 +15,7 @@ import { type RawSourceMap, SourceMapConsumer } from 'source-map';
 import type { AssemblyScriptTestError, WebAssemblyCallSite } from '../types/types.js';
 import { debug } from '../util/debug.js';
 import { POOL_INTERNAL_PATHS, TEST_ERROR_NAMES } from '../types/constants.js';
-import { createWebAssemblyCallSite, parseSourceMap } from './source-maps.js';
+import { createWebAssemblyCallSite } from './source-maps.js';
 import { getShortFunctionName } from './wasm-names.js';
 import {
   getSourceCodeFrameString,
@@ -40,8 +41,9 @@ function passthroughCallSite(callSite: NodeJS.CallSite): ParsedStack {
 
 async function sourceMapRawCallStack(
   rawCallStack: NodeJS.CallSite[],
-  sourceMap: RawSourceMap,
+  sourceMap: RawSourceMap | undefined,
   loggingPrefix: string,
+  allowJS: boolean,
 ): Promise<WebAssemblyCallSite[]> {
   const mappedStack: WebAssemblyCallSite[] = [];
 
@@ -49,17 +51,19 @@ async function sourceMapRawCallStack(
     return mappedStack;
   }
 
-  const sourceMapConsumer = await new SourceMapConsumer(sourceMap);
-  
-  // map stack call sites from raw WASM locations to source locations  
-  rawCallStack.forEach(callSite => {
-    const mappedCallSite = createWebAssemblyCallSite(callSite, sourceMapConsumer, loggingPrefix);
-    if (mappedCallSite) {
-      mappedStack.push(mappedCallSite);
-    }
-  });
-  
-  sourceMapConsumer.destroy();
+  if (sourceMap) {
+    const sourceMapConsumer = await new SourceMapConsumer(sourceMap);
+    
+    // map stack call sites from raw WASM locations to source locations  
+    rawCallStack.forEach(callSite => {
+      const mappedCallSite = createWebAssemblyCallSite(callSite, sourceMapConsumer, loggingPrefix, allowJS);
+      if (mappedCallSite) {
+        mappedStack.push(mappedCallSite);
+      }
+    });
+    
+    sourceMapConsumer.destroy();
+  }
 
   return mappedStack;
 }
@@ -76,32 +80,31 @@ function parseMappedStack(mappedStack: WebAssemblyCallSite[]): ParsedStack[] {
       method: getShortFunctionName(frame.functionName),
       file: frame.location.filePath,
       line: frame.location.line,
-      column: frame.location.column + 1, // Convert from raw 0-indexed to 1-indexed for display
+      column: frame.location.filePath.startsWith('file')
+        ? frame.location.column      // unmapped file needs no change 
+        : frame.location.column + 1, // Convert from raw source-map's 0-indexed to 1-indexed for display
     }));
 }
 
 export async function processWASMErrorStack(
   rawCallStack: NodeJS.CallSite[],
-  sourceMap: string,
+  sourceMap: RawSourceMap | undefined,
   loggingPrefix: string,
-): Promise<{ parsedStack: ParsedStack[], parsedSourceMap: RawSourceMap }> {
-  const sourceMapObj = parseSourceMap(sourceMap);
-
+  allowJS: bool,
+): Promise<ParsedStack[]> {
   // map stack call sites from WASM locations to source code locations  
-  const sourceMappedStack = await sourceMapRawCallStack(rawCallStack, sourceMapObj, loggingPrefix);
+  const sourceMappedStack = await sourceMapRawCallStack(rawCallStack, sourceMap, loggingPrefix, allowJS);
   debug(`${loggingPrefix} - Mapped ${rawCallStack.length} call sites to ${sourceMappedStack.length} source locations`);
 
   const parsedStack = parseMappedStack(sourceMappedStack);
+
   if (parsedStack.length === 0) {
     rawCallStack.forEach(callSite => {
       parsedStack.push(passthroughCallSite(callSite));
     });
   }
 
-  return {
-    parsedStack,
-    parsedSourceMap: sourceMapObj,
-  };
+  return parsedStack;
 }
 
 /**
@@ -109,34 +112,40 @@ export async function processWASMErrorStack(
  * and a formatted diff based on the error type
  */
 export async function enhanceTestError(
-  error: AssemblyScriptTestError,
+  testError: AssemblyScriptTestError,
   task: Test | Suite,
-  sourceMap: string,
-  valuesProvided: boolean,
+  sourceMap: RawSourceMap | undefined,
   logPrefix: string,
+  allowJS: boolean,
+  projectRoot: string,
+  applyStackToTestErrorCause: boolean,
   rawCallStack?: NodeJS.CallSite[],
   diffOptions?: SerializedDiffOptions
-): Promise<AssemblyScriptTestError> {
-  const isAssertionFailure = error.name === TEST_ERROR_NAMES.AssertionError;
-  let expectedVsActualDiffString: string = '';
+): Promise<void> {
+  let expectedVsActualDiffString: string | undefined;
+  const isAssertionFailure = testError.name === TEST_ERROR_NAMES.AssertionError;
+  const valuesProvided = testError.expected !== undefined && testError.actual !== undefined;
 
   if (isAssertionFailure && valuesProvided) {
     // remain undefined if there were no expected/actual values provided with the assertion failure
-    expectedVsActualDiffString = diff(error.expected, error.actual, diffOptions) ?? '';
+    expectedVsActualDiffString = diff(testError.expected, testError.actual, diffOptions) ?? '';
   }
 
   // if there's no stack to map, set the expected vs actual diff (if any) and return
   if (!rawCallStack || rawCallStack.length === 0) {
-    error.diff = expectedVsActualDiffString;
+    testError.diff = expectedVsActualDiffString;
 
     // stack is used by vitest for error deduplication, so make sure it is set
-    error.stack = `${task.name} - ${error.message}`;
+    testError.stack = `${task.name} - ${testError.message}`;
 
-    return error;
+    return;
   }
 
+  const testErrorToUpdate: AssemblyScriptTestError =  applyStackToTestErrorCause && testError.cause
+    ? testError.cause as AssemblyScriptTestError : testError;
+
   // map stack call sites from WASM locations to source locations
-  const { parsedStack, parsedSourceMap } = await processWASMErrorStack(rawCallStack, sourceMap, logPrefix);
+  const parsedStack = await processWASMErrorStack(rawCallStack, sourceMap, logPrefix, allowJS);
   
   // build additional strings to add to test error's `diff` field based on parsed stack contents
   let primaryStackFrameString: string | undefined;
@@ -145,39 +154,44 @@ export async function enhanceTestError(
   if (parsedStack.length > 0) {
     const primaryStackFrame = parsedStack[0]!;
     
-    primaryStackFrameString = toVitestLikeStackFrameString(primaryStackFrame);
-    
     // Test error is set to rest of the stack without the first frame.
     // Vitest will report the ParsedError[] on TestError.stacks below the diff we set.
-    error.stacks = parsedStack.slice(1);
+    testErrorToUpdate.stacks = parsedStack.slice(1);
 
-    // get source code diff from source map source content
-    highlightedSourceCodeFrameString = getSourceCodeFrameString(parsedSourceMap, primaryStackFrame);
+    try {
+      highlightedSourceCodeFrameString = await getSourceCodeFrameString(sourceMap, primaryStackFrame);
+    } catch (err) {
+      debug(`${logPrefix} - Error reading source for primary stack frame file "${primaryStackFrame.file}":`, err);
+    }
 
-    debug(`${logPrefix} - Enhanced ${error.name} error with parsed source stack`);
+    // truncate file:path strings for display - AFTER extracting source code
+    // in case we needed to read in the file (not in source map)
+    parsedStack.forEach(frame => {
+      if (frame.file.startsWith('file://')) {
+        const framePath = frame.file.substring(7);
+        frame.file = relative(projectRoot, framePath);
+      }
+    });
+
+    primaryStackFrameString = toVitestLikeStackFrameString(primaryStackFrame);
+
+    debug(`${logPrefix} - Enhanced ${testError.name} error with parsed source stack`);
   }
 
   // Use the diff field as our way to show all output (other than result.error.stacks)
-  if (isAssertionFailure) {
-    error.diff = [
-      expectedVsActualDiffString,
-      expectedVsActualDiffString ? '\n\n' : '',
-      primaryStackFrameString ?? '',
-      highlightedSourceCodeFrameString ? '\n' : '',
-      highlightedSourceCodeFrameString ?? ''
-    ].join('');
-  } else {
-    error.diff = [
-      primaryStackFrameString ?? '',
-      highlightedSourceCodeFrameString ? '\n' : '',
-      highlightedSourceCodeFrameString ?? ''
-    ].join('');
-  }
+  testErrorToUpdate.diff = [
+    expectedVsActualDiffString,
+    expectedVsActualDiffString ? '\n\n' : '',
+    primaryStackFrameString ?? '',
+    highlightedSourceCodeFrameString ? '\n' : '',
+    highlightedSourceCodeFrameString ?? ''
+  ].join('');
+
 
   // stack is used by vitest for error deduplication, so make sure it is set
-  error.stack = parsedStack.map(toPlaintextStackFrameString).join('\n');
+  testErrorToUpdate.stack = parsedStack.map(toPlaintextStackFrameString).join('\n');
   
-  debug(`[${logPrefix} - Enhanced ${error.name} error with diffs`);
+  debug(`[${logPrefix} - Enhanced error with diffs`);
 
-  return error;
+  return;
 }

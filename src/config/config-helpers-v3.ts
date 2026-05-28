@@ -33,7 +33,6 @@ type AnyConfigExport<T extends ViteUserConfig> =
  */
 export type AssemblyScriptUserConfig<T extends ViteUserConfig> = T & {
   test?: {
-    // pool?: string;
     poolOptions?: {
       assemblyScript?: AssemblyScriptPoolOptions;
     };
