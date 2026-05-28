@@ -10,7 +10,7 @@ import type {
 } from '../types/types.js';
 import {
   AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME,
-  AS_POOL_WASM_IMPORTS_ENV,
+  AS_POOL_WASM_IMPORTS_MODULE_NAME,
   POOL_ERROR_NAMES,
   TEST_ERROR_NAMES
 } from '../types/constants.js';
@@ -109,7 +109,7 @@ export function createDiscoveryImports(
       },
     },
 
-    [AS_POOL_WASM_IMPORTS_ENV]: {
+    [AS_POOL_WASM_IMPORTS_MODULE_NAME]: {
 
       ...(coverageMemory ? { [AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME]: coverageMemory } : {}),
 
@@ -262,7 +262,7 @@ export function createTestExecutionImports(
       },
     },
 
-    [AS_POOL_WASM_IMPORTS_ENV]: {
+    [AS_POOL_WASM_IMPORTS_MODULE_NAME]: {
       
       ...(coverageMemory ? { [AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME]: coverageMemory } : {}),
 

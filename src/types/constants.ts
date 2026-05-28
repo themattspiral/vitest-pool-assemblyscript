@@ -17,7 +17,7 @@ export const AS_POOL_ERROR_TYPE_FLAG = '__as_pool__' as const;
 
 export const AS_POOL_WORKER_MSG_FLAG = '__as_pool__' as const;
 
-export const AS_POOL_WASM_IMPORTS_ENV = '__as_pool_env__' as const;
+export const AS_POOL_WASM_IMPORTS_MODULE_NAME = '__as_pool_env__' as const;
 
 export const AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME = '__coverage_memory' as const;
 

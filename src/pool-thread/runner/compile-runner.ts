@@ -20,6 +20,8 @@ import type {
 } from '../../types/types.js';
 import {
   AS_POOL_ERROR_WRAPPER_FLAG,
+  AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME,
+  AS_POOL_WASM_IMPORTS_MODULE_NAME,
   ASSEMBLYSCRIPT_LIB_PREFIX,
   INTERNAL_FUNCTION_NAME_SUBSTRING,
   INTERNAL_PATH_LIB_PREFIX,
@@ -37,16 +39,12 @@ import {
   reportFileError,
 } from '../rpc-reporter.js';
 import { compileAssemblyScript } from '../../compiler/index.js';
-import {
-  getTaskLogLabel,
-  getTaskLogPrefix,
-} from '../../util/vitest-tasks.js';
+import { getTaskLogLabel, getTaskLogPrefix } from '../../util/vitest-tasks.js';
 import {
   failFile,
   getFullTaskHierarchy,
   prepareFileTaskForCollection,
 } from '../../util/vitest-file-tasks.js';
-import { getWasmMemoryRequirements } from '../../wasm-executor/wasm-memory.js';
 import { extractCallStack } from '../../wasm-executor/source-maps.js';
 import { enhanceTestError } from '../../wasm-executor/wasm-errors.js';
 
@@ -89,8 +87,10 @@ export async function runCompileAndDiscover(
       excludedLibraryFileOverridePrefix: asPoolOptions._instrumentPoolInternals ? INTERNAL_PATH_LIB_PREFIX : undefined,
       excludedInternalFunctionSubstring: INTERNAL_FUNCTION_NAME_SUBSTRING,
       coverageMemoryPagesMin: asPoolOptions.coverageMemoryPagesInitial ?? 1,
-      coverageMemoryPagesMax: asPoolOptions.coverageMemoryPagesMax ?? 4,
+      coverageMemoryPagesMax: asPoolOptions.coverageMemoryPagesMax,
       debug: asPoolOptions.debugNative,
+      coverageMemoryModule: AS_POOL_WASM_IMPORTS_MODULE_NAME,
+      coverageMemoryName: AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME
     };
     const compilerOptions: AssemblyScriptCompilerOptions = {
       stripInline: asPoolOptions.stripInline,
@@ -100,29 +100,18 @@ export async function runCompileAndDiscover(
       extraFlags: asPoolOptions.extraCompilerFlags
     };
 
-    const { binary, sourceMap, debugInfo, compileTiming } = await compileAssemblyScript(
+    compilation = await compileAssemblyScript(
       file.filepath,
       compilerOptions,
       logModule,
       fileLogLabel
     );
-    file.setupDuration = compileTiming;
+    file.setupDuration = compilation.compileTiming;
     threadCompilationCount++;
 
     debug(`${fileLogPrefix} - TIMING compileAssemblyScript total `
-      + `(thread comp # ${threadCompilationCount}): ${compileTiming.toFixed(2)} ms`
+      + `(thread comp # ${threadCompilationCount}): ${compilation.compileTiming.toFixed(2)} ms`
     );
-
-    const requiredMemory = getWasmMemoryRequirements(binary);
-    debug(`${fileLogPrefix} - Compilation Required Memory:`, requiredMemory);
-
-    compilation = {
-      filePath: file.filepath,
-      binary,
-      sourceMap,
-      debugInfo,
-      requiredMemory
-    };
     
     const logMessages: AssemblyScriptConsoleLog[] = [];
     const handleLog: AssemblyScriptConsoleLogHandler = (msg: string, isError: boolean = false): void => {

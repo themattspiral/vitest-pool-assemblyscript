@@ -25,10 +25,10 @@
 using namespace wasm;
 
 // 32
-const uint32_t BYTES_PER_COUNTER = 4;
+const int32_t BYTES_PER_COUNTER = 4;
 
 // 1 page = 64KB / 4bytes (32bits) each = 16384 counters
-const uint32_t COUNTERS_PER_PAGE = 16384;
+const int32_t COUNTERS_PER_PAGE = 16384;
 
 // TODO - pass these through the call stack as params instead
 // for now we don't expect them to  change between different calls
@@ -38,9 +38,9 @@ thread_local std::string LOG_PREFIX = "InstNative";
 
 struct SourceDebugLocation {
   bool exists = false;
-  uint32_t fileIndex = 0;              // Debug location file index
-  uint32_t lineNumber = 0;            // Debug location line number
-  uint32_t columnNumber = 0;          // Debug location column number
+  int32_t fileIndex = 0;              // Debug location file index
+  int32_t lineNumber = 0;            // Debug location line number
+  int32_t columnNumber = 0;          // Debug location column number
 };
 
 /**
@@ -48,12 +48,12 @@ struct SourceDebugLocation {
  */
 struct ExpressionInfo {
   std::string type;                    // Expression type name
-  uint32_t fileIndex;                  // Debug location file index
-  uint32_t lineNumber;                 // Debug location line number
-  uint32_t columnNumber;               // Debug location column number
+  int32_t fileIndex;                  // Debug location file index
+  int32_t lineNumber;                 // Debug location line number
+  int32_t columnNumber;               // Debug location column number
   bool hasDebugLocation;               // Whether debug location exists
   bool isBranch;                       // Whether this is a branch expression
-  uint32_t branchPaths;                // Number of branch paths (if isBranch)
+  int32_t branchPaths;                // Number of branch paths (if isBranch)
 };
 
 /**
@@ -67,7 +67,7 @@ struct BasicBlockInfo {
 // Data structure to collect function info during instrumentation
 struct FunctionInfo {
   std::string name;
-  uint32_t coverageMemoryIndex;
+  int32_t coverageMemoryIndex;
   SourceDebugLocation representativeLocation;
   std::vector<ExpressionInfo> expressions;
   std::vector<BasicBlockInfo> blocks;
@@ -437,12 +437,16 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     std::string excludedLibraryFilePrefix;
     std::string excludedLibraryFileOverridePrefix = "";
     std::string excludedInternalFunctionSubstring = "";
+    std::string coverageMemoryModule = "";
+    std::string coverageMemoryName = "";
 
     // 1 page = 64KB / 4bytes (32bits) each = 16384 counters
-    uint32_t coverageMemoryPagesMin = 1;
+    int32_t coverageMemoryPagesMin = 1;
     // 4 pages = 256KB / 4bytes (32bits) each = 65536 counters
-    uint32_t coverageMemoryPagesMax = 4;
-    uint32_t maxCounters = coverageMemoryPagesMax * COUNTERS_PER_PAGE;
+    int32_t coverageMemoryPagesMax = -1;
+
+    // computed values
+    int32_t maxCounters = coverageMemoryPagesMax == -1 ? -1 : coverageMemoryPagesMax * COUNTERS_PER_PAGE;
 
     if (options.Has("logPrefix")) {
       Napi::Value logPrefixProp = options.Get("logPrefix");
@@ -467,14 +471,14 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       if (excludedFilesProperty.IsArray()) {
         const Napi::Array filesArray = excludedFilesProperty.As<Napi::Array>();
 
-        const uint32_t count = filesArray.Length();
+        const int32_t count = filesArray.Length();
         if (DEBUG && count > 0) {
           std::cout << LOG_PREFIX << " - OPTIONS - " << count << " Excluded Files:" << std::endl;
         } else if (DEBUG) {
           std::cout << LOG_PREFIX << " - 0 Excluded Files" << std::endl;
         }
 
-        for (size_t i = 0; i < count; i++) {
+        for (int32_t i = 0; i < count; i++) {
           Napi::Value fileItem = filesArray[i];
           if (fileItem.IsString()) {
             const std::string file = fileItem.As<Napi::String>().Utf8Value();
@@ -526,7 +530,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         coverageMemoryPagesMin = coverageMinProperty.As<Napi::Number>().Int32Value();
         
         if (DEBUG) {
-          const uint32_t minCounters = coverageMemoryPagesMin * COUNTERS_PER_PAGE;
+          const int32_t minCounters = coverageMemoryPagesMin * COUNTERS_PER_PAGE;
           std::cout << LOG_PREFIX << " - OPTIONS - Coverage Memory Pages MIN: " << coverageMemoryPagesMin
                     << " (" << minCounters << " counters)" << std::endl;
         }
@@ -542,6 +546,28 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         if (DEBUG) {
           std::cout << LOG_PREFIX << " - OPTIONS - Coverage Memory Pages MAX: " << coverageMemoryPagesMax
                     << " (" << maxCounters << " counters)" << std::endl;
+        }
+      }
+    }
+
+    if (options.Has("coverageMemoryModule")) {
+      Napi::Value coverageMemoryModuleProperty = options.Get("coverageMemoryModule");
+      if (coverageMemoryModuleProperty.IsString()) {
+        coverageMemoryModule = coverageMemoryModuleProperty.As<Napi::String>().Utf8Value();
+        
+        if (DEBUG) {
+          std::cout << LOG_PREFIX << " - OPTIONS - Coverage Memory Module: \"" << coverageMemoryModule << "\"" << std::endl;
+        }
+      }
+    }
+    
+    if (options.Has("coverageMemoryName")) {
+      Napi::Value coverageMemoryNameProperty = options.Get("coverageMemoryName");
+      if (coverageMemoryNameProperty.IsString()) {
+        coverageMemoryName = coverageMemoryNameProperty.As<Napi::String>().Utf8Value();
+        
+        if (DEBUG) {
+          std::cout << LOG_PREFIX << " - OPTIONS - Coverage Memory Name: \"" << coverageMemoryName << "\"" << std::endl;
         }
       }
     }
@@ -565,22 +591,14 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
 
     // Instrument functions and collect debug info
     Builder builder(module);
-    uint32_t coverageIndex = 0;
+    int32_t coverageIndex = 0;
     std::vector<FunctionInfo> instrumentedFunctions;
 
     // Enable multi-memory feature for coverage memory
     module.features.setMultiMemory(true);
 
-    // Add __coverage_memory import
-    // This is a secondary memory used to store coverage counters
-    Name coverageMemoryName("__coverage_memory");
-    auto coverageMemory = Builder::makeMemory(coverageMemoryName);
-    coverageMemory->module = "__as_pool_env__";
-    coverageMemory->base = "__coverage_memory";
-    coverageMemory->initial = coverageMemoryPagesMin;
-    coverageMemory->max = coverageMemoryPagesMax;
-    coverageMemory->shared = false;
-    module.addMemory(std::move(coverageMemory));
+    // secondary memory import used to store coverage counters
+    const Name coverageMemoryWasmName(coverageMemoryName);
 
     // Create walker for debug info extraction
     DebugInfoWalker walker(&module);
@@ -588,10 +606,10 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     ModuleUtils::iterDefinedFunctions(module, [&](Function* func) {
       std::string funcName = func->name.toString();
 
-      if (coverageIndex >= maxCounters) {
+      if (maxCounters > 0 && coverageIndex >= maxCounters) {
         if (DEBUG) {
           std::cout << LOG_PREFIX << " - ERROR: Processing function: \"" << funcName << "\""
-                    << " Further instrumentation would exceed max covergare memory size" << std::endl;
+                    << " Further instrumentation would exceed max coverage memory size" << std::endl;
         }
         return;
       }
@@ -658,7 +676,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       //   incremented = counter + 1
       //   i32.store(addr, incremented, __coverage_memory)
 
-      const uint32_t counterAddressVal = coverageIndex * BYTES_PER_COUNTER;
+      const int32_t counterAddressVal = coverageIndex * BYTES_PER_COUNTER;
       Expression* counterAddress = builder.makeConstantExpression(Literal(counterAddressVal));
 
       // Load current counter value
@@ -669,7 +687,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         BYTES_PER_COUNTER,  // align - we should always be aligned
         counterAddress,     // address
         Type::i32,
-        coverageMemoryName
+        coverageMemoryWasmName
       );
 
       // Increment counter
@@ -686,7 +704,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         counterAddress,     // address
         incrementedCounter, // value
         Type::i32,
-        coverageMemoryName
+        coverageMemoryWasmName
       );
 
       // Prepend instrumentation to function body
@@ -700,6 +718,27 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
 
       coverageIndex++;
     });
+
+    int32_t requiredCoverageMemoryPagesMax = std::ceil(coverageIndex / static_cast<double>(COUNTERS_PER_PAGE));
+
+    // Add __coverage_memory import
+    auto coverageMemory = Builder::makeMemory(coverageMemoryWasmName);
+    coverageMemory->module = coverageMemoryModule;
+    coverageMemory->base = coverageMemoryName;
+    coverageMemory->shared = false;
+    coverageMemory->initial = coverageMemoryPagesMin;
+
+    if (coverageMemoryPagesMax <= 0) {
+      coverageMemory->max = requiredCoverageMemoryPagesMax <= 0 ? 1 : requiredCoverageMemoryPagesMax;
+    } else {
+      coverageMemory->max = coverageMemoryPagesMax;
+    }
+
+    if (DEBUG) {
+      std::cout << LOG_PREFIX << " - Coverage memory max pages set to: " << coverageMemory->max << std::endl;
+    }
+    
+    module.addMemory(std::move(coverageMemory));
 
     if (DEBUG) {
       std::cout << LOG_PREFIX << " - Instrumentation complete: " << coverageIndex << " functions instrumented" << std::endl;

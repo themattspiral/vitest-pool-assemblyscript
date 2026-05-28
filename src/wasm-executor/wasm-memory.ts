@@ -1,16 +1,16 @@
 import {
   AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME,
-  AS_POOL_WASM_IMPORTS_ENV
+  AS_POOL_WASM_IMPORTS_MODULE_NAME
 } from '../types/constants.js';
-import type { WASMCompilationMemoryRequirements } from '../types/types.js';
+import type { WASMModuleMemoryRequirements } from '../types/types.js';
 import { liftString } from '../util/assemblyscript/binding-helpers.js';
 
-const DEFAULT_MEMORY_REQS: WASMCompilationMemoryRequirements = {
+const DEFAULT_MEMORY_REQS: WASMModuleMemoryRequirements = {
   testMemory: { initialPages: 1 },
   coverageMemory: { initialPages: 1 }
 } as const;
 const TEST_MEM_KEY = 'env.memory' as const;
-const COVERAGE_MEM_KEY = `${AS_POOL_WASM_IMPORTS_ENV}.${AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME}`;
+const COVERAGE_MEM_KEY = `${AS_POOL_WASM_IMPORTS_MODULE_NAME}.${AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME}`;
 
 /**
  * Create a WebAssembly memory instance
@@ -53,12 +53,12 @@ export function decodeAbortInfo(
   };
 }
 
-export function getWasmMemoryRequirements(u8: Uint8Array): WASMCompilationMemoryRequirements {
+export function getWasmMemoryRequirements(u8: Uint8Array): WASMModuleMemoryRequirements {
   if (u8[0] !== 0x00 || u8[1] !== 0x61 || u8[2] !== 0x73 || u8[3] !== 0x6d) {
     throw new Error("Not a valid WebAssembly binary");
   }
 
-  const reqs: WASMCompilationMemoryRequirements = {
+  const reqs: WASMModuleMemoryRequirements = {
     testMemory: { ...DEFAULT_MEMORY_REQS.testMemory },
     coverageMemory: { ...DEFAULT_MEMORY_REQS.coverageMemory }
   };

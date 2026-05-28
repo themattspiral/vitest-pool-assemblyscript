@@ -9,12 +9,14 @@
 import { resolve, basename } from 'node:path';
 import { readdirSync } from 'fs';
 import { readFile } from 'fs/promises';
-import type { AssemblyScriptCompilerResult } from '../../../src/types/types.js';
 import {
+  AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME,
+  AS_POOL_WASM_IMPORTS_MODULE_NAME,
   ASSEMBLYSCRIPT_LIB_PREFIX,
   INTERNAL_FUNCTION_NAME_SUBSTRING,
   POOL_INTERNAL_PATHS,
 } from '../../../src/types/constants.js';
+import type { WASMCompilation } from '../../../src/types/types.js';
 
 // test with compiled version because asc strip-inline transform needs transpilation
 //@ts-ignore
@@ -45,7 +47,7 @@ export interface CompiledFixture {
   /** Fixture metadata */
   fixture: TestFixture;
   /** Compilation result */
-  compileResult: AssemblyScriptCompilerResult;
+  compilation: WASMCompilation;
   /** Source code lines */
   sourceLines: string[];
 }
@@ -104,7 +106,8 @@ export async function compileAndExtract(
         excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
         excludedInternalFunctionSubstring: INTERNAL_FUNCTION_NAME_SUBSTRING,
         coverageMemoryPagesMin: 1,
-        coverageMemoryPagesMax: 4
+        coverageMemoryModule: AS_POOL_WASM_IMPORTS_MODULE_NAME,
+        coverageMemoryName: AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME,
       },
     },
     'test',
@@ -112,11 +115,11 @@ export async function compileAndExtract(
   );
   const sourceCodePromise = readFile(fixture.path, 'utf-8');
   
-  const [compileResult, sourceCode] = await Promise.all([compilePromise, sourceCodePromise]);
+  const [compilation, sourceCode] = await Promise.all([compilePromise, sourceCodePromise]);
 
   return {
     fixture,
-    compileResult,
+    compilation,
     sourceLines: sourceCode.split('\n'),
   };
 }

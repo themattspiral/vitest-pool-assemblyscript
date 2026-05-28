@@ -335,7 +335,9 @@ export const instrumentForCoverage: InstrumentForCoverageFunc = (
     excludedLibraryFileOverridePrefix: instrumentationOptions.excludedLibraryFileOverridePrefix,
     excludedInternalFunctionSubstring: instrumentationOptions.excludedInternalFunctionSubstring,
     debug: instrumentationOptions.debug,
-    logPrefix: nativeLogPrefix
+    logPrefix: nativeLogPrefix,
+    coverageMemoryModule: instrumentationOptions.coverageMemoryModule,
+    coverageMemoryName: instrumentationOptions.coverageMemoryName
   };
   const nativeResult: NativeInstrumentationResult = addon.instrumentForCoverage(wasmBuffer, sourceMapBuffer, options);
   const addonTime = performance.now();

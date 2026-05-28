@@ -105,12 +105,11 @@ export async function executeWASMDiscovery(
   const logPrefix = `[${moduleLabel} Exec] ${getTaskLogLabel(base, file)}`;
   
   try {
-    const wasmModule = await WebAssembly.compile(compilation.binary as BufferSource);
     const { testMemory, coverageMemory } = createExecutorMemories(compilation, poolOptions, isBinaryInstrumented);
 
     const importObject = createDiscoveryImports(
       testMemory,
-      wasmModule,
+      compilation.compiledModule,
       file,
       handleLog,
       logPrefix,
@@ -119,7 +118,7 @@ export async function executeWASMDiscovery(
     );
 
     // Instantiate WASM module
-    const instance = new WebAssembly.Instance(wasmModule, importObject);
+    const instance = new WebAssembly.Instance(compilation.compiledModule, importObject);
     const exports = instance.exports as Record<string, unknown>;
 
     // Call _start to run top-level test() and describe()
@@ -188,13 +187,12 @@ export async function executeWASMTest(
     }
   };
 
-  const wasmModule = await WebAssembly.compile(compilation.binary as BufferSource);
   const { testMemory, coverageMemory } = createExecutorMemories(compilation, poolOptions, collectCoverage);
 
   // Create import object with pool-side functions for capturing test execution results
   const { imports, provideFunctionTable } = createTestExecutionImports(
     testMemory,
-    wasmModule,
+    compilation.compiledModule,
     test,
     handleLog,
     logPrefix,
@@ -203,7 +201,7 @@ export async function executeWASMTest(
   );
 
   // Instantiate fresh WASM instance for this test
-  const instance = new WebAssembly.Instance(wasmModule, imports);
+  const instance = new WebAssembly.Instance(compilation.compiledModule, imports);
   const exports = instance.exports as Record<string, unknown>;
 
   // Func table accessable because we're using the AS compiler --exportTable flag

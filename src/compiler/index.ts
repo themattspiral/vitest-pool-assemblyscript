@@ -8,12 +8,14 @@
 import { main as ascMain } from 'assemblyscript/asc';
 import { basename, resolve } from 'node:path';
 import { access, readFile, writeFile, mkdir } from 'node:fs/promises';
+import type { RawSourceMap } from 'source-map';
 
 import type {
-  AssemblyScriptCompilerResult,
   AssemblyScriptCompilerOptions,
   NativeAddonInterface,
-  BinaryDebugInfo
+  BinaryDebugInfo,
+  WASMModuleMemoryRequirements,
+  WASMCompilation
 } from '../types/types.js';
 import { POOL_ERROR_NAMES } from '../types/constants.js';
 import { debug } from '../util/debug.js';
@@ -21,6 +23,7 @@ import { createPoolError } from '../util/pool-errors.js';
 import { clearNativeBuildError, hasNativeBuildError, warnASInstrumentationNotLoaded } from '../util/feature-check.js';
 import { toForwardSlash } from '../util/path-utils.js';
 import { parseSourceMap } from '../wasm-executor/source-maps.js';
+import { getWasmMemoryRequirements } from '../wasm-executor/wasm-memory.js';
 
 let nativeAddon: NativeAddonInterface | undefined;
 try {
@@ -76,7 +79,7 @@ export async function compileAssemblyScript(
   options: AssemblyScriptCompilerOptions,
   logModule: string,
   logLabel: string,
-): Promise<AssemblyScriptCompilerResult> {
+): Promise<WASMCompilation> {
   const compileStart = performance.now();
   const logPrefix = `[${logModule} ASC] ${logLabel}`;
 
@@ -283,22 +286,51 @@ export async function compileAssemblyScript(
     compilationIsInstrumented = true;
   }
 
+  let parsedSourceMap: RawSourceMap;
+  let compiledModule: WebAssembly.Module;
+  let requiredMemory: WASMModuleMemoryRequirements;
+
   try {
-    const parsedSourceMap = parseSourceMap(compilationSourceMap);
-    
-    return {
-      binary: compilationBinary,
-      sourceMap: parsedSourceMap,
-      debugInfo: compilationDebugInfo,
-      isInstrumented: compilationIsInstrumented,
-      compileTiming: performance.now() - compileStart,
-    };
-  } catch (error) {
-    throw createPoolError(
-      POOL_ERROR_NAMES.CompilationError,
-      'Error parsing WASM compilation source map',
-      error,
-      true
+    const s = performance.now();
+    parsedSourceMap = parseSourceMap(compilationSourceMap);
+
+    debug(`${logPrefix} - TIMING compileAssemblyScript - parseSourceMap:`
+      + `${(performance.now() - s).toFixed(2)} ms`
     );
+  } catch (error) {
+    throw createPoolError(POOL_ERROR_NAMES.CompilationError, 'Error parsing WASM compilation source map', error, true);
   }
+  
+  try {
+    const s = performance.now();
+    compiledModule = await WebAssembly.compile(compilationBinary as BufferSource);
+
+    debug(`${logPrefix} - TIMING compileAssemblyScript - WebAssembly.compile:`
+      + `${(performance.now() - s).toFixed(2)} ms`
+    );
+  } catch (error) {
+    throw createPoolError(POOL_ERROR_NAMES.CompilationError, 'Error running WebAssembly.compile on asc-compiled WASM binary', error, true);
+  }
+
+  try {
+    const s = performance.now();
+    requiredMemory = getWasmMemoryRequirements(compilationBinary);
+
+    debug(`${logPrefix} - TIMING compileAssemblyScript - getWasmMemoryRequirements:`
+      + `${(performance.now() - s).toFixed(2)} ms`
+    );
+    debug(`${logPrefix} - Required Memory:`, JSON.stringify(requiredMemory));
+  } catch (error) {
+    throw createPoolError(POOL_ERROR_NAMES.CompilationError, 'Error extracting memory requirements from asc-compiled WASM binary', error, true);
+  }
+
+  return {
+    filePath: filename,
+    sourceMap: parsedSourceMap,
+    debugInfo: compilationDebugInfo,
+    compiledModule,
+    requiredMemory,
+    isInstrumented: compilationIsInstrumented,
+    compileTiming: performance.now() - compileStart,
+  };
 }

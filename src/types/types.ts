@@ -228,20 +228,32 @@ export interface GlobResult {
 // Compilation & Results
 // ============================================================================
 
+export interface WASMCompilation {
+  filePath: string;
+  sourceMap: RawSourceMap;
+  debugInfo?: BinaryDebugInfo;
+  compiledModule: WebAssembly.Module;
+  requiredMemory: WASMModuleMemoryRequirements;
+  isInstrumented: boolean;
+  compileTiming: number;
+}
+
+export interface WASMImportMemoryRequirements {
+  initialPages: number;
+  maximumPages?: number;
+};
+
+export interface WASMModuleMemoryRequirements {
+  testMemory: WASMImportMemoryRequirements;
+  coverageMemory: WASMImportMemoryRequirements;
+}
+
 export interface AssemblyScriptCompilerOptions {
   shouldInstrument: boolean;
   projectRoot: string;
   instrumentationOptions?: InstrumentationOptions;
   stripInline?: boolean;
   extraFlags?: string[];
-}
-
-export interface AssemblyScriptCompilerResult {
-  binary: Uint8Array;
-  sourceMap: RawSourceMap;
-  debugInfo?: BinaryDebugInfo;
-  isInstrumented: boolean;
-  compileTiming: number;
 }
 
 export interface InstrumentationOptions {
@@ -253,8 +265,10 @@ export interface InstrumentationOptions {
   excludedLibraryFileOverridePrefix?: string;
   excludedInternalFunctionSubstring: string;
   coverageMemoryPagesMin: number;
-  coverageMemoryPagesMax: number;
+  coverageMemoryPagesMax?: number;
   debug?: boolean;
+  coverageMemoryModule: string;
+  coverageMemoryName: string;
 }
 
 /**
@@ -667,24 +681,6 @@ export interface TestExecutionEnd extends AssemblyScriptPoolWorkerMessageBase {
 }
 
 export type AssemblyScriptPoolWorkerMessage = TestExecutionStart | TestExecutionEnd | TestFileCompiled;
-
-export interface WASMCompilation {
-  filePath: string;
-  binary: Uint8Array;
-  sourceMap: RawSourceMap;
-  debugInfo?: BinaryDebugInfo;
-  requiredMemory: WASMCompilationMemoryRequirements;
-}
-
-export interface WASMImportMemoryRequirements {
-  initialPages: number;
-  maximumPages?: number;
-};
-
-export interface WASMCompilationMemoryRequirements {
-  testMemory: WASMImportMemoryRequirements;
-  coverageMemory: WASMImportMemoryRequirements;
-}
 
 export interface TestRunRecord {
   test: Test;
