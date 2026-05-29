@@ -13,7 +13,7 @@ import type {
   WASMCompilation,
   WASMExecutorPerfTimings,
 } from '../types/types.js';
-import { AS_POOL_ERROR_WRAPPER_FLAG, POOL_ERROR_NAMES } from '../types/constants.js';
+import { AS_POOL_ERROR_FLAG, POOL_ERROR_NAMES } from '../types/constants.js';
 import { debug, debugOverride } from '../util/debug.js';
 import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
@@ -141,7 +141,7 @@ export async function executeWASMDiscovery(
       );
     } 
 
-    if (error && error[AS_POOL_ERROR_WRAPPER_FLAG]) {
+    if (error && error[AS_POOL_ERROR_FLAG]) {
       throw error;
     } else {
       throw wrapPoolError(
@@ -262,7 +262,7 @@ export async function executeWASMTest(
     let allowStackJS: boolean;
     let applyStackToTestErrorCause: boolean;
 
-    if (error && error[AS_POOL_ERROR_WRAPPER_FLAG]) {
+    if (error && error[AS_POOL_ERROR_FLAG]) {
       const wrapper = error as AssemblyScriptPoolError;
       testError = wrapper.testError;
       stack = wrapper.originalErrorRawStack;

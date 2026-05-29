@@ -6,7 +6,7 @@ import type {
   PoolErrorName,
 } from '../types/types.js';
 import {
-  AS_POOL_ERROR_WRAPPER_FLAG,
+  AS_POOL_ERROR_FLAG,
   POOL_ERROR_NAMES,
   TEST_ERROR_NAMES
 } from '../types/constants.js';
@@ -15,7 +15,7 @@ import { extractCallStack } from '../wasm-executor/source-maps.js';
 
 export function abortWASMExecutionOnSuccess(): AssemblyScriptPoolError {
   return {
-    [AS_POOL_ERROR_WRAPPER_FLAG]: true,
+    [AS_POOL_ERROR_FLAG]: true,
     name: POOL_ERROR_NAMES.WASMExecutionAbortSuccess,
     testError: {} as AssemblyScriptTestError,
     originalErrorMayContainJS: false,
@@ -29,7 +29,7 @@ export function abortWASMExecution(
   errorForStack?: Error,
 ): AssemblyScriptPoolError {
   return {
-    [AS_POOL_ERROR_WRAPPER_FLAG]: true,
+    [AS_POOL_ERROR_FLAG]: true,
     name: POOL_ERROR_NAMES.WASMExecutionAbortError,
     testError,
     originalErrorMayContainJS: false,
@@ -66,7 +66,7 @@ export function wrapPoolError(
   };
 
   return {
-    [AS_POOL_ERROR_WRAPPER_FLAG]: true,
+    [AS_POOL_ERROR_FLAG]: true,
     name,
     message: 'Wrapped error',
     originalErrorRawStack,
@@ -104,7 +104,7 @@ export function createPoolError(
   }
 
   return {
-    [AS_POOL_ERROR_WRAPPER_FLAG]: true,
+    [AS_POOL_ERROR_FLAG]: true,
     name,
     message,
     originalErrorRawStack,

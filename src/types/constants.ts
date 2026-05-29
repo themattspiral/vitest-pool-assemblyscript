@@ -11,9 +11,7 @@
 
 export const ASSEMBLYSCRIPT_POOL_NAME = 'assemblyscript' as const;
 
-export const AS_POOL_ERROR_WRAPPER_FLAG = '__as_pool_wrapper__' as const;
-
-export const AS_POOL_ERROR_TYPE_FLAG = '__as_pool__' as const;
+export const AS_POOL_ERROR_FLAG = '__as_pool_error__' as const;
 
 export const AS_POOL_WORKER_MSG_FLAG = '__as_pool__' as const;
 

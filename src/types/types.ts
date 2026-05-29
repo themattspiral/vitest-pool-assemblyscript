@@ -15,7 +15,7 @@ import {
   COVERAGE_PAYLOAD_FORMATS,
   POOL_ERROR_NAMES,
   TEST_ERROR_NAMES,
-  AS_POOL_ERROR_WRAPPER_FLAG,
+  AS_POOL_ERROR_FLAG,
 } from './constants.js';
 
 // ============================================================================
@@ -28,15 +28,8 @@ export type TestErrorName = typeof TEST_ERROR_NAMES[keyof typeof TEST_ERROR_NAME
 /** Error name type derived from POOL_ERROR_NAMES values */
 export type PoolErrorName = typeof POOL_ERROR_NAMES[keyof typeof POOL_ERROR_NAMES];
 
-/**
- * Conforms to Error interface but with required, strictly-typed name field.
- * Thrown internally for all pool errors.
- * 
- * Must be thrown as a POJO (not using the Error() constructor!) to be properly
- * serialized across worker-pool boundery.
- */
 export interface AssemblyScriptPoolError {
-  readonly [AS_POOL_ERROR_WRAPPER_FLAG]: true;
+  readonly [AS_POOL_ERROR_FLAG]: true;
   name: PoolErrorName;
   message?: string;
   originalErrorRawStack: NodeJS.CallSite[];

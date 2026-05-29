@@ -19,7 +19,7 @@ import type {
   WorkerRPC,
 } from '../../types/types.js';
 import {
-  AS_POOL_ERROR_WRAPPER_FLAG,
+  AS_POOL_ERROR_FLAG,
   AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME,
   AS_POOL_WASM_IMPORTS_MODULE_NAME,
   ASSEMBLYSCRIPT_LIB_PREFIX,
@@ -155,7 +155,7 @@ export async function runCompileAndDiscover(
     let allowStackJS: boolean;
     let applyStackToTestErrorCause: boolean;
 
-    if (error && error[AS_POOL_ERROR_WRAPPER_FLAG]) {
+    if (error && error[AS_POOL_ERROR_FLAG]) {
       const wrapper = error as AssemblyScriptPoolError;
       testError = wrapper.testError;
       stack = wrapper.originalErrorRawStack;
@@ -163,7 +163,7 @@ export async function runCompileAndDiscover(
       applyStackToTestErrorCause = wrapper.applyStackToTestErrorCause;
     } else if (error instanceof Error) {
       testError = {
-        name: POOL_ERROR_NAMES.WASMExecutionHarnessError,
+        name: POOL_ERROR_NAMES.PoolError,
         message: `${error.name}: ${error.message}`
       };
       stack = extractCallStack(error);
@@ -171,8 +171,8 @@ export async function runCompileAndDiscover(
       applyStackToTestErrorCause = false;
     } else {
       testError = {
-        name: POOL_ERROR_NAMES.WASMExecutionHarnessError,
-        message: `Unexpected WASM compile runner error: ${String(error)}`
+        name: POOL_ERROR_NAMES.PoolError,
+        message: `Unexpected pool compile runner error: ${String(error)}`
       };
       stack = extractCallStack(new Error());
       allowStackJS = true;

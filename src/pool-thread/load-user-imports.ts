@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 import type { WasmImportsFactory } from '../types/types.js';
 import { debug } from '../util/debug.js';
-import { AS_POOL_ERROR_TYPE_FLAG, POOL_ERROR_NAMES } from '../types/constants.js';
+import { POOL_ERROR_NAMES } from '../types/constants.js';
 import { createPoolError } from '../util/pool-errors.js';
 
 export async function loadUserWasmImportsFactory(
@@ -33,10 +33,6 @@ export async function loadUserWasmImportsFactory(
       return createWasmImports;
     }
   } catch (error) {
-    if ((error as any)[AS_POOL_ERROR_TYPE_FLAG]) {
-      throw error;
-    }
-
     const msg = `Could not load user WasmImportsFactory from "${safeUrl}".`
       + ` Ensure that your module path is relative to the project root`
       + ` (location of shallowest vitest config), and that it has a`
