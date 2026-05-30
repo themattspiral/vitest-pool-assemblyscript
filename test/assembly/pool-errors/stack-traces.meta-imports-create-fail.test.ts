@@ -1,5 +1,5 @@
 import { test, expect, describe } from "vitest-pool-assemblyscript/assembly";
-import { runMyUserFunction } from '../../assembly-src/user-import-creation-fail-wrapper.meta';
+import { runMyUserFunction } from '../../assembly-src/user-import-fail-wrapper.meta';
 
 describe("malformed user imports setup", () => {
   test("creation failure [should fail]", () => {

@@ -9,9 +9,7 @@ import type { SerializedDiffOptions } from '@vitest/utils/diff';
 import type {
   AssemblyScriptConsoleLog,
   AssemblyScriptConsoleLogHandler,
-  AssemblyScriptPoolError,
   AssemblyScriptSuiteTaskMeta,
-  AssemblyScriptTestError,
   AssemblyScriptTestTaskMeta,
   ResolvedAssemblyScriptPoolOptions,
   TestExecutionEnd,
@@ -21,7 +19,7 @@ import type {
   WASMCompilation,
   WorkerRPC,
 } from '../../types/types.js';
-import { AS_POOL_ERROR_FLAG, AS_POOL_WORKER_MSG_FLAG, POOL_ERROR_NAMES } from '../../types/constants.js';
+import { AS_POOL_WORKER_MSG_FLAG } from '../../types/constants.js';
 import { executeWASMTest } from '../../wasm-executor/index.js';
 import { debug } from '../../util/debug.js';
 import {
@@ -50,8 +48,7 @@ import {
 } from '../../util/vitest-tasks.js';
 import { mergeCoverageData } from '../../coverage-provider/coverage-merge.js';
 import { failFile } from '../../util/vitest-file-tasks.js';
-import { extractCallStack } from '../../wasm-executor/source-maps.js';
-import { enhanceTestError } from '../../wasm-executor/wasm-errors.js';
+import { buildEnhancedFileError } from '../../util/pool-errors.js';
 
 async function bailIfNeeded(
   rpc: WorkerRPC,
@@ -359,44 +356,13 @@ export async function runSuite(
     // times out later and the file worker thread gets re-launched
     finalizeSuiteResult(suite);
   } catch (error: any) {
-    let testError: AssemblyScriptTestError;
-    let stack: NodeJS.CallSite[];
-    let allowStackJS: boolean;
-    let applyStackToTestErrorCause: boolean;
-
-    if (error && error[AS_POOL_ERROR_FLAG]) {
-      const wrapper = error as AssemblyScriptPoolError;
-      testError = wrapper.testError;
-      stack = wrapper.originalErrorRawStack;
-      allowStackJS = wrapper.originalErrorMayContainJS;
-      applyStackToTestErrorCause = wrapper.applyStackToTestErrorCause;
-    } else if (error instanceof Error) {
-      testError = {
-        name: POOL_ERROR_NAMES.PoolError,
-        message: `${error.name}: ${error.message}`
-      };
-      stack = extractCallStack(error);
-      allowStackJS = true;
-      applyStackToTestErrorCause = false;
-    } else {
-      testError = {
-        name: POOL_ERROR_NAMES.PoolError,
-        message: `Unexpected pool test runner error: ${String(error)}`
-      };
-      stack = extractCallStack(new Error());
-      allowStackJS = true;
-      applyStackToTestErrorCause = false;
-    }
-
-    await enhanceTestError(
-      testError,
+    const testError = await buildEnhancedFileError(
+      error,
       suite.file,
-      compilation?.sourceMap ?? '',
+      compilation.sourceMap,
       suiteLogPrefix,
-      allowStackJS,
       projectRoot,
-      applyStackToTestErrorCause,
-      stack,
+      'test runner',
       diffOptions
     );
 

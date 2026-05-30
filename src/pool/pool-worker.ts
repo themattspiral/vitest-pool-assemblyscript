@@ -88,15 +88,9 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     this.listenerRegistry = new Map<string, Set<EventCallback>>();
 
     setImmediate(async () => {
-      const userImportsFactoryPath = resolve(
-        this.poolOptions.project.config.root,
-        this.asPoolOptions.wasmImportsFactory ?? ''
-      );
-
       const results = await Promise.allSettled([
         access(COMPILE_WORKER_PATH),
-        access(TEST_WORKER_PATH),
-        this.asPoolOptions.wasmImportsFactory ? access(userImportsFactoryPath) : Promise.resolve()
+        access(TEST_WORKER_PATH)
       ]);
 
       const failedThreadAccess: string[] = [];
@@ -105,12 +99,6 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
 
       if (failedThreadAccess.length) {
         throw new Error(`Cannot access worker thread file(s) at path(s): ${failedThreadAccess}`);
-      }
-      if (results[2].status === 'rejected') {
-        throw new Error(`Cannot access user WasmImportsFactory at path: "${userImportsFactoryPath}".`
-          + ` Ensure that your module path is relative to the vitest project root (location of shallowest vitest config),`
-          + ` and that it has a default export matching () => WebAssembly.Imports`
-        );
       }
     });
     

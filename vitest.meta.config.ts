@@ -62,13 +62,24 @@ export default defineConfig({
         }
       }),
       
-      // AS Meta Alt Config - user import failure
+      // AS Meta Alt Config - user import creation failure
       defineProject({
         test: {
-          name: { label: 'as-pool-meta-imports-fail', color: 'yellow' },
-          include: ['test/assembly/**/*.meta-imports-fail.test.ts'],
+          name: { label: 'as-pool-meta-imports-create-fail', color: 'yellow' },
+          include: ['test/assembly/**/*.meta-imports-create-fail.test.ts'],
           pool: createAssemblyScriptPool({
             wasmImportsFactory: 'test/helpers/failing-create-user-imports.js',
+          }),
+        }
+      }),
+      
+      // AS Meta Alt Config - user import load failure
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-imports-load-fail', color: 'yellow' },
+          include: ['test/assembly/**/*.meta-imports-load-fail.test.ts'],
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: 'this/path/does_not_exist.js',
           }),
         }
       }),

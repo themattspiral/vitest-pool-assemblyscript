@@ -13,8 +13,8 @@ import type { Test, Suite } from '@vitest/runner/types';
 import { type RawSourceMap, SourceMapConsumer } from 'source-map';
 
 import type { AssemblyScriptTestError, WebAssemblyCallSite } from '../types/types.js';
-import { debug } from '../util/debug.js';
 import { POOL_INTERNAL_PATHS, TEST_ERROR_NAMES } from '../types/constants.js';
+import { debug } from '../util/debug.js';
 import { createWebAssemblyCallSite } from './source-maps.js';
 import { getShortFunctionName } from './wasm-names.js';
 import {
@@ -141,7 +141,7 @@ export async function enhanceTestError(
     return;
   }
 
-  const testErrorToUpdate: AssemblyScriptTestError =  applyStackToTestErrorCause && testError.cause
+  const testErrorToUpdate: AssemblyScriptTestError = applyStackToTestErrorCause && testError.cause
     ? testError.cause as AssemblyScriptTestError : testError;
 
   // map stack call sites from WASM locations to source locations
@@ -155,7 +155,7 @@ export async function enhanceTestError(
     const primaryStackFrame = parsedStack[0]!;
     
     // Test error is set to rest of the stack without the first frame.
-    // Vitest will report the ParsedError[] on TestError.stacks below the diff we set.
+    // Vitest will report the ParsedStack[] on TestError.stacks below the diff we set.
     testErrorToUpdate.stacks = parsedStack.slice(1);
 
     try {

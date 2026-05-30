@@ -9,18 +9,19 @@ import type {
   ProcessPoolRunFileTask,
   TestFileCompiled,
   ThreadImports,
+  WASMCompilation,
   WasmImportsFactory,
   WorkerThreadInitData
 } from '../types/types.js';
 import { AS_POOL_WORKER_MSG_FLAG } from '../types/constants.js';
 import { debug, setGlobalDebugMode } from '../util/debug.js';
-import { createRpcClient, flushRpcUpdates, reportFileError } from './rpc-reporter.js';
+import { createRpcClient, flushRpcUpdates, reportFileError, reportFileQueued } from './rpc-reporter.js';
 import { runCompileAndDiscover } from './runner/compile-runner.js';
 import { runSuite } from './runner/test-runner.js';
 import { loadUserWasmImportsFactory } from './load-user-imports.js';
 import { isNodeVersionSupportedForCoverage } from '../util/feature-check.js';
-import { getTestErrorFromAnyError } from '../util/pool-errors.js';
 import { failFile } from '../util/vitest-file-tasks.js';
+import { buildEnhancedFileError } from '../util/pool-errors.js';
 
 const logModule = `WorkerThread` as const;
 const [_unused, initData] = workerData;
@@ -36,11 +37,14 @@ export async function runTestFile(taskData: ProcessPoolRunFileTask): Promise<voi
   const dispatchToInit = Date.now() - dispatchStart;
   const logModuleWithId = `${logModule} ${workerId} (t ${threadId})`;
   const mode = isCollectTestsMode ? 'collectTests' : 'runTests';
+  const diffOptions = typeof config.diff === 'object' ? config.diff : undefined;
   
   setGlobalDebugMode(asPoolOptions.debug);
 
   const rpc = createRpcClient(port);
   port.unref();
+
+  let compilation: WASMCompilation | undefined;
 
   try {
     debug(`[${logModuleWithId}] -------- ${mode} starting -------- | dispatchToInit: ${dispatchToInit.toFixed(2)}ms`);
@@ -52,7 +56,7 @@ export async function runTestFile(taskData: ProcessPoolRunFileTask): Promise<voi
       logModuleWithId
     );
 
-    const compilation = timedOutCompilation ?? await runCompileAndDiscover(
+    compilation = timedOutCompilation ?? await runCompileAndDiscover(
       file,
       logModuleWithId,
       rpc,
@@ -61,7 +65,7 @@ export async function runTestFile(taskData: ProcessPoolRunFileTask): Promise<voi
       config.coverage.enabled && COVERAGE_SUPPORTED,
       asCoverageOptions.globbedAssemblyScriptProjectRelativeExcludeOnly ?? [],
       { createUserWasmImports } satisfies ThreadImports, 
-      typeof config.diff === 'object' ? config.diff : undefined,
+      diffOptions,
       config.testNamePattern,
       config.allowOnly,
     );
@@ -91,17 +95,26 @@ export async function runTestFile(taskData: ProcessPoolRunFileTask): Promise<voi
         'v3',
         config.root,
         config.bail,
-        typeof config.diff === 'object' ? config.diff : undefined,
+        diffOptions,
         timedOutTest,
       );
     } else {
       debug(`[${logModuleWithId}] Skipping file suite run`);
     }
-  } catch (error) {
-    const testError = getTestErrorFromAnyError(error);
+  } catch (error: any) {
+    const testError = await buildEnhancedFileError(
+      error,
+      file,
+      compilation?.sourceMap,
+      logModuleWithId,
+      config.root,
+      'tinypool thread',
+      diffOptions
+    );
 
     failFile(file, testError, initPerf);
     
+    await reportFileQueued(rpc, file, logModule, logModuleWithId);
     await reportFileError(rpc, file, logModule, logModuleWithId);
     
     debug(`${logModuleWithId} - Reported file error`);

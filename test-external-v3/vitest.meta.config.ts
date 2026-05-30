@@ -39,6 +39,7 @@ export default defineConfig({
     },
 
     projects: [
+      // TS Meta examples (to combine with AS coverage results)
       defineProject({
         test: {
           name: { label: 'ts-pool-meta-example', color: 'blue' },
@@ -49,6 +50,7 @@ export default defineConfig({
         }
       }),
 
+      // AS Meta - Failure conditions, and other external behavior verification (e.g. timeouts, retries)
       defineAssemblyScriptProject({
         test: {
           name: { label: 'as-pool-meta', color: 'yellow' },
@@ -65,11 +67,12 @@ export default defineConfig({
         }
       }),
 
+      // AS Meta Alt Config - user import creation failure
       defineAssemblyScriptProject({
         test: {
-          name: { label: 'as-pool-meta-imports-fail', color: 'yellow' },
+          name: { label: 'as-pool-meta-imports-create-fail', color: 'yellow' },
           include: [
-            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-fail.test.ts'
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-create-fail.test.ts'
           ],
           pool: 'vitest-pool-assemblyscript/v3',
           poolOptions: {
@@ -79,7 +82,24 @@ export default defineConfig({
           },
         }
       }),
+
+      // AS Meta Alt Config - user import load failure
+      defineAssemblyScriptProject({
+        test: {
+          name: { label: 'as-pool-meta-imports-load-fail', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-load-fail.test.ts'
+          ],
+          pool: 'vitest-pool-assemblyscript/v3',
+          poolOptions: {
+            assemblyScript: {
+              wasmImportsFactory: 'this/path/does_not_exist.js',
+            }
+          },
+        }
+      }),
       
+      // AS Meta Alt Config - small test memory limit
       defineAssemblyScriptProject({
         test: {
           name: { label: 'as-pool-meta-small-mem', color: 'yellow' },

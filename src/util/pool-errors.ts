@@ -1,4 +1,6 @@
-import type { Test } from '@vitest/runner/types';
+import type { Suite, Test } from '@vitest/runner/types';
+import type { SerializedDiffOptions } from '@vitest/utils/diff';
+import type { RawSourceMap } from 'source-map';
 
 import type {
   AssemblyScriptPoolError,
@@ -12,6 +14,7 @@ import {
 } from '../types/constants.js';
 import { getYellowString } from './test-error-formatting.js';
 import { extractCallStack } from '../wasm-executor/source-maps.js';
+import { enhanceTestError } from '../wasm-executor/wasm-errors.js';
 
 export function abortWASMExecutionOnSuccess(): AssemblyScriptPoolError {
   return {
@@ -82,6 +85,10 @@ export function createPoolError(
   originalError?: any,
   originalErrorMayContainJS: boolean = true,
 ): AssemblyScriptPoolError {
+  if (originalError && originalError[AS_POOL_ERROR_FLAG]) {
+    return originalError;
+  }
+
   let originalErrorRawStack: NodeJS.CallSite[] = [];
   let applyStackToTestErrorCause: boolean = false;
   const testError: AssemblyScriptTestError = {
@@ -128,17 +135,17 @@ export function createTestTimeoutError(
 }
 
 export function createTestExpectedToFailError(test: Test): AssemblyScriptTestError {
-  const message = `Test is expected to fail, but all assertions passed`;
+  const message = `Test is expected to fail, but all assertion(s) passed`;
   const err: AssemblyScriptTestError = {
     name: TEST_ERROR_NAMES.AssertionError,
     message,
     stack: `${test.id}_${message}`,
-    diff: getYellowString(` Expected to fail, but all assertions passed`)
+    diff: getYellowString(` Expected to fail, but all assertion(s) passed`)
   };
   return err;
 }
 
-export function isAbortErrorString(item: any): boolean {
+function isAbortErrorString(item: any): boolean {
   return item === POOL_ERROR_NAMES.PoolRunAbortedError || item === 'AbortError';
 }
 
@@ -148,20 +155,59 @@ export function isAbortError(error: any): boolean {
     || error?.message === 'Terminating worker thread';
 }
 
-export function getTestErrorFromAnyError(
-  error: any,
-): AssemblyScriptTestError {
-  const message: string = error?.message ?? String(error);
-
-  return {
-    name: error?.name ?? POOL_ERROR_NAMES.PoolError,
-    message,
-    stack: error?.stack ?? message,
-    stacks: error?.stacks,
-    cause: error?.cause ? getTestErrorFromAnyError(error.cause) : undefined
-  };
-}
-
 export function getExpectedMessageOrAny(expectedMsgStr?: string): string {
   return expectedMsgStr ? `"${expectedMsgStr}"` : '<any>';
+}
+
+export async function buildEnhancedFileError(
+  error: any,
+  task: Test | Suite,
+  sourceMap: RawSourceMap | undefined,
+  logPrefix: string,
+  projectRoot: string,
+  unexpectedContext: string,
+  diffOptions?: SerializedDiffOptions,
+): Promise<AssemblyScriptTestError> {
+  let testError: AssemblyScriptTestError;
+  let stack: NodeJS.CallSite[];
+  let applyStackToTestErrorCause: boolean;
+  let allowStackJS: boolean;
+
+  if (error && error[AS_POOL_ERROR_FLAG]) {
+    const wrapper = error as AssemblyScriptPoolError;
+    testError = wrapper.testError;
+    stack = wrapper.originalErrorRawStack;
+    applyStackToTestErrorCause = wrapper.applyStackToTestErrorCause;
+    allowStackJS = wrapper.originalErrorMayContainJS;
+  } else if (error instanceof Error) {
+    testError = {
+      name: POOL_ERROR_NAMES.PoolError,
+      message: `${error.name}: ${error.message}`
+    };
+    stack = extractCallStack(error);
+    allowStackJS = true;
+    applyStackToTestErrorCause = false;
+  } else {
+    testError = {
+      name: POOL_ERROR_NAMES.PoolError,
+      message: `Unexpected error (${unexpectedContext}): ${String(error)}`
+    };
+    stack = extractCallStack(new Error());
+    allowStackJS = true;
+    applyStackToTestErrorCause = false;
+  }
+
+  await enhanceTestError(
+    testError,
+    task,
+    sourceMap,
+    logPrefix,
+    allowStackJS,
+    projectRoot,
+    applyStackToTestErrorCause,
+    stack,
+    diffOptions
+  );
+
+  return testError;
 }

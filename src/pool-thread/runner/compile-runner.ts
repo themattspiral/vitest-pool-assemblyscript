@@ -10,8 +10,6 @@ import type {
   AssemblyScriptCompilerOptions,
   AssemblyScriptConsoleLog,
   AssemblyScriptConsoleLogHandler,
-  AssemblyScriptPoolError,
-  AssemblyScriptTestError,
   InstrumentationOptions,
   ResolvedAssemblyScriptPoolOptions,
   ThreadImports,
@@ -19,13 +17,11 @@ import type {
   WorkerRPC,
 } from '../../types/types.js';
 import {
-  AS_POOL_ERROR_FLAG,
   AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME,
   AS_POOL_WASM_IMPORTS_MODULE_NAME,
   ASSEMBLYSCRIPT_LIB_PREFIX,
   INTERNAL_FUNCTION_NAME_SUBSTRING,
   INTERNAL_PATH_LIB_PREFIX,
-  POOL_ERROR_NAMES,
   POOL_INTERNAL_PATHS,
 } from '../../types/constants.js';
 import { executeWASMDiscovery } from '../../wasm-executor/index.js';
@@ -45,8 +41,7 @@ import {
   getFullTaskHierarchy,
   prepareFileTaskForCollection,
 } from '../../util/vitest-file-tasks.js';
-import { extractCallStack } from '../../wasm-executor/source-maps.js';
-import { enhanceTestError } from '../../wasm-executor/wasm-errors.js';
+import { buildEnhancedFileError } from '../../util/pool-errors.js';
 
 let threadCompilationCount: number = 0;
 
@@ -69,11 +64,14 @@ export async function runCompileAndDiscover(
 
   debug(`${fileLogPrefix} - Beginning runCompileAndDiscover for "${file.filepath}" at ${Date.now()}`);
 
-  const runStartPerf = performance.now();
   let compilation: WASMCompilation | undefined;
+  let reportedQueued: boolean = false;
+  
+  const runStartPerf = performance.now();
 
   try {
     await reportFileQueued(rpc, file, logModule, fileLogLabel);
+    reportedQueued = true;
 
     const relativeTestFilePath = toForwardSlash(relative(projectRoot, file.filepath));
     const instrumentationOptions: InstrumentationOptions = {
@@ -149,50 +147,22 @@ export async function runCompileAndDiscover(
 
     const totalTime = performance.now() - runStartPerf;
     debug(`${fileLogPrefix} - TIMING Compilation and Discovery: ${totalTime.toFixed(2)} ms`);
-  } catch (error: any) {
-    let testError: AssemblyScriptTestError;
-    let stack: NodeJS.CallSite[];
-    let allowStackJS: boolean;
-    let applyStackToTestErrorCause: boolean;
-
-    if (error && error[AS_POOL_ERROR_FLAG]) {
-      const wrapper = error as AssemblyScriptPoolError;
-      testError = wrapper.testError;
-      stack = wrapper.originalErrorRawStack;
-      allowStackJS = wrapper.originalErrorMayContainJS;
-      applyStackToTestErrorCause = wrapper.applyStackToTestErrorCause;
-    } else if (error instanceof Error) {
-      testError = {
-        name: POOL_ERROR_NAMES.PoolError,
-        message: `${error.name}: ${error.message}`
-      };
-      stack = extractCallStack(error);
-      allowStackJS = true;
-      applyStackToTestErrorCause = false;
-    } else {
-      testError = {
-        name: POOL_ERROR_NAMES.PoolError,
-        message: `Unexpected pool compile runner error: ${String(error)}`
-      };
-      stack = extractCallStack(new Error());
-      allowStackJS = true;
-      applyStackToTestErrorCause = false;
-    }
-
-    await enhanceTestError(
-      testError,
+  } catch (error) {
+    const testError = await buildEnhancedFileError(
+      error,
       file,
       compilation?.sourceMap,
       fileLogPrefix,
-      allowStackJS,
       projectRoot,
-      applyStackToTestErrorCause,
-      stack,
+      'compile runner',
       diffOptions
     );
 
     failFile(file, testError, runStartPerf);
 
+    if (!reportedQueued) {
+      await reportFileQueued(rpc, file, logModule, fileLogLabel);
+    }
     await reportFileError(rpc, file, logModule, fileLogLabel);
 
     debug(`${fileLogPrefix} - runCompileAndDiscover - Reported file error:`, testError);

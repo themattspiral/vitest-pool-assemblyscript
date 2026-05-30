@@ -390,7 +390,7 @@ describe('stack trace source mapping verification', () => {
   });
 
   describe("malformed user imports setup", () => {
-    const fixture = `pool-errors/stack-traces.meta-imports-fail.test.ts`;
+    const fixture = `pool-errors/stack-traces.meta-imports-create-fail.test.ts`;
     const fixturePath = `${TEST_FILE_PREFIX}test/assembly/${fixture}`;
     
     // Import errors are file-level failures. the FAIL header repeats the
@@ -410,6 +410,24 @@ describe('stack trace source mapping verification', () => {
       expect(frames[0]).toBe(
         ` ❯ createWasmImports ${TEST_FILE_PREFIX}test/helpers/failing-create-user-imports.js:8:12`
       );
+    });
+  });
+  
+  describe("nonexistent user imports setup", () => {
+    const fixture = `pool-errors/stack-traces.meta-imports-load-fail.test.ts`;
+    const fixturePath = `${TEST_FILE_PREFIX}test/assembly/${fixture}`;
+    
+    // Import errors are file-level failures. the FAIL header repeats the
+    // file path with a bracketed suffix: "filepath [ filepath ]"
+    const errorBlockKey = `${fixturePath} [ ${fixturePath} ]`;
+
+    test("load failure", () => {
+      const file = requireTestFile(metaRunResults, fixture);
+      expect(file.status).toBe('failed');
+
+      const block = requireErrorBlock(parsedCli, errorBlockKey);
+      expect(block).toContain('WASMUserImportsError: Could not load user WasmImportsFactory');
+      expect(block).toContain('Caused by: Error: Cannot find module');
     });
   });
   

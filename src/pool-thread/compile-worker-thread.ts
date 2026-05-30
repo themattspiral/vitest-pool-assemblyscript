@@ -16,8 +16,8 @@ import { debug, setGlobalDebugMode } from '../util/debug.js';
 import { createRpcClient, flushRpcUpdates, reportFileError, reportFileQueued } from './rpc-reporter.js';
 import { isNodeVersionSupportedForCoverage } from '../util/feature-check.js';
 import { loadUserWasmImportsFactory } from './load-user-imports.js';
-import { getTestErrorFromAnyError } from '../util/pool-errors.js';
 import { failFile } from '../util/vitest-file-tasks.js';
+import { buildEnhancedFileError } from '../util/pool-errors.js';
 
 const logModule = `WorkerThread` as const;
 const [_unused, initData] = workerData;
@@ -36,6 +36,7 @@ export async function runCompileAndDiscoverSpec(data: RunCompileAndDiscoverTask)
   port.unref();
 
   let compilation: WASMCompilation | undefined;
+  const diffOptions = typeof config.diff === 'object' ? config.diff : undefined;
 
   try {
     debug(`[${logModuleWithId}] -------- compile and discover starting -------- | dispatchToInit: ${dispatchToInit.toFixed(2)}ms`);
@@ -57,12 +58,20 @@ export async function runCompileAndDiscoverSpec(data: RunCompileAndDiscoverTask)
       config.coverage.enabled && COVERAGE_SUPPORTED,
       asCoverageOptions.globbedAssemblyScriptProjectRelativeExcludeOnly ?? [],
       { createUserWasmImports } satisfies ThreadImports,
-      typeof config.diff === 'object' ? config.diff : undefined,
+      diffOptions,
       config.testNamePattern,
       config.allowOnly,
     );
-  } catch (error) {
-    const testError = getTestErrorFromAnyError(error);
+  } catch (error: any) {
+    const testError = await buildEnhancedFileError(
+      error,
+      file,
+      compilation?.sourceMap,
+      logModuleWithId,
+      config.root,
+      'compile worker thread',
+      diffOptions
+    );
 
     failFile(file, testError, initPerf);
     

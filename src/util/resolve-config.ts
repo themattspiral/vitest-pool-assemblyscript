@@ -9,10 +9,10 @@ import type {
   ResolvedAssemblyScriptPoolOptions,
   ResolvedHybridProviderOptions,
   SerializedConfigCompat,
+  AssemblyScriptTestError,
 } from '../types/types.js';
 import { AS_POOL_FIELDS_WITH_DEFAULTS } from '../types/types.js';
 import { ASSEMBLYSCRIPT_POOL_NAME, POOL_ERROR_NAMES } from '../types/constants.js';
-import { createPoolError } from '../util/pool-errors.js';
 
 const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOptions, ASPoolOptionsFieldsWithDefaultValues>> = {
   debug: false,
@@ -23,6 +23,13 @@ const DEFAULT_ASSEMBLYSCRIPT_POOL_OTIONS: Required<Pick<AssemblyScriptPoolOption
   maxThreadsV3: availableParallelism() - 1,
   extraCompilerFlags: [],
 } as const;
+
+function createPoolConfigError(message: string): AssemblyScriptTestError {
+  return {
+    name: POOL_ERROR_NAMES.PoolConfigError,
+    message
+  };
+}
 
 // v4: used in runner init to parse user-provided param directly
 export function resolvePoolOptions(userPoolOptions?: any): ResolvedAssemblyScriptPoolOptions {
@@ -41,9 +48,8 @@ export function resolvePoolOptions(userPoolOptions?: any): ResolvedAssemblyScrip
     (resolved.testMemoryPagesInitial !== undefined && resolved.testMemoryPagesInitial < 1)
     || (resolved.testMemoryPagesMax !== undefined && resolved.testMemoryPagesMax < 1)
   ) {
-    throw createPoolError(
-      POOL_ERROR_NAMES.PoolConfigError,
-      `Test memory page size options must be positive - testMemoryPagesMin: ${resolved.testMemoryPagesInitial}`
+    throw createPoolConfigError(
+      `AssemblyScript WASM test memory page size options must be positive if defined - testMemoryPagesMin: ${resolved.testMemoryPagesInitial}`
         + ` | testMemoryPagesMax: ${resolved.testMemoryPagesMax}`,
     );
   }
@@ -52,9 +58,8 @@ export function resolvePoolOptions(userPoolOptions?: any): ResolvedAssemblyScrip
     (resolved.coverageMemoryPagesInitial !== undefined && resolved.coverageMemoryPagesInitial < 1)
     || (resolved.coverageMemoryPagesMax !== undefined && resolved.coverageMemoryPagesMax < 1)
   ) {
-    throw createPoolError(
-      POOL_ERROR_NAMES.PoolConfigError,
-      `Coverage memory page size options must be positive - coverageMemoryPagesMin: ${resolved.coverageMemoryPagesInitial}`
+    throw createPoolConfigError(
+      `AssemblyScript WASM coverage memory page size options must be positive if defined - coverageMemoryPagesMin: ${resolved.coverageMemoryPagesInitial}`
         + ` | coverageMemoryPagesMax: ${resolved.coverageMemoryPagesMax}`,
     );
   }

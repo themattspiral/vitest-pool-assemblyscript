@@ -2,8 +2,8 @@ import { stripVTControlCharacters } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import type { RawSourceMap } from 'source-map';
-import c from 'tinyrainbow';
 import type { ParsedStack } from '@vitest/utils';
+import c from 'tinyrainbow';
 
 import { highlightCode } from './highlight-code.js';
 

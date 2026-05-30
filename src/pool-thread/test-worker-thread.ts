@@ -4,14 +4,18 @@
 import { basename } from 'node:path';
 import { threadId } from 'node:worker_threads';
 
-import type { RunTestsTask, ThreadImports, WasmImportsFactory } from '../types/types.js';
+import type {
+  RunTestsTask,
+  ThreadImports,
+  WasmImportsFactory
+} from '../types/types.js';
 import { debug, setGlobalDebugMode } from '../util/debug.js';
 import { createRpcClient, flushRpcUpdates, reportFileError } from './rpc-reporter.js';
 import { runSuite } from './runner/test-runner.js';
 import { loadUserWasmImportsFactory } from './load-user-imports.js';
 import { isNodeVersionSupportedForCoverage } from '../util/feature-check.js';
-import { getTestErrorFromAnyError } from '../util/pool-errors.js';
 import { failFile } from '../util/vitest-file-tasks.js';
+import { buildEnhancedFileError } from '../util/pool-errors.js';
 
 const logModule = `WorkerThread` as const;
 const COVERAGE_SUPPORTED = isNodeVersionSupportedForCoverage();
@@ -31,6 +35,7 @@ export async function runFileSpec(data: RunTestsTask): Promise<void> {
   port.unref();
 
   const mode = isCollectTestsMode ? 'collectTests' : 'runTests';
+  const diffOptions = typeof config.diff === 'object' ? config.diff : undefined;
 
   debug(`[${logModuleWithId}] -------- ${mode} starting -------- | dispatchToInit: ${dispatchToInit.toFixed(2)}ms`);
   debug(`[${logModuleWithId}] projectName: "${config.name}" | file: "${file.filepath}"`);
@@ -57,11 +62,19 @@ export async function runFileSpec(data: RunTestsTask): Promise<void> {
       'v4',
       config.root,
       config.bail,
-      typeof config.diff === 'object' ? config.diff : undefined,
+      diffOptions,
       timedOutTest,
     );
-  } catch (error) {
-    const testError = getTestErrorFromAnyError(error);
+  } catch (error: any) {
+    const testError = await buildEnhancedFileError(
+      error,
+      file,
+      compilation.sourceMap,
+      logModuleWithId,
+      config.root,
+      'test worker thread',
+      diffOptions
+    );
     
     failFile(file, testError, initPerf);
 

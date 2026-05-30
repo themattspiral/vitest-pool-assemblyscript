@@ -26,19 +26,19 @@ export async function loadUserWasmImportsFactory(
     if (typeof createWasmImports !== 'function') {
       const msg = `Could not load user WasmImportsFactory from "${safeUrl}".`
         + ` Ensure that your module has a default export matching () => WebAssembly.Imports`
-        + ` \nImported: "${typeof createWasmImports}": ${String(createWasmImports)}`;
+        + ` \nDefault export type is currently "${typeof createWasmImports}"`;
       
-      throw createPoolError(POOL_ERROR_NAMES.WASMExecutionHarnessError, msg);
+      throw createPoolError(POOL_ERROR_NAMES.WASMUserImportsError, msg);
     } else {
       return createWasmImports;
     }
   } catch (error) {
     const msg = `Could not load user WasmImportsFactory from "${safeUrl}".`
-      + ` Ensure that your module path is relative to the project root`
-      + ` (location of shallowest vitest config), and that it has a`
-      + ` default export matching () => WebAssembly.Imports`;
+    + ` Ensure that your module path is relative to the project root`
+    + ` (location of shallowest vitest config), and that it has a`
+    + ` default export matching () => WebAssembly.Imports`;
     throw createPoolError(
-      POOL_ERROR_NAMES.WASMExecutionHarnessError,
+      POOL_ERROR_NAMES.WASMUserImportsError,
       msg,
       error,
       true

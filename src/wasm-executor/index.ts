@@ -22,9 +22,11 @@ import { createPoolError, wrapPoolError } from '../util/pool-errors.js';
 import { failTestRuntimeError, getTaskLogLabel } from '../util/vitest-tasks.js';
 import { extractCallStack } from './source-maps.js';
 
-const SIG_MISMATCH_ERROR_MSG = `WASM RuntimeError indicates function signature type mismatch during test suite collection.`
-  + ` This is likely caused by passing a non-void callback to expect().`
-  + ` Use braces to ensure it returns void  e.g. \`expect(() => { failingFunction(); }).toThrowError()\`.`
+const SIG_MISMATCH_ERROR_MSG = `WASM function signature type mismatch during test collection.`
+  + ` This is most likely caused by passing a type-inferred, non-void callback to expect().`
+  + ` To fix, either explicitly define the non-void return type on the callback`
+  + `  e.g. \`expect((): i32 => failingFunction()).toThrowError()\``
+  + ` or use braces to make it void  e.g. \`expect(() => { failingFunction(); }).toThrowError()\`.`
   + ` Look for the failing expect() within the describe() block indicated in the stack trace.`;
 
 function verifyMemoryRequirements(
