@@ -5,7 +5,7 @@
 import { test, expect } from "vitest-pool-assemblyscript/assembly";
 import { addInlined, addNormal, multiplyWithInternalInlining, multiplyNormal, callsInlinedAdd } from "../../assembly-src/inline-utils";
 
-test("inline functions are called", (): void => {
+test("inline functions are called", () => {
   const sum1: i32 = addInlined(2, 3);
   expect(sum1).toBe(5);
 

@@ -11,7 +11,12 @@ import {
   InequalityOperation,
   truthyOrFalsey,
 } from './compare';
-import { isNull, nan, stringifyValue } from './utils';
+import {
+  isNull,
+  nan,
+  stringifyValue,
+  STRINGIFY_SHORT_FORM_BUDGET
+} from './utils';
 
 // @external functions are imported to the WASM execution environment from pool code
 
@@ -23,10 +28,11 @@ declare function __assertion_pass(): void;
 @external("__as_pool_env__", "__assertion_fail")
 declare function __assertion_fail<T>(
   msg: string,
-  typeName: string,
+  actualTypeName: string,
+  expectedTypeName: string,
   valuesProvided: bool,
-  actual?: T,
-  expected?: T
+  actual?: string,
+  expected?: string
 ): void;
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
@@ -306,6 +312,7 @@ abstract class BaseExpectMatcher<T> {
     equalsRtmNamesClear();
     const result = equals(this.actual, val);
     const path = equalsPathString();
+    // @ts-ignore: global
     const isRtm = result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
 
     let suffix = "";
@@ -316,6 +323,7 @@ abstract class BaseExpectMatcher<T> {
       suffix = " (differs at " + path + ")";
     }
 
+    // @ts-ignore: global
     this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to deeply equal", true, true, suffix, isRtm);
   }
   
@@ -340,6 +348,7 @@ abstract class BaseExpectMatcher<T> {
     equalsRtmNamesClear();
     const result = equals(this.actual, val);
     const path = equalsPathString();
+    // @ts-ignore: global
     const isRtm = result == __vitest_assemblyscript_EqualityResult.RuntimeTypeMismatch;
 
     let suffix = "";
@@ -350,6 +359,7 @@ abstract class BaseExpectMatcher<T> {
       suffix = " (differs at " + path + ")";
     }
 
+    // @ts-ignore: global
     this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to strictly equal", true, true, suffix, isRtm);
   }
 
@@ -459,10 +469,10 @@ abstract class BaseExpectMatcher<T> {
         const nonNullActual = <NonNullable<T>>this.actual;
 
         if (isFloat<U>()) {
-          // @ts-ignore: .length is i32; use closeTo for float comparison
+          // @ts-ignore: TS doesn't know that nonNullActual is still array-like
           this.assertComparison<i32, U>(closeTo<i32, U>(nonNullActual.length, length), nonNullActual.length, length, "to have length", true);
         } else {
-          // @ts-ignore: .length is i32; compare as integers
+          // @ts-ignore: TS doesn't know that nonNullActual is still array-like
           this.assertComparison<i32, U>(identical<i32, U>(nonNullActual.length, length), nonNullActual.length, length, "to have length", true);
         }
       } else {
@@ -486,31 +496,39 @@ abstract class BaseExpectMatcher<T> {
       __assertion_pass();
     } else {
       const notStr = this.isInverted ? "not " : "";
-      // For runtime type mismatches, show the top-level type name only — the mismatched
-      // types in the suffix are the useful information, not field contents of differently-typed
-      // objects. Uses __vitest_assemblyscript_typename (virtual dispatch gives runtime name)
-      // with nameof fallback for types without injection (containers, primitives).
-      // For value mismatches, full stringification shows what values differ.
-      let actualStr: string;
-      let expectedStr: string;
-      if (isRtm) {
-        // @ts-ignore
-        actualStr = isDefined(actual.__vitest_assemblyscript_typename)
-          // @ts-ignore
-          ? (<NonNullable<U>>actual).__vitest_assemblyscript_typename()
-          : nameof<U>();
-        // @ts-ignore
-        expectedStr = isDefined(expected.__vitest_assemblyscript_typename)
-          // @ts-ignore
-          ? (<NonNullable<V>>expected).__vitest_assemblyscript_typename()
-          : nameof<V>();
-      } else {
-        actualStr = stringifyValue(actual);
-        expectedStr = stringifyValue(expected);
-      }
-      const msg = `expected ${actualStr} ${notStr}${methodStr}${printExpected ? ` ${expectedStr}` : ""}${suffix}`;
 
-      __assertion_fail<string>(msg, nameof<U>() + " " + nameof<V>(), provideDiff, actualStr, expectedStr);
+      // Type strings use __vitest_assemblyscript_typename (virtual dispatch gives runtime name)
+      // with `nameof` fallback for types without injection (containers, primitives)
+      // @ts-ignore
+      const actualType: string = isDefined(actual.__vitest_assemblyscript_typename)
+        // @ts-ignore
+        ? (<NonNullable<U>>actual).__vitest_assemblyscript_typename()
+        : nameof<U>();
+      // @ts-ignore
+      const expectedType: string = isDefined(expected.__vitest_assemblyscript_typename)
+        // @ts-ignore
+        ? (<NonNullable<V>>expected).__vitest_assemblyscript_typename()
+        : nameof<V>();
+
+      let actualShort: string = "";
+      let expectedShort: string = "";
+      let actualDiff: string = "";
+      let expectedDiff: string = "";
+      
+      if (isRtm) {
+        // For runtime type mismatches, show the top-level type name only
+        actualShort = actualDiff = actualType;
+        expectedShort = expectedDiff = expectedType;
+      } else {
+        // For value mismatches, stringification shows what values differ
+        actualShort = stringifyValue(actual, false, 0, STRINGIFY_SHORT_FORM_BUDGET);
+        expectedShort = stringifyValue(expected, false, 0, STRINGIFY_SHORT_FORM_BUDGET);
+        actualDiff = stringifyValue(actual, true);
+        expectedDiff = stringifyValue(expected, true);
+      }
+      const msg = `expected ${actualShort} ${notStr}${methodStr}${printExpected ? ` ${expectedShort}` : ""}${suffix}`;
+
+      __assertion_fail<string>(msg, actualType, expectedType, provideDiff, actualDiff, expectedDiff);
   
       // Abort on failure - terminates WASM execution - must be called from WASM.
       // Imported abort handler will handle this and mark the test as failed.

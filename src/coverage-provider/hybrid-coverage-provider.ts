@@ -12,11 +12,9 @@ import type {
   CoverageProvider,
   Vitest,
   ReportContext,
-  CoverageOptions,
   ResolvedCoverageOptions,
-  ResolvedConfig,
 } from 'vitest/node';
-import type { AfterSuiteRunMeta, SerializedConfig } from 'vitest';
+import type { AfterSuiteRunMeta } from 'vitest';
 import v8CoverageModule from '@vitest/coverage-v8';
 import type { CoverageMap } from 'istanbul-lib-coverage';
 import istanbulCoverage from 'istanbul-lib-coverage';
@@ -25,7 +23,6 @@ const { createCoverageMap } = istanbulCoverage;
 import { convertToIstanbulFormat } from './istanbul-converter.js';
 import { parseFunctionsFromFile } from './ast-parser.js';
 import { globFiles } from './glob-utils.js';
-import { getProjectSerializedOrGlobalConfig } from '../util/resolve-config.js';
 import { mergeCoverageData } from './coverage-merge.js';
 import { debug } from '../util/debug.js';
 import { createPoolError } from '../util/pool-errors.js';
@@ -46,14 +43,16 @@ export class HybridCoverageProvider implements CoverageProvider {
 
   private v8Provider: CoverageProvider | undefined;
   private accumulatedCoverageData: CoverageData = { hitCountsByFileAndPosition: {} };
-  private projectConfig: SerializedConfig | ResolvedConfig = {} as SerializedConfig;
-  private coverageOptions: ResolvedHybridProviderOptions = {} as ResolvedHybridProviderOptions;
+  private projectRoot: string = '';
+  private definedCoverageOptions: ResolvedCoverageOptions = {} as ResolvedCoverageOptions;
+  private resolvedProviderOptions: ResolvedHybridProviderOptions = {} as ResolvedHybridProviderOptions;
 
   /**
    * Initialize the provider and get reference to v8 provider
    */
   async initialize(ctx: Vitest): Promise<void> {
-    this.projectConfig = getProjectSerializedOrGlobalConfig(ctx).config;
+    this.projectRoot = ctx.config.root;
+    this.definedCoverageOptions = ctx.config.coverage;
 
     debug('[HybridCoverageProvider] Initializing Provider');
 
@@ -62,8 +61,8 @@ export class HybridCoverageProvider implements CoverageProvider {
 
     if (!this.v8Provider) {
       throw createPoolError(
-        'HybridCoverageProvider - initialize failed to get delegated v8 provider',
-        POOL_ERROR_NAMES.HybridCoverageProviderError
+        POOL_ERROR_NAMES.HybridCoverageProviderError,
+        'initialize failed to get delegated v8 provider',
       );
     }
 
@@ -109,8 +108,8 @@ export class HybridCoverageProvider implements CoverageProvider {
       // Delegate to v8 provider for all other formats (JS, etc.)
       if (!this.v8Provider) {
         throw createPoolError(
-          'HybridCoverageProvider - onAfterSuiteRun failed to delegate to v8 provider',
-          POOL_ERROR_NAMES.HybridCoverageProviderError
+          POOL_ERROR_NAMES.HybridCoverageProviderError,
+          'onAfterSuiteRun failed to delegate to v8 provider',
         );
       }
 
@@ -119,7 +118,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     }
 
     debug(() => {
-      const files = meta.testFiles.map(tf => relative(this.projectConfig.root, tf)).join(',');
+      const files = meta.testFiles.map(tf => relative(this.projectRoot, tf)).join(',');
       return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun complete - TIMING ${(performance.now() - start).toFixed(2)} ms | testFiles: "${files}"`;
     });
   }
@@ -141,16 +140,16 @@ export class HybridCoverageProvider implements CoverageProvider {
 
     if (!this.v8Provider) {
       throw createPoolError(
-        'HybridCoverageProvider - generateCoverage failed to delegate to v8 provider',
-        POOL_ERROR_NAMES.HybridCoverageProviderError
+        POOL_ERROR_NAMES.HybridCoverageProviderError,
+        'generateCoverage failed to delegate to v8 provider',
       );
     }
 
     // Build AS coverage map
     let asCoverageMap = createCoverageMap();
 
-    if (this.coverageOptions.globbedAssemblyScriptInclude?.length > 0) {
-      debug(`[HybridCoverageProvider] Building AS coverage map with ${this.coverageOptions.globbedAssemblyScriptInclude.length} source files `);
+    if (this.resolvedProviderOptions.globbedAssemblyScriptInclude.length > 0) {
+      debug(`[HybridCoverageProvider] Building AS coverage map with ${this.resolvedProviderOptions.globbedAssemblyScriptInclude.length} source files `);
       debug(() => {
         const accumulatedPositionCount = Object.values(this.accumulatedCoverageData.hitCountsByFileAndPosition)
           .reduce((sum, positions) => sum + Object.keys(positions)?.length, 0);
@@ -159,7 +158,7 @@ export class HybridCoverageProvider implements CoverageProvider {
       });
 
       // parse source files with AST parser, then match to hits and convert to istanbul format
-      const fileProcessingPromises = this.coverageOptions.globbedAssemblyScriptInclude.map(async (include: GlobResult) => {
+      const fileProcessingPromises = this.resolvedProviderOptions.globbedAssemblyScriptInclude.map(async (include: GlobResult) => {
         debug(`[HybridCoverageProvider] Parsing AS source for expected coverage: "${include.absolute}"`);
         
         const functionsByStartLine = await parseFunctionsFromFile(include.absolute, include.projectRootRelative) || {};
@@ -169,7 +168,7 @@ export class HybridCoverageProvider implements CoverageProvider {
         debug(`[HybridCoverageProvider] Accumulated AS coverage has ${Object.keys(fileHitCountsByPosition).length} positions for "${include.absolute}"`);
 
         // Containment matching (binary hit position → source) is performed during istanbul conversion
-        return convertToIstanbulFormat(functionsByStartLine, fileHitCountsByPosition, include.absolute, this.coverageOptions.debugIstanbul);
+        return convertToIstanbulFormat(functionsByStartLine, fileHitCountsByPosition, include.absolute, this.resolvedProviderOptions.debugIstanbul);
       });
 
       // Wait for all files to complete
@@ -217,8 +216,8 @@ export class HybridCoverageProvider implements CoverageProvider {
   async reportCoverage(coverageMap: unknown, context: ReportContext): Promise<void> {
     if (!this.v8Provider) {
       throw createPoolError(
-        'HybridCoverageProvider - reportCoverage failed to delegate to v8 provider',
-        POOL_ERROR_NAMES.HybridCoverageProviderError
+        POOL_ERROR_NAMES.HybridCoverageProviderError,
+        'reportCoverage failed to delegate to v8 provider',
       );
     }
 
@@ -232,14 +231,13 @@ export class HybridCoverageProvider implements CoverageProvider {
   resolveOptions(): ResolvedHybridProviderOptions {
     if (!this.v8Provider) {
       throw createPoolError(
-        'HybridCoverageProvider - resolveOptions failed to delegate to v8 provider',
-        POOL_ERROR_NAMES.HybridCoverageProviderError
+        POOL_ERROR_NAMES.HybridCoverageProviderError,
+        'resolveOptions failed to delegate to v8 provider',
       );
     }
     
     debug(`[HybridCoverageProvider] Resolving Coverage Options`);
   
-    const definedCoverageOptions = this.projectConfig.coverage as CoverageOptions;
     const resolvedV8Options = this.v8Provider.resolveOptions() as ResolvedCoverageOptions;
 
     // For some reason the v8 provider builds its `excludes` values to include a null byte.
@@ -250,39 +248,40 @@ export class HybridCoverageProvider implements CoverageProvider {
       exclude: resolvedV8Options.exclude?.map(i => i.replace(/\0/g, '')) || undefined
     };
 
-    debug(`[HybridCoverageProvider] AS include: ${(definedCoverageOptions.assemblyScriptInclude || []).join(', ') || '(none)'}`);
-    debug(`[HybridCoverageProvider] AS exclude: ${(definedCoverageOptions.assemblyScriptExclude || []).join(', ') || '(none)'}`);
+    debug(`[HybridCoverageProvider] AS include: ${(this.definedCoverageOptions.assemblyScriptInclude || []).join(', ') || '(none)'}`);
+    debug(`[HybridCoverageProvider] AS exclude: ${(this.definedCoverageOptions.assemblyScriptExclude || []).join(', ') || '(none)'}`);
     debug(`[HybridCoverageProvider] JS include: ${(sanitizedV8Options.include || []).join(', ') || '(none)'}`);
     debug(`[HybridCoverageProvider] JS exclude: ${(sanitizedV8Options.exclude || []).join(', ') || '(none)'}`);
 
     debug(`[HybridCoverageProvider] Globbing AS source files to include for coverage map basis`);
     const globbedAssemblyScriptInclude = globFiles(
-      definedCoverageOptions.assemblyScriptInclude || [],
-      definedCoverageOptions.assemblyScriptExclude || [],
-      this.projectConfig.root
+      this.definedCoverageOptions.assemblyScriptInclude || [],
+      this.definedCoverageOptions.assemblyScriptExclude || [],
+      this.projectRoot
     );
     debug(`[HybridCoverageProvider] Including ${globbedAssemblyScriptInclude.length} AS files in coverage map`);
     
     const globbedAssemblyScriptExcludeOnly = globFiles(
-      definedCoverageOptions.assemblyScriptExclude || [],
+      this.definedCoverageOptions.assemblyScriptExclude || [],
       [],
-      this.projectConfig.root
+      this.projectRoot
     );
     debug(`[HybridCoverageProvider] Excluding ${globbedAssemblyScriptExcludeOnly.length} AS files from coverage map & instrumentation`);
     
-    const resolvedCoverageOptions: ResolvedHybridProviderOptions = {
+    const resolved: ResolvedHybridProviderOptions = {
       ...resolvedV8Options,
       provider: 'custom',
-      customProviderModule: definedCoverageOptions.customProviderModule || '',
-      debugIstanbul: definedCoverageOptions.debugIstanbul ?? false,
-      assemblyScriptInclude: definedCoverageOptions.assemblyScriptInclude ?? [],
-      assemblyScriptExclude: definedCoverageOptions.assemblyScriptExclude ?? [],
+      customProviderModule: this.definedCoverageOptions.customProviderModule || '',
+      debugIstanbul: this.definedCoverageOptions.debugIstanbul ?? false,
+      assemblyScriptInclude: this.definedCoverageOptions.assemblyScriptInclude ?? [],
+      assemblyScriptExclude: this.definedCoverageOptions.assemblyScriptExclude ?? [],
       globbedAssemblyScriptInclude,
-      globbedAssemblyScriptProjectRelativeExcludeOnly : globbedAssemblyScriptExcludeOnly.map(gr => gr.projectRootRelative)
+      globbedAssemblyScriptProjectRelativeExcludeOnly : globbedAssemblyScriptExcludeOnly.map(gr => gr.projectRootRelative),
+      isResolved: true
     }; 
 
-    this.coverageOptions = resolvedCoverageOptions;
-    return resolvedCoverageOptions;
+    this.resolvedProviderOptions = resolved;
+    return resolved;
   }
 
   async clean(clean: boolean = true): Promise<void> {

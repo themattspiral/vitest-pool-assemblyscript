@@ -49,41 +49,25 @@ describe('timeout scenarios verification', () => {
   });
 
   describe('simple timeout', () => {
-    test('test status is failed', () => {
+    test('test status is failed and message are correct', () => {
       const t = requireTest(file, 'simple timeout [should fail]');
       expect(t.status).toBe('failed');
-    });
-
-    test('error type is WASMExecutionTimeoutError', () => {
+      
       const block = requireErrorBlock(parsedCliOutput, testPath('simple timeout [should fail]'));
-      expect(block).toContain('WASMExecutionTimeoutError');
-    });
-
-    test('error message includes timeout value', () => {
-      const block = requireErrorBlock(parsedCliOutput, testPath('simple timeout [should fail]'));
-      expect(block).toContain('100ms');
+      expect(block).toContain('WASMExecutionTimeoutError: Test timed out after');
+      expect(block).toContain('Test Timeout Exceeded (100ms)');
     });
   });
 
   describe('timeout with retry', () => {
-    test('test status is failed', () => {
+    test('test status is failed with 3 retry attempts (1 initial + 2 retries)', () => {
       const t = requireTest(file, 'timeout with retry [should fail]');
       expect(t.status).toBe('failed');
-    });
-
-    test('retry count: 3 attempts (1 initial + 2 retries)', () => {
-      const t = requireTest(file, 'timeout with retry [should fail]');
       expect(t.failureMessages).toHaveLength(3);
-    });
 
-    test('error type is WASMExecutionTimeoutError', () => {
       const block = requireErrorBlock(parsedCliOutput, testPath('timeout with retry [should fail]'));
-      expect(block).toContain('WASMExecutionTimeoutError');
-    });
-
-    test('error message includes timeout value', () => {
-      const block = requireErrorBlock(parsedCliOutput, testPath('timeout with retry [should fail]'));
-      expect(block).toContain('100ms');
+      expect(block).toContain('WASMExecutionTimeoutError: Test timed out after');
+      expect(block).toContain('Test Timeout Exceeded (100ms)');
     });
   });
 

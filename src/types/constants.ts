@@ -11,11 +11,13 @@
 
 export const ASSEMBLYSCRIPT_POOL_NAME = 'assemblyscript' as const;
 
-export const AS_POOL_ERROR_TYPE_FLAG = '__as_pool__' as const;
+export const AS_POOL_ERROR_FLAG = '__as_pool_error__' as const;
 
 export const AS_POOL_WORKER_MSG_FLAG = '__as_pool__' as const;
 
-export const AS_POOL_WASM_IMPORTS_ENV = '__as_pool_env__' as const;
+export const AS_POOL_WASM_IMPORTS_MODULE_NAME = '__as_pool_env__' as const;
+
+export const AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME = '__coverage_memory' as const;
 
 export const VITEST_WORKER_REQUEST_MSG_FLAG = '__vitest_worker_request__' as const;
 
@@ -53,45 +55,6 @@ export const POOL_INTERNAL_PATHS: string[] = [
   `${INTERNAL_PATH_LIB_PREFIX}test.ts`,
 ] as const;
 
-/** Name of the method injected by the deep-equals compiler transform */
-export const DEEP_EQUALS_INJECTED_METHOD_NAME = '__vitest_assemblyscript_deep_equals' as const;
-
-/**
- * Export alias for pool's equals() function used by injected deep equal method comparison body.
- * Declared with @global in assembly/compare.ts to be available in all source files without import.
- */
-export const COMPARE_EQUALS_EXPORT_ALIAS = '__vitest_assemblyscript_compare_equals' as const;
-
-/**
- * Name of the @global enum in assembly/compare.ts that represents deep equality comparison results.
- * Used in transform-generated code to reference enum members (e.g. EqualityResult.Equal).
- */
-export const EQUALITY_RESULT_ENUM_NAME = '__vitest_assemblyscript_EqualityResult' as const;
-
-/**
- * Global alias for the path push function used by injected deep equality method field comparisons.
- * Declared with @global in assembly/compare.ts to be available in all source files without import.
- */
-export const EQUALS_PATH_PUSH_GLOBAL_ALIAS = '__vitest_assemblyscript_equals_path_push' as const;
-
-/**
- * Global alias for the path pop function used by injected deep equality method field comparisons.
- * Declared with @global in assembly/compare.ts to be available in all source files without import.
- */
-export const EQUALS_PATH_POP_GLOBAL_ALIAS = '__vitest_assemblyscript_equals_path_pop' as const;
-
-/** Name of the method injected by the compiler transform that returns the runtime class name */
-export const TYPENAME_INJECTED_METHOD_NAME = '__vitest_assemblyscript_typename' as const;
-
-/** Name of the method injected by the compiler transform that returns stringified field contents */
-export const STRINGIFY_INJECTED_METHOD_NAME = '__vitest_assemblyscript_stringify' as const;
-
-/**
- * Global alias for the stringifyValue() wrapper used by injected stringify method bodies.
- * Declared with @global in assembly/utils.ts to be available in all source files without import.
- */
-export const STRINGIFY_VALUE_GLOBAL_ALIAS = '__vitest_assemblyscript_stringify_value' as const;
-
 /** Error names for AssemblyScript test failures reported to vitest */
 export const TEST_ERROR_NAMES = {
   /** Assertion evaluated to false within a test function */
@@ -106,7 +69,9 @@ export const POOL_ERROR_NAMES = {
   CompilationError: 'CompilationError',
   /** Native instrumentation and debug info extraction error */
   WASMInstrumentationError: 'WASMInstrumentationError',
-  /** Unexpected WASM execution error (not a known test error path) */
+  /** Error importing/creating user imports for WASM environment */
+  WASMUserImportsError: 'WASMUserImportsError',
+  /** Unexpected WASM execution error */
   WASMExecutionHarnessError: 'WASMExecutionHarnessError',
   /** Hybrid coverage provider error */
   HybridCoverageProviderError: 'HybridCoverageProviderError',
@@ -114,10 +79,10 @@ export const POOL_ERROR_NAMES = {
   PoolReportingError: 'PoolReportingError',
   /** User configuration error */
   PoolConfigError: 'PoolConfigError',
+  /** User syntax error in `test`/`suite`/`expect` */
+  PoolSyntaxError: 'PoolSyntaxError',
   /** Generic AssemblyScript pool error */
   PoolError: 'PoolError',
-  /** User syntax error in test/suite/expect */
-  PoolSyntaxError: 'PoolSyntaxError',
 
   /** Flow Control: Indicates intentional abort */
   PoolRunAbortedError: 'PoolRunAbortedError',
@@ -126,12 +91,69 @@ export const POOL_ERROR_NAMES = {
    * and should be handled by reporting an AssemblyScriptTestError to vitest
    */
   WASMExecutionAbortError: 'WASMExecutionAbortError',
+  WASMExecutionAbortSuccess: 'WASMExecutionAbortSuccess',
   /** Flow Control: Indicates WASM execution halt because test timeout elapsed */
   WASMExecutionTimeoutError: 'WASMExecutionTimeoutError',
 } as const;
 
+
 // ============================================================================
-// AssemblyScript Compiler
+// AssemblyScript Deep Equals & Stringify Transform
+// ============================================================================
+
+/** Name of the method injected by the deep-equals compiler transform */
+export const DEEP_EQUALS_INJECTED_METHOD_NAME = '__vitest_assemblyscript_deep_equals' as const;
+
+/** Name of the method injected by the compiler transform that returns the runtime class name */
+export const TYPENAME_INJECTED_METHOD_NAME = '__vitest_assemblyscript_typename' as const;
+
+/** Name of the method injected by the compiler transform that returns stringified field contents */
+export const STRINGIFY_INJECTED_METHOD_NAME = '__vitest_assemblyscript_stringify' as const;
+
+/**
+ * Name of the @global enum in assembly/compare.ts that represents deep equality comparison results.
+ * Used in transform-generated code to reference enum members (e.g. EqualityResult.Equal).
+ */
+export const EQUALITY_RESULT_ENUM_NAME = '__vitest_assemblyscript_EqualityResult' as const;
+
+/**
+ * Export alias for pool's equals() function used by injected deep equal method comparison body.
+ */
+export const COMPARE_EQUALS_GLOBAL_ALIAS = '__vitest_assemblyscript_compare_equals' as const;
+
+/**
+ * Global alias for the path push function used by injected deep equality method field comparisons.
+ */
+export const COMPARE_EQUALS_PATH_PUSH_GLOBAL_ALIAS = '__vitest_assemblyscript_compare_equals_path_push' as const;
+
+/**
+ * Global alias for the path pop function used by injected deep equality method field comparisons.
+ */
+export const COMPARE_EQUALS_PATH_POP_GLOBAL_ALIAS = '__vitest_assemblyscript_compare_equals_path_pop' as const;
+
+/**
+ * Global alias for the stringifyValue() wrapper used by injected stringify method bodies.
+ */
+export const STRINGIFY_VALUE_GLOBAL_ALIAS = '__vitest_assemblyscript_stringify_value' as const;
+
+/**
+ * Global alias for the escapeToDiffString() wrapper used by injected stringify method bodies.
+ */
+export const ESCAPE_TO_DIFF_STRING_GLOBAL_ALIAS = '__vitest_assemblyscript_escape_to_diff_string' as const;
+
+/**
+ * Global alias for the depth-to-indent helper used by injected stringify method bodies.
+ */
+export const STRINGIFY_INDENT_GLOBAL_ALIAS = '__vitest_assemblyscript_stringify_indent' as const;
+
+/**
+ * Global alias for the short-form budget overflow predicate used by injected stringify method bodies.
+ */
+export const STRINGIFY_EXCEEDS_BUDGET_GLOBAL_ALIAS = '__vitest_assemblyscript_stringify_exceeds_budget' as const;
+
+
+// ============================================================================
+// AssemblyScript Compiler Internals
 // ============================================================================
 
 // Original const enum values defined in assemblyscript.generated.d.ts.

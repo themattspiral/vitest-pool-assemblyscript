@@ -1,19 +1,10 @@
-import { defineAssemblyScriptConfig } from 'vitest-pool-assemblyscript/v3/config';
+import { defineAssemblyScriptConfig, defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/v3/config';
 
 export default defineAssemblyScriptConfig({
   test: {
     globals: false,
     environment: 'node',
     reporters: ['verbose'],
-
-    name: { label: 'as-pool-passing', color: 'green' },
-
-    include: [
-      '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts',
-    ],
-    exclude: [
-      '../vitest-pool-assemblyscript/test/assembly/**/*.meta.test.ts',
-    ],
 
     coverage: {
       enabled: true,
@@ -26,7 +17,7 @@ export default defineAssemblyScriptConfig({
         '../vitest-pool-assemblyscript/test/assembly-src/**/*.ts'
       ],
       assemblyScriptExclude: [
-        '../vitest-pool-assemblyscript/test/assembly-src/**/*.meta.ts'
+        '../vitest-pool-assemblyscript/test/assembly-src/**/*.meta*.ts'
       ],
 
       debugIstanbul: false,
@@ -38,16 +29,40 @@ export default defineAssemblyScriptConfig({
       }
     },
 
-    pool: 'vitest-pool-assemblyscript/v3',
-    poolOptions: {
-      assemblyScript: {
-        debug: false,
-        debugNative: false,
-        debugCoverageExtract: false,
-        wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
-        extraCompilerFlags: ['--enable', 'simd'],
-        _instrumentPoolInternals: false,
-      }
-    },
+    projects: [
+      defineAssemblyScriptProject({
+        test: {
+          name: { label: 'as-pool-passing-incremental', color: 'green' },
+          include: [ '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts' ],
+          exclude: [ '../vitest-pool-assemblyscript/test/assembly/**/*.meta*.test.ts' ],
+          pool: 'vitest-pool-assemblyscript/v3',
+          poolOptions: {
+            assemblyScript: {
+              wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
+              extraCompilerFlags: ['--enable', 'simd'],
+            }
+          },
+        }
+      }),
+      
+      // passing tests using the incremental runtime instead of default (stub)
+      defineAssemblyScriptProject({
+        test: {
+          name: { label: 'as-pool-passing', color: 'green' },
+          include: [ '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts' ],
+          exclude: [ '../vitest-pool-assemblyscript/test/assembly/**/*.meta*.test.ts' ],
+          pool: 'vitest-pool-assemblyscript/v3',
+          poolOptions: {
+            assemblyScript: {
+              wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
+              extraCompilerFlags: [
+                '--enable', 'simd',
+                '--runtime', 'incremental'
+              ],
+            }
+          },
+        }
+      })
+    ]
   },
 });

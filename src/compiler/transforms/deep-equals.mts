@@ -16,6 +16,7 @@
  *    - Always stringifies all stored instance fields regardless of operator==/equals()
  *    - Follows super chain via isDefined guard, same pattern as deep equality
  *    - Uses @global bridge __vitest_assemblyscript_stringify_value to call stringifyValue()
+ *    - Threads a `budget` parameter through the generated body for short-form truncation
  *
  * Scoping:
  * - Only user source files (not node_modules, not AS stdlib)
@@ -49,11 +50,14 @@ import { Transform } from 'assemblyscript/transform';
 import { ASTVisitor } from '../../util/ast-visitor.js';
 import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
-  COMPARE_EQUALS_EXPORT_ALIAS,
+  COMPARE_EQUALS_GLOBAL_ALIAS,
   DEEP_EQUALS_INJECTED_METHOD_NAME,
   EQUALITY_RESULT_ENUM_NAME,
-  EQUALS_PATH_POP_GLOBAL_ALIAS,
-  EQUALS_PATH_PUSH_GLOBAL_ALIAS,
+  COMPARE_EQUALS_PATH_POP_GLOBAL_ALIAS,
+  COMPARE_EQUALS_PATH_PUSH_GLOBAL_ALIAS,
+  ESCAPE_TO_DIFF_STRING_GLOBAL_ALIAS,
+  STRINGIFY_EXCEEDS_BUDGET_GLOBAL_ALIAS,
+  STRINGIFY_INDENT_GLOBAL_ALIAS,
   INTERNAL_PATH_LIB_PREFIX,
   STRINGIFY_INJECTED_METHOD_NAME,
   STRINGIFY_VALUE_GLOBAL_ALIAS,
@@ -190,12 +194,9 @@ function injectTypename(
 /**
  * Inject the stringify method into a class.
  *
- * Returns comma-separated "fieldName: value" entries for all stored instance fields.
- * Always stringifies all fields regardless of operator==/equals() — stringify shows
- * full object state, not equality-relevant fields only.
- *
- * Follows the super chain via isDefined guard, same pattern as deep equality.
- * Uses @global bridge __vitest_assemblyscript_stringify_value to call stringifyValue().
+ * Returns "fieldName: value" entries for all stored instance fields, regardless of
+ * operator==/equals() — stringify shows full object state, not equality-relevant
+ * fields only. See generateStringifyBody for how budget is threaded through fields.
  */
 function injectStringify(
   parser: Parser, classDecl: ClassDeclaration,
@@ -205,7 +206,7 @@ function injectStringify(
 
   const methodBody = generateStringifyBody(classDecl);
   const methodSource =
-    `${STRINGIFY_INJECTED_METHOD_NAME}(): string { ${methodBody} }`;
+    `${STRINGIFY_INJECTED_METHOD_NAME}(formatForDiff: bool = true, depth: i32 = 0, budget: i32 = -1): string { ${methodBody} }`;
 
   injectClassMember(parser, classDecl, methodSource, sourcePath);
 }
@@ -337,10 +338,10 @@ function generateStructuralBody(classDecl: ClassDeclaration): string {
   for (const field of fields) {
     const fieldName = field.name.text;
     comparisons.push(
-      `${EQUALS_PATH_PUSH_GLOBAL_ALIAS}(".${fieldName}"); `
-      + `__result = ${COMPARE_EQUALS_EXPORT_ALIAS}(this.${fieldName}, other.${fieldName}); `
+      `${COMPARE_EQUALS_PATH_PUSH_GLOBAL_ALIAS}(".${fieldName}"); `
+      + `__result = ${COMPARE_EQUALS_GLOBAL_ALIAS}(this.${fieldName}, other.${fieldName}); `
       + `if (__result != ${EQ}.Equal) return __result; `
-      + `${EQUALS_PATH_POP_GLOBAL_ALIAS}();`
+      + `${COMPARE_EQUALS_PATH_POP_GLOBAL_ALIAS}();`
     );
   }
 
@@ -348,15 +349,13 @@ function generateStructuralBody(classDecl: ClassDeclaration): string {
 }
 
 /**
- * Generate the stringify body for a class.
- * Produces comma-separated "fieldName: value" entries using the @global stringify bridge.
- * Follows the super chain if the class extends another class.
+ * Generate the stringify body for a class — produces "fieldName: value" entries
+ * (and an atomic super piece, if any) via the global stringify bridge, with each
+ * piece guarded by a shared `truncated` flag so the budget is respected.
  */
 function generateStringifyBody(classDecl: ClassDeclaration): string {
   const fields = getStoredInstanceFields(classDecl);
   const hasSuper = classDecl.extendsType !== null;
-  const SV = STRINGIFY_VALUE_GLOBAL_ALIAS;
-  const SUPER_METHOD = STRINGIFY_INJECTED_METHOD_NAME;
 
   // No fields and no super: return empty string
   if (fields.length === 0 && !hasSuper) {
@@ -364,25 +363,66 @@ function generateStringifyBody(classDecl: ClassDeclaration): string {
   }
 
   const parts: string[] = [];
+  parts.push(`const sep: string = formatForDiff ? ",\\n" : ", ";`);
+  // Field/super lines sit at depth+1; short-form stays single-line so prefix is empty
+  parts.push(`const linePrefix: string = formatForDiff ? ${STRINGIFY_INDENT_GLOBAL_ALIAS}(depth + 1) : "";`);
   parts.push(`let s = "";`);
+  parts.push(`let used: i32 = 0;`);
+  parts.push(`let truncated: bool = false;`);
 
+  // Super is an atomic single piece — keeps at most one truncation marker per nesting level
   if (hasSuper) {
-    parts.push(
-      `if (isDefined(super.${SUPER_METHOD})) { `
-      + `s += super.${SUPER_METHOD}(); `
-      + `if (s != "") s += ", "; `
-      + `}`
-    );
+    const totalIncludingSuper = fields.length + 1;
+    const superTrailingSepLen = fields.length > 0 ? 'sep.length' : '0';
+    parts.push(`if (!truncated) {`);
+    parts.push(`  if (isDefined(super.${STRINGIFY_INJECTED_METHOD_NAME})) {`);
+    // Pass all three args explicitly: AS routes default-arg fills through a @varargs
+    // trampoline that virtually dispatches on `this`, so a partial super call resolves
+    // back to the subclass override and infinitely recurses
+    parts.push(`    const superStr: string = super.${STRINGIFY_INJECTED_METHOD_NAME}(formatForDiff, depth, -1);`);
+    parts.push(`    if (superStr != "") {`);
+    parts.push(`      const truncMarker: string = budget >= 0 ? "…(${totalIncludingSuper})" : "";`);
+    parts.push(`      const trailingSepLen: i32 = ${superTrailingSepLen};`);
+    parts.push(`      if (${STRINGIFY_EXCEEDS_BUDGET_GLOBAL_ALIAS}(used, superStr.length, trailingSepLen, truncMarker.length, budget)) {`);
+    parts.push(`        s += truncMarker;`);
+    parts.push(`        truncated = true;`);
+    parts.push(`      } else {`);
+    parts.push(`        s += superStr;`);
+    parts.push(`        used += superStr.length;`);
+    if (fields.length > 0) {
+      parts.push(`        s += sep;`);
+      parts.push(`        used += sep.length;`);
+    }
+    parts.push(`      }`);
+    parts.push(`    }`);
+    parts.push(`  }`);
+    parts.push(`}`);
   }
 
-  let firstField = true;
-  for (const field of fields) {
-    const fieldName = field.name.text;
-    if (!firstField) {
-      parts.push(`s += ", ";`);
+  // Each field is guarded by `truncated`; values sit one level deeper (depth + 1)
+  for (let i = 0; i < fields.length; i++) {
+    const field = fields[i];
+    const fieldName = field?.name?.text;
+    const isLast = i === fields.length - 1;
+    const remainingPieces = fields.length - i; // includes the current field
+    parts.push(`if (!truncated) {`);
+    parts.push(`  const fieldName: string = formatForDiff ? ${ESCAPE_TO_DIFF_STRING_GLOBAL_ALIAS}("${fieldName}") : "${fieldName}";`);
+    parts.push(`  const truncMarker: string = budget >= 0 ? "…(${remainingPieces})" : "";`);
+    parts.push(`  const fieldSepLen: i32 = ${isLast ? '0' : 'sep.length'};`);
+    parts.push(`  const childBudget: i32 = budget < 0 ? -1 : max(0, budget - used - fieldSepLen - truncMarker.length);`);
+    parts.push(`  const piece: string = \`\${linePrefix}\${fieldName}: \${${STRINGIFY_VALUE_GLOBAL_ALIAS}(this.${fieldName}, formatForDiff, depth + 1, childBudget)}\`;`);
+    parts.push(`  if (${STRINGIFY_EXCEEDS_BUDGET_GLOBAL_ALIAS}(used, piece.length, fieldSepLen, truncMarker.length, budget)) {`);
+    parts.push(`    s += truncMarker;`);
+    parts.push(`    truncated = true;`);
+    parts.push(`  } else {`);
+    parts.push(`    s += piece;`);
+    parts.push(`    used += piece.length;`);
+    if (!isLast) {
+      parts.push(`    s += sep;`);
+      parts.push(`    used += sep.length;`);
     }
-    parts.push(`s += "${fieldName}: " + ${SV}(this.${fieldName});`);
-    firstField = false;
+    parts.push(`  }`);
+    parts.push(`}`);
   }
 
   parts.push(`return s;`);

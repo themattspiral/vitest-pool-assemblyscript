@@ -32,8 +32,8 @@ const hybridProviderModule: CoverageProviderModule = {
       return await v8CoverageModule.startCoverage(runtimeOptions);
     } else {
       throw createPoolError(
+        POOL_ERROR_NAMES.HybridCoverageProviderError,
         'HybridCoverageProvider - v8 coverage module does not provide `startCoverage`',
-        POOL_ERROR_NAMES.HybridCoverageProviderError
       );
     }
   },
@@ -43,8 +43,8 @@ const hybridProviderModule: CoverageProviderModule = {
       return await v8CoverageModule.takeCoverage(runtimeOptions);
     } else {
       throw createPoolError(
+        POOL_ERROR_NAMES.HybridCoverageProviderError,
         'HybridCoverageProvider - v8 coverage module does not provide `takeCoverage`',
-        POOL_ERROR_NAMES.HybridCoverageProviderError
       );
     }
   },
@@ -56,8 +56,8 @@ const hybridProviderModule: CoverageProviderModule = {
       return await v8CoverageModule.stopCoverage(runtimeOptions);
     } else {
       throw createPoolError(
+        POOL_ERROR_NAMES.HybridCoverageProviderError,
         'HybridCoverageProvider - v8 coverage module does not provide `stopCoverage`',
-        POOL_ERROR_NAMES.HybridCoverageProviderError
       );
     }
   },

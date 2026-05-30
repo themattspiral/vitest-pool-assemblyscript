@@ -13,143 +13,145 @@ import type {
   WASMCompilation,
   WASMExecutorPerfTimings,
 } from '../types/types.js';
-import { POOL_ERROR_NAMES, TEST_ERROR_NAMES } from '../types/constants.js';
+import { AS_POOL_ERROR_FLAG, POOL_ERROR_NAMES } from '../types/constants.js';
 import { debug, debugOverride } from '../util/debug.js';
 import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
 import { enhanceTestError } from './wasm-errors.js';
-import { createPoolError, createPoolErrorFromAnyError } from '../util/pool-errors.js';
-import { getTaskLogLabel } from '../util/vitest-tasks.js';
+import { createPoolError, wrapPoolError } from '../util/pool-errors.js';
+import { failTestRuntimeError, getTaskLogLabel } from '../util/vitest-tasks.js';
 import { extractCallStack } from './source-maps.js';
 
-const SIG_MISMATCH_ERROR_MSG = `WASM RuntimeError indicates function signature type mismatch during test suite collection.`
-  + ` This is likely caused by passing a non-void callback to expect().`
-  + ` Use braces to ensure it returns void  e.g. \`expect(() => { failingFunction(); }).toThrowError()\`.`
+const SIG_MISMATCH_ERROR_MSG = `WASM function signature type mismatch during test collection.`
+  + ` This is most likely caused by passing a type-inferred, non-void callback to expect().`
+  + ` To fix, either explicitly define the non-void return type on the callback`
+  + `  e.g. \`expect((): i32 => failingFunction()).toThrowError()\``
+  + ` or use braces to make it void  e.g. \`expect(() => { failingFunction(); }).toThrowError()\`.`
   + ` Look for the failing expect() within the describe() block indicated in the stack trace.`;
 
-function createExecutorPoolError(
-  testFileBasename: string,
-  context: string,
-  reason: string,
-  cause?: any,
-): AssemblyScriptPoolError {
-  return createPoolError(
-    `${testFileBasename} - ${context} WASM executor: ${reason}`,
-    POOL_ERROR_NAMES.WASMExecutionHarnessError,
-    undefined,
-    cause
+function verifyMemoryRequirements(
+  compilation: WASMCompilation,
+  poolOptions: ResolvedAssemblyScriptPoolOptions,
+) {
+  if (poolOptions.testMemoryPagesInitial && poolOptions.testMemoryPagesInitial < compilation.requiredMemory.testMemory.initialPages) {
+    throw createPoolError(
+        POOL_ERROR_NAMES.PoolConfigError,
+        `WASM binary requires initial test memory pages (${compilation.requiredMemory.testMemory.initialPages}) exceeding configured "testMemoryPagesInitial"`
+      + ` (${poolOptions.testMemoryPagesInitial}). Increase value, or remove for auto sizing.`,
+      );
+  }
+  
+  if (poolOptions.testMemoryPagesMax && compilation.requiredMemory.testMemory.maximumPages
+    && poolOptions.testMemoryPagesMax < compilation.requiredMemory.testMemory.maximumPages
+  ) {
+    throw createPoolError(
+      POOL_ERROR_NAMES.PoolConfigError,
+      `WASM binary requires maximum test memory pages (${compilation.requiredMemory.testMemory.maximumPages}) exceeding configured "testMemoryPagesMax"`
+      + ` (${poolOptions.testMemoryPagesMax}). Increase value, or remove for auto sizing.`,
+    );
+  }
+  
+  if (poolOptions.coverageMemoryPagesInitial && poolOptions.coverageMemoryPagesInitial < compilation.requiredMemory.coverageMemory.initialPages) {
+    throw createPoolError(
+      POOL_ERROR_NAMES.PoolConfigError,
+      `WASM binary requires initial coverage memory pages (${compilation.requiredMemory.coverageMemory.initialPages}) exceeding configured "coverageMemoryPagesInitial"`
+      + ` (${poolOptions.coverageMemoryPagesInitial}). Increase value, or remove for auto sizing.`,
+    );
+  }
+
+  if (poolOptions.coverageMemoryPagesMax && compilation.requiredMemory.coverageMemory.maximumPages
+    && poolOptions.coverageMemoryPagesMax < compilation.requiredMemory.coverageMemory.maximumPages
+  ) {
+    throw createPoolError(
+      POOL_ERROR_NAMES.PoolConfigError,
+      `WASM binary requires maximum coverage memory pages (${compilation.requiredMemory.coverageMemory.maximumPages}) exceeding configured "coverageMemoryPagesMax"`
+      + ` (${poolOptions.coverageMemoryPagesMax}). Increase value, or remove for auto sizing.`,
+    );
+  }
+}
+
+function createExecutorMemories(
+  compilation: WASMCompilation,
+  poolOptions: ResolvedAssemblyScriptPoolOptions,
+  includeCoverageMemory: boolean,
+): { testMemory: WebAssembly.Memory; coverageMemory?: WebAssembly.Memory } {
+  verifyMemoryRequirements(compilation, poolOptions);
+
+  const testMemory = createMemory(
+    poolOptions.testMemoryPagesInitial ?? compilation.requiredMemory.testMemory.initialPages,
+    poolOptions.testMemoryPagesMax ?? compilation.requiredMemory.testMemory.maximumPages
   );
+  const coverageMemory = includeCoverageMemory ?
+    createMemory(
+      poolOptions.coverageMemoryPagesInitial ?? compilation.requiredMemory.coverageMemory.initialPages,
+      poolOptions.coverageMemoryPagesMax ?? compilation.requiredMemory.coverageMemory.maximumPages
+    )
+    : undefined;
+
+  return { testMemory, coverageMemory };
 }
 
 /**
  * Discover tests via test() and suites via describe() registration calls
  */
 export async function executeWASMDiscovery(
-  binary: Uint8Array,
-  sourceMap: string,
-  testFileBasename: string,
+  compilation: WASMCompilation,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   isBinaryInstrumented: boolean,
   handleLog: AssemblyScriptConsoleLogHandler,
   file: File,
   moduleLabel: string,
   threadImports: ThreadImports,
-  diffOptions?: SerializedDiffOptions,
 ): Promise<void> {
   const base = basename(file.filepath);
   const logPrefix = `[${moduleLabel} Exec] ${getTaskLogLabel(base, file)}`;
-  const wasmModule = await WebAssembly.compile(binary as BufferSource);
-  const memory = createMemory(poolOptions.testMemoryPagesInitial, poolOptions.testMemoryPagesMax);
+  
+  try {
+    const { testMemory, coverageMemory } = createExecutorMemories(compilation, poolOptions, isBinaryInstrumented);
 
-  // Create coverage memory matching instrumentation expections (from user config).
-  // While this memory will not be used, discovery instantiates the same binary,
-  // and WebAssembly.Instance will throw if the expected memory sizes don't match
-  const coverageMemory = isBinaryInstrumented ?
-    createMemory(poolOptions.coverageMemoryPagesInitial, poolOptions.coverageMemoryPagesMax)
-    : undefined;
+    const importObject = createDiscoveryImports(
+      testMemory,
+      compilation.compiledModule,
+      file,
+      handleLog,
+      logPrefix,
+      coverageMemory,
+      threadImports.createUserWasmImports
+    );
 
-  const importObject = createDiscoveryImports(
-    memory,
-    wasmModule,
-    file,
-    handleLog,
-    logPrefix,
-    coverageMemory,
-    threadImports.createUserWasmImports
-  );
+    // Instantiate WASM module
+    const instance = new WebAssembly.Instance(compilation.compiledModule, importObject);
+    const exports = instance.exports as Record<string, unknown>;
 
-  // Instantiate WASM module
-  const instance = new WebAssembly.Instance(wasmModule, importObject);
-  const exports = instance.exports as Record<string, unknown>;
-
-  // Call _start to run top-level test() and describe()
-  if (typeof exports._start === 'function') {
-    try {
+    // Call _start to run top-level test() and describe()
+    if (typeof exports._start === 'function') {
       exports._start();
-    } catch (error) {
-      const thrownErrAny: any = error as any;
-
-      const isFunctionSignatureMismatch: boolean = error instanceof WebAssembly.RuntimeError
-        && thrownErrAny?.message.includes('null function or function signature mismatch');
-      if (isFunctionSignatureMismatch) {
-        const runtimeError = error as WebAssembly.RuntimeError;
-        const stack = extractCallStack(runtimeError);
-        const testError = await enhanceTestError(
-          {
-            name: TEST_ERROR_NAMES.WASMRuntimeError,
-            message: runtimeError.message
-          } satisfies AssemblyScriptTestError,
-          file,
-          sourceMap,
-          false,
-          logPrefix,
-          stack,
-          diffOptions
-        );
-
-        throw createPoolError(
-          `${SIG_MISMATCH_ERROR_MSG}\n Caused by: ${runtimeError.name}: ${runtimeError.message}`,
-          POOL_ERROR_NAMES.PoolSyntaxError,
-          undefined,
-          testError
-        );
-      }
-
-      // Check to see if error came from the discovery abort() handler
-      // For discovery abort, test error is set on PoolError's `cause`,
-      // and the raw call stack is on PoolError's `rawCallStack`
-      if (
-        thrownErrAny?.name === POOL_ERROR_NAMES.WASMExecutionAbortError
-        && thrownErrAny?.cause?.name === TEST_ERROR_NAMES.WASMRuntimeError
-        && (error as AssemblyScriptPoolError).rawCallStack
-      ) {
-        const thrownPoolErr = thrownErrAny as AssemblyScriptPoolError;
-        thrownPoolErr.cause = await enhanceTestError(
-          thrownPoolErr.cause as AssemblyScriptTestError,
-          file,
-          sourceMap,
-          false,
-          logPrefix,
-          thrownPoolErr.rawCallStack,
-          diffOptions
-        );
-        thrownPoolErr.causeIsEnhancedError = true;
-
-        // delete the raw stack so vitest doesn't complain about unexpected error values
-        delete thrownPoolErr.rawCallStack;
-
-        // rethrow it with the enhanced test error
-        throw thrownPoolErr;
-      } else {
-        throw createPoolErrorFromAnyError(
-          `${testFileBasename} - Unexpected discovery error`,
-          POOL_ERROR_NAMES.WASMExecutionHarnessError,
-          error
-        );
-      }
+    } else {
+      throw createPoolError(
+        POOL_ERROR_NAMES.WASMExecutionHarnessError,
+        'no _start() export found on compiled WASM binary'
+      );
     }
-  } else {
-    throw createExecutorPoolError(testFileBasename, 'discoverTests', 'no _start() export');
+  } catch (error: any) {
+    const isFunctionSignatureMismatch: boolean = error instanceof WebAssembly.RuntimeError
+      && error?.message.includes('null function or function signature mismatch');
+    if (isFunctionSignatureMismatch) {
+      throw createPoolError(
+        POOL_ERROR_NAMES.PoolSyntaxError,
+        SIG_MISMATCH_ERROR_MSG,
+        error
+      );
+    } 
+
+    if (error && error[AS_POOL_ERROR_FLAG]) {
+      throw error;
+    } else {
+      throw wrapPoolError(
+        POOL_ERROR_NAMES.WASMExecutionHarnessError,
+        error,
+        true
+      );
+    }
   }
 
   debug(`${logPrefix} - Discovered ${file.tasks.length} top-level tasks`);
@@ -162,12 +164,12 @@ export async function executeWASMDiscovery(
 export async function executeWASMTest(
   test: Test,
   compilation: WASMCompilation,
-  testFileBasename: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   collectCoverage: boolean,
   handleLog: AssemblyScriptConsoleLogHandler,
   moduleLabel: string,
   threadImports: ThreadImports,
+  projectRoot: string,
   diffOptions?: SerializedDiffOptions,
 ): Promise<{ test: Test, testTimings: WASMExecutorPerfTimings }> {
   const testTimings: WASMExecutorPerfTimings = {
@@ -187,21 +189,12 @@ export async function executeWASMTest(
     }
   };
 
-  // Compile the binary to usable WASM module
-  const wasmModule = await WebAssembly.compile(compilation.binary as BufferSource);
-
-  // Create fresh memory for this test instance
-  const memory = createMemory(poolOptions.testMemoryPagesInitial, poolOptions.testMemoryPagesMax);
-
-  // Create coverage memory if collecting coverage (instrumented binary)
-  const coverageMemory = collectCoverage ?
-    createMemory(poolOptions.coverageMemoryPagesInitial, poolOptions.coverageMemoryPagesMax)
-    : undefined;
+  const { testMemory, coverageMemory } = createExecutorMemories(compilation, poolOptions, collectCoverage);
 
   // Create import object with pool-side functions for capturing test execution results
   const { imports, provideFunctionTable } = createTestExecutionImports(
-    memory,
-    wasmModule,
+    testMemory,
+    compilation.compiledModule,
     test,
     handleLog,
     logPrefix,
@@ -210,7 +203,7 @@ export async function executeWASMTest(
   );
 
   // Instantiate fresh WASM instance for this test
-  const instance = new WebAssembly.Instance(wasmModule, imports);
+  const instance = new WebAssembly.Instance(compilation.compiledModule, imports);
   const exports = instance.exports as Record<string, unknown>;
 
   // Func table accessable because we're using the AS compiler --exportTable flag
@@ -228,7 +221,10 @@ export async function executeWASMTest(
     // caught during discovery and source-mapped. If this somehow fails, the worker still catches it.
     exports._start();
   } else {
-    throw createExecutorPoolError(testFileBasename, 'executeWASMTest', 'no _start() export');
+    throw createPoolError(
+      POOL_ERROR_NAMES.WASMExecutionHarnessError,
+      'no _start() export found on compiled WASM binary'
+    );
   }
 
   let testFn: (() => void) | null | undefined;
@@ -238,16 +234,14 @@ export async function executeWASMTest(
     testFn = table.get(idx) as (() => void) | null;
 
     if (!testFn) {
-      throw createExecutorPoolError(
-        testFileBasename,
-        'executeWASMTest',
+      throw createPoolError(
+        POOL_ERROR_NAMES.WASMExecutionHarnessError,
         `Test function at index ${idx} not found in function table`
       );
     }
   } else {
-    throw createExecutorPoolError(
-      testFileBasename,
-      'executeWASMTest',
+    throw createPoolError(
+      POOL_ERROR_NAMES.WASMExecutionHarnessError,
       'Function table not found in WASM exports (missing --exportTable flag?)'
     );
   }
@@ -262,61 +256,52 @@ export async function executeWASMTest(
 
     // If we reach here, test passed, i.e. No abort occurred.
     // Proceed below to prepare the test result
-  } catch (error) {
+  } catch (error: any) {
     testTimings.execEnd = performance.now();
 
-    const thrownErrAny = error as any;
-    // If this is NOT a WASMExecutionAbort error, it means it did NOT originate from the
-    // wasm abort() import and is unexpected, so we throw as a PoolError.
-    //
-    // Otherwise this IS a WASMExecutionAbort error and the wasm abort() import threw it as a
-    // known test error (assertion or wasm runtime), so we continue to prepare the test result 
-    const isUnexpectedError = thrownErrAny?.name !== POOL_ERROR_NAMES.WASMExecutionAbortError;
+    let testError: AssemblyScriptTestError;
+    let stack: NodeJS.CallSite[];
+    let allowStackJS: boolean;
+    let applyStackToTestErrorCause: boolean;
 
-    if (isUnexpectedError) {
-      throw createExecutorPoolError(
-        testFileBasename,
-        'executeWASMTest',
-        `Unexpected execution error: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
-        (error as any)?.cause
-      );
+    if (error && error[AS_POOL_ERROR_FLAG]) {
+      const wrapper = error as AssemblyScriptPoolError;
+      testError = wrapper.testError;
+      stack = wrapper.originalErrorRawStack;
+      allowStackJS = wrapper.originalErrorMayContainJS;
+      applyStackToTestErrorCause = wrapper.applyStackToTestErrorCause;
+    } else if (error instanceof Error) {
+      testError = failTestRuntimeError(test, error.name, error.message);
+      stack = extractCallStack(error);
+      allowStackJS = true;
+      applyStackToTestErrorCause = false;
+    } else {
+      testError = failTestRuntimeError(test, '', `Unexpected WASM test execution error: ${String(error)}`);
+      stack = extractCallStack(new Error());
+      allowStackJS = true;
+      applyStackToTestErrorCause = false;
     }
+
+    await enhanceTestError(
+      testError,
+      test,
+      compilation.sourceMap,
+      logPrefix,
+      allowStackJS,
+      projectRoot,
+      applyStackToTestErrorCause,
+      stack,
+      diffOptions
+    );
   }
 
   const meta = test.meta as AssemblyScriptTestTaskMeta;
-  
-  // If error is present, apply source mapping to make stack locations
-  // useful, and add nicely-formatted diffs for reporting through vitest
-  if (meta.lastError) {
-    const enhancedError = await enhanceTestError(
-      meta.lastError,
-      test,
-      compilation.sourceMap,
-      meta.lastErrorValuesProvided ?? false,
-      logPrefix,
-      meta.lastErrorRawCallStack,
-      diffOptions
-    );
-
-    if (test.result) {
-      if (test.result.errors) {
-        test.result.errors.push(enhancedError);
-      } else {
-        test.result.errors = [enhancedError];
-      }
-    }
-
-    delete meta.lastError;
-    delete meta.lastErrorValuesProvided;
-    delete meta.lastErrorRawCallStack;
-  }
 
   // Extract coverage hits from coverage memory
   if (collectCoverage && compilation.debugInfo) {
     if (!coverageMemory) {
-      throw createExecutorPoolError(
-        testFileBasename,
-        'executeWASMTest',
+      throw createPoolError(
+        POOL_ERROR_NAMES.WASMExecutionHarnessError,
         'Coverage memory not created despite collectCoverage=true'
       );
     }

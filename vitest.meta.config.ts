@@ -26,9 +26,11 @@ export default defineConfig({
         'test/assembly-src/**/*.meta.ts'
       ],
 
-      // wide console for our CLI output verification
       reporter: [
-        ['text', { maxCols: 200 }],
+        ['text', {
+          maxCols: 200,   // wide console for our CLI output verification
+          skipFull: false // vitest forces skipFull: true on the text reporter in AI-agent environments
+        }],
         ['html', {}],
         ['json', {}],
       ],
@@ -36,6 +38,7 @@ export default defineConfig({
       debugIstanbul: false,
     },
 
+    // TS Meta examples (to combine with AS coverage results)
     projects: [
       defineProject({
         test: {
@@ -47,20 +50,50 @@ export default defineConfig({
         }
       }),
 
+      // AS Meta - Failure conditions, and other external behavior verification (e.g. timeouts, retries)
       defineProject({
         test: {
           name: { label: 'as-pool-meta', color: 'yellow' },
           include: ['test/assembly/**/*.meta.test.ts'],
           pool: createAssemblyScriptPool({
-            debug: false,
-            debugNative: false,
-            debugCoverageExtract: false,
             wasmImportsFactory: 'test/helpers/create-user-imports.js',
             extraCompilerFlags: ['--enable', 'simd'],
-            _instrumentPoolInternals: false,
           }),
         }
-      })
+      }),
+      
+      // AS Meta Alt Config - user import creation failure
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-imports-create-fail', color: 'yellow' },
+          include: ['test/assembly/**/*.meta-imports-create-fail.test.ts'],
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: 'test/helpers/failing-create-user-imports.js',
+          }),
+        }
+      }),
+      
+      // AS Meta Alt Config - user import load failure
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-imports-load-fail', color: 'yellow' },
+          include: ['test/assembly/**/*.meta-imports-load-fail.test.ts'],
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: 'this/path/does_not_exist.js',
+          }),
+        }
+      }),
+      
+      // AS Meta Alt Config - small test memory limit
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-small-mem', color: 'yellow' },
+          include: ['test/assembly/**/*.meta-small-mem.test.ts'],
+          pool: createAssemblyScriptPool({
+            testMemoryPagesMax: 1,
+          }),
+        }
+      }),
     ]
   },
 });

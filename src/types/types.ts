@@ -4,17 +4,18 @@
 
 import type { MessagePort } from 'node:worker_threads';
 import type { BirpcReturn } from 'birpc';
-import type { RunnerRPC, RuntimeRPC, SerializedConfig, SerializedCoverageConfig } from 'vitest';
+import type { RunnerRPC, RuntimeRPC, SerializedConfig } from 'vitest';
 import type { TestError } from '@vitest/utils';
-import type { ResolvedConfig, ResolvedCoverageOptions } from 'vitest/node';
+import type { ResolvedCoverageOptions } from 'vitest/node';
 import type { File, Test, TaskMeta, TestOptions } from '@vitest/runner/types';
+import type { RawSourceMap } from 'source-map';
 
 import {
   AS_POOL_WORKER_MSG_FLAG,
-  AS_POOL_ERROR_TYPE_FLAG,
   COVERAGE_PAYLOAD_FORMATS,
   POOL_ERROR_NAMES,
   TEST_ERROR_NAMES,
+  AS_POOL_ERROR_FLAG,
 } from './constants.js';
 
 // ============================================================================
@@ -27,18 +28,14 @@ export type TestErrorName = typeof TEST_ERROR_NAMES[keyof typeof TEST_ERROR_NAME
 /** Error name type derived from POOL_ERROR_NAMES values */
 export type PoolErrorName = typeof POOL_ERROR_NAMES[keyof typeof POOL_ERROR_NAMES];
 
-/**
- * Conforms to Error interface but with required, strictly-typed name field.
- * Thrown internally for all pool errors.
- * 
- * Must be thrown as a POJO (not using the Error() constructor!) to be properly
- * serialized across worker-pool boundery.
- */
-export interface AssemblyScriptPoolError extends Error {
-  readonly [AS_POOL_ERROR_TYPE_FLAG]: true;
+export interface AssemblyScriptPoolError {
+  readonly [AS_POOL_ERROR_FLAG]: true;
   name: PoolErrorName;
-  rawCallStack?: NodeJS.CallSite[];
-  causeIsEnhancedError?: boolean;
+  message?: string;
+  originalErrorRawStack: NodeJS.CallSite[];
+  originalErrorMayContainJS: boolean;
+  applyStackToTestErrorCause: boolean;
+  testError: AssemblyScriptTestError;
 }
 
 /**
@@ -46,7 +43,11 @@ export interface AssemblyScriptPoolError extends Error {
  * This is an explicitly serializable error format constructred to report
  * Test/Suite failures to vitest.
  */
-export type AssemblyScriptTestError = TestError & { name: TestErrorName | PoolErrorName };
+export interface AssemblyScriptTestError extends TestError {
+  // reported error can originate as a test error (assertion/runtime),
+  // or as a pool failnure (harness error due to OOM, other unexpected paths)
+  name: TestErrorName | PoolErrorName
+}
 
 /**
  * Native build error marker file content.
@@ -156,29 +157,26 @@ export const AS_POOL_FIELDS_WITH_DEFAULTS = [
   '_instrumentPoolInternals',
   'stripInline',
   'maxThreadsV3',
-  'coverageMemoryPagesInitial',
-  'coverageMemoryPagesMax',
-  'testMemoryPagesInitial',
   'extraCompilerFlags'
 ] as const;
-export const AS_POOL_OPTIONAL_FIELDS = ['testMemoryPagesMax', 'wasmImportsFactory'] as const;
+
+export const AS_POOL_OPTIONAL_FIELDS = [
+  'testMemoryPagesInitial',
+  'testMemoryPagesMax',
+  'coverageMemoryPagesInitial',
+  'coverageMemoryPagesMax',
+  'wasmImportsFactory'
+] as const;
 
 /** Fields that have default values. Internally these will always be defined. */
 export type ASPoolOptionsFieldsWithDefaultValues = typeof AS_POOL_FIELDS_WITH_DEFAULTS[number];
 
 /** Fields with optional values and NO defaults */
 export type ASPoolOptionsOptionalFields = typeof AS_POOL_OPTIONAL_FIELDS[number];
-
 // compatibility type for internal consumption - configs from all versions
 // of Vitest are converted to this format for internal consumption
 export type SerializedConfigCompat = SerializedConfig & {
   retry: number;
-};
-
-export type AssemblyScriptProjectConfig = (SerializedConfigCompat & {
-  coverage: SerializedCoverageConfig & ResolvedHybridProviderOptions;
-}) | ResolvedConfig & {
-  coverage: ResolvedHybridProviderOptions;
 };
 
   /**
@@ -198,7 +196,8 @@ export type ResolvedHybridProviderOptions =
     customProviderModule: string;
     globbedAssemblyScriptInclude: GlobResult[];
     globbedAssemblyScriptProjectRelativeExcludeOnly: string[];
-  };
+  }
+  & { readonly isResolved: true };
 
 // vitest TestOptions fields that are supported by AssemblyScript tests in this pool
 export type AssemblyScriptTestOptions = Required<Pick<TestOptions, 'timeout' | 'retry' | 'skip' | 'only' | 'fails'>>;
@@ -222,20 +221,32 @@ export interface GlobResult {
 // Compilation & Results
 // ============================================================================
 
+export interface WASMCompilation {
+  filePath: string;
+  sourceMap: RawSourceMap;
+  debugInfo?: BinaryDebugInfo;
+  compiledModule: WebAssembly.Module;
+  requiredMemory: WASMModuleMemoryRequirements;
+  isInstrumented: boolean;
+  compileTiming: number;
+}
+
+export interface WASMImportMemoryRequirements {
+  initialPages: number;
+  maximumPages?: number;
+};
+
+export interface WASMModuleMemoryRequirements {
+  testMemory: WASMImportMemoryRequirements;
+  coverageMemory: WASMImportMemoryRequirements;
+}
+
 export interface AssemblyScriptCompilerOptions {
   shouldInstrument: boolean;
   projectRoot: string;
   instrumentationOptions?: InstrumentationOptions;
   stripInline?: boolean;
   extraFlags?: string[];
-}
-
-export interface AssemblyScriptCompilerResult {
-  binary: Uint8Array;
-  sourceMap: string;
-  debugInfo?: BinaryDebugInfo;
-  isInstrumented: boolean;
-  compileTiming: number;
 }
 
 export interface InstrumentationOptions {
@@ -247,8 +258,10 @@ export interface InstrumentationOptions {
   excludedLibraryFileOverridePrefix?: string;
   excludedInternalFunctionSubstring: string;
   coverageMemoryPagesMin: number;
-  coverageMemoryPagesMax: number;
+  coverageMemoryPagesMax?: number;
   debug?: boolean;
+  coverageMemoryModule: string;
+  coverageMemoryName: string;
 }
 
 /**
@@ -579,9 +592,10 @@ export type AssemblyScriptConsoleLogHandler = (msg: string, isError?: boolean) =
 export interface FailedAssertion {
   expected?: string;
   actual?: string;
-  valuesProvided?: boolean;
-  typeName?: string;
-  message?: string;
+  valuesProvided: boolean;
+  actualTypeName: string;
+  expectedTypeName: string;
+  message: string;
 }
 
 export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
@@ -602,6 +616,8 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   lastError?: AssemblyScriptTestError;
   lastErrorValuesProvided?: boolean;
   lastErrorRawCallStack?: NodeJS.CallSite[];
+  lastErrorCallStackRef?: Error;
+  lastErrorUnexpected?: boolean;
   lastTimeoutTerminationTime?: number;
 };
 
@@ -631,8 +647,6 @@ export interface WorkerChannel {
 }
 
 export interface WorkerThreadInitData {
-  projectRoot: string,
-  asPoolOptions: ResolvedAssemblyScriptPoolOptions;
   asCoverageOptions: ResolvedHybridProviderOptions;
 }
 
@@ -661,13 +675,6 @@ export interface TestExecutionEnd extends AssemblyScriptPoolWorkerMessageBase {
 
 export type AssemblyScriptPoolWorkerMessage = TestExecutionStart | TestExecutionEnd | TestFileCompiled;
 
-export interface WASMCompilation {
-  filePath: string;
-  binary: Uint8Array;
-  sourceMap: string;
-  debugInfo?: BinaryDebugInfo;
-}
-
 export interface TestRunRecord {
   test: Test;
   executionStart: number;
@@ -685,6 +692,7 @@ export interface RunCompileAndDiscoverTask {
   port: MessagePort;
   file: File;
   config: SerializedConfigCompat;
+  asPoolOptions: ResolvedAssemblyScriptPoolOptions;
   isCollectTestsMode: boolean;
 }
 
@@ -695,6 +703,7 @@ export interface RunTestsTask {
   file: File;
   compilation: WASMCompilation;
   config: SerializedConfigCompat;
+  asPoolOptions: ResolvedAssemblyScriptPoolOptions;
   isCollectTestsMode: boolean;
   timedOutTest?: Test;
 }
@@ -704,6 +713,7 @@ export interface ProcessPoolRunFileTask {
   port: MessagePort;
   file: File;
   config: SerializedConfigCompat;
+  asPoolOptions: ResolvedAssemblyScriptPoolOptions;
   isCollectTestsMode: boolean;
   timedOutTest?: Test;
   timedOutCompilation?: WASMCompilation;

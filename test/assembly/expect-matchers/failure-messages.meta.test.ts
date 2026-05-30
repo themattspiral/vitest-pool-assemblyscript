@@ -3,6 +3,7 @@ import { Circle, Line, Person, Point, Shape, Square, ShapeWrapper } from "../../
 import {
   PointGroup, Registry, Scoreboard, Settings, ShapeGroup, ShapeList, ShapeRegistry, Team
 } from "../../assembly-src/user-class-container-utils.meta";
+import { defaultGameState } from './user-object-helpers';
 
 // Meta fixture: intentional matcher failures to verify CLI error output formatting.
 // Each test is expected to fail — the meta-verify tests assert on the resulting
@@ -523,6 +524,15 @@ describe("toEqual path context", () => {
       const b = new Line(new Point(99, 2), new Point(3, 4));
       expect(a).toEqual(b);
     });
+
+    test("multiple field values differ", () => {
+      const a = defaultGameState();
+      const b = defaultGameState();
+      b.level = 99;
+      b.playerName = "Matt";
+      b.visited.add(new Point(3,3));
+      expect(a).toEqual(b);
+    });
   });
 
   describe("composed field and container path", () => {
@@ -617,4 +627,3 @@ describe("toEqual path context", () => {
     });
   });
 });
-

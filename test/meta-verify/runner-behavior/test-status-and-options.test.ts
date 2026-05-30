@@ -2,8 +2,10 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type MetaRunResults, type TestFileResult, type ParsedCliOutput,
   loadMetaRunResults, loadParsedCliOutput, requireTestFile, requireTest, countByStatus,
+  requireErrorBlock, TEST_FILE_PREFIX,
 } from '../helpers/shared.js';
 
+const FIXTURE_PATH_PREFIX = `${TEST_FILE_PREFIX}test/assembly/`;
 const SKIP_FILE = 'runner-behavior/skip.meta.test.ts';
 const ONLY_FILE = 'runner-behavior/only.meta.test.ts';
 const FAILS_FILE = 'runner-behavior/fails.meta.test.ts';
@@ -149,6 +151,9 @@ describe('test options & result status verification', () => {
     test('passing test marked with fails reports as failure', () => {
       const t = requireTest(file, '`fails` option failure tests > should not pass with passing assertion when `fails` option is set [should fail]');
       expect(t.status).toBe('failed');
+
+      const block = requireErrorBlock(parsedCliOutput, `${FIXTURE_PATH_PREFIX}${FAILS_FILE} > \`fails\` option failure tests > should not pass with passing assertion when \`fails\` option is set [should fail]`);
+      expect(block).toContain('Test is expected to fail, but all assertion(s) passed');
     });
 
     test('failing test marked with fails reports as passed', () => {
@@ -160,6 +165,11 @@ describe('test options & result status verification', () => {
       const t = requireTest(file, 'suite that fails and will cause file suite to fail > nested suite > should fail with a passing assertion when `fails` option is set [should fail]');
       expect(t.status).toBe('failed');
       expect(t.ancestorTitles).toContain('nested suite');
+
+      const fullTestPath = `${FIXTURE_PATH_PREFIX}${FAILS_FILE} > suite that fails and will cause file suite to fail`
+        + ` > nested suite > should fail with a passing assertion when \`fails\` option is set [should fail]`;
+      const block = requireErrorBlock(parsedCliOutput, fullTestPath);
+      expect(block).toContain('Test is expected to fail, but all assertion(s) passed');
     });
 
     test('fails inheritance from suite: failing test passes due to inherited fails', () => {

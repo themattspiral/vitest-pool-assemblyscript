@@ -27,7 +27,7 @@ export default defineConfig({
         'test/assembly-src/**/*.ts' // passing (100% coverage) test source (meta excluded) 
       ],
       assemblyScriptExclude: [
-        'test/assembly-src/**/*.meta.ts' // non-100% scenarios
+        'test/assembly-src/**/*.meta*.ts' // non-100% scenarios
       ],
 
       debugIstanbul: false,
@@ -52,7 +52,7 @@ export default defineConfig({
         test: {
           name: { label: 'as-pool-passing', color: 'green' },
           include: ['test/assembly/**/*.test.ts'],
-          exclude: ['test/assembly/**/*.meta.test.ts'],   // meta tests executed separately
+          exclude: ['test/assembly/**/*.meta*.test.ts'],   // meta tests executed separately
           
           pool: createAssemblyScriptPool({
             debug: false,
@@ -65,7 +65,7 @@ export default defineConfig({
             _instrumentPoolInternals: true,
           }),
         }
-      })
+      }),
     ]
   },
 });

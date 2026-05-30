@@ -29,7 +29,7 @@ import {
   VITEST_WORKER_RESPONSE_MSG_FLAG
 } from '../types/constants.js';
 import { debug, setGlobalDebugMode } from '../util/debug.js';
-import { createPoolError, createPoolErrorFromAnyError, isAbortError } from '../util/pool-errors.js';
+import { createPoolError, isAbortError } from '../util/pool-errors.js';
 import { createWorkerRPCChannel } from './worker-rpc-channel.js';
 import { getCompatConfig } from '../util/resolve-config.js';
 
@@ -88,15 +88,9 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     this.listenerRegistry = new Map<string, Set<EventCallback>>();
 
     setImmediate(async () => {
-      const userImportsFactoryPath = resolve(
-        this.poolOptions.project.config.root,
-        this.asPoolOptions.wasmImportsFactory ?? ''
-      );
-
       const results = await Promise.allSettled([
         access(COMPILE_WORKER_PATH),
-        access(TEST_WORKER_PATH),
-        this.asPoolOptions.wasmImportsFactory ? access(userImportsFactoryPath) : Promise.resolve()
+        access(TEST_WORKER_PATH)
       ]);
 
       const failedThreadAccess: string[] = [];
@@ -106,18 +100,13 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       if (failedThreadAccess.length) {
         throw new Error(`Cannot access worker thread file(s) at path(s): ${failedThreadAccess}`);
       }
-      if (results[2].status === 'rejected') {
-        throw new Error(`Cannot access user WasmImportsFactory at path: "${userImportsFactoryPath}".`
-          + ` Ensure that your module path is relative to the vitest project root (location of shallowest vitest config),`
-          + ` and that it has a default export matching () => WebAssembly.Imports`
-        );
-      }
     });
     
     setGlobalDebugMode(this.asPoolOptions.debug);
 
     debug(`[${this.logModule}] Created AssemblyScriptPoolWorker in ${(performance.now() - start).toFixed(2)} ms`
       + ` | method: "${this.poolOptions.method}" | project: "${this.poolOptions.project.name}"`
+      + ` | asPoolOptions: ${JSON.stringify(this.asPoolOptions)}`
     );
   }
 
@@ -212,8 +201,9 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
 
             this.threadSpecs = [];
           } catch (error) {
+            // abort errors are expected, otherwise rethrow
             if (!isAbortError(error)) {
-              throw createPoolErrorFromAnyError(`PoolWorker send() "${message.type}"`, POOL_ERROR_NAMES.PoolError, error);
+              throw error;
             }
           } finally {
             this.threadControlPort?.close();
@@ -281,9 +271,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
         env: this.poolOptions.env as Record<string, string>,
         execArgv: this.poolOptions.execArgv,
         workerData: {
-          asPoolOptions: this.asPoolOptions,
           asCoverageOptions: this.asCoverageOptions,
-          projectRoot: this.poolOptions.project.config.root,
         } satisfies WorkerThreadInitData
       });
 
@@ -299,9 +287,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
         env: this.poolOptions.env as Record<string, string>,
         execArgv: this.poolOptions.execArgv,
         workerData: {
-          asPoolOptions: this.asPoolOptions,
           asCoverageOptions: this.asCoverageOptions,
-          projectRoot: this.poolOptions.project.config.root
         } satisfies WorkerThreadInitData
       });
 
@@ -387,6 +373,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       port: workerPort,
       file: spec.file,
       config: this.config!,
+      asPoolOptions: this.asPoolOptions,
       isCollectTestsMode: this.isCollectTestsMode,
     } satisfies RunCompileAndDiscoverTask, {
       name: 'runCompileAndDiscoverSpec',
@@ -422,6 +409,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       file: timedOutTest?.file ?? spec.file,
       compilation: spec.compilation,
       config: this.config!,
+      asPoolOptions: this.asPoolOptions,
       isCollectTestsMode: this.isCollectTestsMode,
       timedOutTest,
     } satisfies RunTestsTask, {
@@ -556,8 +544,8 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
         + (this.currentTestRun ? '' : ' currentTestRecord')
         + (this.currentTestRun?.test ? '' : ' currentTestRecord.test')
       throw createPoolError(
-        `Cannot timeout/resume worker thread for workerId ${this.currentWorkerId} - missing data: ${missingStr}`,
-        POOL_ERROR_NAMES.PoolError
+        POOL_ERROR_NAMES.PoolError,
+        `Cannot timeout/resume worker thread for workerId ${this.currentWorkerId} - missing data: ${missingStr}`
       );
     }
 
@@ -577,8 +565,9 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       this.threadAbortController?.abort();
       await this.threadRunPromise;
     } catch (error) {
+      // abort errors are expected, otherwise rethrow
       if (!isAbortError(error)) {
-        throw createPoolErrorFromAnyError(`PoolWorker handleTimeout`, POOL_ERROR_NAMES.PoolError, error);
+        throw error;
       }
     } finally {
       this.threadControlPort?.close();
@@ -608,8 +597,9 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       
       this.threadSpecs = [];
     } catch (error) {
+      // abort errors are expected, otherwise rethrow
       if (!isAbortError(error)) {
-        throw createPoolErrorFromAnyError(`PoolWorker handleTimeout`, POOL_ERROR_NAMES.PoolError, error);
+        throw error;
       } else {
         debug(`[${this.logModuleWithId}] send: caught and ignored timeout awaiting timeout re-run`
           + ` | files: "${this.threadSpecs.map(s => s.file.filepath).join(',')}"`

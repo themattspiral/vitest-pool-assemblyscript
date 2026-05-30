@@ -29,6 +29,8 @@ import {
   reportUserConsoleLogs,
   reportSuitePrepare,
   reportSuiteFinished,
+  flushRpcUpdates,
+  reportFileError,
 } from '../rpc-reporter.js';
 import {
   checkFailsAndInvertResult,
@@ -45,6 +47,8 @@ import {
   isSuiteOwnFile
 } from '../../util/vitest-tasks.js';
 import { mergeCoverageData } from '../../coverage-provider/coverage-merge.js';
+import { failFile } from '../../util/vitest-file-tasks.js';
+import { buildEnhancedFileError } from '../../util/pool-errors.js';
 
 async function bailIfNeeded(
   rpc: WorkerRPC,
@@ -107,6 +111,7 @@ async function runTest(
   logModule: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   threadImports: ThreadImports,
+  projectRoot: string,
   bail?: number,
   diffOptions?: SerializedDiffOptions,
 ): Promise<void> {
@@ -143,12 +148,12 @@ async function runTest(
     executeWASMTest(
       test,
       compilation,
-      base,
       poolOptions,
       collectCoverage,
       handleLog,
       logModule,
       threadImports,
+      projectRoot,
       diffOptions
     )
   ]);
@@ -184,7 +189,7 @@ async function runTest(
 
     await runTest(
       rpc, port, base, collectCoverage, compilation,
-      test, logModule, poolOptions, threadImports, bail, diffOptions
+      test, logModule, poolOptions, threadImports, projectRoot, bail, diffOptions
     );
 
     willRetry = shouldRetryTask(test);
@@ -221,11 +226,12 @@ export async function runSuite(
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   threadImports: ThreadImports,
   vitestVersion: VitestVersion,
+  projectRoot: string,
   bail?: number,
   diffOptions?: SerializedDiffOptions,
   timedOutTest?: Test,
 ): Promise<Suite> {
-  const suiteStart = performance.now();
+  const suiteStartPerf = performance.now();
   const suiteMeta = suite.meta as AssemblyScriptSuiteTaskMeta;
   const suiteLogPrefix = getTaskLogPrefix(logModule, base, suite);
   const isTimedOutTestInSuite: boolean = timedOutTest?.suite?.id === suite.id;
@@ -243,115 +249,133 @@ export async function runSuite(
     }`);
   }
 
-  if (!suiteMeta.suitePreparedSent) {
-    setSuitePrepareResult(suite);
-    await reportSuitePrepare(rpc, suite, logModule, base);
-
+  try {
     // ensure suite-prepare will only be sent once if a test
     // times out and the file worker thread gets re-launched
-    suiteMeta.suitePreparedSent = true;
-  }
+    if (!suiteMeta.suitePreparedSent) {
+      setSuitePrepareResult(suite);
+      await reportSuitePrepare(rpc, suite, logModule, base);
+      suiteMeta.suitePreparedSent = true;
+    }
 
-  // initialize aggregated coverage data for suite, which gets updated as each subtask completes
-  suiteMeta.coverageData = { hitCountsByFileAndPosition: {} };
-  debug(`${suiteLogPrefix} - Initialized empty suite coverage data`);
+    // initialize aggregated coverage data for suite, which gets updated as each subtask completes
+    suiteMeta.coverageData = { hitCountsByFileAndPosition: {} };
+    debug(`${suiteLogPrefix} - Initialized empty suite coverage data`);
 
-  let tasksToRun: Task[] = getRunnableTasks(suite);
-  debug(`${suiteLogPrefix} - Runnable tasks:`, tasksToRun.length);
+    let tasksToRun: Task[] = getRunnableTasks(suite);
+    debug(`${suiteLogPrefix} - Runnable tasks:`, tasksToRun.length);
 
-  for (const task of tasksToRun) {
-    if (task.type === 'suite') {
-      const suiteTaskMeta = task.meta as AssemblyScriptSuiteTaskMeta;
+    for (const task of tasksToRun) {
+      if (task.type === 'suite') {
+        const suiteTaskMeta = task.meta as AssemblyScriptSuiteTaskMeta;
 
-      await runSuite(
-        rpc, port, base, collectCoverage, compilation, task, logModule,
-        poolOptions, threadImports, vitestVersion, bail, diffOptions, timedOutTest
-      );
+        await runSuite(
+          rpc, port, base, collectCoverage, compilation, task, logModule,
+          poolOptions, threadImports, vitestVersion, projectRoot, bail, diffOptions, timedOutTest
+        );
 
-      // merge suite task coverage into parent suite coverage
-      if (suiteMeta.coverageData && suiteTaskMeta.coverageData) {
-        mergeCoverageData(suiteMeta.coverageData, suiteTaskMeta.coverageData);
-      }
-      
-    } else {
-      const testLogPrefix = getTaskLogPrefix(logModule, base, task);
-      const testTaskMeta = task.meta as AssemblyScriptTestTaskMeta;
+        // merge suite task coverage into parent suite coverage
+        if (suiteMeta.coverageData && suiteTaskMeta.coverageData) {
+          mergeCoverageData(suiteMeta.coverageData, suiteTaskMeta.coverageData);
+        }
+        
+      } else {
+        const testLogPrefix = getTaskLogPrefix(logModule, base, task);
+        const testTaskMeta = task.meta as AssemblyScriptTestTaskMeta;
 
-      const testCompleted = testTaskMeta.resultFinal;
-      const testTimedOutPreviously = !!timedOutTest && task.id === timedOutTest.id;
+        const testCompleted = testTaskMeta.resultFinal;
+        const testTimedOutPreviously = !!timedOutTest && task.id === timedOutTest.id;
 
-      if (testCompleted) {
-        debug(`${testLogPrefix} - Skipping completed test | state: "${task.result?.state}"`);
-      } else if (testTimedOutPreviously) {
-        if (shouldRetryTask(task)) {
-          const previousRetryCount = task.result?.retryCount ?? 0;
-          const newRetryCount = previousRetryCount + 1;
+        if (testCompleted) {
+          debug(`${testLogPrefix} - Skipping completed test | state: "${task.result?.state}"`);
+        } else if (testTimedOutPreviously) {
+          if (shouldRetryTask(task)) {
+            const previousRetryCount = task.result?.retryCount ?? 0;
+            const newRetryCount = previousRetryCount + 1;
 
-          debug(`${testLogPrefix} - Retrying after test timeout`
-            + ` | retry attempt ${newRetryCount} / ${task.retry} ` 
-            + ` | ${task.result?.errors?.length ?? 0} errors`
-            + ` | state: "${task.result?.state}"`
-          );
-          
-          // report retried for the previous timeout failure, which won't
-          // have been reported because the thread was killed to timeout
-          await reportTestRetried(rpc, task, logModule, base);
+            debug(`${testLogPrefix} - Retrying after test timeout`
+              + ` | retry attempt ${newRetryCount} / ${task.retry} ` 
+              + ` | ${task.result?.errors?.length ?? 0} errors`
+              + ` | state: "${task.result?.state}"`
+            );
+            
+            // report retried for the previous timeout failure, which won't
+            // have been reported because the thread was killed to timeout
+            await reportTestRetried(rpc, task, logModule, base);
 
-          // increment the retry count (after reporting retried)
-          task.result!.retryCount = newRetryCount;
-          
-          // retry timed out test
-          //  - if it passes, process as normal
-          //  - if it fails again, it will end up in the else block below
+            // increment the retry count (after reporting retried)
+            task.result!.retryCount = newRetryCount;
+            
+            // retry timed out test
+            //  - if it passes, process as normal
+            //  - if it fails again, it will end up in the else block below
+            await runTest(
+              rpc, port, base, collectCoverage, compilation,
+              task, logModule, poolOptions, threadImports, projectRoot, bail, diffOptions
+            );
+          } else {
+            debug(`${testLogPrefix} - Timed-out test has no retries left`
+              + ` | retries attempted ${task.result?.retryCount || 0} / ${task.retry} ` 
+              + ` | ${task.result?.errors?.length ?? 0} errors`
+              + ` | state: "${task.result?.state}"`
+            );
+
+            await Promise.all([
+              // as needed: invert if `fails`, bail
+              postProcessTestResult(rpc, bail, task, testLogPrefix, logModule),
+    
+              reportTestFinished(rpc, task, logModule, base),
+            ]);
+
+            // ensure completed test will not be run again if another test
+            // times out later and the file worker thread gets re-launched
+            flagTestFinalized(task);
+
+            debug(`${testLogPrefix} - Completed timed out test run`);
+          }
+        } else {
+          debug(`${testLogPrefix} - Running test task | state: "${task.result?.state}"`);
           await runTest(
             rpc, port, base, collectCoverage, compilation,
-            task, logModule, poolOptions, threadImports, bail, diffOptions
+            task, logModule, poolOptions, threadImports, projectRoot, bail, diffOptions
           );
-        } else {
-          debug(`${testLogPrefix} - Timed-out test has no retries left`
-            + ` | retries attempted ${task.result?.retryCount || 0} / ${task.retry} ` 
-            + ` | ${task.result?.errors?.length ?? 0} errors`
-            + ` | state: "${task.result?.state}"`
-          );
-
-          await Promise.all([
-            // as needed: invert if `fails`, bail
-            postProcessTestResult(rpc, bail, task, testLogPrefix, logModule),
-  
-            reportTestFinished(rpc, task, logModule, base),
-          ]);
-
-          // ensure completed test will not be run again if another test
-          // times out later and the file worker thread gets re-launched
-          flagTestFinalized(task);
-
-          debug(`${testLogPrefix} - Completed timed out test run`);
         }
-      } else {
-        debug(`${testLogPrefix} - Running test task | state: "${task.result?.state}"`);
-        await runTest(
-          rpc, port, base, collectCoverage, compilation,
-          task, logModule, poolOptions, threadImports, bail, diffOptions
-        );
-      }
 
-      // merge test coverage into suite coverage
-      if (suiteMeta.coverageData && testTaskMeta.coverageData) {
-        mergeCoverageData(suiteMeta.coverageData, testTaskMeta.coverageData);
+        // merge test coverage into suite coverage
+        if (suiteMeta.coverageData && testTaskMeta.coverageData) {
+          mergeCoverageData(suiteMeta.coverageData, testTaskMeta.coverageData);
+        }
       }
     }
+
+    // update suite result based on its tasks, report coverage data, report suite task result
+    updateSuiteFinishedResult(suite, suiteLogPrefix);
+    await reportSuiteFinished(rpc, suite, logModule, base, vitestVersion);
+
+    // ensure completed suite will not be run again if another test
+    // times out later and the file worker thread gets re-launched
+    finalizeSuiteResult(suite);
+  } catch (error: any) {
+    const testError = await buildEnhancedFileError(
+      error,
+      suite.file,
+      compilation.sourceMap,
+      suiteLogPrefix,
+      projectRoot,
+      'test runner',
+      diffOptions
+    );
+
+    failFile(suite.file, testError, suiteStartPerf);
+
+    await reportFileError(rpc, suite.file, logModule, suiteLogPrefix);
+
+    debug(`${suiteLogPrefix} - Reported file error`);
+  } finally {
+    await flushRpcUpdates(rpc);
+    const suiteTime = performance.now() - suiteStartPerf;
+    debug(`${suiteLogPrefix} - runSuite Completed | TIMING ${suiteTime.toFixed(2)} ms`);
   }
-
-  // update suite result based on its tasks, report coverage data, report suite task result
-  updateSuiteFinishedResult(suite, suiteLogPrefix);
-  await reportSuiteFinished(rpc, suite, logModule, base, vitestVersion);
-
-  // ensure completed test will not be run again if another test
-  // times out later and the file worker thread gets re-launched
-  finalizeSuiteResult(suite);
-
-  const suiteTime = performance.now() - suiteStart;
-  debug(`${suiteLogPrefix} - Suite Run Complete | TIMING ${suiteTime.toFixed(2)} ms`);
 
   return suite;
 }

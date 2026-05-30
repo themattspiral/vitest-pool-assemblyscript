@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import { type ParsedCliOutput, loadParsedCliOutput, requireErrorBlock, TEST_FILE_PREFIX } from '../helpers/shared.js';
 
-const FIXTURE_FILE = `${TEST_FILE_PREFIX}test/assembly/expect-matchers/to-throw-error-failure-messages.meta.test.ts`;
+const FIXTURE_FILE = `${TEST_FILE_PREFIX}test/assembly/expect-matchers/failure-messages-to-throw-error.meta.test.ts`;
 
 /** Construct the full test path as it appears in vitest's CLI FAIL header. */
 function testPath(...segments: string[]): string {
@@ -18,17 +18,17 @@ describe('toThrowError failure message verification', () => {
   describe('matching failures', () => {
     test('expect any error, but no error received', () => {
       const block = requireErrorBlock(parsedCli, testPath('toThrowError', 'matching failures', 'expect any error, but no error received [should fail]'));
-      expect(block).toContain('AssertionError: expected function to throw any error - did not throw');
+      expect(block).toContain('AssertionError: function did not throw, but was expected to throw error: <any>');
     });
 
     test('expect specific error, but no error received', () => {
       const block = requireErrorBlock(parsedCli, testPath('toThrowError', 'matching failures', 'expect specific error, but no error received [should fail]'));
-      expect(block).toContain('AssertionError: expected function to throw "Index out of range" error - did not throw');
+      expect(block).toContain('AssertionError: function did not throw, but was expected to throw error: "Index out of range"');
     });
 
     test('expect specific error, but different error received', () => {
       const block = requireErrorBlock(parsedCli, testPath('toThrowError', 'matching failures', 'expect specific error, but different error received [should fail]'));
-      expect(block).toContain('AssertionError: expected function to throw "will not match" error but received "Index out of range"');
+      expect(block).toContain('AssertionError: expected function to throw error "will not match", but received error "Index out of range"');
     });
   });
 

@@ -14,6 +14,7 @@ import type {
   AssemblyScriptTestError,
   AssemblyScriptTestOptions,
 } from '../types/types.js';
+import { finalizeSuiteResult } from './vitest-tasks.js';
 
 export function createInitialFileTask(
   testFile: string,
@@ -105,28 +106,28 @@ export function prepareFileTaskForCollection(
 
 export function failFile(
   file: File,
-  error: AssemblyScriptTestError,
+  testError: AssemblyScriptTestError,
   runStartPerf: number,
-): File {
+): AssemblyScriptTestError {
   file.mode = 'run';
-
   if (file.result) {
     file.result.state = 'fail';
-    file.result.errors = file.result.errors ? file.result.errors.concat(error) : [error];
+    file.result.errors = file.result.errors ? file.result.errors.concat(testError) : [testError];
   } else {
     file.result = {
       state: 'fail',
-      errors: [error]
+      errors: [testError]
     };
   }
   file.environmentLoad = file.environmentLoad ?? 0;
   file.setupDuration = performance.now() - runStartPerf;
   file.collectDuration = file.collectDuration ?? 0;
 
-  return file;
+  // we can always finalize on failing the file, no other work to do
+  finalizeSuiteResult(file);
+
+  return testError;
 }
-
-
 
 export function getFullTaskHierarchy(file: File): string {
   function spacesForLevel(level: number): string {

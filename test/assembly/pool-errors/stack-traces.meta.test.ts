@@ -1,8 +1,9 @@
 import { test, expect, describe } from "vitest-pool-assemblyscript/assembly";
 import * as fail from "../../assembly-src/failure-utils.meta";
 import { callsAnotherFunctionThatFails } from "../../assembly-src/failure-utils-proxy.meta";
-import { throwsError } from "../../assembly-src/inline-utils.meta";
-import { helperWithFailingAssertion } from "./assertion-helper.meta";
+import { inlineFails } from "../../assembly-src/inline-utils.meta";
+import * as helpers from "./assertion-helper.meta";
+import { runFailingUserFunction, runFailingUserFunctionNonexistantRef, runFailingUserFunctionStackOverflow } from '../../assembly-src/user-import-error-wrapper.meta';
 
 describe("function and callback combinations", () => {
   test("failNamedFunc [should fail]", () => {
@@ -56,26 +57,78 @@ describe("classes", () => {
 });
 
 describe("edge cases", () => {
-  test("inline function [should fail]", (): void => {
-    const wontAssign = throwsError();
+  test("inline function [should fail]", () => {
+    const wontAssign = inlineFails();
   });
   
   test("single line function [should fail]", () => {
     fail.failsSingleLine();
   });
   
-  test("multiline expect statement [should fail]", (): void => {
+  test("multiline expect statement [should fail]", () => {
     expect(
       false
     ).toBeTruthy();
   });
   
-  test("callsAnotherFunctionThatFails [should fail]", (): void => {
+  test("callsAnotherFunctionThatFails [should fail]", () => {
     const val = callsAnotherFunctionThatFails();
     expect(val).toBe(3);
   });
 
-  test("assertion error in helper [should fail]", (): void => {
-    helperWithFailingAssertion();
+  test("assertion error in test helper [should fail]", () => {
+    helpers.testHelperWithFailingAssertion();
+  });
+  
+  test("runtime error in test helper [should fail]", () => {
+    const val = helpers.testHelperWithRuntimeAbort();
+    expect(val).toBe(1);
+  });
+
+  describe("WASM crash error paths (not handled by abort import)", () => {
+    test("stack overflow in user code [should fail]", () => {
+      const val = fail.crash(1, "anything");
+      expect(val).toBe("anything");
+    });
+    
+    test("stack overflow in user class code [should fail]", () => {
+      const c = new fail.ClassWithFailingMethods();
+      const val = c.crash(1, "anything");
+      expect(val).toBe("anything");
+    });
+    
+    test("stack overflow in test helper [should fail]", () => {
+      const val = helpers.testHelperWithStackOverflowCrash(1, "anything");
+      expect(val).toBe("anything");
+    });
+
+    test("stack overflow in test helper [should fail]", () => {
+      const val = helpers.testHelperWithStackOverflowCrash(1, "anything");
+      expect(val).toBe("anything");
+    });
+
+    test("memory out of bounds runtime error [should fail]", () => {
+      const val = fail.badLoad();
+      expect(val).toBe(12);
+    });
+    
+    test("divide by zero runtime error [should fail]", () => {
+      const val = fail.badDiv();
+      expect(val).toBeCloseTo(12);
+    });
+  });
+
+  describe("user imports", () => {
+    test("range runtime error [should fail]", () => {
+      expect(runFailingUserFunction(2)).toBe(12);
+    });
+    
+    test("reference runtime error [should fail]", () => {
+      expect(runFailingUserFunctionNonexistantRef(2)).toBe(12);
+    });
+    
+    test("stack overflow runtime error [should fail]", () => {
+      expect(runFailingUserFunctionStackOverflow(2)).toBe(12);
+    });
   });
 });
