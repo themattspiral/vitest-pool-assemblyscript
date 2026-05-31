@@ -14,25 +14,22 @@ jobs:
         os: [ubuntu-latest, ubuntu-24.04-arm]
         node-version: ['22', '24']
         include:
-          # Node 20 (linux-x64 only): verify tests run without coverage (multi-memory unavailable)
+          # Alpine/musl
           - os: ubuntu-latest
-            node-version: '20'
-          # Alpine/musl: test on Node 22 (minimum supported version with coverage)
-          - os: ubuntu-latest
-            node-version: '22'
-            container: node:22-alpine
+            node-version: '24-alpine'
+            container: node:24-alpine
     steps:
       - name: Install test tools (Alpine)
         if: matrix.container != ''
         run: apk add --no-cache python3 make g++
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Skip setup-node for container jobs (Node.js is provided by the container image)
       - name: Set up Node.js ${{ matrix.node-version }}
         if: matrix.container == ''
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
@@ -50,17 +47,7 @@ jobs:
         run: npm run test:ext:setup
 
       - name: Test Passing Suite Externally
-        if: matrix.node-version != '20'
         run: npm run test:ext:pass
 
       - name: Test Meta Verify Suite Externally
-        if: matrix.node-version != '20'
         run: npm run test:ext:meta:verify
-
-      - name: Test Passing Suite Externally (No Coverage)
-        if: matrix.node-version == '20'
-        run: npm run test:ext:pass:no-cov
-
-      - name: Test Meta Verify Suite Externally (No Coverage)
-        if: matrix.node-version == '20'
-        run: npm run test:ext:meta:verify:no-cov
