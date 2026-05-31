@@ -18,12 +18,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
@@ -38,7 +38,7 @@ jobs:
         run: npm run build
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-output
           path: |
@@ -60,7 +60,7 @@ jobs:
             platform: linux-arm64
           - os: ubuntu-latest
             platform: linux-x64-musl
-            container: node:22-alpine
+            container: node:24-alpine
           - os: macos-15-intel
             platform: darwin-x64
           - os: macos-latest
@@ -77,13 +77,13 @@ jobs:
         run: apk add --no-cache python3 make g++ linux-headers tar
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Cache prebuilds keyed on files that affect the native addon output.
       # On cache hit, skip the entire build and just upload the cached artifact.
       - name: Cache prebuild
         id: prebuild-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: prebuilds/
           key: prebuild-${{ matrix.platform }}-${{ github.ref_name }}-${{ hashFiles('src/instrumentation/native/**', 'binding.gyp', 'BINARYEN_VERSION', 'scripts/setup-binaryen.js', 'package-lock.json') }}
@@ -95,7 +95,7 @@ jobs:
       - name: Cache Binaryen build (macOS)
         id: binaryen-cache
         if: steps.prebuild-cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: third_party/binaryen/
           key: binaryen-${{ matrix.platform }}-${{ hashFiles('BINARYEN_VERSION') }}
@@ -109,9 +109,9 @@ jobs:
       # Skip setup-node for container jobs (Node.js is provided by the container image)
       - name: Set up Node.js
         if: steps.prebuild-cache.outputs.cache-hit != 'true' && matrix.container == ''
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
@@ -129,7 +129,7 @@ jobs:
         run: npm run build:prebuild
 
       - name: Upload prebuild
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.platform }}
           path: prebuilds/
@@ -157,29 +157,24 @@ jobs:
             prebuild-artifact: prebuild-win32-x64
           - os: windows-11-arm
             prebuild-artifact: prebuild-win32-arm64
-          # Node 20 (linux-x64 only): verify tests run without coverage (multi-memory unavailable)
+          # Uses '24-alpine' to avoid colliding with the ubuntu-latest + '24'
+          # (also setup-node is skipped for container jobs).
           - os: ubuntu-latest
-            node-version: '20'
-            prebuild-artifact: prebuild-linux-x64
-          # Alpine/musl: test on Node 22 (minimum supported version with coverage).
-          # Uses '22-alpine' to avoid colliding with the ubuntu-latest + '22'
-          # cross-product entry (setup-node is skipped for container jobs).
-          - os: ubuntu-latest
-            node-version: '22-alpine'
+            node-version: '24-alpine'
             prebuild-artifact: prebuild-linux-x64-musl
-            container: node:22-alpine
+            container: node:24-alpine
     steps:
       - name: Install test tools (Alpine)
         if: matrix.container != ''
         run: apk add --no-cache python3 make g++
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Download prebuild BEFORE npm ci so the install script finds it
       # and skips Binaryen download + source compilation
       - name: Download prebuild for this platform
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.prebuild-artifact }}
           path: prebuilds/
@@ -193,7 +188,7 @@ jobs:
       # Skip setup-node for container jobs (Node.js is provided by the container image)
       - name: Set up Node.js ${{ matrix.node-version }}
         if: matrix.container == ''
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
@@ -202,7 +197,7 @@ jobs:
         run: npm ci
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: build-output
           path: .
@@ -211,39 +206,19 @@ jobs:
         run: npm run test:ext:setup
         
       - name: Test Passing Suite Externally
-        if: matrix.node-version != '20'
         run: npm run test:ext:pass
         
       - name: Test Meta Verify Suite Externally
-        if: matrix.node-version != '20'
         run: npm run test:ext:meta:verify
-
-      - name: Node 20 - Test Passing Suite Externally (No Coverage)
-        if: matrix.node-version == '20'
-        run: npm run test:ext:pass:no-cov
-
-      - name: Node 20 - Test Meta Verify Suite Externally (No Coverage)
-        if: matrix.node-version == '20'
-        run: npm run test:ext:meta:verify:no-cov
 
       - name: v3 - Setup External Test Directory
         run: npm run test:ext:setup:v3
 
       - name: v3 - Test Passing Suite Externally
-        if: matrix.node-version != '20'
         run: npm run test:ext:pass
         
       - name: v3 - Test Meta Verify Suite Externally
-        if: matrix.node-version != '20'
         run: npm run test:ext:meta:verify
-
-      - name: v3 - Node 20 - Test Passing Suite Externally (No Coverage)
-        if: matrix.node-version == '20'
-        run: npm run test:ext:pass:no-cov
-
-      - name: v3 - Node 20 - Test Meta Verify Suite Externally (No Coverage)
-        if: matrix.node-version == '20'
-        run: npm run test:ext:meta:verify:no-cov
 
   release:
     needs: [build, prebuild, test]
@@ -255,25 +230,25 @@ jobs:
       id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: build-output
           path: .
 
       - name: Download all prebuilds
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: prebuild-*
           path: prebuilds/
           merge-multiple: true
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
