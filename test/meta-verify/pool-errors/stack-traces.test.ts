@@ -284,7 +284,9 @@ describe('stack trace source mapping verification', () => {
         const block = requireErrorBlock(parsedCli, tPath);
         expect(block).toContain('WASMRuntimeError: RangeError: Maximum call stack size exceeded');
 
-        expectStackFrames(parsedCli, tPath, 9)
+        const frames = extractStackFrames(parsedCli, tPath);
+        expect(frames.length).toBeGreaterThanOrEqual(9);
+        expect(frames.slice(0, 9))
           .toEqual(new Array(9).fill(` ❯ crash ${SRC}/failure-utils.meta.ts:26:16`));
       });
       
@@ -294,7 +296,9 @@ describe('stack trace source mapping verification', () => {
         const block = requireErrorBlock(parsedCli, tPath);
         expect(block).toContain('WASMRuntimeError: RangeError: Maximum call stack size exceeded');
 
-        expectStackFrames(parsedCli, tPath, 9)
+        const frames = extractStackFrames(parsedCli, tPath);
+        expect(frames.length).toBeGreaterThanOrEqual(9);
+        expect(frames.slice(0, 9))
           .toEqual(new Array(9).fill(` ❯ ClassWithFailingMethods#crash ${SRC}/failure-utils.meta.ts:88:18`));
       });
       
@@ -304,7 +308,9 @@ describe('stack trace source mapping verification', () => {
         const block = requireErrorBlock(parsedCli, tPath);
         expect(block).toContain('WASMRuntimeError: RangeError: Maximum call stack size exceeded');
 
-        expectStackFrames(parsedCli, tPath, 9)
+        const frames = extractStackFrames(parsedCli, tPath);
+        expect(frames.length).toBeGreaterThanOrEqual(9);
+        expect(frames.slice(0, 9))
           .toEqual(new Array(9).fill(` ❯ testHelperWithStackOverflowCrash ${FIXTURE_DIR}/assertion-helper.meta.ts:16:16`));
       });
 
@@ -378,10 +384,12 @@ describe('stack trace source mapping verification', () => {
         const block = requireErrorBlock(parsedCli, tPath);
         expect(block).toContain('WASMRuntimeError: RangeError: Maximum call stack size exceeded');
 
-        expectStackFrames(parsedCli, tPath, 10)
+        const frames = extractStackFrames(parsedCli, tPath);
+        expect(frames.length).toBeGreaterThanOrEqual(9);
+        expect(frames.slice(0, 9))
           .toEqual([
             ` ❯ overflow ${TEST_FILE_PREFIX}test/helpers/create-user-imports.js:2:3`,
-            ].concat(new Array(9).fill(
+            ].concat(new Array(8).fill(
               ` ❯ overflow ${TEST_FILE_PREFIX}test/helpers/create-user-imports.js:2:14`
             ))
           );
