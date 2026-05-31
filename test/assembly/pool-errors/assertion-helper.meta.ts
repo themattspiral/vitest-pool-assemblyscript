@@ -13,5 +13,5 @@ export function testHelperWithRuntimeAbort(): i32 {
 
 export function testHelperWithStackOverflowCrash(num: i32, str: string): string {
   // infinite recursion - will overflow, crash runtime, and get caught by executor
-  return str + testHelperWithStackOverflowCrash(num + 1, str);
+  return testHelperWithStackOverflowCrash(num + 1, str) + str;
 }

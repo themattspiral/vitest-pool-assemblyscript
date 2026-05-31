@@ -287,7 +287,7 @@ describe('stack trace source mapping verification', () => {
         const frames = extractStackFrames(parsedCli, tPath);
         expect(frames.length).toBeGreaterThanOrEqual(9);
         expect(frames.slice(0, 9))
-          .toEqual(new Array(9).fill(` ❯ crash ${SRC}/failure-utils.meta.ts:26:16`));
+          .toEqual(new Array(9).fill(` ❯ crash ${SRC}/failure-utils.meta.ts:26:10`));
       });
       
       test('stack overflow in user class code', () => {
@@ -299,7 +299,7 @@ describe('stack trace source mapping verification', () => {
         const frames = extractStackFrames(parsedCli, tPath);
         expect(frames.length).toBeGreaterThanOrEqual(9);
         expect(frames.slice(0, 9))
-          .toEqual(new Array(9).fill(` ❯ ClassWithFailingMethods#crash ${SRC}/failure-utils.meta.ts:88:18`));
+          .toEqual(new Array(9).fill(` ❯ ClassWithFailingMethods#crash ${SRC}/failure-utils.meta.ts:88:12`));
       });
       
       test('stack overflow in test helper', () => {
@@ -311,7 +311,7 @@ describe('stack trace source mapping verification', () => {
         const frames = extractStackFrames(parsedCli, tPath);
         expect(frames.length).toBeGreaterThanOrEqual(9);
         expect(frames.slice(0, 9))
-          .toEqual(new Array(9).fill(` ❯ testHelperWithStackOverflowCrash ${FIXTURE_DIR}/assertion-helper.meta.ts:16:16`));
+          .toEqual(new Array(9).fill(` ❯ testHelperWithStackOverflowCrash ${FIXTURE_DIR}/assertion-helper.meta.ts:16:10`));
       });
 
       test('memory out of bounds runtime error', () => {

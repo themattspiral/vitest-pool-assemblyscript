@@ -22,8 +22,8 @@ export function fails(): i32 {
 }
 
 export function crash(num: i32, str: string): string {
-  // infinite recursion - will overflow, crash runtime, and get caught by executor
-  return str + crash(num + 1, str);
+  // will overflow, crash runtime, and get caught by executor
+  return crash(num + 1, str) + str;
 }
 
 export function failsSingleLine(): i32 { const arr: i32[] = [1, 2, 3]; const value = arr[10]; return value; }
@@ -84,8 +84,8 @@ export class ClassWithFailingMethods {
   }
 
   crash(num: i32, str: string): string {
-    // infinite recursion - will overflow, crash runtime, and get caught by executor
-    return str + this.crash(num + 1, str);
+    // will overflow, crash runtime, and get caught by executor
+    return this.crash(num + 1, str) + str;
   }
 }
 
