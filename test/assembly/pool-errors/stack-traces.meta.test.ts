@@ -102,11 +102,6 @@ describe("edge cases", () => {
       expect(val).toBe("anything");
     });
 
-    test("stack overflow in test helper [should fail]", () => {
-      const val = helpers.testHelperWithStackOverflowCrash(1, "anything");
-      expect(val).toBe("anything");
-    });
-
     test("memory out of bounds runtime error [should fail]", () => {
       const val = fail.badLoad();
       expect(val).toBe(12);

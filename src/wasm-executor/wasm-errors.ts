@@ -7,6 +7,7 @@
  */
 
 import { relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { type ParsedStack } from '@vitest/utils';
 import { diff, type SerializedDiffOptions } from '@vitest/utils/diff';
 import type { Test, Suite } from '@vitest/runner/types';
@@ -22,6 +23,7 @@ import {
   toPlaintextStackFrameString,
   toVitestLikeStackFrameString,
 } from '../util/test-error-formatting.js';
+import { toForwardSlash } from '../util/path-utils.js';
 
 const POOL_INTERNAL_PATHS_SET = new Set(POOL_INTERNAL_PATHS);
 
@@ -152,11 +154,22 @@ export async function enhanceTestError(
   let highlightedSourceCodeFrameString: string | undefined;
   
   if (parsedStack.length > 0) {
+    // normalize all paths
+    parsedStack.forEach((frame) => {
+			if (frame.file.startsWith("file://")) {
+				frame.file = toForwardSlash(relative(projectRoot, fileURLToPath(frame.file)));
+        testErrorToUpdate.stack += toPlaintextStackFrameString(frame) + '\n';
+			}
+		});
+
     const primaryStackFrame = parsedStack[0]!;
     
     // Test error is set to rest of the stack without the first frame.
     // Vitest will report the ParsedStack[] on TestError.stacks below the diff we set.
     testErrorToUpdate.stacks = parsedStack.slice(1);
+
+    // stack is used by vitest for error deduplication, so make sure it is set also
+    testErrorToUpdate.stack = parsedStack.map(toPlaintextStackFrameString).join('\n');
 
     try {
       highlightedSourceCodeFrameString = await getSourceCodeFrameString(sourceMap, primaryStackFrame);
@@ -164,18 +177,11 @@ export async function enhanceTestError(
       debug(`${logPrefix} - Error reading source for primary stack frame file "${primaryStackFrame.file}":`, err);
     }
 
-    // truncate file:path strings for display - AFTER extracting source code
-    // in case we needed to read in the file (not in source map)
-    parsedStack.forEach(frame => {
-      if (frame.file.startsWith('file://')) {
-        const framePath = frame.file.substring(7);
-        frame.file = relative(projectRoot, framePath);
-      }
-    });
-
     primaryStackFrameString = toVitestLikeStackFrameString(primaryStackFrame);
 
     debug(`${logPrefix} - Enhanced ${testError.name} error with parsed source stack`);
+  } else {
+    testErrorToUpdate.stack = `${task.name} - ${testError.message}`;
   }
 
   // Use the diff field as our way to show all output (other than result.error.stacks)
@@ -187,10 +193,6 @@ export async function enhanceTestError(
     highlightedSourceCodeFrameString ?? ''
   ].join('');
 
-
-  // stack is used by vitest for error deduplication, so make sure it is set
-  testErrorToUpdate.stack = parsedStack.map(toPlaintextStackFrameString).join('\n');
-  
   debug(`[${logPrefix} - Enhanced error with diffs`);
 
   return;

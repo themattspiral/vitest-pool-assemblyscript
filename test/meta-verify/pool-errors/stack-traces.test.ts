@@ -319,7 +319,7 @@ describe('stack trace source mapping verification', () => {
         expect(frames.slice(0, 2))
           .toEqual([
             ` ❯ badLoad ${SRC}/failure-utils.meta.ts:101:10`,
-            ` ❯ anonymous|4 ${FIXTURE_FILE}:111:19`,
+            ` ❯ anonymous|3 ${FIXTURE_FILE}:106:19`,
           ]);
       });
       
@@ -334,7 +334,7 @@ describe('stack trace source mapping verification', () => {
         expect(frames.slice(0, 2))
           .toEqual([
             ` ❯ badDiv ${SRC}/failure-utils.meta.ts:105:3`,
-            ` ❯ anonymous|5 ${FIXTURE_FILE}:116:19`,
+            ` ❯ anonymous|4 ${FIXTURE_FILE}:111:19`,
           ]);
       });
     });
@@ -352,7 +352,7 @@ describe('stack trace source mapping verification', () => {
           .toEqual([
             ` ❯ failingUserFunction ${TEST_FILE_PREFIX}test/helpers/create-user-imports.js:14:21`,
             ` ❯ runFailingUserFunction ${SRC}/user-import-error-wrapper.meta.ts:9:10`,
-            ` ❯ anonymous|0 ${FIXTURE_FILE}:123:14`,
+            ` ❯ anonymous|0 ${FIXTURE_FILE}:118:14`,
           ]);
       });
       
@@ -368,7 +368,7 @@ describe('stack trace source mapping verification', () => {
           .toEqual([
             ` ❯ failingUserFunctionNonexistantRef ${TEST_FILE_PREFIX}test/helpers/create-user-imports.js:19:30`,
             ` ❯ runFailingUserFunctionNonexistantRef ${SRC}/user-import-error-wrapper.meta.ts:17:10`,
-            ` ❯ anonymous|1 ${FIXTURE_FILE}:127:14`,
+            ` ❯ anonymous|1 ${FIXTURE_FILE}:122:14`,
           ]);
       });
       
