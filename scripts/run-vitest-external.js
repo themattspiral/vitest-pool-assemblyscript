@@ -59,7 +59,7 @@ export async function runVitest({ cwd, args = [], capture = false }) {
     return runInteractive({ cwd, args });
   }
 
-  return runCapture({ cwd, args });
+  return await runCapture({ cwd, args });
 }
 
 /**
@@ -76,7 +76,7 @@ function runInteractive({ cwd, args }) {
 
   return new Promise((resolve) => {
     // shell: true is required on Windows where npx is a .cmd batch wrapper
-    const child = spawn('npx', vitestArgs, {
+    const child = spawn(vitestCommand, [], {
       cwd,
       shell: true,
       stdio: 'inherit',
@@ -100,7 +100,7 @@ async function runCapture({ cwd, args }) {
   // Clean up any leftover output file from a previous run
   await unlink(jsonOutputPath).catch(() => {});
 
-  const captureArgs = [ 'vitest', 'run', ...args ];
+  const captureCmd = [ 'npx', 'vitest', 'run', ...args ].join(' ');
 
   const { cliOutput, exitCode } = await new Promise((resolve) => {
     const stdoutChunks = [];
@@ -108,7 +108,7 @@ async function runCapture({ cwd, args }) {
 
     // shell: true is required on Windows where npx is a .cmd batch wrapper
     // that spawn can't resolve without the system shell
-    const child = spawn('npx', captureArgs, {
+    const child = spawn(captureCmd, [], {
       cwd,
       shell: true,
       stdio: ['inherit', 'pipe', 'pipe'],

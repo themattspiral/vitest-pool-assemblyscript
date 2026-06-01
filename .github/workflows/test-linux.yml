@@ -51,3 +51,21 @@ jobs:
 
       - name: Test Meta Verify Suite Externally
         run: npm run test:ext:meta:verify
+      
+      - name: v4 - Setup External Test Directory
+        run: npm run test:ext:setup:v4
+
+      - name: v4 - Test Passing Suite Externally
+        run: npm run test:ext:pass
+        
+      - name: v4 - Test Meta Verify Suite Externally
+        run: npm run test:ext:meta:verify
+
+      - name: v3 - Setup External Test Directory
+        run: npm run test:ext:setup:v3
+
+      - name: v3 - Test Passing Suite Externally
+        run: npm run test:ext:pass
+        
+      - name: v3 - Test Meta Verify Suite Externally
+        run: npm run test:ext:meta:verify

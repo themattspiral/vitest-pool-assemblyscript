@@ -1,13 +1,13 @@
 {
-  "name": "test-external-v3",
+  "name": "test-external",
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@vitest/coverage-v8": "~3.2.6",
-    "@vitest/runner": "~3.2.6",
-    "@vitest/utils": "~3.2.6",
+    "@vitest/coverage-v8": "~4.1.8",
+    "@vitest/runner": "~4.1.8",
+    "@vitest/utils": "~4.1.8",
     "assemblyscript": "0.28.17",
-    "vitest": "~3.2.6",
+    "vitest": "~4.1.8",
     "vitest-pool-assemblyscript": "file:vitest-pool-assemblyscript-0.0.0-semantically-released.tgz"
   },
   "scripts": {

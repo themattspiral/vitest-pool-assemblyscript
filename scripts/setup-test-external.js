@@ -24,8 +24,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, '..');
 
-const VITEST_VERSION = process.env.VITEST_VERSION || '4';
-const EXTERNAL_SOURCE_DIRNAME = VITEST_VERSION === '3' ? `test-external-v3` : 'test-external';
+const VITEST_VERSION = process.env.VITEST_VERSION || '5';
+const EXTERNAL_SOURCE_DIRNAME = VITEST_VERSION === '3'
+  ? `test-external-v3`
+  : VITEST_VERSION === '4'
+    ? `test-external-v4`
+    : 'test-external';
 const EXTERNAL_SOURCE_DIR = join(PROJECT_ROOT, EXTERNAL_SOURCE_DIRNAME);
 const EXTERNAL_DIR_NAME = 'vitest-pool-assemblyscript-test-external';
 const EXTERNAL_DIR = resolve(PROJECT_ROOT, '..', EXTERNAL_DIR_NAME);
