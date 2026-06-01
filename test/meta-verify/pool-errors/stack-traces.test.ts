@@ -11,6 +11,8 @@ const FIXTURE_FILE = `${TEST_FILE_PREFIX}test/assembly/pool-errors/stack-traces.
 const SRC = `${TEST_FILE_PREFIX}test/assembly-src`;
 const FIXTURE_DIR = `${TEST_FILE_PREFIX}test/assembly/pool-errors`;
 
+const RANGE_ERROR_SOURCE = 'const value = arr[10]; // Out of bounds - will abort';
+
 /** Construct the full test path as it appears in vitest's CLI FAIL header. */
 function testPath(...segments: string[]): string {
   return `${FIXTURE_FILE} > ${segments.join(' > ')}`;
@@ -77,6 +79,8 @@ describe('stack trace source mapping verification', () => {
           ` ❯ failNamedFunc ${SRC}/failure-utils.meta.ts:32:10`,
           ` ❯ anonymous|0 ${FIXTURE_FILE}:10:17`,
         ]);
+      
+      expect(block).toContain(RANGE_ERROR_SOURCE);
     });
 
     test('arrow function: anonymous primary frame, caller in stack', () => {
@@ -91,6 +95,8 @@ describe('stack trace source mapping verification', () => {
           ` ❯ failArrowFunc ${SRC}/failure-utils.meta.ts:36:10`,
           ` ❯ anonymous|1 ${FIXTURE_FILE}:15:17`,
         ]);
+      
+      expect(block).toContain(RANGE_ERROR_SOURCE);
     });
 
     test('named callback passed to named function', () => {
@@ -106,6 +112,8 @@ describe('stack trace source mapping verification', () => {
           ` ❯ failNamedCallbackInNamed ${SRC}/failure-utils.meta.ts:40:10`,
           ` ❯ anonymous|2 ${FIXTURE_FILE}:20:17`,
         ]);
+      
+      expect(block).toContain(RANGE_ERROR_SOURCE);
     });
 
     test('arrow callback passed to named function', () => {
@@ -121,6 +129,8 @@ describe('stack trace source mapping verification', () => {
           ` ❯ failArrowCallbackInNamed ${SRC}/failure-utils.meta.ts:44:10`,
           ` ❯ anonymous|3 ${FIXTURE_FILE}:25:17`,
         ]);
+      
+      expect(block).toContain(RANGE_ERROR_SOURCE);
     });
 
     test('anonymous callback passed to named function', () => {
@@ -136,6 +146,8 @@ describe('stack trace source mapping verification', () => {
           ` ❯ failAnonCallbackInNamed ${SRC}/failure-utils.meta.ts:48:10`,
           ` ❯ anonymous|4 ${FIXTURE_FILE}:30:17`,
         ]);
+      
+      expect(block).toContain(RANGE_ERROR_SOURCE);
     });
 
     test('anonymous callback calling named function', () => {
@@ -152,6 +164,8 @@ describe('stack trace source mapping verification', () => {
           ` ❯ failAnonCallbackInNamedCallsNamed ${SRC}/failure-utils.meta.ts:56:10`,
           ` ❯ anonymous|5 ${FIXTURE_FILE}:35:17`,
         ]);
+      
+      expect(block).toContain(RANGE_ERROR_SOURCE);
     });
 
     test('anonymous callback calling arrow function', () => {
@@ -168,6 +182,8 @@ describe('stack trace source mapping verification', () => {
           ` ❯ failAnonCallbackInNamedCallsArrow ${SRC}/failure-utils.meta.ts:60:10`,
           ` ❯ anonymous|6 ${FIXTURE_FILE}:40:17`,
         ]);
+      
+      expect(block).toContain(RANGE_ERROR_SOURCE);
     });
   });
 
@@ -183,6 +199,8 @@ describe('stack trace source mapping verification', () => {
           ` ❯ ClassWithFailingMethods#fail ${SRC}/failure-utils.meta.ts:82:19`,
           ` ❯ anonymous|0 ${FIXTURE_FILE}:48:17`,
         ]);
+      
+      expect(block).toContain(RANGE_ERROR_SOURCE);
     });
 
     test('class member function (arrow assigned in constructor)', () => {
@@ -196,6 +214,8 @@ describe('stack trace source mapping verification', () => {
           ` ❯ anonymous|0 ${SRC}/failure-utils.meta.ts:71:21`,
           ` ❯ anonymous|1 ${FIXTURE_FILE}:54:17`,
         ]);
+      
+      expect(block).toContain(RANGE_ERROR_SOURCE);
     });
   });
 
@@ -211,6 +231,8 @@ describe('stack trace source mapping verification', () => {
           ` ❯ inlineFails ${SRC}/inline-utils.meta.ts:9:17`,
           ` ❯ anonymous|0 ${FIXTURE_FILE}:61:24`,
         ]);
+      
+      expect(block).toContain(RANGE_ERROR_SOURCE);
     });
 
     test('single line function', () => {
@@ -223,6 +245,8 @@ describe('stack trace source mapping verification', () => {
         .toEqual([
           ` ❯ failsSingleLine ${SRC}/failure-utils.meta.ts:29:86`,
         ]);
+      
+      expect(block).toContain('export function failsSingleLine(): i32 { const arr: i32[] = [');
     });
 
     test('multiline expect statement points to expect call', () => {
@@ -235,6 +259,8 @@ describe('stack trace source mapping verification', () => {
         .toEqual([
           ` ❯ anonymous|2 ${FIXTURE_FILE}:69:5`,
         ]);
+      
+      expect(block).toContain('69|     expect(');
     });
 
     test('cross-file: frames reference both source files', () => {
@@ -249,6 +275,8 @@ describe('stack trace source mapping verification', () => {
           ` ❯ callsAnotherFunctionThatFails ${SRC}/failure-utils-proxy.meta.ts:4:17`,
           ` ❯ anonymous|3 ${FIXTURE_FILE}:75:17`,
         ]);
+      
+      expect(block).toContain(RANGE_ERROR_SOURCE);
     });
 
     test('assertion error in test helper: primary frame points to expect call', () => {
@@ -262,6 +290,8 @@ describe('stack trace source mapping verification', () => {
           ` ❯ testHelperWithFailingAssertion ${FIXTURE_DIR}/assertion-helper.meta.ts:4:3`,
           ` ❯ anonymous|4 ${FIXTURE_FILE}:80:5`,
         ]);
+      
+      expect(block).toContain('expect(1).toBe(2);');
     });
     
     test('runtime error in test helper: primary frame points to array index error', () => {
@@ -272,9 +302,11 @@ describe('stack trace source mapping verification', () => {
 
       expectStackFrames(parsedCli, tPath, 2)
         .toEqual([
-          ` ❯ testHelperWithRuntimeAbort ${FIXTURE_DIR}/assertion-helper.meta.ts:10:17`,
+          ` ❯ testHelperWithRuntimeAbort ${FIXTURE_DIR}/assertion-helper.meta.ts:9:17`,
           ` ❯ anonymous|5 ${FIXTURE_FILE}:84:17`,
         ]);
+      
+      expect(block).toContain(RANGE_ERROR_SOURCE);
     });
 
     describe("WASM crash error paths (not handled by abort import)", () => {
@@ -288,6 +320,8 @@ describe('stack trace source mapping verification', () => {
         expect(frames.length).toBeGreaterThanOrEqual(9);
         expect(frames.slice(0, 9))
           .toEqual(new Array(9).fill(` ❯ crash ${SRC}/failure-utils.meta.ts:26:10`));
+        
+        expect(block).toContain('return crash(num + 1, str) + str;');
       });
       
       test('stack overflow in user class code', () => {
@@ -300,6 +334,8 @@ describe('stack trace source mapping verification', () => {
         expect(frames.length).toBeGreaterThanOrEqual(9);
         expect(frames.slice(0, 9))
           .toEqual(new Array(9).fill(` ❯ ClassWithFailingMethods#crash ${SRC}/failure-utils.meta.ts:88:12`));
+        
+        expect(block).toContain('return this.crash(num + 1, str) + str;');
       });
       
       test('stack overflow in test helper', () => {
@@ -311,7 +347,9 @@ describe('stack trace source mapping verification', () => {
         const frames = extractStackFrames(parsedCli, tPath);
         expect(frames.length).toBeGreaterThanOrEqual(9);
         expect(frames.slice(0, 9))
-          .toEqual(new Array(9).fill(` ❯ testHelperWithStackOverflowCrash ${FIXTURE_DIR}/assertion-helper.meta.ts:16:10`));
+          .toEqual(new Array(9).fill(` ❯ testHelperWithStackOverflowCrash ${FIXTURE_DIR}/assertion-helper.meta.ts:15:10`));
+        
+        expect(block).toContain('return testHelperWithStackOverflowCrash(num + 1, str) + str;');
       });
 
       test('memory out of bounds runtime error', () => {
@@ -327,6 +365,8 @@ describe('stack trace source mapping verification', () => {
             ` ❯ badLoad ${SRC}/failure-utils.meta.ts:101:10`,
             ` ❯ anonymous|3 ${FIXTURE_FILE}:106:19`,
           ]);
+        
+        expect(block).toContain('return load<i32>(-1);');
       });
       
       test('divide by zero runtime error', () => {
@@ -342,10 +382,12 @@ describe('stack trace source mapping verification', () => {
             ` ❯ badDiv ${SRC}/failure-utils.meta.ts:105:3`,
             ` ❯ anonymous|4 ${FIXTURE_FILE}:111:19`,
           ]);
+        
+        expect(block).toContain('return 5 / 0;');
       });
     });
 
-    describe("user imports", () => {
+    describe("user import runtime errors", () => {
       test("range runtime error", () => {
         const tPath = testPath('edge cases', 'user imports', 'range runtime error [should fail]');
 
@@ -360,6 +402,8 @@ describe('stack trace source mapping verification', () => {
             ` ❯ runFailingUserFunction ${SRC}/user-import-error-wrapper.meta.ts:9:10`,
             ` ❯ anonymous|0 ${FIXTURE_FILE}:118:14`,
           ]);
+        
+        expect(block).toContain('const arr = new Array(-1);');
       });
       
       test("reference runtime error", () => {
@@ -376,6 +420,8 @@ describe('stack trace source mapping verification', () => {
             ` ❯ runFailingUserFunctionNonexistantRef ${SRC}/user-import-error-wrapper.meta.ts:17:10`,
             ` ❯ anonymous|1 ${FIXTURE_FILE}:122:14`,
           ]);
+        
+        expect(block).toContain('return inputNumber + nonexistent;');
       });
       
       test("stack overflow runtime error", () => {
@@ -393,68 +439,120 @@ describe('stack trace source mapping verification', () => {
               ` ❯ overflow ${TEST_FILE_PREFIX}test/helpers/create-user-imports.js:2:14`
             ))
           );
+        
+        expect(block).toContain('return 1 + overflow(inputNumber);');
       });
     });
   });
 
-  describe("malformed user imports setup", () => {
-    const fixture = `pool-errors/stack-traces.meta-imports-create-fail.test.ts`;
-    const fixturePath = `${TEST_FILE_PREFIX}test/assembly/${fixture}`;
-    
-    // Import errors are file-level failures. the FAIL header repeats the
-    // file path with a bracketed suffix: "filepath [ filepath ]"
-    const errorBlockKey = `${fixturePath} [ ${fixturePath} ]`;
+  describe("alternate meta configurations", () => {
+    describe("malformed user imports setup", () => {
+      const fixture = `pool-errors/stack-traces.meta-imports-create-fail.test.ts`;
+      const fixturePath = `${TEST_FILE_PREFIX}test/assembly/${fixture}`;
+      
+      // Import errors are file-level failures. the FAIL header repeats the
+      // file path with a bracketed suffix: "filepath [ filepath ]"
+      const errorBlockKey = `${fixturePath} [ ${fixturePath} ]`;
 
-    test("creation failure", () => {
-      const file = requireTestFile(metaRunResults, fixture);
-      expect(file.status).toBe('failed');
+      test("creation failure", () => {
+        const file = requireTestFile(metaRunResults, fixture);
+        expect(file.status).toBe('failed');
 
-      const block = requireErrorBlock(parsedCli, errorBlockKey);
-      expect(block).toContain('WASMUserImportsError: Could not create user WasmImportsFactory');
-      expect(block).toContain('Caused by: ReferenceError: nonexistent is not defined');
+        const block = requireErrorBlock(parsedCli, errorBlockKey);
+        expect(block).toContain('WASMUserImportsError: Could not create user WasmImportsFactory');
+        expect(block).toContain('Caused by: ReferenceError: nonexistent is not defined');
 
-      const frames = extractStackFrames(parsedCli, errorBlockKey);
-      expect(frames.length).toBeGreaterThanOrEqual(1);
-      expect(frames[0]).toBe(
-        ` ❯ createWasmImports ${TEST_FILE_PREFIX}test/helpers/failing-create-user-imports.js:8:12`
-      );
+        const frames = extractStackFrames(parsedCli, errorBlockKey);
+        expect(frames.length).toBeGreaterThanOrEqual(1);
+        expect(frames[0]).toBe(
+          ` ❯ createWasmImports ${TEST_FILE_PREFIX}test/helpers/failing-create-user-imports.js:8:12`
+        );
+
+        // ensure erroring source code from user's JS imports is displayed
+        expect(block).toContain('8|     other: nonexistent');
+      });
     });
-  });
-  
-  describe("nonexistent user imports setup", () => {
-    const fixture = `pool-errors/stack-traces.meta-imports-load-fail.test.ts`;
-    const fixturePath = `${TEST_FILE_PREFIX}test/assembly/${fixture}`;
     
-    // Import errors are file-level failures. the FAIL header repeats the
-    // file path with a bracketed suffix: "filepath [ filepath ]"
-    const errorBlockKey = `${fixturePath} [ ${fixturePath} ]`;
+    describe("nonexistent user imports setup", () => {
+      const fixture = `pool-errors/stack-traces.meta-imports-load-fail.test.ts`;
+      const fixturePath = `${TEST_FILE_PREFIX}test/assembly/${fixture}`;
+      
+      // Import errors are file-level failures. the FAIL header repeats the
+      // file path with a bracketed suffix: "filepath [ filepath ]"
+      const errorBlockKey = `${fixturePath} [ ${fixturePath} ]`;
 
-    test("load failure", () => {
-      const file = requireTestFile(metaRunResults, fixture);
-      expect(file.status).toBe('failed');
+      test("load failure", () => {
+        const file = requireTestFile(metaRunResults, fixture);
+        expect(file.status).toBe('failed');
 
-      const block = requireErrorBlock(parsedCli, errorBlockKey);
-      expect(block).toContain('WASMUserImportsError: Could not load user WasmImportsFactory');
-      expect(block).toContain('Caused by: Error: Cannot find module');
+        const block = requireErrorBlock(parsedCli, errorBlockKey);
+        expect(block).toContain('WASMUserImportsError: Could not load user WasmImportsFactory');
+        expect(block).toContain('Caused by: Error: Cannot find module');
+      });
     });
-  });
-  
-  describe("small memory setup", () => {
-    const fixture = `pool-errors/stack-traces.meta-small-mem.test.ts`;
-    const fixturePath = `${TEST_FILE_PREFIX}test/assembly/${fixture}`;
-    const tPath = `${fixturePath} > small memory setup > out of memory runtime error [should fail]`;
+    
+    describe("missing module user imports setup", () => {
+      const fixture = `pool-errors/stack-traces.meta-imports-module-missing.test.ts`;
+      const fixturePath = `${TEST_FILE_PREFIX}test/assembly/${fixture}`;
+      
+      // Import errors are file-level failures. the FAIL header repeats the
+      // file path with a bracketed suffix: "filepath [ filepath ]"
+      const errorBlockKey = `${fixturePath} [ ${fixturePath} ]`;
 
-    test("out of memory runtime error", () => {
-      const file = requireTestFile(metaRunResults, fixture);
-      expect(file.status).toBe('failed');
+      test("missing module failure", () => {
+        const file = requireTestFile(metaRunResults, fixture);
+        expect(file.status).toBe('failed');
 
-      const block = requireErrorBlock(parsedCli, tPath);
-      expect(block).toContain('WASMRuntimeError: RuntimeError: unreachable');
+        const block = requireErrorBlock(parsedCli, errorBlockKey);
+        expect(block).toContain('WASMUserImportsError: Expected module "anotherCustomUserModule" to be defined'
+          + ' as an object or function within user WASM imports (returned by WasmImportsFactory)'
+        );
+        expect(block).toContain('Caused by: TypeError: WebAssembly.Instance(): Import');
+        expect(block).toContain('"anotherCustomUserModule": module is not an object or function');
+      });
+    });
+    
+    describe("missing function user imports setup", () => {
+      const fixture = `pool-errors/stack-traces.meta-imports-function-missing.test.ts`;
+      const fixturePath = `${TEST_FILE_PREFIX}test/assembly/${fixture}`;
+      
+      // Import errors are file-level failures. the FAIL header repeats the
+      // file path with a bracketed suffix: "filepath [ filepath ]"
+      const errorBlockKey = `${fixturePath} [ ${fixturePath} ]`;
 
-      const frames = extractStackFrames(parsedCli, tPath);
-      expect(frames).toContain(
-        ` ❯ anonymous|0 ${TEST_FILE_PREFIX}test/assembly/pool-errors/stack-traces.meta-small-mem.test.ts:6:17`
-      );
+      test("missing function failure", () => {
+        const file = requireTestFile(metaRunResults, fixture);
+        expect(file.status).toBe('failed');
+
+        const block = requireErrorBlock(parsedCli, errorBlockKey);
+        expect(block).toContain('WASMUserImportsError: Expected function "otherFunction" to be defined'
+          + ' in module "customUserModule" within user WASM imports (returned by WasmImportsFactory)'
+        );
+        expect(block).toContain('Caused by: LinkError: WebAssembly.Instance(): Import');
+        expect(block).toContain('"otherFunction": function import requires a callable');
+      });
+    });
+    
+    describe("small memory setup", () => {
+      const fixture = `pool-errors/stack-traces.meta-small-mem.test.ts`;
+      const fixturePath = `${TEST_FILE_PREFIX}test/assembly/${fixture}`;
+      const tPath = `${fixturePath} > small memory setup > out of memory runtime error [should fail]`;
+
+      test("out of memory runtime error", () => {
+        const file = requireTestFile(metaRunResults, fixture);
+        expect(file.status).toBe('failed');
+
+        const block = requireErrorBlock(parsedCli, tPath);
+        expect(block).toContain('WASMRuntimeError: RuntimeError: unreachable');
+
+        const frames = extractStackFrames(parsedCli, tPath);
+        expect(frames).toContain(
+          ` ❯ anonymous|0 ${TEST_FILE_PREFIX}test/assembly/pool-errors/stack-traces.meta-small-mem.test.ts:6:17`
+        );
+
+        // displays source from lib code
+        expect(block).toContain('unreachable(); // out of memory');
+      });
     });
   });
 });

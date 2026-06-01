@@ -1,5 +1,4 @@
 import { stripVTControlCharacters } from 'node:util';
-import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import type { RawSourceMap } from 'source-map';
 import type { ParsedStack } from '@vitest/utils';
@@ -33,14 +32,9 @@ export async function getSourceCodeFrameString(
 ): Promise<string | undefined> {
   let source: string | undefined;
 
-  if (!sourceMap) {
-    return undefined;
-  }
-
-  const fileIndex = sourceMap.sources.indexOf(frame.file);
-  if (fileIndex < 0 || !sourceMap.sourcesContent) {
-    const framePath = fileURLToPath(frame.file);
-    source = await readFile(framePath, 'utf-8');
+  const fileIndex = sourceMap?.sources.indexOf(frame.file) ?? -1;
+  if (fileIndex < 0 || !sourceMap?.sourcesContent) {
+    source = await readFile(frame.file, 'utf-8');
   } else {
     source = sourceMap.sourcesContent[fileIndex];
   }

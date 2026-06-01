@@ -6,8 +6,7 @@ export function testHelperWithFailingAssertion(): void {
 
 export function testHelperWithRuntimeAbort(): i32 {
   const arr: i32[] = [1, 2, 3];
-  // Out of bounds - will abort through abort() handler
-  const value = arr[10];
+  const value = arr[10]; // Out of bounds - will abort
   return value;
 }
 

@@ -44,9 +44,9 @@ function createUserWasmImports(
       debug(`${logPrefix} Created user WASM imports for test execution in ${(performance.now() - start).toFixed(2)} ms`);
 
       userEnvImports = userImports?.env;
+      userCustomEnvImports = { ...userImports };
       
       if (userEnvImports) {
-        userCustomEnvImports = { ...userImports };
         delete userCustomEnvImports.env;
       }
     } catch (error) {
