@@ -89,6 +89,32 @@ export default defineConfig({
           }),
         }
       }),
+
+      // AS Meta Alt Config - user import module missing failure
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-imports-module-missing-fail', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-module-missing.test.ts'
+          ],
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/missing-module-create-user-imports.js',
+          }),
+        }
+      }),
+      
+      // AS Meta Alt Config - user import function missing failure
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-imports-function-missing-fail', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-function-missing.test.ts'
+          ],
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/missing-function-create-user-imports.js',
+          }),
+        }
+      }),
       
       // AS Meta Alt Config - small test memory limit
       defineProject({

@@ -133,25 +133,41 @@ export async function executeWASMDiscovery(
       );
     }
   } catch (error: any) {
-    const isFunctionSignatureMismatch: boolean = error instanceof WebAssembly.RuntimeError
-      && error?.message.includes('null function or function signature mismatch');
-    if (isFunctionSignatureMismatch) {
-      throw createPoolError(
-        POOL_ERROR_NAMES.PoolSyntaxError,
-        SIG_MISMATCH_ERROR_MSG,
-        error
-      );
-    } 
-
     if (error && error[AS_POOL_ERROR_FLAG]) {
       throw error;
-    } else {
-      throw wrapPoolError(
-        POOL_ERROR_NAMES.WASMExecutionHarnessError,
-        error,
-        true
-      );
     }
+
+    // void type inference issue
+    if (error instanceof WebAssembly.RuntimeError && error.message.includes('null function or function signature mismatch')) {
+      throw createPoolError(POOL_ERROR_NAMES.PoolSyntaxError, SIG_MISMATCH_ERROR_MSG, error);
+    }
+
+    if (error instanceof Error) {
+      let match: RegExpExecArray | null = null;
+      let moduleName: string | undefined;
+      let functionName: string | undefined;
+      let errorMessage: string | undefined;
+      
+      if (match = /"(.+)": module is not an object or function/.exec(error.message)) {
+        // module import error
+        moduleName = match[1];
+        errorMessage = `Expected module "${moduleName}" to be defined as an object`
+          + ` or function within user WASM imports (returned by WasmImportsFactory).`;
+      } else if (match = /"(.+)" (function=)?"(.+)": function import requires a callable/.exec(error.message)) {
+        // function import error
+        moduleName = match[1];
+        functionName = match[3];
+        errorMessage = `Expected function "${functionName}" to be defined in module "${moduleName}"`
+          + ` within user WASM imports (returned by WasmImportsFactory).`;
+      }
+
+      if (errorMessage) {
+        throw createPoolError(POOL_ERROR_NAMES.WASMUserImportsError, errorMessage, error);
+      }
+    }
+    
+    // any other error
+    throw wrapPoolError(POOL_ERROR_NAMES.WASMExecutionHarnessError, error, true);
   }
 
   debug(`${logPrefix} - Discovered ${file.tasks.length} top-level tasks`);
