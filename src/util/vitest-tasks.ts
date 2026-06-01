@@ -67,7 +67,7 @@ export function createAfterSuiteRunMeta(
 ): any {
   const base = { coverage, testFiles, projectName };
 
-  if (vitestVersion) {
+  if (vitestVersion === 'v3') {
     return { ...base, transformMode: 'ssr' as const };
   } else {
     return { ...base, environment: 'node' as const };
@@ -140,6 +140,7 @@ export function createTestTask(
     context: {} as any,
     annotations: [],
     artifacts: [],
+    benchmarks: [],
     meta: {},
     mode: getInitialTaskMode(mergedOptions),
     timeout: mergedOptions.timeout,
@@ -154,7 +155,13 @@ export function createTestTask(
     delete test.fullTestName;
     // @ts-ignore
     delete test.artifacts;
+    // @ts-ignore
+    delete test.benchmarks;
   }
+  // else if (vitestVersion === 'v4') {
+  //   // @ts-ignore
+  //   delete test.benchmarks;
+  // }
 
   parent.tasks.push(test);
 

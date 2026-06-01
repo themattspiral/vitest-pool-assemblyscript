@@ -1,0 +1,133 @@
+import { defineConfig, defineProject } from 'vitest/config';
+import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
+
+export default defineConfig({
+  test: {
+    globals: false,
+    environment: 'node',
+    reporters: [
+      'json',
+      'verbose'
+    ],
+    outputFile: { json: '.vitest-meta-json-output.json' },
+
+    coverage: {
+      enabled: true,
+      reportOnFailure: true,
+      reportsDirectory: 'coverage/meta/',
+      provider: 'custom',
+      customProviderModule: 'vitest-pool-assemblyscript/coverage',
+      
+      include: [
+        '../vitest-pool-assemblyscript/test/js-example-meta-src'
+      ],
+
+      assemblyScriptInclude: [
+        '../vitest-pool-assemblyscript/test/assembly-src/**/*.meta.ts'
+      ],
+
+      reporter: [
+        ['text', {
+          maxCols: 200,   // wide console for our CLI output verification
+          skipFull: false // vitest forces skipFull: true on the text reporter in AI-agent environments
+        }],
+        ['html', {}],
+        ['json', {}],
+      ],
+
+      debugIstanbul: false,
+    },
+
+    projects: [
+    // TS Meta examples (to combine with AS coverage results)
+      defineProject({
+        test: {
+          name: { label: 'ts-pool-meta-example', color: 'blue' },
+          include: [
+            '../vitest-pool-assemblyscript/test/js-example-meta/*.test.ts',
+          ],
+          exclude: [],
+        }
+      }),
+
+      // AS Meta - Failure conditions, and other external behavior verification (e.g. timeouts, retries)
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta.test.ts'
+          ],
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
+            extraCompilerFlags: ['--enable', 'simd'],
+          }),
+        }
+      }),
+      
+      // AS Meta Alt Config - user import creation failure
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-imports-create-fail', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-create-fail.test.ts'
+          ],
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/failing-create-user-imports.js',
+          }),
+        }
+      }),
+      
+      // AS Meta Alt Config - user import load failure
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-imports-load-fail', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-load-fail.test.ts'
+          ],
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: 'this/path/does_not_exist.js',
+          }),
+        }
+      }),
+
+      // AS Meta Alt Config - user import module missing failure
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-imports-module-missing-fail', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-module-missing.test.ts'
+          ],
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/missing-module-create-user-imports.js',
+          }),
+        }
+      }),
+      
+      // AS Meta Alt Config - user import function missing failure
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-imports-function-missing-fail', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-function-missing.test.ts'
+          ],
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/missing-function-create-user-imports.js',
+          }),
+        }
+      }),
+      
+      // AS Meta Alt Config - small test memory limit
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-small-mem', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-small-mem.test.ts'
+          ],
+          pool: createAssemblyScriptPool({
+            testMemoryPagesMax: 1,
+          }),
+        }
+      })
+    ]
+  },
+});

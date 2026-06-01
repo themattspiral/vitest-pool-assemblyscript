@@ -26,7 +26,9 @@ const hybridProviderModule: CoverageProviderModule = {
   getProvider: (): HybridCoverageProvider => new HybridCoverageProvider(),
 
   startCoverage: async (runtimeOptions: {
-    isolate: boolean
+    isolate: boolean,
+    autoAttachSubprocess: boolean,
+    reportsDirectory: string
   }): Promise<unknown> => {
     if (v8CoverageModule.startCoverage) {
       return await v8CoverageModule.startCoverage(runtimeOptions);
