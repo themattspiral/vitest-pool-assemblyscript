@@ -3,8 +3,8 @@
 * [AssemblyScript Pool Options](#assemblyscript-pool-options)
 * [Supported Vitest Config Options](#supported-vitest-config-options)
 * [Config Templates](#config-templates)
-    * [vitest 4.x.x Multiple-Project Template](#vitest-4xx-multiple-project-template)
-    * [vitest 4.x.x Single-Project Template](#vitest-4xx-single-project-template)
+    * [vitest 4.x and 5.x Multiple-Project Template](#vitest-4x-and-5x-multiple-project-template)
+    * [vitest 4.x and 5.x Single-Project Template](#vitest-4x-and-5x-single-project-template)
     * [vitest 3.2.x Multiple-Project Template](#vitest-32x-multiple-project-template)
     * [vitest 3.2.x Single-Project Template](#vitest-32x-single-project-template)
 
@@ -17,7 +17,7 @@ These options control how the pool processes and handles AssemblyScript. They're
 - `testMemoryPagesMax` *(number)* — Maximum WASM memory size in pages. When set, memory can grow up to this limit during test execution. **Default: `undefined`** (no growth limit imposed by the pool)
 - `wasmImportsFactory` *(string)* — Path to an ES module exporting a factory function that creates custom WASM imports. Path is relative to the vitest project root. See [Providing WASM Imports](providing-wasm-imports.md) for details.
 - `extraCompilerFlags` *(string[])* — Additional flags passed to the AssemblyScript compiler (`asc`). **Default: `[]`**
-- `maxThreadsV3` *(number)* — Maximum concurrent file execution threads. **vitest 3.x only** — for vitest 4.x, use vitest's standard `test.maxWorkers` instead. **Default: `availableParallelism() - 1`**
+- `maxThreadsV3` *(number)* — Maximum concurrent file execution threads. **vitest 3.x only** — for vitest 4.x and 5.x, use vitest's standard `test.maxWorkers` instead. **Default: `availableParallelism() - 1`**
 
 ### Default Compiler Options
 
@@ -45,7 +45,7 @@ This is not an exhaustive list of all vitest options, but it details which ones 
 - `retry` *(number)* — Number of retries to attempt after a test's initial failure. Can also be set per-test with `TestOptions.retry()`. Standard vitest option.
 - `testTimeout` *(number)* — Milliseconds to wait before terminating a test. Can also be set per-test with `TestOptions.timeout()`. Standard vitest option.
 - `allowOnly` *(boolean)* — Whether to respect `test.only` and `describe.only` modifiers. Standard vitest option.
-- `maxWorkers` *(number)* — Maximum concurrent file execution threads. **vitest 4.x only** — for vitest 3.x, use pool option `maxThreadsV3` instead. Standard vitest option.
+- `maxWorkers` *(number)* — Maximum concurrent file execution threads. **vitest 4.x and 5.x only** — for vitest 3.x, use pool option `maxThreadsV3` instead. Standard vitest option.
 
 ### `coverage` section
 
@@ -71,7 +71,7 @@ In your project's `vitest.config.ts`:
 - The `test` project configuration helpers you use depend on which version of vitest you have.
 - The `coverage` configuration is the same across versions (shown in the first example below).
 
-### vitest 4.x.x Multiple-Project Template
+### vitest 4.x and 5.x Multiple-Project Template
 The is the most common use case: Side-by-side JavaScript and AssemblyScript test projects.
 
 This configuration tells vitest to execute AS tests with the AssemblyScript custom pool, and to execute JavaScript tests with the default built-in pool (no `pool` configured for that project here). Both pools/projects send their collected test coverage data to a single "hybrid" coverage provider that handles both formats.
@@ -141,7 +141,7 @@ export default defineConfig({
 });
 ```
 
-### vitest 4.x.x Single-Project Template
+### vitest 4.x and 5.x Single-Project Template
 ```typescript
 import { defineConfig } from 'vitest/config';
 import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';

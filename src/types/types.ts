@@ -92,7 +92,7 @@ export interface AssemblyScriptPoolOptions {
    * Maximum number of worker threads to spawn with vitest 3.x.
    * Defaults to os.availableParallelism() - 1
    * 
-   * Use project config `test.maxWorkers` with vitest 4.x to control
+   * Use project config `test.maxWorkers` with vitest 5.x and 4.x to control
    * the number of cuncurrently executing tests. 
    */
   maxThreadsV3?: number;

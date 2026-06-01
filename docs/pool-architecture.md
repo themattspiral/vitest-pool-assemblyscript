@@ -2,7 +2,7 @@
 
 This document describes the internal architecture of `vitest-pool-assemblyscript` for contributors and maintainers. It covers how the pool integrates with vitest, how test files are compiled and executed, how errors and coverage are handled, and the rationale behind key design decisions.
 
-The primary architecture targets **vitest 4.x** using the `PoolWorker` API. Vitest 3.x compatibility is maintained via a separate orchestration layer that shares the same underlying runners and execution engine — see [Vitest 3 Compatibility](#vitest-3-compatibility).
+The primary architecture targets **vitest 5.x (and 4.x)** using the `PoolWorker` API. Vitest 3.x compatibility is maintained via a separate orchestration layer that shares the same underlying runners and execution engine — see [Vitest 3 Compatibility](#vitest-3-compatibility).
 
 ---
 
@@ -602,11 +602,11 @@ For test organization, configurations, commands, and development workflow, see t
 
 ## Vitest 3 Compatibility
 
-Vitest 3 uses the `ProcessPool` API with `collectTests()` and `runTests()` methods, while vitest 4 uses the message-based `PoolWorker` interface. Both versions share the same underlying runners and execution engine.
+Vitest 3 uses the `ProcessPool` API with `collectTests()` and `runTests()` methods, while vitest 5 and 4 use the message-based `PoolWorker` interface. All versions share the same underlying runners and execution engine.
 
 ### Architecture Differences
 
-| Aspect | Vitest 4 (PoolWorker) | Vitest 3 (ProcessPool) |
+| Aspect | Vitest 5 and 4 (PoolWorker) | Vitest 3 (ProcessPool) |
 |--------|----------------------|----------------------|
 | API interface | `PoolWorker` (start/stop/send/on/off) | `ProcessPool` (collectTests/runTests) |
 | Thread pools | 2 global Tinypools (compile + run) | 1 Tinypool (combined) |

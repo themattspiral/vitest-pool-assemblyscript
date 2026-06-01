@@ -95,7 +95,7 @@ npm install -D vitest vitest-pool-assemblyscript assemblyscript
 
 Create or update `vitest.config.ts`. See the [Configuration Guide](docs/configuration-guide.md) for all supported vitest options, pool options, coverage configuration, and multi-project setups.
 
-**vitest 4.x:**
+**vitest 5.x & 4.x:**
 ```typescript
 import { defineConfig } from 'vitest/config';
 import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
@@ -161,7 +161,7 @@ npx vitest run
 - Works with Vitest UI, reporters, and coverage tools
 - Project (workspace) config allows coexisting AssemblyScript pools and JavaScript pools
 - Hybrid Coverage Provider unifies test reports (`html`, `lcov`, `json`, etc) from multiple pools (delegates to v8 provider for JS coverage)
-- Supports vitest 3.x and 4.x
+- Supports vitest 3.2.x, 4.x, and 5.x
 
 ### Per-Test WASM Isolation
 - Each AssemblyScript test **file** is compiled to a WASM binary
@@ -277,7 +277,7 @@ The overall goal is tight vitest experience integration - most CLI commands, rep
 | Dependency | Supported Versions |
 |---|---|
 | Node.js | (20*), 22, 24+ |
-| Vitest | 3.2.x, 4.x.x |
+| Vitest | 3.2.x, 4.x.x, 5.x.x |
 | AssemblyScript | 0.28.9+ ([more?](#frequently-asked-questions)) |
 
 >ℹ️ ***Node 20 Support:** If you don't need code coverage, Node 20 should continue to work for test execution.
