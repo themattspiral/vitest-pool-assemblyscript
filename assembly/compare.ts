@@ -1,4 +1,4 @@
-import { stringifyValue } from './utils';
+import { isNull, stringifyValue } from './utils';
 
 /**
  * Byte offset from an object pointer to the rtId field in the AS managed object header.
@@ -325,19 +325,15 @@ function arrayBufferEquals<T, U>(actual: T, expected: U): __vitest_assemblyscrip
  * (or same reference type) for provided values.
  */
 export function identical<T, U>(actual: T, expected: U): bool {
+  const actualIsNull = isNull(actual);
+  const expectedIsNull = isNull(expected);
+
   // both refs
   if (isReference<T>() && isReference<U>()) {
-    const actualIsNullable = isNullable<T>();
-    // Use changetype pointer check instead of `== null` to avoid invoking
-    // user-defined @operator("==") overloads, which reject null arguments
-    const actualIsNull = actualIsNullable && changetype<usize>(actual) == 0;
-    const expectedIsNullable = isNullable<U>();
-    const expectedIsNull = expectedIsNullable && changetype<usize>(expected) == 0;
-    
     // null refs
     if (actualIsNull && expectedIsNull) {
       return true;
-    } else if ( (actualIsNull && !expectedIsNull) || (!actualIsNull && expectedIsNull) ) {
+    } else if ( actualIsNull != expectedIsNull ) {
       return false;
     }
 
@@ -348,27 +344,26 @@ export function identical<T, U>(actual: T, expected: U): bool {
       // object refs
       return changetype<usize>(actual) == changetype<usize>(expected);
     }
-  } else if (isReference<T>() && !isReference<U>()) {
-    // Both null/zero: null reference matches bare null (usize(0))
-    if (changetype<usize>(actual) == 0 && expected == usize(0)) {
+  } else if (
+      (isReference<T>() && !isReference<U>())
+      || (!isReference<T>() && isReference<U>())
+    ) {
+    if (actualIsNull && expectedIsNull) {
       return true;
+    } else if ( actualIsNull != expectedIsNull ) {
+      return false;
     }
+
     // Non-null reference vs value type: fundamentally incomparable
     throw new Error(
       "Cannot compare " + nameof<T>() + " with " + nameof<U>()
       + equalsPathAtSuffix() + ": reference and value types are not comparable."
     );
-  } else if (!isReference<T>() && isReference<U>()) {
-    // Both null/zero: bare null (usize(0)) matches null reference
-    if (actual == usize(0) && changetype<usize>(expected) == 0) {
-      return true;
-    }
-    // Value type vs non-null reference: fundamentally incomparable
-    throw new Error(
-      "Cannot compare " + nameof<T>() + " with " + nameof<U>()
-      + equalsPathAtSuffix() + ": reference and value types are not comparable."
-    );
   } else { // both primitives
+    if ( actualIsNull != expectedIsNull ) {
+      return false;
+    }
+
     if ( (isBoolean<T>() && !isBoolean<U>()) || (!isBoolean<T>() && isBoolean<U>())
     ) {
       // when one is boolean and the other is not, they are not identical
@@ -484,27 +479,39 @@ export function equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Eq
     exactMatch = identical(actual, expected);
   }
 
-  if (!isReference<T>() || isString<T>() || isVector<T>()) {
-    // non-bool primitives or strings: return result of comparing
+  const actualIsNull = isNull(actual);
+  const expectedIsNull = isNull(expected);
+
+  if (
+    (!isReference<T>() && !isReference<U>())
+    || (isString<T>() && isString<U>())
+    || (isVector<T>() && isVector<U>())
+  ) {
+    // non-bool primitives or strings or vectors: return result of identity compare
     return exactMatch ? __vitest_assemblyscript_EqualityResult.Equal : __vitest_assemblyscript_EqualityResult.NotEqual;
   } else if (exactMatch) {
     // primitive / reference comparison passed already
     return __vitest_assemblyscript_EqualityResult.Equal;
+  } else if (
+    (isReference<T>() && !isReference<U>())
+    || (!isReference<T>() && isReference<U>())
+  ) {
+    if (actualIsNull || expectedIsNull) {
+      return exactMatch ? __vitest_assemblyscript_EqualityResult.Equal : __vitest_assemblyscript_EqualityResult.NotEqual;
+    }
+
+    // Non-null reference vs value type: fundamentally incomparable
+    throw new Error(
+      "Cannot compare " + nameof<T>() + " with " + nameof<U>()
+      + equalsPathAtSuffix() + ": reference and value types are not comparable."
+    );
   }
 
-  if (isNullable<T>()) {
-    // Use changetype pointer checks instead of `== null` / `!= null` to avoid
-    // invoking user-defined @operator("==") overloads, which reject null arguments
-    const actualIsNull = changetype<usize>(actual) == 0;
-    const expectedIsNull = changetype<usize>(expected) == 0;
-
-    if (actualIsNull && expectedIsNull) {
-      return __vitest_assemblyscript_EqualityResult.Equal;
-    }
-
-    if (actualIsNull != expectedIsNull) {
-      return __vitest_assemblyscript_EqualityResult.NotEqual;
-    }
+  if (actualIsNull && expectedIsNull) {
+    return __vitest_assemblyscript_EqualityResult.Equal;
+  }
+  if (actualIsNull != expectedIsNull) {
+    return __vitest_assemblyscript_EqualityResult.NotEqual;
   }
 
   // Cycle detection: if this reference pair is already being compared further up
@@ -784,4 +791,3 @@ export function compareInequality<T, U>(actual: T, compareTo: U, expectedOperati
 export function truthyOrFalsey<T>(actual: T, expected: bool): bool {
   return actual ? expected == true : expected == false;
 }
-

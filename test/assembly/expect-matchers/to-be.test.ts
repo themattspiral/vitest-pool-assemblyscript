@@ -1,4 +1,5 @@
 import { test, expect, describe, TestOptions } from "vitest-pool-assemblyscript/assembly";
+import { Point } from '../../assembly-src/user-class-utils';
 
 describe("primitives", () => {
   describe("booleans", () => {
@@ -204,34 +205,113 @@ describe("strings", () => {
 });
 
 describe("nulls", () => {
-  test("nulls are identical", () => {
-    expect(null).toBe(null);
-
-    const str: string | null = null;
-    expect(null).toBe(str);
-    expect(str).toBe(null);
-
-    expect(null).toBe(0);
-    expect(null).toBe(usize(0));
-  });
-  
-  test("nulls are nothing else", () => {
-    expect(null).not.toBe(false);
-    expect(null).not.toBe(NaN);
-    expect(null).not.toBe(Infinity);
-    
-    expect(false).not.toBe(null);
-    expect(NaN).not.toBe(null);
-    expect(Infinity).not.toBe(null);
-  });
-});
-
-describe("nullables", () => {
-  test("values of any nullable types are identical when null", () => {
+  test("null values of any nullable types are identical", () => {
     const a: string | null = null;
-    const b: TestOptions | null = null;
+    const b: Point | null = null;
     expect(a).toBe(b);
   });
+  
+  test("explicit null pointer is identical to null value", () => {
+    const a: Point | null = null;
+    expect(a).toBe(usize(0));
+    expect(usize(0)).toBe(a);
+  });
+
+  test("0-equivalent values are not identical to null value", () => {
+    const a: Point | null = null;
+    expect(false).not.toBe(a);
+    expect(a).not.toBe(false);
+
+    expect(0).not.toBe(a);
+    expect(a).not.toBe(0);
+    
+    expect(f64(0.0)).not.toBe(a);
+    expect(a).not.toBe(f64(0.0));
+    
+    expect(u64(0.0)).not.toBe(a);
+    expect(a).not.toBe(u64(0.0));
+    
+    expect(u8(0.0)).not.toBe(a);
+    expect(a).not.toBe(u8(0.0));
+  });
+
+  test("numerical special cases are not identical to null value", () => {
+    const a: Point | null = null;
+    expect(a).not.toBe(NaN);
+    expect(NaN).not.toBe(a);
+    
+    expect(a).not.toBe(Infinity);
+    expect(Infinity).not.toBe(a);
+  });
+
+  describe("bare nulls", () => {
+    test("bare nulls are identical", () => {
+      expect(null).toBe(null);
+    });
+
+    test("object is not identical to bare null", () => {
+      expect(new Point(1, 2)).not.toBe(null);
+      expect(null).not.toBe(new Point(1, 2));
+    });
+    
+    test("null object is identical to bare null", () => {
+      const a: Point | null = null;
+      expect(a).toBe(null);
+      expect(null).toBe(a);
+    });
+    
+    test("explicit null pointer is identical to bare null", () => {
+      expect(null).toBe(usize(0));
+      expect(usize(0)).toBe(null);
+    });
+
+    test("usize zero is null, so it equals other nulls but not other-typed zeros", () => {
+      // usize(0) is bare null, so two of them are equal
+      expect(usize(0)).toBe(usize(0));
+
+      // ...but it is not equal to a zero of any other numeric type
+      expect(usize(0)).not.toBe(0);
+      expect(0).not.toBe(usize(0));
+
+      expect(usize(0)).not.toBe(false);
+      expect(false).not.toBe(usize(0));
+
+      expect(usize(0)).not.toBe(f64(0.0));
+      expect(f64(0.0)).not.toBe(usize(0));
+
+      expect(usize(0)).not.toBe(u64(0.0));
+      expect(u64(0.0)).not.toBe(usize(0));
+
+      expect(usize(0)).not.toBe(u8(0.0));
+      expect(u8(0.0)).not.toBe(usize(0));
+    });
+
+    test("0-equivalent values are not identical to bare null", () => {
+      expect(false).not.toBe(null);
+      expect(null).not.toBe(false);
+
+      expect(0).not.toBe(null);
+      expect(null).not.toBe(0);
+
+      expect(f64(0.0)).not.toBe(null);
+      expect(null).not.toBe(f64(0.0));
+      
+      expect(u64(0.0)).not.toBe(null);
+      expect(null).not.toBe(u64(0.0));
+      
+      expect(u8(0.0)).not.toBe(null);
+      expect(null).not.toBe(u8(0.0));
+    });
+
+    test("numerical special cases are not identical to bare null", () => {
+      expect(null).not.toBe(NaN);
+      expect(NaN).not.toBe(null);
+      
+      expect(null).not.toBe(Infinity);
+      expect(Infinity).not.toBe(null);
+    });
+  });
+
 });
 
 describe("arrays", () => {

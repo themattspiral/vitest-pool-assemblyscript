@@ -77,10 +77,15 @@ abstract class BaseExpectMatcher<T> {
    * involving a float and allows all numeric types because it can still produce accurate
    * results in precision-loss casting edge cases.
    *
+   * Null comparison: a null reference, the bare `null` literal, and `usize(0)` are all treated
+   * as null and compare as identical to one another. Zero-valued primitives (`0`, `false`, `0.0`) are
+   * **not** identical to null. Because the bare `null` literal is `usize(0)` in AssemblyScript, 
+   * `usize(0)` will not compare as identical to a `0` of another numeric type.
+   *
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
    * @throws When comparing fundamentally incompatible types: reference vs value type
-   * (e.g. `string` vs `i32`, unless one is null/zero), or `v128` vs non-vector type.
+   * (e.g. `string` vs `i32`, unless one side is null, or `v128` vs non-vector type).
    *
    * @example
    * expect(1 + 1).toBe(2);
@@ -278,12 +283,17 @@ abstract class BaseExpectMatcher<T> {
    *   are not included, as deep equality injection is scoped to user source files only
    *
    * SIMD vectors use WASM's native `==` comparison, which compares at the bit level, 
-   * ignoring lane type. 
+   * ignoring lane type.
+   *
+   * Null comparison: a null reference, the bare `null` literal, and `usize(0)` are all treated
+   * as null and compare equal to one another. Zero-valued primitives (`0`, `false`, `0.0`) are
+   * **not** equal to null. Because the bare `null` literal is `usize(0)` in AssemblyScript, 
+   * `usize(0)` will not compare as identical to a `0` of another numeric type.
    *
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
    * @throws When comparing fundamentally incompatible types: reference vs value type
-   * (e.g. `string` vs `i32`, unless one is null/zero), or `v128` vs non-vector type.
+   * (e.g. `string` vs `i32`, unless one side is null, or `v128` vs non-vector type).
    * @throws When comparing containers with incompatible element types (e.g. `Array<string>`
    * vs `Array<i32>`), or precision-loss numeric combinations (e.g. `Array<f32>` vs `Array<i32>`).
    *

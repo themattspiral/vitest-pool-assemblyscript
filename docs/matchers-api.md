@@ -57,12 +57,21 @@ expect(f64(42.0)).toBe(i32(42));
 ```
 
 >⚠️ Comparing fundamentally incompatible types will throw an error:
->- Reference vs value type (e.g. `string` vs `i32`, unless one is null/zero)
+>- Reference vs value type (e.g. `string` vs `i32`, unless one side is null)
 >- `v128` vs non-vector type
 >
 >```typescript
 >// expect("hello").toBe(42);        // Error: reference and value types are not comparable
 >// expect(i32x4.splat(1)).toBe(42); // Error: incompatible types
+>```
+
+>ℹ️ **Null comparison:** a null reference, the bare `null` literal, and `usize(0)` are all treated as null and compare equal to one another. Zero-valued primitives (`0`, `false`, `0.0`) are **not** equal to null. Because the bare `null` literal is `usize(0)` in AssemblyScript, `usize(0)` will not compare as identical to a `0` of another numeric type.
+>```typescript
+>const a: Point | null = null;
+>expect(a).toBe(null);          // null reference equals bare null
+>expect(a).toBe(usize(0));      // ...and equals usize(0)
+>expect(a).not.toBe(0);         // ...but not a zero-valued primitive
+>expect(usize(0)).not.toBe(0);  // usize(0) is null, so not equal to i32 0
 >```
 
 #### SIMD Vector Support (`v128`)
@@ -133,8 +142,17 @@ expect<Array<i32>>([1, 2, 3]).toEqual<Array<f64>>([1.0, 2.0, 3.0]);
 >⚠️ Comparing containers with incompatible element types (e.g. `Array<string>` vs `Array<i32>`) will throw an error at the element level, as will precision-loss numeric combinations (e.g. `Array<f32>` vs `Array<i32>`).
 >
 >⚠️ Comparing fundamentally incompatible types will throw an error, the same as with `toBe()`:
->- Reference vs value type (e.g. `string` vs `i32`, unless one is null/zero)
+>- Reference vs value type (e.g. `string` vs `i32`, unless one side is null — a null reference, bare `null`, or `usize(0)`)
 >- `v128` vs non-vector type
+>
+>ℹ️ **Null comparison:** a null reference, the bare `null` literal, and `usize(0)` are all treated as null and compare equal to one another. Zero-valued primitives (`0`, `false`, `0.0`) are **not** equal to null. Because the bare `null` literal is `usize(0)` in AssemblyScript, `usize(0)` will not compare as identical to a `0` of another numeric type.
+>```typescript
+>const a: Point | null = null;
+>expect(a).toBe(null);          // null reference equals bare null
+>expect(a).toBe(usize(0));      // ...and equals usize(0)
+>expect(a).not.toBe(0);         // ...but not a zero-valued primitive
+>expect(usize(0)).not.toBe(0);  // usize(0) is null, so not equal to i32 0
+>```
 
 #### User-Defined Reference Types
 User object references of the same runtime type use a deep field-by-field comparison of all stored instance fields using `toEqual()` recursively:

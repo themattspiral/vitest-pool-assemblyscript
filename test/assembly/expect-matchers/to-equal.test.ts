@@ -1,4 +1,5 @@
 import { test, expect, describe, TestOptions } from "vitest-pool-assemblyscript/assembly";
+import { Point } from '../../assembly-src/user-class-utils';
 
 describe("booleans", () => {
   test("booleans should be equal to their correct numerical equivalents", () => {
@@ -98,33 +99,111 @@ describe("SIMD vectors", () => {
 });
 
 describe("nulls", () => {
+  test("null values of any nullable types are equal", () => {
+    const a: string | null = null;
+    const b: Point | null = null;
+    expect(a).toEqual(b);
+  });
+
+  test("explicit null pointer is equal to null value", () => {
+    const a: Point | null = null;
+    expect(a).toEqual(usize(0));
+    expect(usize(0)).toEqual(a);
+  });
+
+  test("0-equivalent values are not equal to null value", () => {
+    const a: Point | null = null;
+    expect(false).not.toEqual(a);
+    expect(a).not.toEqual(false);
+
+    expect(0).not.toEqual(a);
+    expect(a).not.toEqual(0);
+    
+    expect(f64(0.0)).not.toEqual(a);
+    expect(a).not.toEqual(f64(0.0));
+    
+    expect(u64(0.0)).not.toEqual(a);
+    expect(a).not.toEqual(u64(0.0));
+    
+    expect(u8(0.0)).not.toEqual(a);
+    expect(a).not.toEqual(u8(0.0));
+  });
+
+  test("numerical special cases are not equal to null value", () => {
+    const a: Point | null = null;
+    expect(a).not.toEqual(NaN);
+    expect(NaN).not.toEqual(a);
+    
+    expect(a).not.toEqual(Infinity);
+    expect(Infinity).not.toEqual(a);
+  });
+
   describe("bare nulls", () => {
-    test("nulls are equal", () => {
+    test("bare nulls are equal", () => {
       expect(null).toEqual(null);
     });
-  });
-  
-  describe("nullables", () => {
-    // TODO - decide if this is correct
-    test("values of any nullable types are equal when null", () => {
-      const a: string | null = null;
-      const b: TestOptions | null = null;
-      expect(a).toEqual(b);
+
+    test("object is not equal to bare null", () => {
+      expect(new Point(1, 2)).not.toEqual(null);
+      expect(null).not.toEqual(new Point(1, 2));
     });
-  });
+
+    test("null object is equal to bare null", () => {
+      const a: Point | null = null;
+      expect(a).toEqual(null);
+      expect(null).toEqual(a);
+    });
+    
+    test("explicit null pointer is equal to bare null", () => {
+      expect(null).toEqual(usize(0));
+      expect(usize(0)).toEqual(null);
+    });
+
+    test("usize zero is null, so it equals other nulls but not other-typed zeros", () => {
+      // usize(0) is bare null, so two of them are equal
+      expect(usize(0)).toEqual(usize(0));
+
+      // ...but it is not equal to a zero of any other numeric type
+      expect(usize(0)).not.toEqual(0);
+      expect(0).not.toEqual(usize(0));
+
+      expect(usize(0)).not.toEqual(false);
+      expect(false).not.toEqual(usize(0));
+
+      expect(usize(0)).not.toEqual(f64(0.0));
+      expect(f64(0.0)).not.toEqual(usize(0));
+
+      expect(usize(0)).not.toEqual(u64(0.0));
+      expect(u64(0.0)).not.toEqual(usize(0));
+
+      expect(usize(0)).not.toEqual(u8(0.0));
+      expect(u8(0.0)).not.toEqual(usize(0));
+    });
+
+    test("0-equivalent values are not equal to bare null", () => {
+      expect(false).not.toEqual(null);
+      expect(null).not.toEqual(false);
   
-  test("0-equivalent values should equal null", () => {
-    // these will pass a loose toEqual(null), but not strict toBeNull()
-    expect(false).toEqual(null);
-    expect(0).toEqual(null);
-    expect(f64(0.0)).toEqual(null);
-    expect(u64(0.0)).toEqual(null);
-    expect(u8(0.0)).toEqual(null);
-    expect(null).toEqual(false);
-    expect(null).toEqual(0);
-    expect(null).toEqual(f64(0.0));
-    expect(null).toEqual(u64(0.0));
-    expect(null).toEqual(u8(0.0));
+      expect(0).not.toEqual(null);
+      expect(null).not.toEqual(0);
+      
+      expect(f64(0.0)).not.toEqual(null);
+      expect(null).not.toEqual(f64(0.0));
+      
+      expect(u64(0.0)).not.toEqual(null);
+      expect(null).not.toEqual(u64(0.0));
+      
+      expect(u8(0.0)).not.toEqual(null);
+      expect(null).not.toEqual(u8(0.0));
+    });
+
+    test("numerical special cases are not equal to bare null", () => {
+      expect(null).not.toEqual(NaN);
+      expect(NaN).not.toEqual(null);
+      
+      expect(null).not.toEqual(Infinity);
+      expect(Infinity).not.toEqual(null);
+    });
   });
 });
 
