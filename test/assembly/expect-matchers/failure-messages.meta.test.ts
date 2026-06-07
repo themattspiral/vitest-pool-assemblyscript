@@ -430,6 +430,14 @@ describe("container type safety", () => {
 });
 
 describe("unsupported types", () => {
+  test("toBe with reference and primitive [should fail]", () => {
+    expect(new Point(1, 2)).toBe(2);
+  });
+  
+  test("toEqual with reference and primitive [should fail]", () => {
+    expect(new Point(1, 2)).toEqual(2);
+  });
+  
   test("toBeGreaterThan with v128 [should fail]", () => {
     const a: v128 = i32x4.splat(1);
     const b: v128 = i32x4.splat(2);

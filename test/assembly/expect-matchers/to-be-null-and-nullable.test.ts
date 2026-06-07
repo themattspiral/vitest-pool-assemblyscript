@@ -5,25 +5,13 @@ describe("primitives", () => {
     expect(null).toBeNull();
     expect(null).not.toBeNullable();
   });
-
-  test("other primitives should always be non-nullable and non-null", () => {
-    expect(true).not.toBeNull();
-    expect(true).not.toBeNullable();
-    expect(1).not.toBeNull();
-    expect(1).not.toBeNullable();
-    
-    expect(i8(-4)).not.toBeNull();
-    expect(i8(-4)).not.toBeNullable();
-
-    expect(Infinity).not.toBeNull();
-    expect(Infinity).not.toBeNullable();
-
-    expect(NaN).not.toBeNull();
-    expect(NaN).not.toBeNullable();
+  
+  test("explicit nulls should be null but not nullable", () => {
+    expect(usize(0)).toBeNull();
+    expect(usize(0)).not.toBeNullable();
   });
 
-  test("0-equivalent values of other types should also be non-nullable and non-null", () => {
-    // these will pass a loose toEqual(null), but not strict toBeNull()
+  test("0-equivalent values of other types should be non-nullable and non-null", () => {
     expect(false).not.toBeNull();
     expect(false).not.toBeNullable();
     expect(0).not.toBeNull();
@@ -36,6 +24,19 @@ describe("primitives", () => {
     expect(u64(0.0)).not.toBeNullable();
     expect(u8(0.0)).not.toBeNull();
     expect(u8(0.0)).not.toBeNullable();
+  });
+
+  test("other primitives should always be non-nullable and non-null", () => {
+    expect(true).not.toBeNull();
+    expect(true).not.toBeNullable();
+    expect(1).not.toBeNull();
+    expect(1).not.toBeNullable();
+    expect(i8(-4)).not.toBeNull();
+    expect(i8(-4)).not.toBeNullable();
+    expect(Infinity).not.toBeNull();
+    expect(Infinity).not.toBeNullable();
+    expect(NaN).not.toBeNull();
+    expect(NaN).not.toBeNullable();
   });
 });
 

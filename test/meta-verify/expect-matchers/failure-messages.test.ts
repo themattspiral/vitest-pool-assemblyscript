@@ -274,6 +274,16 @@ describe('matcher failure message verification', () => {
     const INEQUALITY_UNSUPPORTED_PREFIX = 'WASMRuntimeError: Inequality comparison is not supported for';
     const CLOSETO_UNSUPPORTED_PREFIX = 'WASMRuntimeError: Approximate comparison is not supported for';
 
+    test('toBe with reference and primitive', () => {
+      const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toBe with reference and primitive [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Cannot compare Point with i32' + INCOMPARABLE_REF_VALUE_SUFFIX);
+    });
+    
+    test('toEqual with reference and primitive', () => {
+      const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toEqual with reference and primitive [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Cannot compare Point with i32' + INCOMPARABLE_REF_VALUE_SUFFIX);
+    });
+
     test('toBeGreaterThan with v128 vectors', () => {
       const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toBeGreaterThan with v128 [should fail]'));
       expect(block).toContain(`${INEQUALITY_UNSUPPORTED_PREFIX} v128 and v128.`);

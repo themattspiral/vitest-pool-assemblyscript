@@ -1,7 +1,9 @@
 export function isNull<T>(value: T): bool {
   if (isReference<T>()) {
     if (isNullable<T>()) {
-      return value == null;
+      // Use changetype pointer checks instead of `== null` / `!= null` to avoid
+      // invoking user-defined @operator("==") overloads, which reject null arguments
+      return changetype<usize>(value) == 0;
     } else {
       return false;
     }
@@ -11,6 +13,7 @@ export function isNull<T>(value: T): bool {
     } else if (isVector<T>()) {
       return false;
     } else {
+      // handles bare nulls
       return nameof<T>(value) == 'usize' && value == 0;
     }
   }
