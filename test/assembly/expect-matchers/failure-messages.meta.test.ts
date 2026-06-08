@@ -1,4 +1,4 @@
-import { describe, expect, test, TestOptions } from "vitest-pool-assemblyscript/assembly";
+import { describe, entry, expect, test } from "vitest-pool-assemblyscript/assembly";
 import { Circle, Line, Person, Point, Shape, Square, ShapeWrapper } from "../../assembly-src/user-class-utils";
 import {
   PointGroup, Registry, Scoreboard, Settings, ShapeGroup, ShapeList, ShapeRegistry, Team
@@ -221,6 +221,145 @@ describe("toHaveLength", () => {
   });
 });
 
+describe("toContain", () => {
+  test("array of primitives [should fail]", () => {
+    expect([1, 2, 3]).toContain(7);
+  });
+  
+  test("array of objects [should fail]", () => {
+    const a = [new Point(1, 2), new Point(3, 4)];
+    expect(a).toContain(new Point(1, 2));
+  });
+
+  test("string [should fail]", () => {
+    expect("hello").toContain("low");
+  });
+  
+  test("set of primitives [should fail]", () => {
+    const a = new Set<i32>();
+    a.add(1);
+    a.add(2);
+
+    expect(a).toContain(7);
+  });
+
+  test("set of primitives does not contain [should fail]", () => {
+    const a = new Set<i32>();
+    a.add(1);
+    a.add(2);
+
+    expect(a).not.toContain(2);
+  });
+  
+  test("set of objects [should fail]", () => {
+    const a = new Set<Point>();
+    a.add(new Point(1, 2));
+    a.add(new Point(3, 4));
+
+    expect(a).toContain(new Point(3, 4));
+  });
+
+  test("map using entry with primitive val [should fail]", () => {
+    const a = new Map<string, i32>();
+    a.set("one", 1);
+    a.set("two", 2);
+
+    expect(a).toContain(entry("one", 7));
+  });
+
+  test("map using entry with object val [should fail]", () => {
+    const a = new Map<string, Point>();
+    a.set("one", new Point(1, 2));
+    a.set("two", new Point(3, 4));
+
+    expect(a).toContain(entry("one", new Point(1, 2)));
+  });
+  
+  test("map using array with strings [should fail]", () => {
+    const a = new Map<string, string>();
+    a.set("one", "ONE!");
+    a.set("two", "TWO!");
+
+    expect(a).toContain(["seven", "SEVEN!"]);
+  });
+});
+
+describe("toContainEqual", () => {
+  test("array of primitives [should fail]", () => {
+    expect([1, 2, 3]).toContainEqual(7);
+  });
+  
+  test("array of objects [should fail]", () => {
+    const a = [new Point(1, 2), new Point(3, 4)];
+    expect(a).toContainEqual(new Point(1, 2));  // passes
+    expect(a).toContainEqual(new Point(8, 9));
+  });
+  
+  test("array of objects with nested field fail [should fail]", () => {
+    const a = [
+      new ShapeWrapper("w0", new Square("red", 5.0)),
+      new ShapeWrapper("w1", new Circle("red", 5.0)),
+      new ShapeWrapper("w2", new Shape("red"))
+    ];
+    const b = new ShapeWrapper("w1", new Circle("orange", 5.0));
+    expect(a).toContainEqual(b);
+  });
+
+  test("string [should fail]", () => {
+    expect("hello").toContainEqual("low");
+  });
+  
+  test("set of primitives [should fail]", () => {
+    const a = new Set<i32>();
+    a.add(1);
+    a.add(2);
+
+    expect(a).toContainEqual(7);
+  });
+
+  test("set of primitives does not contain [should fail]", () => {
+    const a = new Set<i32>();
+    a.add(1);
+    a.add(2);
+
+    expect(a).not.toContainEqual(2);
+  });
+  
+  test("set of objects [should fail]", () => {
+    const a = new Set<Point>();
+    a.add(new Point(1, 2));
+    a.add(new Point(3, 4));
+
+    expect(a).toContainEqual(new Point(3, 4));  // passes
+    expect(a).toContainEqual(new Point(8, 9));
+  });
+
+  test("map using entry with primitive val [should fail]", () => {
+    const a = new Map<string, i32>();
+    a.set("one", 1);
+    a.set("two", 2);
+
+    expect(a).toContainEqual(entry("one", 7));
+  });
+  
+  test("map using entry with object val [should fail]", () => {
+    const a = new Map<string, Point>();
+    a.set("one", new Point(1, 2));
+    a.set("two", new Point(3, 4));
+
+    expect(a).toContainEqual(entry("one", new Point(1, 2)));  // passes
+    expect(a).toContainEqual(entry("one", new Point(8, 9)));
+  });
+  
+  test("map using array with strings [should fail]", () => {
+    const a = new Map<string, string>();
+    a.set("one", "ONE!");
+    a.set("two", "TWO!");
+
+    expect(a).toContainEqual(["seven", "SEVEN!"]);
+  });
+});
+
 // =============================================================================
 // RUNTIME ERRORS (WASMRuntimeError)
 // These are thrown by the matcher comparison functions before reaching the
@@ -249,6 +388,32 @@ describe("float precision - toEqual", () => {
 
   test("i32 vs f32 [should fail]", () => {
     expect(i32(42)).toEqual(f32(42.0));
+  });
+});
+
+// --- Float precision: toContain (via identical()) ---
+
+describe("float precision - toContain", () => {
+  test("f32 vs i32 [should fail]", () => {
+    const a: f32[] = [42.0, 37.7, 1.5];
+    expect(a).toContain(i32(42));
+  });
+
+  test("i32 vs f32 [should fail]", () => {
+    const a: i32[] = [42, 99, 111];
+    expect(a).toContain(f32(42.0));
+  });
+});
+
+describe("float precision - toContainEqual", () => {
+  test("f32 vs i32 [should fail]", () => {
+    const a: f32[] = [42.0, 37.7, 1.5];
+    expect(a).toContainEqual(i32(42));
+  });
+
+  test("i32 vs f32 [should fail]", () => {
+    const a: i32[] = [42, 99, 111];
+    expect(a).toContainEqual(f32(42.0));
   });
 });
 
@@ -338,7 +503,7 @@ describe("null string", () => {
   });
 });
 
-// --- Cross-type comparison: toEqual only ---
+// --- Cross-type comparison ---
 
 describe("cross-type comparison", () => {
   test("toEqual map vs array [should fail]", () => {
@@ -357,75 +522,198 @@ describe("cross-type comparison", () => {
     const b = new ShapeWrapper("w1", new Square("red", 5.0));
     expect(a).toEqual(b);
   });
+  
+  test("toContainEqual user class type mismatch - array [should fail]", () => {
+    const a = [new Circle("red", 5.0), new Circle("red", 1.0)]
+    expect(a).toContainEqual(new Shape("red"));
+  });
+  
+  test("toContainEqual user class type mismatch - set [should fail]", () => {
+    const a = new Set<Circle>();
+    a.add(new Circle("red", 5.0));
+    a.add(new Circle("red", 1.0));
+    expect(a).toContainEqual(new Shape("red"));
+  });
+  
+  test("toContainEqual user class type mismatch - map [should fail]", () => {
+    const a = new Map<string, Circle>();
+    a.set("one", new Circle("red", 5.0));
+    a.set("two", new Circle("red", 1.0));
+    expect(a).toContainEqual(entry("one", new Shape("red")));
+  });
+
+  test("toContainEqual user class type mismatch - nested mismatch [should fail]", () => {
+    const a = [
+      new ShapeWrapper("w0", new Square("red", 5.0)),
+      new ShapeWrapper("w1", new Circle("red", 5.0)),
+      new ShapeWrapper("w2", new Shape("red"))
+    ];
+    const b = new ShapeWrapper("w1", new Square("red", 5.0));
+    expect(a).toContainEqual(b);
+  });
 });
 
 // --- Container type safety: throws with path context ---
 
 describe("container type safety", () => {
-  test("Array incomparable element types [should fail]", () => {
-    expect([1, 2, 3]).toEqual(["a", "b", "c"]);
+  describe("toEqual", () => {
+    test("Array incomparable element types [should fail]", () => {
+      expect([1, 2, 3]).toEqual(["a", "b", "c"]);
+    });
+  
+    test("Set incomparable element types [should fail]", () => {
+      const setI32 = new Set<i32>();
+      setI32.add(1);
+      const setStr = new Set<string>();
+      setStr.add("a");
+      expect(setI32).toEqual(setStr);
+    });
+  
+    test("Map incomparable value types with string key [should fail]", () => {
+      const mapA = new Map<string, i32>();
+      mapA.set("x", 1);
+      const mapB = new Map<string, string>();
+      mapB.set("x", "one");
+      expect(mapA).toEqual(mapB);
+    });
+  
+    test("Map incomparable value types with integer key [should fail]", () => {
+      const mapA = new Map<i32, string>();
+      mapA.set(7, "hello");
+      const mapB = new Map<i32, i32>();
+      mapB.set(7, 42);
+      expect(mapA).toEqual(mapB);
+    });
+  
+    test("Array precision loss [should fail]", () => {
+      const a: f32[] = [1.0, 2.0];
+      const b: i32[] = [1, 2];
+      expect(a).toEqual(b);
+    });
+  
+    test("Set precision loss [should fail]", () => {
+      const setA = new Set<f32>();
+      setA.add(1.0);
+      const setB = new Set<i32>();
+      setB.add(1);
+      expect(setA).toEqual(setB);
+    });
+  
+    test("Map precision loss with string key [should fail]", () => {
+      const mapA = new Map<string, f32>();
+      mapA.set("x", 1.0);
+      const mapB = new Map<string, i32>();
+      mapB.set("x", 1);
+      expect(mapA).toEqual(mapB);
+    });
+  
+    test("Map mismatched key types [should fail]", () => {
+      const mapA = new Map<string, i32>();
+      mapA.set("x", 1);
+      const mapB = new Map<i32, string>();
+      mapB.set(1, "x");
+      expect(mapA).toEqual(mapB);
+    });
+  
+    test("Set vs Array cross-container [should fail]", () => {
+      const setA = new Set<string>();
+      setA.add("apple");
+      setA.add("cherry");
+      const arrayA = ["apple", "cherry"];
+      expect(setA).toEqual(arrayA);
+    });
   });
 
-  test("Set incomparable element types [should fail]", () => {
-    const setI32 = new Set<i32>();
-    setI32.add(1);
-    const setStr = new Set<string>();
-    setStr.add("a");
-    expect(setI32).toEqual(setStr);
+  describe("toContain", () => {
+    test("toContain with i32 set actual and u64 expected [should fail]", () => {
+      const a = new Set<i32>();
+      a.add(1);
+      a.add(2);
+  
+      expect(a).toContain(u64(2));
+    });
+    
+    test('toContain on map with ambiguous expected type [should fail]', () => {
+      const a = new Map<i32, i32>();
+      a.set(1, 1);
+      a.set(1, 2);
+  
+      expect(a).toContain(1);
+    });
+    
+    test('toContain on map with mismatched expected entry key type [should fail]', () => {
+      const a = new Map<string, i32>();
+      a.set("one", 1);
+      a.set("two", 2);
+  
+      expect(a).toContain(entry(1, 1));
+    });
+    
+    test('toContain on map with mismatched expected array key type [should fail]', () => {
+      const a = new Map<string, string>();
+      a.set("one", "ONE!");
+      a.set("two", "TWO!");
+  
+      expect(a).toContain([new Point(1, 2), new Point(3, 4)]);
+    });
+    
+    test('toContain on map with mismatched expected entry value type [should fail]', () => {
+      const a = new Map<string, i32>();
+      a.set("one", 1);
+      a.set("two", 2);
+  
+      expect(a).toContain(entry("one", "sdfsdf"));
+    });
+
+    test("toContain on map using array with incorrect number of items [should fail]", () => {
+      const a = new Map<string, string>();
+      a.set("one", "ONE!");
+      a.set("two", "TWO!");
+
+      expect(a).toContain(["one"]);
+    });
   });
 
-  test("Map incomparable value types with string key [should fail]", () => {
-    const mapA = new Map<string, i32>();
-    mapA.set("x", 1);
-    const mapB = new Map<string, string>();
-    mapB.set("x", "one");
-    expect(mapA).toEqual(mapB);
-  });
+  describe("toContainEqual", () => {
+    test('toContainEqual on map with ambiguous expected type [should fail]', () => {
+      const a = new Map<i32, i32>();
+      a.set(1, 1);
+      a.set(1, 2);
+  
+      expect(a).toContainEqual(1);
+    });
+    
+    test('toContainEqual on map with mismatched expected entry key type [should fail]', () => {
+      const a = new Map<string, i32>();
+      a.set("one", 1);
+      a.set("two", 2);
+  
+      expect(a).toContainEqual(entry(1, 1));
+    });
+    
+    test('toContainEqual on map with mismatched expected array key type [should fail]', () => {
+      const a = new Map<string, string>();
+      a.set("one", "ONE!");
+      a.set("two", "TWO!");
+  
+      expect(a).toContain([new Point(1, 2), new Point(3, 4)]);
+    });
+    
+    test('toContainEqual on map with mismatched expected entry value type [should fail]', () => {
+      const a = new Map<string, i32>();
+      a.set("one", 1);
+      a.set("two", 2);
+  
+      expect(a).toContainEqual(entry("one", "sdfsdf"));
+    });
 
-  test("Map incomparable value types with integer key [should fail]", () => {
-    const mapA = new Map<i32, string>();
-    mapA.set(7, "hello");
-    const mapB = new Map<i32, i32>();
-    mapB.set(7, 42);
-    expect(mapA).toEqual(mapB);
-  });
+    test("toContainEqual on map using array with incorrect number of items [should fail]", () => {
+      const a = new Map<string, string>();
+      a.set("one", "ONE!");
+      a.set("two", "TWO!");
 
-  test("Array precision loss [should fail]", () => {
-    const a: f32[] = [1.0, 2.0];
-    const b: i32[] = [1, 2];
-    expect(a).toEqual(b);
-  });
-
-  test("Set precision loss [should fail]", () => {
-    const setA = new Set<f32>();
-    setA.add(1.0);
-    const setB = new Set<i32>();
-    setB.add(1);
-    expect(setA).toEqual(setB);
-  });
-
-  test("Map precision loss with string key [should fail]", () => {
-    const mapA = new Map<string, f32>();
-    mapA.set("x", 1.0);
-    const mapB = new Map<string, i32>();
-    mapB.set("x", 1);
-    expect(mapA).toEqual(mapB);
-  });
-
-  test("Map mismatched key types [should fail]", () => {
-    const mapA = new Map<string, i32>();
-    mapA.set("x", 1);
-    const mapB = new Map<i32, string>();
-    mapB.set(1, "x");
-    expect(mapA).toEqual(mapB);
-  });
-
-  test("Set vs Array cross-container [should fail]", () => {
-    const setA = new Set<string>();
-    setA.add("apple");
-    setA.add("cherry");
-    const arrayA = ["apple", "cherry"];
-    expect(setA).toEqual(arrayA);
+      expect(a).toContainEqual(["one"]);
+    });
   });
 });
 
@@ -486,6 +774,110 @@ describe("unsupported types", () => {
   test("toBeCloseTo with f32 actual and v128 expected [should fail]", () => {
     const b: v128 = f32x4(1.0, 2.0, 3.0, 4.0);
     expect(f32(1.0)).toBeCloseTo(b);
+  });
+
+  describe("toContain", () => {
+    test("toContain with i32 array actual and v128 expected [should fail]", () => {
+      const a: i32[] = [1, 2, 3];
+      const b: v128 = f32x4(1.0, 2.0, 3.0, 4.0);
+      expect(a).toContain(b);
+    });
+    
+    test("toContain with i32 array actual and Point expected [should fail]", () => {
+      const a: i32[] = [1, 2, 3];
+      expect(a).toContain(new Point(1, 2));
+    });
+    
+    test("toContain with string actual and i32 expected [should fail]", () => {
+      expect("hello123").toContain(2);
+    });
+    
+    test("toContain with string actual and Point expected [should fail]", () => {
+      expect("hello").toContain(new Point(1, 2));
+    });
+  
+    test("toContain with nullable array null actual [should fail]", () => {
+      const a: i32[] | null = null;
+      expect(a).not.toContain(5);
+    });
+  
+    test("toContain with nullable string null actual [should fail]", () => {
+      const a: string | null = null;
+      expect(a).not.toContain("abc");
+    });
+  
+    test('toContain with bare null actual [should fail]', () => {
+      expect(null).not.toContain(5);
+    });
+    
+    test('toContain with string actual and bare null expected [should fail]', () => {
+      expect("anything").not.toContain(null);
+    });
+    
+    test('toContain with string actual and null value expected [should fail]', () => {
+      const b: String | null = null;
+      expect("anything").not.toContain(b);
+    });
+    
+    test('toContain with primitive actual [should fail]', () => {
+      expect(u64(123456789)).toContain(5);
+    });
+    
+    test('toContain with object actual [should fail]', () => {
+      expect(new Point(1, 2)).toContain(2);
+    });
+  });
+  
+  describe("toContainEqual", () => {
+    test("toContainEqual with i32 array actual and v128 expected [should fail]", () => {
+      const a: i32[] = [1, 2, 3];
+      const b: v128 = f32x4(1.0, 2.0, 3.0, 4.0);
+      expect(a).toContainEqual(b);
+    });
+    
+    test("toContainEqual with i32 array actual and Point expected [should fail]", () => {
+      const a: i32[] = [1, 2, 3];
+      expect(a).toContainEqual(new Point(1, 2));
+    });
+    
+    test("toContainEqual with string actual and i32 expected [should fail]", () => {
+      expect("hello123").toContainEqual(2);
+    });
+    
+    test("toContainEqual with string actual and Point expected [should fail]", () => {
+      expect("hello").toContainEqual(new Point(1, 2));
+    });
+  
+    test("toContainEqual with nullable array null actual [should fail]", () => {
+      const a: i32[] | null = null;
+      expect(a).not.toContainEqual(5);
+    });
+  
+    test("toContainEqual with nullable string null actual [should fail]", () => {
+      const a: string | null = null;
+      expect(a).not.toContainEqual("abc");
+    });
+  
+    test('toContainEqual with bare null actual [should fail]', () => {
+      expect(null).not.toContainEqual(5);
+    });
+
+    test('toContainEqual with string actual and bare null expected [should fail]', () => {
+      expect("anything").not.toContainEqual(null);
+    });
+    
+    test('toContainEqual with string actual and null value expected [should fail]', () => {
+      const b: String | null = null;
+      expect("anything").not.toContainEqual(b);
+    });
+
+    test('toContainEqual with primitive actual [should fail]', () => {
+      expect(u64(123456789)).toContainEqual(5);
+    });
+    
+    test('toContainEqual with object actual [should fail]', () => {
+      expect(new Point(1, 2)).toContainEqual(2);
+    });
   });
 });
 

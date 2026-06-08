@@ -1,6 +1,8 @@
 import {
+  __vitest_assemblyscript_EqualityResult,
   closeTo,
   compareInequality,
+  contains,
   equals,
   equalsPathClear,
   equalsPathString,
@@ -9,6 +11,7 @@ import {
   equalsRtmNamesSuffix,
   identical,
   InequalityOperation,
+  MapEntry,
   truthyOrFalsey,
 } from './compare';
 import {
@@ -43,6 +46,25 @@ declare function __expect_throw(fnPtr: usize, errorMsg?: string): void;
 @external("__as_pool_env__", "__end_expect_throw")
 declare function __end_expect_throw(): void;
 
+/**
+ * Creates a key-value entry for checking `Map` membership with `toContain()` /
+ * `toContainEqual()`. AssemblyScript has no object literals, so this helper builds the
+ * `MapEntry` that the toContain matchers look for when searching a `Map` for a specific
+ * key-value pair.
+ *
+ * @example
+ * const m = new Map<string, i32>();
+ * m.set("two", 2);
+ * expect(m).toContain(entry("two", 2));
+ */
+export function entry<K,V>(key: K, value: V): MapEntry<K,V> {
+  return new MapEntry(key, value);
+}
+
+/** Alias for `entry()`, no functional difference. */
+export function mapEntry<K,V>(key: K, value: V): MapEntry<K,V> {
+  return entry(key, value);
+}
 
 /**
  * Expect matcher
@@ -85,7 +107,7 @@ abstract class BaseExpectMatcher<T> {
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
    * @throws When comparing fundamentally incompatible types: reference vs value type
-   * (e.g. `string` vs `i32`, unless one side is null, or `v128` vs non-vector type).
+   * (e.g. `String` vs `i32`, unless one side is null, or `v128` vs non-vector type).
    *
    * @example
    * expect(1 + 1).toBe(2);
@@ -293,7 +315,7 @@ abstract class BaseExpectMatcher<T> {
    * @throws When comparing float/integer types where the float's mantissa cannot losslessly
    * represent the integer type's range (e.g. `f32` vs `i32`, `f64` vs `i64`).
    * @throws When comparing fundamentally incompatible types: reference vs value type
-   * (e.g. `string` vs `i32`, unless one side is null, or `v128` vs non-vector type).
+   * (e.g. `String` vs `i32`, unless one side is null, or `v128` vs non-vector type).
    * @throws When comparing containers with incompatible element types (e.g. `Array<string>`
    * vs `Array<i32>`), or precision-loss numeric combinations (e.g. `Array<f32>` vs `Array<i32>`).
    *
@@ -491,6 +513,106 @@ abstract class BaseExpectMatcher<T> {
     } else {
       this.assertComparison(false, this.actual, length, "to have length", true);
     }
+  }
+
+  /**
+   * Checks that a container includes an expected member, using identity comparison for the
+   * match (the same per-element semantics as `toBe`). Use `toContainEqual()` for deep equality
+   * matching instead.
+   *
+   * Supported receivers and their matching behavior:
+   * - `String`: substring check via the string's `includes()`. The expected value must also be a `String`
+   * - `Array`, `StaticArray`, `TypedArray`, and array-likes: membership by identity — primitives and
+   *   strings match by value (following `toBe`'s cross-type numeric rules), object references match
+   *   by reference
+   * - `Set`: membership via `Set#has`. The expected value's type must match the set's element type
+   *   exactly, because `Set#has` cannot look up a differently-typed value
+   * - `Map`: checks for a key-value entry. Provide the entry with the `entry()` helper, or a 
+   *   2-item `[key, value]` array when the key and value share a type. The key is located using 
+   *   the `Map#has` key lookup; the value is matched by identity
+   *
+   * @throws When the receiver is `null`, or a non-reference value type that cannot contain anything.
+   * @throws When checking a `String` against a non-string value.
+   * @throws When checking a `Set` against a value whose type differs from the set's element type.
+   * @throws When checking a `Map` without an `entry()` or 2-item array, when the entry's key type
+   * does not match the map's key type.
+   *
+   * @example
+   * // strings
+   * expect("hello world").toContain("world");
+   *
+   * // arrays — identity comparison
+   * const p = new Point(1, 2);
+   * expect([p, new Point(3, 4)]).toContain(p);
+   *
+   * // sets
+   * const s = new Set<i32>();
+   * s.add(2);
+   * expect(s).toContain(2);
+   *
+   * // maps — entry() helper
+   * const m = new Map<string, i32>();
+   * m.set("two", 2);
+   * expect(m).toContain(entry("two", 2));
+   */
+  toContain<U>(val: U): void {
+    const result = contains(this.actual, val, false);
+    this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to contain", true);
+  }
+
+  /**
+   * Checks that a container includes an expected member, using deep equality for the match
+   * (the same per-element semantics as `toEqual`). Use `toContain()` for identity matching instead.
+   *
+   * Supported receivers mirror `toContain()`, with deep equality applied to the match:
+   * - `String`: substring check, identical to `toContain()`. There is no distinct "deep" equality to apply in
+   *   the string case. This is an intentional divergence from jest/vitest, where `toContainEqual()` on a string 
+   *   tests single-character membership.
+   * - `Array`, `StaticArray`, `TypedArray`, and array-likes: membership by deep equality, with
+   *   cross-type element comparison supported (e.g. an `i32` array can contain an equivalent `f64` value)
+   * - `Set`: each element is compared by deep equality, with cross-type comparison supported. Unlike
+   *   `toContain()`, the expected value's type does not have to match the set's element type
+   * - `Map`: checks for a key-value entry as in `toContain()`, but the value is matched by deep
+   *   equality. The key is still located using the map's own `Map#has` key lookup — for object keys
+   *   this is reference identity (as `map.get()` would behave) rather than deep equality; only the entry's
+   *   value participates in deep equality comparison
+   *
+   * Unlike `toEqual()`, a member whose runtime type differs from the expected value is treated
+   * as simply not matching — the search moves on to the other members rather than reporting a
+   * type mismatch. A per-element type difference isn't a meaningful property of a one-to-many
+   * membership check, so it isn't surfaced. (Genuinely incomparable types — e.g. reference vs
+   * value — still throw, with the offending element's location in the message.)
+   *
+   * @throws When the receiver is `null`, or a non-reference value type that cannot contain anything.
+   * @throws When checking a `String` against a non-string value.
+   * @throws When checking a `Map` without an `entry()` or 2-item array, when the entry's key type
+   * does not match the map's key type, or when a provided array does not have exactly 2 items.
+   *
+   * @example
+   * // arrays — deep equality
+   * expect([new Point(1, 2), new Point(3, 4)]).toContainEqual(new Point(1, 2));
+   *
+   * // sets — deep equality, cross-type supported
+   * const s = new Set<i32>();
+   * s.add(2);
+   * expect(s).toContainEqual(f64(2.0));
+   *
+   * // maps — entry value compared by deep equality
+   * const m = new Map<string, Point>();
+   * m.set("a", new Point(1, 2));
+   * expect(m).toContainEqual(entry("a", new Point(1, 2)));
+   */
+  toContainEqual<U>(val: U): void {
+    // equalsRefPairsClear (cycle detection) and equalsPathClear (clean throw-context path)
+    // are required by the equals() calls inside contains(). Unlike toEqual, a containment
+    // miss is not reported as a per-element diff: a runtime type mismatch on an element is
+    // treated as "not a match" rather than surfaced, so no path/RTM suffix is built here.
+    equalsRefPairsClear();
+    equalsPathClear();
+
+    const result = contains(this.actual, val, true);
+
+    this.assertComparison(result == __vitest_assemblyscript_EqualityResult.Equal, this.actual, val, "to deep equally contain", true);
   }
 
   protected abortTest(message: string): void {
