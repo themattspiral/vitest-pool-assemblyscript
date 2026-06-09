@@ -885,7 +885,17 @@ export function contains<T, U>(actual: T, expected: U, useEquals: bool): __vites
   if (actual instanceof Map) {
     return mapContains(actual, expected, useEquals);
   }
-  
+  if (actual instanceof ArrayBuffer) {
+    // An ArrayBuffer is a raw, untyped byte region — it has no element type, so "contains a
+    // value" is ambiguous (a single byte? a multi-byte value at some offset? a byte sub-sequence?).
+    // Rather than guess, point the user at a typed view, which both fixes the element type and
+    // mirrors how their real code would read the buffer in the first place.
+    throw new Error(
+      "An ArrayBuffer has no element type to search for membership."
+      + " \nWrap in a TypedArray view to check byte / element membership: expect(Uint8Array.wrap(buffer)).toContain(value) / .toContainEqual(value)"
+    );
+  }
+
   throw new Error("Cannot determine if type " + nameof<T>() + " contains a given value of type " + nameof<U>() + ".");
 }
 

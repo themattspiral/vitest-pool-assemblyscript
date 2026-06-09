@@ -503,6 +503,11 @@ describe('matcher failure message verification', () => {
         const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with object actual [should fail]'));
         expect(block).toContain(`WASMRuntimeError: Cannot determine if type Point contains a given value of type i32`);
       });
+
+      test('toContain with ArrayBuffer actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with ArrayBuffer actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: An ArrayBuffer has no element type to search for membership.`);
+      });
     });
     
     describe("toContainEqual", () => {
@@ -554,6 +559,11 @@ describe('matcher failure message verification', () => {
       test('toContainEqual with object actual', () => {
         const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with object actual [should fail]'));
         expect(block).toContain(`WASMRuntimeError: Cannot determine if type Point contains a given value of type i32`);
+      });
+
+      test('toContainEqual with ArrayBuffer actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with ArrayBuffer actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: An ArrayBuffer has no element type to search for membership.`);
       });
     });
   });

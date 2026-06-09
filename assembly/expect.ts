@@ -536,6 +536,7 @@ abstract class BaseExpectMatcher<T> {
    * @throws When checking a `Set` against a value whose type differs from the set's element type.
    * @throws When checking a `Map` without an `entry()` or 2-item array, when the entry's key type
    * does not match the map's key type.
+   * @throws When the receiver is an `ArrayBuffer`, which has no element type to search for membership.
    *
    * @example
    * // strings

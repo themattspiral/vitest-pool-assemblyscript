@@ -356,6 +356,7 @@ expect(m).toContain(["two", "TWO!"]);
 
 >⚠️ The following throw an error:
 >- A `null` receiver, or a non-reference value type that cannot contain anything
+>- An `ArrayBuffer` receiver, which has no element type to search for membership. Wrap in a TypedArray view to check byte / element membership (e.g. `expect(Uint8Array.wrap(buffer)).toContain(value)`)
 >- Checking a `String` against a non-string value
 >- Checking a `Set` against a value whose type differs from the set's element type
 >- A `Map` entry whose key type does not match the map's key type, or an array that does not have exactly 2 items
@@ -393,7 +394,7 @@ expect(m).toContainEqual(entry("a", new Point(1, 2)));
 
 >ℹ️ Unlike [`toEqual()`](#toequal), a member whose runtime type differs from the expected value is treated as simply **not matching** — the search moves on to the other members rather than reporting a type mismatch. A per-element type difference isn't a meaningful property of a one-to-many membership check, so it isn't surfaced. (Genuinely incomparable types — e.g. reference vs value — still throw, with the offending element's location in the message.)
 
->⚠️ The structural errors are the same as [`toContain()`](#tocontain), except a `Set` is **not** type-restricted: a `null`/value-type receiver, a non-string value against a `String`, an ambiguous or mismatched `Map` entry, or a `Map` array that is not exactly 2 items will throw.
+>⚠️ The structural errors are the same as [`toContain()`](#tocontain), except a `Set` is **not** type-restricted: a `null`/value-type receiver, an `ArrayBuffer` receiver (wrap it in a TypedArray view), a non-string value against a `String`, an ambiguous or mismatched `Map` entry, or a `Map` array that is not exactly 2 items will throw.
 
 ### `toThrowError()`
 Checks that a function throws an error when called. Optionally checks that the error message matches the provided string. Also available as `toThrow()`.

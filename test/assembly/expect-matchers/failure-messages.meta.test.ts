@@ -826,8 +826,13 @@ describe("unsupported types", () => {
     test('toContain with object actual [should fail]', () => {
       expect(new Point(1, 2)).toContain(2);
     });
+
+    test('toContain with ArrayBuffer actual [should fail]', () => {
+      const a = new ArrayBuffer(4);
+      expect(a).toContain(u8(0xAB));
+    });
   });
-  
+
   describe("toContainEqual", () => {
     test("toContainEqual with i32 array actual and v128 expected [should fail]", () => {
       const a: i32[] = [1, 2, 3];
@@ -877,6 +882,11 @@ describe("unsupported types", () => {
     
     test('toContainEqual with object actual [should fail]', () => {
       expect(new Point(1, 2)).toContainEqual(2);
+    });
+
+    test('toContainEqual with ArrayBuffer actual [should fail]', () => {
+      const a = new ArrayBuffer(4);
+      expect(a).toContainEqual(u8(0xAB));
     });
   });
 });
