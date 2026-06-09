@@ -415,7 +415,7 @@ function mapContains<T, U>(actual: T, expected: U, useEquals: bool): __vitest_as
         throw new Error("A " + nameof<T>() + " cannot contain an entry with key of type " + nameof<indexof<U>>());
       }
 
-      // cast the set for looking up expected (casting expected may cause compile errors)
+      // cast the map for looking up expected (casting expected may cause compile errors)
       // @ts-ignore
       const castActual = changetype<Map<indexof<U>, valueof<T>>>(actual);
 
@@ -491,8 +491,6 @@ function mapContains<T, U>(actual: T, expected: U, useEquals: bool): __vitest_as
 
   return __vitest_assemblyscript_EqualityResult.NotEqual;
 }
-
-
 
 /**
  * Generic primitive / reference equality comparison. Assumes comparable primitive types

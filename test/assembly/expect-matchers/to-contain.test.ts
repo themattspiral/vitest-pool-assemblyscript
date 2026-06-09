@@ -117,6 +117,116 @@ describe("arrays", () => {
   });
 });
 
+describe("static arrays", () => {
+  test("primitive number static array", () => {
+    const a: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2, 3]);
+    expect(a).toContain(2);
+    expect(a).toContainEqual(2);
+    expect(a).not.toContain(4);
+    expect(a).not.toContainEqual(4);
+  });
+
+  test("string static array", () => {
+    const a: StaticArray<string> = StaticArray.fromArray<string>(["one", "two", "three", "fourtyfour"]);
+    expect(a).toContain("two");
+    expect(a).toContainEqual("two");
+    expect(a).toContain("fourtyfour");
+    expect(a).toContainEqual("fourtyfour");
+    expect(a).not.toContain("four");
+    expect(a).not.toContainEqual("four");
+  });
+
+  test("object static array - toContain uses identity comparison", () => {
+    const b: Point = new Point(35, 7);
+    const a: StaticArray<Point> = StaticArray.fromArray<Point>([new Point(1, 2), b, new Point(2, 3)]);
+    expect(a).toContain(b);
+    expect(a).not.toContain(new Point(35, 7));
+  });
+
+  test("object static array - toContainEqual uses equality comparison", () => {
+    const a: StaticArray<Point> = StaticArray.fromArray<Point>([new Point(1, 2), new Point(2, 3)]);
+    expect(a).toContainEqual(new Point(1, 2));
+    expect(a).not.toContainEqual(new Point(1, 7));
+  });
+
+  test("nullable object static array contains null", () => {
+    const a: Point | null = new Point(1, 2);
+    const b: Point | null = new Point(3, 4);
+    const c: Point | null = null;
+    const arr: StaticArray<Point | null> = StaticArray.fromArray<Point | null>([a, b, c]);
+    expect(arr).toContain(c);
+    expect(arr).toContainEqual(c);
+    expect(arr).toContain(null);
+    expect(arr).toContainEqual(null);
+
+    const arrNoNull: StaticArray<Point | null> = StaticArray.fromArray<Point | null>([a, b]);
+    expect(arrNoNull).not.toContain(null);
+    expect(arrNoNull).not.toContainEqual(null);
+  });
+
+  test("empty static array contains nothing", () => {
+    const a: StaticArray<i32> = StaticArray.fromArray<i32>([]);
+    expect(a).not.toContain(5);
+    expect(a).not.toContainEqual(5);
+  });
+
+  test("static array cross-type equality", () => {
+    const a: StaticArray<i32> = StaticArray.fromArray<i32>([1, 2, 3]);
+    expect(a).toContain(f64(2.0));
+    expect(a).toContainEqual(f64(2.0));
+    expect(a).toContain(u8(3));
+    expect(a).toContainEqual(u8(3));
+    expect(a).not.toContain(u64(7));
+    expect(a).not.toContainEqual(u64(7));
+  });
+});
+
+describe("typed arrays", () => {
+  test("Int32Array", () => {
+    const a = new Int32Array(3);
+    a[0] = 1; a[1] = 2; a[2] = 3;
+    expect(a).toContain(2);
+    expect(a).toContainEqual(2);
+    expect(a).not.toContain(7);
+    expect(a).not.toContainEqual(7);
+  });
+
+  test("Float64Array", () => {
+    const a = new Float64Array(3);
+    a[0] = 1.5; a[1] = 2.5; a[2] = 3.5;
+    expect(a).toContain(2.5);
+    expect(a).toContainEqual(2.5);
+    expect(a).not.toContain(9.9);
+    expect(a).not.toContainEqual(9.9);
+  });
+
+  test("Uint8Array", () => {
+    const a = new Uint8Array(4);
+    a[0] = 0xFF; a[1] = 0x00; a[2] = 0xAB; a[3] = 0xCD;
+    expect(a).toContain(0xAB);
+    expect(a).toContainEqual(0xAB);
+    expect(a).not.toContain(0x12);
+    expect(a).not.toContainEqual(0x12);
+  });
+
+  test("empty typed array contains nothing", () => {
+    const a = new Int32Array(0);
+    expect(a).not.toContain(5);
+    expect(a).not.toContainEqual(5);
+  });
+
+  test("typed array cross-type equality", () => {
+    const a = new Int32Array(3);
+    a[0] = 1; a[1] = 2; a[2] = 3;
+    expect(a).toContain(f64(2.0));
+    expect(a).toContainEqual(f64(2.0));
+    expect(a).toContain(u8(3));
+    expect(a).toContainEqual(u8(3));
+    expect(a).not.toContain(u64(7));
+    expect(a).not.toContainEqual(u64(7));
+  });
+});
+
 describe("sets", () => {
   test("primitive type", () => {
     const a = new Set<i32>();
