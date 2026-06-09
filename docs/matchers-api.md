@@ -13,6 +13,8 @@ This project aims to follow the [vitest/jest `expect()` API](https://vitest.dev/
 - [`toBeNullable()`](#tobenullable)
 - [`toBeNaN()`](#tobenan)
 - [`toHaveLength()`](#tohavelength)
+- [`toContain()`](#tocontain)
+- [`toContainEqual()`](#tocontainequal)
 - [`toThrowError()`](#tothrowerror)
 - [`toBeGreaterThan()`](#tobegreaterthan)
 - [`toBeGreaterThanOrEqual()`](#tobegreaterthanorequal)
@@ -57,7 +59,7 @@ expect(f64(42.0)).toBe(i32(42));
 ```
 
 >⚠️ Comparing fundamentally incompatible types will throw an error:
->- Reference vs value type (e.g. `string` vs `i32`, unless one side is null)
+>- Reference vs value type (e.g. `String` vs `i32`, unless one side is null)
 >- `v128` vs non-vector type
 >
 >```typescript
@@ -142,7 +144,7 @@ expect<Array<i32>>([1, 2, 3]).toEqual<Array<f64>>([1.0, 2.0, 3.0]);
 >⚠️ Comparing containers with incompatible element types (e.g. `Array<string>` vs `Array<i32>`) will throw an error at the element level, as will precision-loss numeric combinations (e.g. `Array<f32>` vs `Array<i32>`).
 >
 >⚠️ Comparing fundamentally incompatible types will throw an error, the same as with `toBe()`:
->- Reference vs value type (e.g. `string` vs `i32`, unless one side is null — a null reference, bare `null`, or `usize(0)`)
+>- Reference vs value type (e.g. `String` vs `i32`, unless one side is null — a null reference, bare `null`, or `usize(0)`)
 >- `v128` vs non-vector type
 >
 >ℹ️ **Null comparison:** a null reference, the bare `null` literal, and `usize(0)` are all treated as null and compare equal to one another. Zero-valued primitives (`0`, `false`, `0.0`) are **not** equal to null. Because the bare `null` literal is `usize(0)` in AssemblyScript, `usize(0)` will not compare as identical to a `0` of another numeric type.
@@ -299,6 +301,101 @@ expect([]).toHaveLength(0);
 expect("hello world").toHaveLength(11);
 ```
 
+### `toContain()`
+Checks that a container includes an expected member, using **identity** comparison for the match (the same per-element semantics as [`toBe()`](#tobe)). Use [`toContainEqual()`](#tocontainequal) for deep equality matching instead.
+
+| Receiver | Matching behavior |
+|---|---|
+| `String` | Substring check via the string's `includes()`. The expected value must also be a `String` |
+| `Array`, `StaticArray`, `TypedArray`, array-likes | Membership by identity — primitives and strings match by value (following `toBe`'s cross-type numeric rules), object references match by reference |
+| `Set` | Membership via `Set#has`. The expected value's type must match the set's element type exactly |
+| `Map` | Checks for a key-value entry (see [Map membership](#map-membership) below). The key is located using the map's own key lookup; the value is matched by identity |
+
+```typescript
+// strings
+expect("hello world").toContain("world");
+expect("hello world").not.toContain("planet");
+
+// arrays — identity comparison
+const p = new Point(1, 2);
+expect([p, new Point(3, 4)]).toContain(p);          // same reference
+expect([p, new Point(3, 4)]).not.toContain(new Point(1, 2));  // different reference
+
+// array cross-type numeric membership
+const nums: i32[] = [1, 2, 3];
+expect(nums).toContain(f64(2.0));
+
+// sets — Set#has, exact element type
+const s = new Set<i32>();
+s.add(2);
+expect(s).toContain(2);
+```
+
+#### Map membership
+AssemblyScript has no object literals, so map key-value pairs are expressed with the `entry()` helper (exported from `vitest-pool-assemblyscript/assembly`, also available as `mapEntry()`):
+
+```typescript
+const m = new Map<string, i32>();
+m.set("one", 1);
+m.set("two", 2);
+
+expect(m).toContain(entry("two", 2));
+expect(m).not.toContain(entry("two", 5));   // key present, value differs
+expect(m).not.toContain(entry("four", 2));  // key absent
+```
+
+When the map's key and value share a type, a 2-item `[key, value]` array can be used instead of `entry()`:
+
+```typescript
+const m = new Map<string, string>();
+m.set("two", "TWO!");
+expect(m).toContain(["two", "TWO!"]);
+```
+
+>⚠️ Membership in a `Map` is ambiguous between keys and values, so a bare key or value is rejected with an error. Use `entry()` (or a 2-item array) to check a key-value pair, or check a key/value directly with another matcher (e.g. `expect(m.has(key)).toBeTruthy()`, `expect(m.get(key)).toBe(value)`).
+
+>⚠️ The following throw an error:
+>- A `null` receiver, or a non-reference value type that cannot contain anything
+>- An `ArrayBuffer` receiver, which has no element type to search for membership. Wrap in a TypedArray view to check byte / element membership (e.g. `expect(Uint8Array.wrap(buffer)).toContain(value)`)
+>- Checking a `String` against a non-string value
+>- Checking a `Set` against a value whose type differs from the set's element type
+>- A `Map` entry whose key type does not match the map's key type, or an array that does not have exactly 2 items
+
+### `toContainEqual()`
+Checks that a container includes an expected member, using **deep equality** for the match (the same per-element semantics as [`toEqual()`](#toequal)). Use [`toContain()`](#tocontain) for identity matching instead.
+
+Supported receivers mirror [`toContain()`](#tocontain), with deep equality applied to the match:
+
+| Receiver | Matching behavior |
+|---|---|
+| `String` | Substring check, identical to `toContain()` (there is no deeper notion of string equality) |
+| `Array`, `StaticArray`, `TypedArray`, array-likes | Membership by deep equality, with cross-type element comparison supported |
+| `Set` | Each element compared by deep equality, with cross-type comparison supported. Unlike `toContain()`, the expected value's type does not have to match the set's element type |
+| `Map` | Checks for a key-value entry as in `toContain()`, but the value is matched by deep equality. The key is still located using the map's own key lookup |
+
+```typescript
+// arrays — deep equality finds an equal (not identical) object
+expect([new Point(1, 2), new Point(3, 4)]).toContainEqual(new Point(1, 2));
+
+// sets — deep equality, cross-type supported
+const s = new Set<i32>();
+s.add(2);
+expect(s).toContainEqual(f64(2.0));
+
+// maps — entry value compared by deep equality
+const m = new Map<string, Point>();
+m.set("a", new Point(1, 2));
+expect(m).toContainEqual(entry("a", new Point(1, 2)));
+```
+
+>ℹ️ **For a `String`, `toContainEqual()` is equivalent to [`toContain()`](#tocontain) — a substring check.** There is no distinct "deep" equality notion to apply in this case. This is an intentional divergence from jest/vitest, where `toContainEqual()` on a string tests single-character membership.
+
+>ℹ️ **Map keys are matched by the map's own `Map#has` lookup, even under `toContainEqual()`.** For object keys this means reference identity — exactly as `map.get()` would behave at runtime. Deep equality applies to the entry's **value**, never its key, so asserting containment never describes a lookup your real code can't perform. (For primitive and `String` keys this is moot, since their lookup already is value equality, and `toContain()`/`toContainEqual()` differ only in how the value is compared.)
+
+>ℹ️ Unlike [`toEqual()`](#toequal), a member whose runtime type differs from the expected value is treated as simply **not matching** — the search moves on to the other members rather than reporting a type mismatch. A per-element type difference isn't a meaningful property of a one-to-many membership check, so it isn't surfaced. (Genuinely incomparable types — e.g. reference vs value — still throw, with the offending element's location in the message.)
+
+>⚠️ The structural errors are the same as [`toContain()`](#tocontain), except a `Set` is **not** type-restricted: a `null`/value-type receiver, an `ArrayBuffer` receiver (wrap it in a TypedArray view), a non-string value against a `String`, an ambiguous or mismatched `Map` entry, or a `Map` array that is not exactly 2 items will throw.
+
 ### `toThrowError()`
 Checks that a function throws an error when called. Optionally checks that the error message matches the provided string. Also available as `toThrow()`.
 
@@ -369,7 +466,7 @@ expect(3).toBeLessThanOrEqual(3.14);
 ```
 
 ### Planned Matchers
-`toBeDefined`, `toBeUndefined`, `toContain`, `toContainEqual`
+`toBeDefined`, `toBeUndefined`
 
 ### Likely Matchers
 `toBeOneOf`, `toBeTypeOf`, `toBeInstanceOf`, `toHaveProperty`, `toMatch`

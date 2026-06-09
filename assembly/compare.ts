@@ -72,7 +72,7 @@ export function equalsPathLength(): i32 {
  * Runtime type mismatch name tracking. When equals() detects a runtime type mismatch
  * (different rtIds on managed objects), it captures the actual and expected runtime type
  * names via the transform-injected __vitest_assemblyscript_typename method. These are
- * read by toEqual/toStrictEqual to include type names in the assertion suffix
+ * read by toEqual/toStrictEqual/toContainEqual to include type names in the assertion suffix
  * (e.g. "runtime type mismatch: Circle vs Square").
  *
  * Cleared at the start of each toEqual/toStrictEqual call alongside path and visited set.
@@ -318,6 +318,178 @@ function arrayBufferEquals<T, U>(actual: T, expected: U): __vitest_assemblyscrip
   }
 
   return __vitest_assemblyscript_EqualityResult.Equal;
+}
+
+function arrayContains<T extends ArrayLike<unknown>, U>(actual: T, expected: U, useEquals: bool): __vitest_assemblyscript_EqualityResult {
+  for (let i = 0; i < actual.length; i++) {
+    if (useEquals) {
+      // The index segment provides path context if equals() throws for a genuinely
+      // incomparable element type (e.g. "Cannot compare Shape with i32 at index [0]").
+      // Format: "[N]" composes with outer field paths, "index [N]" reads standalone.
+      const pathDepth = equalsPathLength();
+      const segment = pathDepth > 0
+        ? "[" + i.toString() + "]"
+        : "index [" + i.toString() + "]";
+      equalsPathPush(segment);
+
+      // Only an exact deep match counts as containment. A runtime type mismatch means
+      // this element simply isn't the value being searched for, so we keep scanning — a
+      // per-element type mismatch is a property of that one comparison, not of the search,
+      // and surfacing one from a one-to-many scan would be arbitrary. (equals() still
+      // throws for genuinely incomparable types, which propagates with the path context.)
+      if (equals(actual[i], expected) == __vitest_assemblyscript_EqualityResult.Equal) {
+        return __vitest_assemblyscript_EqualityResult.Equal;
+      }
+
+      // Restore the stack to its pre-element depth. A failed deep comparison can leave an
+      // arbitrary number of nested segments behind; truncating to the saved depth clears
+      // them all regardless of nesting, mirroring arrayEquals' scan discipline.
+      equalsPath.length = pathDepth;
+    }
+
+    if (!useEquals && identical(actual[i], expected)) {
+      return __vitest_assemblyscript_EqualityResult.Equal;
+    }
+  }
+
+  return __vitest_assemblyscript_EqualityResult.NotEqual;
+}
+
+function setContains<T, U>(actual: T, expected: U, useEquals: bool): __vitest_assemblyscript_EqualityResult {
+  if (actual instanceof Set) {
+    // toContain mirrors the set's native membership op (Set.has), which is type-exact. When the
+    // expected type differs from the element type we throw rather than walking: a cross-type walk
+    // would let toContain pass where the user's own set.has(value) cannot even be expressed
+    // without a cast, which misleads about what their real code can find. toContainEqual is free
+    // to walk cross-type because there is no native deep-membership op for it to contradict.
+    // @ts-ignore - TS can't see that Set is indexable for type extraction
+    if (!useEquals && nameof<indexof<T>>() != nameof<U>()) {
+      throw new Error(
+        "A " + nameof<T>() + " cannot contain a value of type " + nameof<U>()
+        + ". Use toContainEqual() to do a cross-type Set membership check."
+      );
+    }
+    
+    if (useEquals) {
+      // "Set" gives throw context if equals() throws for an incomparable element type.
+      equalsPathPush("Set");
+
+      const vals = actual.values();
+
+      for (let i = 0; i < vals.length; i++) {
+        // Only an exact deep match counts; a runtime type mismatch just means "not this
+        // element, keep scanning" (see arrayContains for the rationale).
+        const pathDepth = equalsPathLength();
+        if (equals(vals[i], expected) == __vitest_assemblyscript_EqualityResult.Equal) {
+          equalsPathPop();
+          return __vitest_assemblyscript_EqualityResult.Equal;
+        }
+        // Clear any nested segments a failed comparison left, keeping "Set" on top.
+        equalsPath.length = pathDepth;
+      }
+
+      equalsPathPop();
+      return __vitest_assemblyscript_EqualityResult.NotEqual;
+    } else {
+      // cast the set for looking up expected (casting expected may cause compile errors)
+      const castActual = changetype<Set<U>>(actual);
+      
+      if (castActual instanceof Set) {
+        // @ts-ignore
+        return castActual.has(expected)
+          ? __vitest_assemblyscript_EqualityResult.Equal
+          : __vitest_assemblyscript_EqualityResult.NotEqual;
+      }
+    }
+  }
+  
+  return __vitest_assemblyscript_EqualityResult.NotEqual;
+}
+
+function mapContains<T, U>(actual: T, expected: U, useEquals: bool): __vitest_assemblyscript_EqualityResult {
+  if (actual instanceof Map) {
+    if (expected instanceof MapEntry) {
+      // @ts-ignore
+      if (nameof<indexof<T>>() != nameof<indexof<U>>()) {
+        // @ts-ignore
+        throw new Error("A " + nameof<T>() + " cannot contain an entry with key of type " + nameof<indexof<U>>());
+      }
+
+      // cast the map for looking up expected (casting expected may cause compile errors)
+      // @ts-ignore
+      const castActual = changetype<Map<indexof<U>, valueof<T>>>(actual);
+
+      const hasKey = castActual.has(expected.entryKey);
+      if (hasKey && useEquals) {
+        // The key segment gives throw context if the value comparison throws for an
+        // incomparable type. Format: "[key]" composes with field paths (e.g.
+        // ".registry[\"x\"]"), "key [key]" reads well standalone.
+        const pathDepth = equalsPathLength();
+        const segment = pathDepth > 0
+          ? "[" + stringifyValue(expected.entryKey) + "]"
+          : "key [" + stringifyValue(expected.entryKey) + "]";
+        equalsPathPush(segment);
+
+        // Only an exact deep match counts; a runtime type mismatch means the value is
+        // not equal, so the entry is not present (see arrayContains for the rationale).
+        const isEqual = equals(castActual.get(expected.entryKey), expected.entryVal)
+          == __vitest_assemblyscript_EqualityResult.Equal;
+        equalsPath.length = pathDepth;
+
+        return isEqual
+          ? __vitest_assemblyscript_EqualityResult.Equal
+          : __vitest_assemblyscript_EqualityResult.NotEqual;
+      }
+      if (hasKey && !useEquals) {
+        return identical(castActual.get(expected.entryKey), expected.entryVal)
+          ? __vitest_assemblyscript_EqualityResult.Equal
+          : __vitest_assemblyscript_EqualityResult.NotEqual;
+      }
+    } else if (isArrayLike<U>(expected)) {
+      if (expected.length != 2) {
+        throw new Error(
+          "Membership in a Map is ambiguous with " + expected.length.toString() + "-item array."
+          + " \nCheck for a matching key-value entry with a 2-item array: expect(map).toContain([key, value])"
+          + " \nOr alternatively use the entry() helper: expect(map).toContain(entry(key, value))"
+        );
+      }
+
+      // @ts-ignore
+      if (nameof<indexof<T>>() != nameof<valueof<U>>()) {
+        // @ts-ignore
+        throw new Error("A " + nameof<T>() + " cannot contain an entry with key of type " + nameof<valueof<U>>());
+      }
+
+      // cast the set for looking up expected (casting expected may cause compile errors)
+      // @ts-ignore
+      const castActual = changetype<Map<valueof<U>, valueof<T>>>(actual);
+
+      const hasKey = castActual.has(expected[0]);
+      if (hasKey && useEquals) {
+        // Only an exact deep match counts; a runtime type mismatch means the value is
+        // not equal, so the entry is not present.
+        return equals(castActual.get(expected[0]), expected[1]) == __vitest_assemblyscript_EqualityResult.Equal
+          ? __vitest_assemblyscript_EqualityResult.Equal
+          : __vitest_assemblyscript_EqualityResult.NotEqual;
+      }
+      if (hasKey && !useEquals) {
+        return identical(castActual.get(expected[0]), expected[1])
+          ? __vitest_assemblyscript_EqualityResult.Equal
+          : __vitest_assemblyscript_EqualityResult.NotEqual;
+      }
+    } else {
+      throw new Error(
+        "Membership in a Map is ambiguous between keys and values."
+        + " \nCheck for a key: expect(map.has(key)).toBeTruthy()"
+        + " \nCheck a value at a known key: expect(map.get(key)).toBe(value) / .toEqual(value)"
+        + " \nCheck for a matching key-value entry: expect(map).toContain(entry(key, value)) / .toContainEqual(entry(key, value))"
+      );
+    }
+
+    return __vitest_assemblyscript_EqualityResult.NotEqual;
+  }
+
+  return __vitest_assemblyscript_EqualityResult.NotEqual;
 }
 
 /**
@@ -642,6 +814,89 @@ export function equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_Eq
   return changetype<usize>(actual) == changetype<usize>(expected)
     ? __vitest_assemblyscript_EqualityResult.Equal
     : __vitest_assemblyscript_EqualityResult.NotEqual;
+}
+
+export class MapEntry<K,V> {
+  entryKey: K;
+  entryVal: V;
+
+  constructor(key: K, value: V) {
+    this.entryKey = key;
+    this.entryVal = value;
+  }
+
+  // index getter syntax: instance[key]
+  // lets us type check using indexof<MapEntry>
+  @operator('[]')
+  __get(k: K): V {
+    return this.entryVal;
+  }
+
+  // index setter syntax: instance[key] = value
+  // lets us type check using valueof<MapEntry>
+  @operator('[]=')
+  __set(k: K, v: V): void {
+    this.entryKey = k;
+    this.entryVal = v;
+  }
+
+  __vitest_assemblyscript_custom_stringify(
+    formatForDiff: bool = true, depth: i32 = 0, budget: i32 = -1
+  ): string {
+    return "entry(" + stringifyValue(this.entryKey, false) + ", "
+    + stringifyValue(this.entryVal, formatForDiff, depth, budget) + ")";
+  }
+}
+
+export function contains<T, U>(actual: T, expected: U, useEquals: bool): __vitest_assemblyscript_EqualityResult {
+  const actualIsNull = isNull(actual);
+  const expectedIsNull = isNull(expected);
+
+  if (actualIsNull) {
+    throw new Error("Cannot determine if null contains a given value of type " + nameof<U>() + ".");
+  }
+
+  if (!isReference<T>()) {
+    throw new Error("Cannot determine if type " + nameof<T>() + " contains a given value of type " + nameof<U>() + ".");
+  }
+
+  if (isString<T>()) {
+    if (expectedIsNull) {
+      throw new Error("Cannot determine if a String contains a null value.");
+    }
+
+    if (!isString<U>()) {
+      throw new Error("Cannot determine if a String contains a given value of type " + nameof<U>() + ".");
+    }
+    
+    return (<string>actual).includes(<string>expected)
+      ? __vitest_assemblyscript_EqualityResult.Equal
+      :__vitest_assemblyscript_EqualityResult.NotEqual;
+  }
+
+  const nonNullActual = <NonNullable<T>>actual;
+
+  if (isArrayLike<T>(nonNullActual)) {
+    return arrayContains(nonNullActual, expected, useEquals);
+  }
+  if (actual instanceof Set) {
+    return setContains(actual, expected, useEquals);
+  }
+  if (actual instanceof Map) {
+    return mapContains(actual, expected, useEquals);
+  }
+  if (actual instanceof ArrayBuffer) {
+    // An ArrayBuffer is a raw, untyped byte region — it has no element type, so "contains a
+    // value" is ambiguous (a single byte? a multi-byte value at some offset? a byte sub-sequence?).
+    // Rather than guess, point the user at a typed view, which both fixes the element type and
+    // mirrors how their real code would read the buffer in the first place.
+    throw new Error(
+      "An ArrayBuffer has no element type to search for membership."
+      + " \nWrap in a TypedArray view to check byte / element membership: expect(Uint8Array.wrap(buffer)).toContain(value) / .toContainEqual(value)"
+    );
+  }
+
+  throw new Error("Cannot determine if type " + nameof<T>() + " contains a given value of type " + nameof<U>() + ".");
 }
 
 /**

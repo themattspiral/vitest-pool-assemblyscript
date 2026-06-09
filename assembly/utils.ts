@@ -173,6 +173,10 @@ export function stringifyValue<T>(item: T, formatForDiff: bool = true, depth: i3
       } else {
         result = typeName;
       }
+    // @ts-ignore
+    } else if (isDefined(item.__vitest_assemblyscript_custom_stringify)) {
+      // @ts-ignore
+      result = item.__vitest_assemblyscript_custom_stringify(formatForDiff, depth, budget);
     } else {
       result = nameof<T>(item);
     }

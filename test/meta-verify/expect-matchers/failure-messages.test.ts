@@ -202,6 +202,105 @@ describe('matcher failure message verification', () => {
     });
   });
 
+  describe('toContain failure messages', () => {
+    test('array of primitives', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContain', 'array of primitives [should fail]'));
+      expect(block).toContain('AssertionError: expected [1, 2, 3] to contain 7');
+    });
+    
+    test('array of objects', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContain', 'array of objects [should fail]'));
+      expect(block).toContain('AssertionError: expected [Point{ x: 1, y: 2 }, Point{ …(2) }] to contain Point{ x: 1, y: 2 }');
+    });
+    
+    test('string', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContain', 'string [should fail]'));
+      expect(block).toContain('AssertionError: expected "hello" to contain "low"');
+    });
+    
+    test('set of primitives', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContain', 'set of primitives [should fail]'));
+      expect(block).toContain('AssertionError: expected Set { 1, 2 } to contain 7');
+    });
+    
+    test('set of primitives does not contain', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContain', 'set of primitives does not contain [should fail]'));
+      expect(block).toContain('AssertionError: expected Set { 1, 2 } not to contain 2');
+    });
+    
+    test('set of objects', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContain', 'set of objects [should fail]'));
+      expect(block).toContain('AssertionError: expected Set { Point{ x: 1, y: 2 }, …(1) } to contain Point{ x: 3, y: 4 }');
+    });
+
+    test('map using entry with primitive val', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContain', 'map using entry with primitive val [should fail]'));
+      expect(block).toContain('AssertionError: expected Map { "one" => 1, "two" => 2 } to contain entry("one", 7)');
+    });
+
+    test('map using entry with object val', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContain', 'map using entry with object val [should fail]'));
+      expect(block).toContain('AssertionError: expected Map { "one" => Point{ …(2) }, …(1) } to contain entry("one", Point{ x: 1, y: 2 })');
+    });
+    
+    test('map using array with strings', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContain', 'map using array with strings [should fail]'));
+      expect(block).toContain('AssertionError: expected Map { "one" => "ONE!", …(1) } to contain ["seven", "SEVEN!"]');
+    });
+  });
+  
+  describe('toContainEqual failure messages', () => {
+    test('array of primitives', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContainEqual', 'array of primitives [should fail]'));
+      expect(block).toContain('AssertionError: expected [1, 2, 3] to deep equally contain 7');
+    });
+    
+    test('array of objects', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContainEqual', 'array of objects [should fail]'));
+      expect(block).toContain('AssertionError: expected [Point{ x: 1, y: 2 }, Point{ …(2) }] to deep equally contain Point{ x: 8, y: 9 }');
+    });
+    
+    test('array of objects with nested field fail', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContainEqual', 'array of objects with nested field fail [should fail]'));
+      expect(block).toContain('AssertionError: expected [ShapeWrapper{ …(2) }, …(2)] to deep equally contain ShapeWrapper{ label: "w1", …(1) }');
+    });
+    
+    test('string', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContainEqual', 'string [should fail]'));
+      expect(block).toContain('AssertionError: expected "hello" to deep equally contain "low"');
+    });
+    
+    test('set of primitives', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContainEqual', 'set of primitives [should fail]'));
+      expect(block).toContain('AssertionError: expected Set { 1, 2 } to deep equally contain 7');
+    });
+
+    test('set of primitives does not contain', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContainEqual', 'set of primitives does not contain [should fail]'));
+      expect(block).toContain('AssertionError: expected Set { 1, 2 } not to deep equally contain 2');
+    });
+    
+    test('set of objects', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContainEqual', 'set of objects [should fail]'));
+      expect(block).toContain('AssertionError: expected Set { Point{ x: 1, y: 2 }, …(1) } to deep equally contain Point{ x: 8, y: 9 }');
+    });
+
+    test('map using entry with primitive val', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContainEqual', 'map using entry with primitive val [should fail]'));
+      expect(block).toContain('AssertionError: expected Map { "one" => 1, "two" => 2 } to deep equally contain entry("one", 7)');
+    });
+
+    test('map using entry with object val', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContainEqual', 'map using entry with object val [should fail]'));
+      expect(block).toContain('AssertionError: expected Map { "one" => Point{ …(2) }, …(1) } to deep equally contain entry("one", Point{ x: 8, y: 9 })');
+    });
+    
+    test('map using array with strings', () => {
+      const block = requireErrorBlock(parsedCli, testPath('toContainEqual', 'map using array with strings [should fail]'));
+      expect(block).toContain('AssertionError: expected Map { "one" => "ONE!", …(1) } to deep equally contain ["seven", "SEVEN!"]');
+    });
+  });
+
   // =========================================================================
   // RUNTIME ERRORS (WASMRuntimeError)
   //
@@ -253,6 +352,26 @@ describe('matcher failure message verification', () => {
     test('inequality - i64 vs f64 (reverse)', () => {
       const block = requireErrorBlock(parsedCli, testPath('float precision - toBeGreaterThan', 'i64 vs f64 [should fail]'));
       expect(block).toContain('WASMRuntimeError: Cannot compare i64 with f64' + FLOAT_PRECISION_INEQUALITY_SUFFIX);
+    });
+
+    test('toContain - f32 vs i32 (forward)', () => {
+      const block = requireErrorBlock(parsedCli, testPath('float precision - toContain', 'f32 vs i32 [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Cannot compare f32 with i32' + FLOAT_PRECISION_TOBE_SUFFIX);
+    });
+
+    test('toContain - i32 vs f32 (reverse)', () => {
+      const block = requireErrorBlock(parsedCli, testPath('float precision - toContain', 'i32 vs f32 [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Cannot compare i32 with f32' + FLOAT_PRECISION_TOBE_SUFFIX);
+    });
+    
+    test('toContainEqual - f32 vs i32 (forward)', () => {
+      const block = requireErrorBlock(parsedCli, testPath('float precision - toContainEqual', 'f32 vs i32 [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Cannot compare f32 with i32 at index [0]' + FLOAT_PRECISION_TOBE_SUFFIX);
+    });
+
+    test('toContainEqual - i32 vs f32 (reverse)', () => {
+      const block = requireErrorBlock(parsedCli, testPath('float precision - toContainEqual', 'i32 vs f32 [should fail]'));
+      expect(block).toContain('WASMRuntimeError: Cannot compare i32 with f32 at index [0]' + FLOAT_PRECISION_TOBE_SUFFIX);
     });
   });
 
@@ -328,6 +447,125 @@ describe('matcher failure message verification', () => {
       const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toBeCloseTo with f32 actual and v128 expected [should fail]'));
       expect(block).toContain(`${CLOSETO_UNSUPPORTED_PREFIX} f32 and v128${CLOSETO_UNSUPPORTED_SUFFIX}`);
     });
+    
+    describe("toContain", () => {
+      test('toContain with i32 array actual and v128 expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with i32 array actual and v128 expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot compare i32 with v128: incompatible types`);
+      });
+      
+      test('toContain with i32 array actual and Point expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with i32 array actual and Point expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot compare i32 with Point: reference and value types are not comparable`);
+      });
+      
+      test('toContain with string actual and i32 expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with string actual and i32 expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if a String contains a given value of type i32`);
+      });
+      
+      test('toContain with string actual and Point expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with string actual and Point expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if a String contains a given value of type Point`);
+      });
+      
+      test('toContain with nullable array null actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with nullable array null actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if null contains a given value of type i32`);
+      });
+      
+      test('toContain with nullable string null actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with nullable string null actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if null contains a given value of type String`);
+      });
+
+      test('toContain with bare null actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with bare null actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if null contains a given value of type i32`);
+      });
+      
+      test('toContain with string actual and bare null expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with string actual and bare null expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if a String contains a null value`);
+      });
+      
+      test('toContain with string actual and null value expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with string actual and null value expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if a String contains a null value`);
+      });
+      
+      test('toContain with primitive actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with primitive actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if type u64 contains a given value of type i32`);
+      });
+      
+      test('toContain with object actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with object actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if type Point contains a given value of type i32`);
+      });
+
+      test('toContain with ArrayBuffer actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with ArrayBuffer actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: An ArrayBuffer has no element type to search for membership.`);
+      });
+    });
+    
+    describe("toContainEqual", () => {
+      test('toContainEqual with i32 array actual and v128 expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with i32 array actual and v128 expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot compare i32 with v128 at index [0]: incompatible types`);
+      });
+      
+      test('toContainEqual with i32 array actual and Point expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with i32 array actual and Point expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot compare i32 with Point at index [0]: reference and value types are not comparable`);
+      });
+      
+      test('toContainEqual with string actual and i32 expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with string actual and i32 expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if a String contains a given value of type i32`);
+      });
+      
+      test('toContainEqual with string actual and Point expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with string actual and Point expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if a String contains a given value of type Point`);
+      });
+      
+      test('toContainEqual with nullable array null actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with nullable array null actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if null contains a given value of type i32`);
+      });
+      
+      test('toContainEqual with bare null actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with bare null actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if null contains a given value of type i32`);
+      });
+
+      test('toContainEqual with string actual and bare null expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with string actual and bare null expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if a String contains a null value`);
+      });
+      
+      test('toContainEqual with string actual and null value expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with string actual and null value expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if a String contains a null value`);
+      });
+
+      test('toContainEqual with primitive actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with primitive actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if type u64 contains a given value of type i32`);
+      });
+      
+      test('toContainEqual with object actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with object actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot determine if type Point contains a given value of type i32`);
+      });
+
+      test('toContainEqual with ArrayBuffer actual', () => {
+        const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with ArrayBuffer actual [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: An ArrayBuffer has no element type to search for membership.`);
+      });
+    });
   });
 
   describe('cross-type comparison', () => {
@@ -345,6 +583,26 @@ describe('matcher failure message verification', () => {
       const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toEqual nested type mismatch [should fail]'));
       expect(block).toContain('AssertionError: expected ShapeWrapper to deeply equal ShapeWrapper (runtime type mismatch at .shape: Circle vs Square)');
     });
+
+    test('toContainEqual user class type mismatch - array', () => {
+      const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toContainEqual user class type mismatch - array [should fail]'));
+      expect(block).toContain(`AssertionError: expected [Circle{ color: "red", …(1) }, …(1)] to deep equally contain Shape{ color: "red" }`);
+    });
+    
+    test('toContainEqual user class type mismatch - set', () => {
+      const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toContainEqual user class type mismatch - set [should fail]'));
+      expect(block).toContain(`AssertionError: expected Set { Circle{ …(2) }, …(1) } to deep equally contain Shape{ color: "red" }`);
+    });
+    
+    test('toContainEqual user class type mismatch - map', () => {
+      const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toContainEqual user class type mismatch - map [should fail]'));
+      expect(block).toContain(`AssertionError: expected Map { "one" => Circle{ …(2) }, …(1) } to deep equally contain entry("one", Shape{ color: "red" })`);
+    });
+
+    test('toContainEqual user class type mismatch - nested mismatch', () => {
+      const block = requireErrorBlock(parsedCli, testPath('cross-type comparison', 'toContainEqual user class type mismatch - nested mismatch [should fail]'));
+      expect(block).toContain(`AssertionError: expected [ShapeWrapper{ …(2) }, …(2)] to deep equally contain ShapeWrapper{ label: "w1", …(1) }`);
+    });
   });
 
   // Container type safety: throws inside container element/value comparisons.
@@ -352,49 +610,110 @@ describe('matcher failure message verification', () => {
   const INCOMPARABLE_REF_VALUE_SUFFIX = ': reference and value types are not comparable.';
 
   describe('container type safety', () => {
-    test('Array incomparable element types', () => {
-      const block = requireErrorBlock(parsedCli, testPath('container type safety', 'Array incomparable element types [should fail]'));
-      expect(block).toContain('WASMRuntimeError: Cannot compare i32 with String at index [0]' + INCOMPARABLE_REF_VALUE_SUFFIX);
+    describe('toEqual', () => {
+      test('Array incomparable element types', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toEqual', 'Array incomparable element types [should fail]'));
+        expect(block).toContain('WASMRuntimeError: Cannot compare i32 with String at index [0]' + INCOMPARABLE_REF_VALUE_SUFFIX);
+      });
+  
+      test('Set incomparable element types', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toEqual', 'Set incomparable element types [should fail]'));
+        expect(block).toContain('WASMRuntimeError: Cannot compare i32 with String within Set' + INCOMPARABLE_REF_VALUE_SUFFIX);
+      });
+  
+      test('Map incomparable value types with string key', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toEqual', 'Map incomparable value types with string key [should fail]'));
+        expect(block).toContain('WASMRuntimeError: Cannot compare i32 with String at key ["x"]' + INCOMPARABLE_REF_VALUE_SUFFIX);
+      });
+  
+      test('Map incomparable value types with integer key', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toEqual', 'Map incomparable value types with integer key [should fail]'));
+        expect(block).toContain('WASMRuntimeError: Cannot compare String with i32 at key [7]' + INCOMPARABLE_REF_VALUE_SUFFIX);
+      });
+  
+      test('Array precision loss', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toEqual', 'Array precision loss [should fail]'));
+        expect(block).toContain('WASMRuntimeError: Cannot compare f32 with i32 at index [0]' + FLOAT_PRECISION_TOBE_SUFFIX);
+      });
+  
+      test('Set precision loss', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toEqual', 'Set precision loss [should fail]'));
+        expect(block).toContain('WASMRuntimeError: Cannot compare f32 with i32 within Set' + FLOAT_PRECISION_TOBE_SUFFIX);
+      });
+  
+      test('Map precision loss with string key', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toEqual', 'Map precision loss with string key [should fail]'));
+        expect(block).toContain('WASMRuntimeError: Cannot compare f32 with i32 at key ["x"]' + FLOAT_PRECISION_TOBE_SUFFIX);
+      });
+  
+      test('Map mismatched key types', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toEqual', 'Map mismatched key types [should fail]'));
+        expect(block).toContain('WASMRuntimeError: Map key types must match for deep equality comparison: Map<~lib/string/String,i32> and Map<i32,~lib/string/String>');
+      });
+  
+      test('Set vs Array cross-container', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toEqual', 'Set vs Array cross-container [should fail]'));
+        expect(block).toContain('WASMRuntimeError: Cannot compare deep equality between Set<~lib/string/String> and Array<~lib/string/String>');
+      });
     });
 
-    test('Set incomparable element types', () => {
-      const block = requireErrorBlock(parsedCli, testPath('container type safety', 'Set incomparable element types [should fail]'));
-      expect(block).toContain('WASMRuntimeError: Cannot compare i32 with String within Set' + INCOMPARABLE_REF_VALUE_SUFFIX);
+    describe('toContain', () => {
+      test('toContain with i32 set actual and u64 expected', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toContain', 'toContain with i32 set actual and u64 expected [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: A Set<i32> cannot contain a value of type u64. Use toContainEqual() to do a cross-type Set membership check.`);
+      });
+      
+      test('toContain on map with ambiguous expected type', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toContain', 'toContain on map with ambiguous expected type [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Membership in a Map is ambiguous between keys and values`);
+      });
+      
+      test('toContain on map with mismatched expected entry key type', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toContain', 'toContain on map with mismatched expected entry key type [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: A Map<~lib/string/String,i32> cannot contain an entry with key of type i32`);
+      });
+      
+      test('toContain on map with mismatched expected array key type', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toContain', 'toContain on map with mismatched expected array key type [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: A Map<~lib/string/String,~lib/string/String> cannot contain an entry with key of type Point`);
+      });
+      
+      test('toContain on map with mismatched expected entry value type', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toContain', 'toContain on map with mismatched expected entry value type [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot compare i32 with String: reference and value types are not comparable`);
+      });
+
+      test('toContain on map using array with incorrect number of items', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toContain', 'toContain on map using array with incorrect number of items [should fail]'));
+        expect(block).toContain('WASMRuntimeError: Membership in a Map is ambiguous with 1-item array');
+      });
     });
 
-    test('Map incomparable value types with string key', () => {
-      const block = requireErrorBlock(parsedCli, testPath('container type safety', 'Map incomparable value types with string key [should fail]'));
-      expect(block).toContain('WASMRuntimeError: Cannot compare i32 with String at key ["x"]' + INCOMPARABLE_REF_VALUE_SUFFIX);
-    });
+    describe('toContainEqual', () => {
+      test('toContainEqual on map with ambiguous expected type', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toContainEqual', 'toContainEqual on map with ambiguous expected type [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Membership in a Map is ambiguous between keys and values`);
+      });
+      
+      test('toContainEqual on map with mismatched expected entry key type', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toContainEqual', 'toContainEqual on map with mismatched expected entry key type [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: A Map<~lib/string/String,i32> cannot contain an entry with key of type i32`);
+      });
+      
+      test('toContainEqual on map with mismatched expected array key type', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toContainEqual', 'toContainEqual on map with mismatched expected array key type [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: A Map<~lib/string/String,~lib/string/String> cannot contain an entry with key of type Point`);
+      });
+      
+      test('toContainEqual on map with mismatched expected entry value type', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toContainEqual', 'toContainEqual on map with mismatched expected entry value type [should fail]'));
+        expect(block).toContain(`WASMRuntimeError: Cannot compare i32 with String at key ["one"]: reference and value types are not comparable`);
+      });
 
-    test('Map incomparable value types with integer key', () => {
-      const block = requireErrorBlock(parsedCli, testPath('container type safety', 'Map incomparable value types with integer key [should fail]'));
-      expect(block).toContain('WASMRuntimeError: Cannot compare String with i32 at key [7]' + INCOMPARABLE_REF_VALUE_SUFFIX);
-    });
-
-    test('Array precision loss', () => {
-      const block = requireErrorBlock(parsedCli, testPath('container type safety', 'Array precision loss [should fail]'));
-      expect(block).toContain('WASMRuntimeError: Cannot compare f32 with i32 at index [0]' + FLOAT_PRECISION_TOBE_SUFFIX);
-    });
-
-    test('Set precision loss', () => {
-      const block = requireErrorBlock(parsedCli, testPath('container type safety', 'Set precision loss [should fail]'));
-      expect(block).toContain('WASMRuntimeError: Cannot compare f32 with i32 within Set' + FLOAT_PRECISION_TOBE_SUFFIX);
-    });
-
-    test('Map precision loss with string key', () => {
-      const block = requireErrorBlock(parsedCli, testPath('container type safety', 'Map precision loss with string key [should fail]'));
-      expect(block).toContain('WASMRuntimeError: Cannot compare f32 with i32 at key ["x"]' + FLOAT_PRECISION_TOBE_SUFFIX);
-    });
-
-    test('Map mismatched key types', () => {
-      const block = requireErrorBlock(parsedCli, testPath('container type safety', 'Map mismatched key types [should fail]'));
-      expect(block).toContain('WASMRuntimeError: Map key types must match for deep equality comparison: Map<~lib/string/String,i32> and Map<i32,~lib/string/String>');
-    });
-
-    test('Set vs Array cross-container', () => {
-      const block = requireErrorBlock(parsedCli, testPath('container type safety', 'Set vs Array cross-container [should fail]'));
-      expect(block).toContain('WASMRuntimeError: Cannot compare deep equality between Set<~lib/string/String> and Array<~lib/string/String>');
+      test('toContainEqual on map using array with incorrect number of items', () => {
+        const block = requireErrorBlock(parsedCli, testPath('container type safety', 'toContainEqual', 'toContainEqual on map using array with incorrect number of items [should fail]'));
+        expect(block).toContain('WASMRuntimeError: Membership in a Map is ambiguous with 1-item array');
+      });
     });
   });
 
