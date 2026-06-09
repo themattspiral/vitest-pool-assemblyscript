@@ -227,6 +227,45 @@ describe("typed arrays", () => {
   });
 });
 
+describe("array buffer example", () => {
+  test('wrapped ArrayBuffer in TypedArray actual', () => {
+    // 16 bytes = 128 bits = enough space for 2 u64s
+    const a = new ArrayBuffer(16);
+    const typedBuff = Uint64Array.wrap(a);
+    typedBuff[0] = u64(127);
+    typedBuff[1] = u64(250);
+
+    expect(typedBuff).toContain(127);
+    expect(typedBuff).toContain(u64(127));
+    expect(typedBuff).toContain(u32(127));
+    expect(typedBuff).toContain(250);
+    expect(typedBuff).toContain(u64(250));
+    expect(typedBuff).toContain(u32(250));
+    expect(typedBuff).toContainEqual(127);
+    expect(typedBuff).toContainEqual(u64(127));
+    expect(typedBuff).toContainEqual(u32(127));
+    expect(typedBuff).toContainEqual(250);
+    expect(typedBuff).toContainEqual(u64(250));
+    expect(typedBuff).toContainEqual(u32(250));
+
+    const otherTypedBuff = Int8Array.wrap(a);
+    expect(otherTypedBuff).toContain(127);
+    expect(otherTypedBuff).toContain(u64(127));
+    expect(otherTypedBuff).toContain(u32(127));
+    expect(otherTypedBuff).toContainEqual(127);
+    expect(otherTypedBuff).toContainEqual(u64(127));
+    expect(otherTypedBuff).toContainEqual(u32(127));
+    
+    // 250 overflows Int8 so the view is incorrect for the data
+    expect(otherTypedBuff).not.toContain(250);
+    expect(otherTypedBuff).not.toContain(u64(250));
+    expect(otherTypedBuff).not.toContain(u32(250));
+    expect(otherTypedBuff).not.toContainEqual(250);
+    expect(otherTypedBuff).not.toContainEqual(u64(250));
+    expect(otherTypedBuff).not.toContainEqual(u32(250));
+  });
+});
+
 describe("sets", () => {
   test("primitive type", () => {
     const a = new Set<i32>();

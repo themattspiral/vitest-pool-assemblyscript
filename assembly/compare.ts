@@ -891,8 +891,8 @@ export function contains<T, U>(actual: T, expected: U, useEquals: bool): __vites
     // Rather than guess, point the user at a typed view, which both fixes the element type and
     // mirrors how their real code would read the buffer in the first place.
     throw new Error(
-      "An ArrayBuffer has no element type to search for membership."
-      + " \nWrap in a TypedArray view to check byte / element membership: expect(Uint8Array.wrap(buffer)).toContain(value) / .toContainEqual(value)"
+      "An ArrayBuffer has no element type to search for membership with toContain / toContainEqual."
+      + " \nWrap in a TypedArray view to check byte / element membership, e.g. expect(Uint8Array.wrap(buffer)).toContain(value)"
     );
   }
 

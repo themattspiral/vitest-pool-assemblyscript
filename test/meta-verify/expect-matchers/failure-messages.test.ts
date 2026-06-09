@@ -506,7 +506,7 @@ describe('matcher failure message verification', () => {
 
       test('toContain with ArrayBuffer actual', () => {
         const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContain', 'toContain with ArrayBuffer actual [should fail]'));
-        expect(block).toContain(`WASMRuntimeError: An ArrayBuffer has no element type to search for membership.`);
+        expect(block).toContain(`WASMRuntimeError: An ArrayBuffer has no element type to search for membership with toContain / toContainEqual.`);
       });
     });
     
@@ -563,7 +563,7 @@ describe('matcher failure message verification', () => {
 
       test('toContainEqual with ArrayBuffer actual', () => {
         const block = requireErrorBlock(parsedCli, testPath('unsupported types', 'toContainEqual', 'toContainEqual with ArrayBuffer actual [should fail]'));
-        expect(block).toContain(`WASMRuntimeError: An ArrayBuffer has no element type to search for membership.`);
+        expect(block).toContain(`WASMRuntimeError: An ArrayBuffer has no element type to search for membership with toContain / toContainEqual.`);
       });
     });
   });
