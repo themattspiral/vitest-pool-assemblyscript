@@ -164,10 +164,10 @@ npx vitest run
 - Supports vitest 3.2.x, 4.x, and 5.x
 
 ### Per-Test WASM Isolation
-- Each AssemblyScript test **file** is compiled to a WASM binary
-- Each AssemblyScript test **case** runs in a fresh WASM instance (reusing the compiled binary)
-- One crashing test doesn't kill the rest within the same suite
-- `toThrowError()` matcher can catch and expect specific errors (which trap and abort)
+- Each AssemblyScript test **file** suite is compiled to its own WASM binary
+- Each AssemblyScript `test()` **case** in the file suite is executed in a fresh WASM instance with a new WASM memory (reusing only the compiled binary)
+- A crashing test only kills the test instance (reporting the runtime error), and the rest of the suite still executes independently
+- `toThrowError()` matcher can catch WASM runtime errors (which trap and abort), and can match specific message strings
 
 ### Familiar Developer Experience
 - Suite and test definition using `describe()` and `test()` in AssemblyScript
@@ -178,14 +178,14 @@ npx vitest run
 - Highlighted diffs for assertion and runtime failures, which point to source code
 - Source-mapped WASM error stack traces (accurate AssemblyScript source `function file:line:column`)
 - AssemblyScript console output captured and provided to vitest for display
-- AssemblyScript compiler errors output plainly to the console for debugging
-- AssemblyScript source code coverage based on WASM execution, including uncovered source
-- No AssemblyScript boilerplate patterns for: `run()`, `endTest()`, `fs.readFile`, `WebAssembly.Instance`, etc
+- AssemblyScript compiler errors output clearly to the console for debugging
+- AssemblyScript source code coverage based on WASM execution, including any uncovered source
+- No AssemblyScript boilerplate patterns like `run()`, `endTest()`, `fs.readFile`, `WebAssembly.Instance`, etc
 
 ### Performance & Customization
 - Parallel execution thread pools
 - In-memory binaries and source maps for minimal file I/O
-- Lightweight coverage instrumentation using separate WASM memory (no intermediate JS boundary crossing, no user memory conflicts)
+- Lightweight coverage instrumentation using separate WASM memory (no user memory conflicts, no intermediate JS boundary crossing)
 - Coverage for inlined (`@inline`) code
 - Enforced hard timeouts for long-running WASM via thread termination, with intelligent resume
 - Configurable AssemblyScript compiler options
@@ -360,11 +360,13 @@ describe.only("only this suite runs", () => { /* ... */ });
 - Options can be placed before or after the callback
 - Suite options (in `describe`) are inherited by nested tests and nested suites
 
+>⚠️ **`retry`**: While this is a standard vitest option, the pool currently only supports a `number`-based retry count, rather than the [enhanced config](https://vitest.dev/config/retry.html) introduced in vitest 4.1.0
+
 ```typescript
 // options before callback
 test("with timeout", TestOptions.timeout(500), () => { /* ... */ });
 
-// options after callback
+// options after callback (retry is number only)
 test("with retry", () => { /* ... */ }, TestOptions.retry(3));
 
 // chained options
@@ -392,7 +394,7 @@ Coming Soon!
 
 We aim to follow the [vitest/jest `expect()` API](https://vitest.dev/api/expect.html) as closely as possible, with some necessary differences given AssemblyScript's static-typing.
 
-See the AssemblyScript Pool [Matchers API documentation](docs/matchers-api.md) for details on the available `expect()` methods you can use within your tests.
+See the AssemblyScript Pool [Matchers API documentation](docs/matchers-api.md) for details on the available `expect()` matchers you can use within your tests.
 
 ---
 
@@ -414,38 +416,38 @@ These are known limitations which are currently being worked on.
 - All 4 coverage types (function, statement, branch, line)
 
 **Epic: Testing DX**
-- Lifecycle hooks (`beforeEach`, `afterEach`, `beforeAll`, `afterAll`)
+- Lifecycle hooks: `beforeEach`, `afterEach`, `beforeAll`, `afterAll`
 - Watch mode: re-run applicable tests on source file changes
 - `describe.for/each` and `test.for/each`
-- expect.soft to prevent fail-fast behavior
-- Allow delegating JS/TS to istanbul coverage provider in addition to v8
+- `expect.soft` to prevent fail-fast behavior (accumulate assertion failures)
+- Support enhanced (`retry` config)[https://vitest.dev/config/retry.html] introduced in vitest 4.1.0
+- Allow delegating JS/TS to Istanbul coverage provider in addition to v8
 - Maybe: Per-file compilation setting override
 
 **Epic: Expand expect matcher API**
-- Planned: `toBeDefined`, `toBeUndefined`
 - Likely: `toBeOneOf`, `toBeTypeOf`, `toBeInstanceOf`, `toHaveProperty`, `toMatch`
 
 **Epic: Spy and Mock**
 - Intend to support
 
 **✖️ Out of Scope (Currently):**
-- Generic JS-harness testing of any precompiled WASM binary
-- Compiler & matcher integration with other compile-to-WASM languages (e.g. Rust and C++ with Emscripten)
-  - I would LOVE to expand this project to cover additional cases, supporting pluggable compilers, ast parsing, and matchers for different WASM ecosystems and toolchains
-  - Not in scope now because of time and effort
+- JS harness testing for any "generic" precompiled WASM binary
+- Compiler & matcher integration with other compile-to-WASM languages (e.g. Rust, C++, etc with Emscripten)
+  - I would LOVE to expand this project to cover additional cases, supporting pluggable compilers, AST parsing, and matchers for different WASM ecosystems and toolchains
+  - This is not in scope now because of time and effort
   - If you want to pay me to work on this, please [get in touch](https://github.com/themattspiral)!
 
 ---
 
 ## Performance
 
-Many efforts have been made to compile and run tests as quickly as possible. Some optimizations that have been most useful:
-- Separate compile and test execution thread pools, worker thread entry points, and runners for quicker startup and thread respawn after test timeouts
-- Compile threads tuned to take advantage of significant Node V8 engine warmup time savings on consecutive AssemblyScript compilations (this is an ongoing investigation as I want to see how it behaves when scaled up significantly)
-- In-memory compiled files and source maps to eliminate intermediate disk I/O
+Effort has been made to get the pool to compile and execute as quickly as possible. Some optimizations that have been most useful:
+- In-memory only AssemblyScript compiled binaries and source maps to eliminate intermediate disk I/O
+- Separate compile and test execution thread pools, worker thread entry points, and runners (smaller files = quicker startup and thread respawn after test timeouts)
+- Compile thread count tuned to take advantage of significant Node V8 engine warmup time savings on consecutive AssemblyScript compilations (this is an ongoing investigation)
 - Enforced hard timeouts for long-running WASM tests via thread termination, with intelligent resume
 
-As such, it is capable of compiling dozens of test files comprising hundreds of tests in a few seconds, and is likely faster on your machine than mine:
+As such, it is capable of compiling dozens of test files comprising hundreds of tests in a few seconds. While there's still a compilation delay, it should rival / exceed performance of other AssemblyScript unit test runners:
 
 <p align="center">
   <img src="docs/images/example-fixtures-suite.gif" alt="vitest-pool-assemblyscript large suite performance demo">

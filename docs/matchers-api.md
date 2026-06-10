@@ -20,8 +20,8 @@ This project aims to follow the [vitest/jest `expect()` API](https://vitest.dev/
 - [`toBeGreaterThanOrEqual()`](#tobegreaterthanorequal)
 - [`toBeLessThan()`](#tobelessthan)
 - [`toBeLessThanOrEqual()`](#tobelessthanorequal)
-- [Planned Matchers](#planned-matchers)
-- [Likely Matchers](#likely-matchers)
+- [Unsupported Matchers](#unsupported-matchers)
+- [Likely Future Matchers](#likely-future-matchers)
 
 The following subset of vitest/jest expect matchers are currently supported:
 
@@ -465,8 +465,21 @@ expect(5).toBeLessThanOrEqual(5);
 expect(3).toBeLessThanOrEqual(3.14);
 ```
 
-### Planned Matchers
-`toBeDefined`, `toBeUndefined`
+### Unsupported Matchers
 
-### Likely Matchers
+#### `toBeDefined()` and `toBeUndefined()`
+
+The vitest/jest `toBeDefined()` and `toBeUndefined()` matchers are intentionally not implemented because AssemblyScript has no `undefined` value like JavaScript does.
+
+AssemblyScript is statically typed and compiles to WASM, where every value has a concrete type and a concrete value. There is no `undefined` runtime state, only `null` for nullable references (these are testable using [`toBeNull()`](#tobenull) and [`toBeNullable()`](#tobenullable)).
+
+Because undefined-ness in AssemblyScript is a **compile-time** concern rather than a runtime one, referencing an undeclared name will always result in a hard compiler error (`TS2304: Cannot find name`). There is no way to even construct an undefined argument to `expect()` - the compiler rejects it earlier, and more strictly, than a runtime assertion could.
+
+>ℹ️ AssemblyScript provides an `isDefined()` [builtin function](https://www.assemblyscript.org/stdlib/globals.html#builtins), which is a compile-time-only check of whether an expression *could* be compiled, and it allows an undefined name as input without failing compilation. While there is likely no real use case, it could be used in test assertions such as:
+> ```typescript
+> `expect(isDefined(42)).toBeTruthy();`
+> `expect(isDefined(nonexistent)).toBeFalsy();`
+> ```
+
+### Likely Future Matchers
 `toBeOneOf`, `toBeTypeOf`, `toBeInstanceOf`, `toHaveProperty`, `toMatch`

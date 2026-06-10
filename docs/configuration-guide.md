@@ -42,7 +42,8 @@ This is not an exhaustive list of all vitest options, but it details which ones 
 ### `test` section
 
 - `bail` *(number)* — Stop the test run after this many test failures. Standard vitest option.
-- `retry` *(number)* — Number of retries to attempt after a test's initial failure. Can also be set per-test with `TestOptions.retry()`. Standard vitest option.
+- `retry` *(number)* — Number of retries to attempt after a test's initial failure. Can also be set per-test with `TestOptions.retry()`.
+>⚠️ While this is a standard vitest option, the pool currently only supports a `number`-based retry count, rather than the [enhanced config](https://vitest.dev/config/retry.html) introduced in vitest 4.1.0
 - `testTimeout` *(number)* — Milliseconds to wait before terminating a test. Can also be set per-test with `TestOptions.timeout()`. Standard vitest option.
 - `allowOnly` *(boolean)* — Whether to respect `test.only` and `describe.only` modifiers. Standard vitest option.
 - `maxWorkers` *(number)* — Maximum concurrent file execution threads. **vitest 4.x and 5.x only** — for vitest 3.x, use pool option `maxThreadsV3` instead. Standard vitest option.
