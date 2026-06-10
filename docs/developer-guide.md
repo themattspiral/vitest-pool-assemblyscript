@@ -32,21 +32,15 @@ For architecture details, see [Pool Architecture](pool-architecture.md) and [Cov
 
 ## Prerequisites
 
-| Dependency | Version |
-|---|---|
-| Node.js | (20*), 22, 24+ |
-| Vitest | 3.2.x, 4.x.x |
-| AssemblyScript | 0.28.9+ |
+See the Readme's [Compatibility section](../README.md#compatibility) for information on supported Node versions and platforms.
 
->ℹ️ ***Node 20 Support:** Node 20 works for test execution, but WASM coverage instrumentation requires [WebAssembly multi-memory](https://github.com/WebAssembly/multi-memory) (V8 12.0+ / Node 22+).
-
->ℹ️ **Older AssemblyScript versions** might work but aren't actively tested. If you're stuck on an older version and run into issues, you're welcome to [open an issue](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new).
+Additionally for developers:
 
 **C++ build tools** (for native addon development):
 - GCC 7+ or Clang 5+ (C++17 support required)
 - Python 3.x (required by node-gyp)
 
-The distributed npm package includes prebuilt native binaries for [most platforms](../README.md#compatibility), so end users don't need C++ tools. These are only needed when developing the native addon or building from source.
+The distributed npm package includes prebuilt native binaries for [most platforms](../README.md#compatibility), so *end users* don't need C++ tools. These are only needed when developing the native addon or building from source.
 
 ---
 

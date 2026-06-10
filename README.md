@@ -30,12 +30,13 @@
 <p align="center">
   Check it out:
   <br/>
-  <a href="#status">Status</a> | 
   <a href="#quick-start">Quick Start</a> | 
+  <a href="#status">Status</a> | 
   <a href="#features">Features</a> |
   <a href="#frequently-asked-questions">Frequently Asked Questions</a>
   <br/>
   <a href="#compatibility">Compatibility</a> | 
+  <a href="#current-limitations--roadmap">Roadmap</a> | 
   <a href="#performance">Performance</a> | 
   <a href="#prior-work">Prior Work</a> | 
   <a href="#license">License</a>
@@ -62,26 +63,6 @@
 <p align="center">
   <img src="docs/images/example-small.gif" alt="vitest-pool-assemblyscript quick demo">
 </p>
-
-## Status
-
-While relatively young, this project is stable and is being improved every day.
-
-All [listed features](#features) are working, tested, and assumed to be bug-free.
-
-| Item | Status |
-|---|---|
-| [`describe()` and `test()` APIs](#writing-tests) | - stable<br/>- no breaking changes expected |
-| [`expect()` API](docs/matchers-api.md) | - stable<br/>- no breaking changes expected<br/>- more matchers coming soon |
-| Code Coverage / Instrumentation | - function coverage stable [across platforms](#compatibility)<br/>- branch & line coverage coming soon |
-| Hybrid Coverage Provider | - stable<br/>- v8 JS delegation, side-by-side JS coverage<br/>- JS delegation to istanbul provider coming soon
-
-See Also:
-- [Current Limitations & Roadmap](#current-limitations--roadmap)
-- [Frequently Asked Questions](#frequently-asked-questions)
-- [Report a Bug / Request a Feature](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new)
-
----
 
 ## Quick Start
 
@@ -127,21 +108,41 @@ export default defineAssemblyScriptConfig({
 });
 ```
 
-### 3. Write a Test
+### 3. Write Some Tests
 
 Create a test file (e.g. `test/assembly/example-file.as.test.ts`):
 
 ```typescript
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
+import { MyClass } from "../assembly/my-class";
 
 test("basic math", () => {
   expect(2 + 2).toBe(4);
 });
 
 describe("an example suite", () => {
-  test("string equality", () => {
+  test("strings", () => {
     expect("hello").toBe("hello");
     expect("hello").not.toBe("world");
+    expect("hello world! 🌎").toContain("🌎");
+  });
+
+  test("primitive equality is permissive", () => {
+    expect(1).toBe(u64(1));
+    expect(f64(42.0)).toBe(u8(42));
+
+    // respects AssemblyScript comparison semantics
+    expect(() => {
+      expect(f32(42.0)).toBe(42);
+    }).toThrowError("float precision is insufficient")
+  });
+
+  test("object deep equality", () => {
+    const a = new MyClass("hello", 42);
+    const b = new MyClass("hello", 42);
+    expect(a).toBe(a);     // toBe: reference identity
+    expect(a).not.toBe(b);
+    expect(a).toEqual(b);  // toEqual: value equality
   });
 });
 ```
@@ -151,6 +152,23 @@ describe("an example suite", () => {
 ```bash
 npx vitest run
 ```
+
+---
+
+## Status
+
+While relatively young, this project is stable and is being improved every day.
+
+All [listed features](#features) are working and unit-tested.
+- [`describe()` and `test()` APIs](#writing-tests): stable, no breaking changes expected
+- [`expect()` API](docs/matchers-api.md): stable, no breaking changes expected, main matcher set complete
+- Code Coverage / Instrumentation: function coverage stable [across platforms](#compatibility), branch & line coverage coming soon
+- Hybrid Coverage Provider: stable v8 JS delegation, side-by-side JS coverage reporting, JS delegation to istanbul provider coming soon
+
+See Also:
+- [Current Limitations & Roadmap](#current-limitations--roadmap)
+- [Frequently Asked Questions](#frequently-asked-questions)
+- [Report a Bug / Request a Feature](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new)
 
 ---
 
@@ -164,7 +182,7 @@ npx vitest run
 - Supports vitest 3.2.x, 4.x, and 5.x
 
 ### Per-Test WASM Isolation
-- Each AssemblyScript test **file** suite is compiled to its own WASM binary
+- Each AssemblyScript test **file** is compiled to its own WASM binary
 - Each AssemblyScript `test()` **case** in the file suite is executed in a fresh WASM instance with a new WASM memory (reusing only the compiled binary)
 - A crashing test only kills the test instance (reporting the runtime error), and the rest of the suite still executes independently
 - `toThrowError()` matcher can catch WASM runtime errors (which trap and abort), and can match specific message strings
@@ -254,44 +272,55 @@ More detailed information can be found in [Pool Architecture](docs/pool-architec
 
 The overall goal is tight vitest experience integration - most CLI commands, reporters, UI, and project configurations should work as you'd expect, and test runner behavior should match vitest's JS pool runner for features we've implemented (retries, timeouts, skip, only, fails, etc.). Some features aren't implemented yet due to effort and prioritization, and others necessarily differ given AssemblyScript's static typing and execution model. See the [configuration guide](docs/configuration-guide.md) and [limitations / roadmap](#current-limitations--roadmap) for specifics.
 
-**Q: Will this work on my machine?**
+**Q: Will this work on my machine / in my CI/CD environment?**
 <br/>
-**A:** Probably! WASM coverage instrumentation requires native binaries, and we ship [prebuilt binaries for most common platforms](#compatibility). If your platform isn't listed, the npm package installation will fallback to trying to build the native code using a local C++ toolchain.
+**A:** Yes! WASM coverage instrumentation requires native binaries, and we ship [prebuilt binaries for most common platforms](#compatibility).
+
+If your platform isn't listed, the npm package installation will fallback to trying to build the native code using a local C++ toolchain (its installation script must be permitted in this case).
 
 **Q: Do you support older versions of AssemblyScript?**
 <br/>
-**A:** It's tested against 0.28.9 currently, and that's the version I have any real experience with. Older versions might work but aren't actively tested. If you're stuck on an older version and run into issues, you're welcome to [open an issue](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new).
+**A:** We test against 0.28.18 currently. Older versions might work but aren't actively tested.
+
+The project has been developed since version 0.28.9, and is likely to work back to at least this version. If you're stuck on an older version and run into issues, you're welcome to [open an issue](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new).
 
 **Q: Is this an official vitest project?**
 <br/>
-**A:** No, this is a third-party, community project. It's not affiliated with the Vitest team or VoidZero directly, though we're grateful for their open-source code and intentionally extensible architecture which make projects like this possible, and to the [other open-source projects](#prior-work) that provide vital functionality and reference architecture.
+**A:** No, this is a third-party, community project. It's not affiliated with the Vitest team or VoidZero/Cloudflare directly, though we're grateful for their open-source code and intentionally extensible architecture which make projects like this possible, as well as to the [other open-source projects](#prior-work) which provide vital functionality and reference architecture.
 
 **Q: Are you a company? A bot?**
 <br/>
-**A:** Just [a person](https://github.com/themattspiral)! This started as a hobby project to improve my own AssemblyScript testing workflow and to learn something about deep WASM internals, and it's grown from there. I used Claude Code for initial scaffolding and to help dig into the native instrumentation side, but everything goes through me, and my intention is to contribute something useful and high-quality to the community. Feedback and contributions are welcome.
+**A:** Just [a person](https://github.com/themattspiral)!
+
+I began this as a hobby project to improve my own AssemblyScript testing workflow (and to learn about WASM internals) - And it's grown from there. My intention now is to provide a production-grade developer tool extension library, suitable for any AssemblyScript project pipeline, and in doing so also to contribute something useful and high-quality to the community. Feedback and contributions are welcome.
 
 ---
 
 ## Compatibility
 
+### Dependencies
 | Dependency | Supported Versions |
 |---|---|
 | Node.js | (20*), 22, 24+ |
-| Vitest | 3.2.x, 4.x.x, 5.x.x |
-| AssemblyScript | 0.28.9+ ([more?](#frequently-asked-questions)) |
+| Vitest | 3.2.x, 4.x.x, 5.x.x-beta |
+| AssemblyScript | 0.28.18+ ([more?](#frequently-asked-questions)) |
 
->ℹ️ ***Node 20 Support:** If you don't need code coverage, Node 20 should continue to work for test execution.
->
->WASM coverage instrumentation is implemented using [WebAssembly multi-memory](https://github.com/WebAssembly/multi-memory) to isolate coverage counters from user test memory. This feature shipped in V8 12.0 / Node 22.
+***Node 20 Support:** If you don't need code coverage, Node 20 should continue to work for test execution.
 
-**Platforms with prebuilt native binaries for coverage instrumentation & debug info:**
+>ℹ️ WASM coverage instrumentation is implemented using [WebAssembly multi-memory](https://github.com/WebAssembly/multi-memory) to isolate coverage counters from user test memory. This feature shipped in V8 12.0 / Node 22.
+
+### Platforms
+
+Platforms with prebuilt native binaries for coverage instrumentation:
 
 | | x64 | arm64 |
 |---|---|---|
 | Linux (glibc) | ✓ | ✓ |
-| Linux (musl/Alpine) | ✓ | |
+| Linux (musl/Alpine) | ✓ | - |
 | macOS | ✓ | ✓ |
 | Windows | ✓ | ✓ |
+
+>ℹ️ Platforms without prebuilts will fallback to using an installation script to compile the native component. This must be [explicitly allowed with newest versions of npm (>=11)](https://docs.npmjs.com/cli/v11/commands/npm-approve-scripts).
 
 ---
 
@@ -360,7 +389,7 @@ describe.only("only this suite runs", () => { /* ... */ });
 - Options can be placed before or after the callback
 - Suite options (in `describe`) are inherited by nested tests and nested suites
 
->⚠️ **`retry`**: While this is a standard vitest option, the pool currently only supports a `number`-based retry count, rather than the [enhanced config](https://vitest.dev/config/retry.html) introduced in vitest 4.1.0
+>⚠️ **`retry`**: While this is a standard vitest option, the pool currently only supports a `number`-based retry count, rather than the [enhanced config](https://vitest.dev/config/retry) introduced in vitest 4.1.0
 
 ```typescript
 // options before callback
@@ -420,7 +449,7 @@ These are known limitations which are currently being worked on.
 - Watch mode: re-run applicable tests on source file changes
 - `describe.for/each` and `test.for/each`
 - `expect.soft` to prevent fail-fast behavior (accumulate assertion failures)
-- Support enhanced (`retry` config)[https://vitest.dev/config/retry.html] introduced in vitest 4.1.0
+- Support enhanced [`retry` config](https://vitest.dev/config/retry) introduced in vitest 4.1.0
 - Allow delegating JS/TS to Istanbul coverage provider in addition to v8
 - Maybe: Per-file compilation setting override
 
@@ -469,6 +498,6 @@ There are several core pieces of software without which this project would not b
 
 ## License
 
-Licensed under the [MIT](LICENSE)
+Licensed under the [MIT License](LICENSE)
 
 Portions of this software have been derived from third-party works which are licenced under different terms. These uses have been noted and are accompanied by their respective licenses in the [project license](LICENSE) and/or in applicable source code.

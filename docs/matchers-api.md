@@ -477,8 +477,8 @@ Because undefined-ness in AssemblyScript is a **compile-time** concern rather th
 
 >ℹ️ AssemblyScript provides an `isDefined()` [builtin function](https://www.assemblyscript.org/stdlib/globals.html#builtins), which is a compile-time-only check of whether an expression *could* be compiled, and it allows an undefined name as input without failing compilation. While there is likely no real use case, it could be used in test assertions such as:
 > ```typescript
-> `expect(isDefined(42)).toBeTruthy();`
-> `expect(isDefined(nonexistent)).toBeFalsy();`
+> expect(isDefined(42)).toBeTruthy();
+> expect(isDefined(nonexistent)).toBeFalsy();
 > ```
 
 ### Likely Future Matchers
