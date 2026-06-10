@@ -421,9 +421,10 @@ Coming Soon!
 
 ### Test Matchers
 
-We aim to follow the [vitest/jest `expect()` API](https://vitest.dev/api/expect.html) as closely as possible, with some necessary differences given AssemblyScript's static-typing.
+See [Matchers API Documentation](docs/matchers-api.md) for details on the available `expect()` matchers you can use within your AssemblyScript tests.
 
-See the AssemblyScript Pool [Matchers API documentation](docs/matchers-api.md) for details on the available `expect()` matchers you can use within your tests.
+>ℹ️ We aim to follow the [vitest/jest `expect()` API](https://vitest.dev/api/expect.html) as closely as possible in surface and behavior, with some necessary differences given AssemblyScript's static-typing. See API docs for details.
+
 
 ---
 
@@ -457,7 +458,7 @@ These are known limitations which are currently being worked on.
 - Likely: `toBeOneOf`, `toBeTypeOf`, `toBeInstanceOf`, `toHaveProperty`, `toMatch`
 
 **Epic: Spy and Mock**
-- Intend to support
+- Intend to support spies and mocks in a future release
 
 **✖️ Out of Scope (Currently):**
 - JS harness testing for any "generic" precompiled WASM binary
