@@ -36,9 +36,8 @@ export default async function setup(): Promise<() => Promise<void>> {
 
   const context = process.env.RUN_CONTEXT || 'local';
   const isExternal = context === 'external';
-  const isExternalNoCoverage = context === 'external_no_coverage';
-  const cwd = isExternal || isExternalNoCoverage ? EXTERNAL_DIR : PROJECT_ROOT;
-  const coverageEnabled = !isExternalNoCoverage;
+  const cwd = isExternal ? EXTERNAL_DIR : PROJECT_ROOT;
+  const coverageEnabled = true;
 
   const args = ['-c', 'vitest.meta.config.ts'];
   if (!coverageEnabled) {

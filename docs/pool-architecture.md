@@ -85,7 +85,7 @@ The primary architecture targets **vitest 5.x (and 4.x)** using the `PoolWorker`
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Vitest creates one `AssemblyScriptPoolWorker` instance per `maxWorkers`. This is how parallelization is achieved: each PoolWorker processes files concurrently, but only allows one active thread operation at a time (either a compile dispatch or a test run dispatch). The global thread pools are specialized hot threads shared across all PoolWorker instances — they could theoretically be sized beyond `maxWorkers` for tuning scenarios requiring more hot-swap thread availability, but the PoolWorker serialization is the parallelism governor, ensuring we don't exceed the configured level of parallelism.
+Vitest creates one `AssemblyScriptPoolWorker` instance per `maxWorkers`. This is how parallelization is achieved: each PoolWorker only allows one active thread operation at a time (either a compile dispatch or a test run dispatch), but taken as a whole all together, files are processed concurrently. The global thread pools are specialized hot threads shared across all PoolWorker instances — they could theoretically be sized beyond `maxWorkers` for tuning scenarios requiring more hot-swap thread availability, but the PoolWorker serialization is the parallelism governor, ensuring we don't exceed the configured level of parallelism.
 
 ### PoolWorker Deviation from Standard Pattern
 
@@ -561,7 +561,7 @@ If the native build failed during install, the `.native-build-error` marker file
 ### Node Version Support
 
 - **Node 22+**: Full support (test execution + coverage)
-- **Node 20**: Test execution works, but coverage requires WASM multi-memory (V8 12.0+, shipped in Node 22). A warning is displayed via `warnIfASCoverageNotSupportedByNode()` when coverage is enabled on Node < 22.
+- **Node 20**: Test execution works, but coverage requires WASM multi-memory (V8 12.0+, shipped in Node 22). A warning is displayed via `warnIfASCoverageNotSupportedByNode()` when coverage is enabled on Node < 22. Note that this is no longer actively tested, as Node 20 reached EOL on April 30, 2026.
 
 **Key source files:**
 - [`scripts/install-native-addon.js`](../scripts/install-native-addon.js) — install hook
@@ -626,19 +626,17 @@ Both versions use the same:
 
 ### Separate Entry Points
 
-The package exports separate entry points for v3 and v4:
+The package exports separate entry points for v3 and v4+:
 
 | Export | Entry | Purpose |
 |--------|-------|---------|
-| `.` | [`src/index.ts`](../src/index.ts) | v4 pool factory (`createAssemblyScriptPool`) |
+| `.` | [`src/index.ts`](../src/index.ts) | v4+ pool factory (`createAssemblyScriptPool`) |
 | `./v3` | [`src/index-v3.ts`](../src/index-v3.ts) | v3 pool factory (default export) |
-| `./config` | [`src/config/index.ts`](../src/config/index.ts) | v4 config helpers |
+| `./config` | [`src/config/index.ts`](../src/config/index.ts) | v4+ config helpers |
 | `./v3/config` | [`src/config/index-v3.ts`](../src/config/index-v3.ts) | v3 config helpers |
 | `./coverage` | [`src/coverage-provider/index.ts`](../src/coverage-provider/index.ts) | Coverage provider (shared) |
-| `./assembly` | [`assembly/index.mts`](../assembly/index.mts) | AS test framework (shared) |
-| `./__internal` | [`src/index-internal.ts`](../src/index-internal.ts) | Pool internals for unit tests (may be removed) |
 
-Separate entry points were not the preferred approach — a single entry point would be simpler for users. However, v3 and v4 have different vitest API dependencies and version-specific code. The v4 entry imports `PoolWorker` and `PoolRunnerInitializer` types that don't exist in vitest 3, and the v3 entry imports `ProcessPool` and `Vitest` types with v3-specific signatures. Bundling them together would cause import failures when only one vitest version is installed. Separate entry points allow each to import only the APIs available in its target vitest version.
+Separate entry points were not the preferred approach — a single entry point would be simpler for users. However, v3 and v4+ have different vitest API dependencies and version-specific code. The v4+ entry imports `PoolWorker` and `PoolRunnerInitializer` types that don't exist in vitest 3, and the v3 entry imports `ProcessPool` and `Vitest` types with v3-specific signatures. Bundling them together would cause import failures when only one vitest version is installed. Separate entry points allow each to import only the APIs available in its target vitest version.
 
 **Key source files:**
 - [`src/pool/v3-process-pool.ts`](../src/pool/v3-process-pool.ts) — `createAssemblyScriptProcessPool()`

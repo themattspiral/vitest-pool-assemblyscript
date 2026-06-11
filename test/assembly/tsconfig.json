@@ -6,12 +6,15 @@
   "compilerOptions": {
     "rootDir": "../..",
 
-    // Resolve imports in IDE.
-    // For actual AS code, this is handled by the AS compiler,
-    // specifically by our custom readFile() implementation
+    // Resolve package imports in IDE
+    //  - local project is not checked through node_modules resolution in AS like it would be with JS
+    //  - applies to IDE only - For actual AS code, this is handled by the AS compiler
+    //    (see readFile() implementation given to ascMain in compiler module)
     "paths": {
       "vitest-pool-assemblyscript/assembly": ["../../assembly/index.ts"],
-      "vitest-pool-assemblyscript/assembly/__internal": ["../../assembly/index-internal.ts"],
+
+      // the 'paths' block clobbers assemblyscript/std/assembly.json's own paths to the stdlib
+      // - this only impacts direct stdlib imports, e.g. import { BLOCK_MAXSIZE } from "rt/common"
       "*": ["../../node_modules/assemblyscript/std/assembly/*"]
     }
   }

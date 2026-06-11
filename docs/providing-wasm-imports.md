@@ -24,7 +24,7 @@ Configure `wasmImportsFactory` to point to an ES module that exports a factory f
 > ⚠️ The path should be **relative to your vitest project root** - that is, the  location of the shallowest vitest config file in your project.
 
 ```typescript
-  // v4
+  // v4+
   // ...
     pool: createAssemblyScriptPool({
       wasmImportsFactory: 'test-helpers/create-imports.js',

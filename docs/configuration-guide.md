@@ -10,7 +10,7 @@
 
 ## AssemblyScript Pool Options
 
-These options control how the pool processes and handles AssemblyScript. They're provided as an argument to `createAssemblyScriptPool()` (vitest v4), or within the `poolOptions.assemblyScript` config section (vitest v3) - See [Config Templates](#config-templates) for placement.
+These options control how the pool processes and handles AssemblyScript. They're provided as an argument to `createAssemblyScriptPool()` (vitest v4+), or within the `poolOptions.assemblyScript` config section (vitest v3) - See [Config Templates](#config-templates) for placement.
 
 - `stripInline` *(boolean)* — Strip `@inline` decorators during compilation so that inlined functions remain visible in coverage reports and source-mapped errors point to the correct lines. **Default: `true`**
 - `testMemoryPagesInitial` *(number)* — Initial WASM memory size in [pages](https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/Memory) (64 KiB each) allocated for each test instance. **Default: `1`**
@@ -179,7 +179,7 @@ export default defineConfig({
           pool: 'vitest-pool-assemblyscript/v3',  // in v3, point to the module
           poolOptions: {
             assemblyScript: {
-              // same available options as v4 createAssemblyScriptPool are passed here
+              // same available options as v4+ createAssemblyScriptPool are passed here
               
               // Additional - v3 Only
               // maxThreadsV3: 8    // concurrent test file threads to execute (default: availableParallelism - 1)
@@ -202,7 +202,7 @@ export default defineAssemblyScriptConfig({
     pool: 'vitest-pool-assemblyscript/v3',
     poolOptions: {
       assemblyScript: {
-        // same available options as v4 createAssemblyScriptPool and v3 multi-project
+        // same available options as v4+ createAssemblyScriptPool and v3 multi-project
       }
     }
   },
