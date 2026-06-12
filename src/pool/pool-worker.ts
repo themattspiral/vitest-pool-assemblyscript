@@ -365,7 +365,6 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     compilePool: Tinypool,
   ): Promise<void> {
     const { workerPort, poolPort } = createWorkerRPCChannel(this.poolOptions.project, this.isCollectTestsMode);
-    this.threadControlPort = poolPort;
     
     const compilePromise: Promise<ThreadSpec> = compilePool.run({
       dispatchStart: Date.now(),
@@ -386,8 +385,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       spec.file = file;
       spec.compilation = compilation;
     } finally {
-      this.threadControlPort.close();
-      this.threadControlPort = undefined;
+      poolPort.close();
     }
   }
   
@@ -439,16 +437,24 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
 
     // compile
     if (!isResume) {
+      // limited to compilePool.maxThreads at once
       await Promise.all(
         this.threadSpecs.map(spec => this.dispatchCompile(spec, compilePool))
       );
     }
 
-    // test
+    // execute tests
     if (!this.isCollectTestsMode) {
-      await Promise.all(
-        this.threadSpecs.map(spec => this.dispatchRunTests(spec, runPool, timedOutTest))
-      );
+      // usually there is only one thread spec (file) provided at a time, except for when
+      // maxWorkers = 1 and isolate = false in the vitest project config, in which case we
+      // get multiple threadspecs here all at once. while this is similarly limited to 
+      // runPool.maxThreads at once (which would just be 1 in this case because maxWorkers = 1),
+      // the timeout enforcement mechanism requires tracking run state (thread control port, abort controller),
+      // so awaiting one at a time is the safe way to do this.
+      for (const spec of this.threadSpecs) {
+        const specTimedOutTest = timedOutTest?.file.filepath === spec.file.filepath ? timedOutTest : undefined;
+        await this.dispatchRunTests(spec, runPool, specTimedOutTest);
+      }
     }
 
     debug(`[${this.logModuleWithId}] orchestrateFileRuns: ${desc} thread work complete`

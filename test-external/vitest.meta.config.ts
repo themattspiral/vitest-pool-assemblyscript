@@ -127,6 +127,26 @@ export default defineConfig({
             testMemoryPagesMax: 1,
           }),
         }
+      }),
+
+      // AS Meta Alt Config - non-isolated single worker (batched file dispatch)
+      // With isolate: false and maxWorkers: 1, vitest sends ALL matching files to a
+      // single PoolWorker in ONE 'run' message (instead of the usual one file per
+      // message). Verifies timeout enforcement and resume when the timed-out test
+      // belongs to one file within a multi-file batch.
+      defineProject({
+        test: {
+          isolate: false,
+          maxWorkers: 1,
+          // required to force it to run separately from projects without maxWorkers: 1
+          sequence: { groupOrder: 1 },
+          
+          name: { label: 'as-pool-meta-no-isolate', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-no-isolate.test.ts'
+          ],
+          pool: createAssemblyScriptPool(),
+        }
       })
     ]
   },
