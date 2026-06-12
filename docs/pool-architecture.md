@@ -41,11 +41,11 @@ The primary architecture targets **vitest 5.x (and 4.x)** using the `PoolWorker`
 │  • Dispatches compilation and test execution to global thread pools  │
 │  • Enforces test timeouts from the main thread                       │
 │  • Manages timeout abort + resume with state preservation            │
-│  • Only one active thread process at a time per PoolWorker           │
+│  • Only one active test-run dispatch at a time per PoolWorker        │
 │                                                                      │
-│  Each PoolWorker serializes its work — this is how parallelization   │
-│  is achieved: vitest's maxWorkers PoolWorker instances run files     │
-│  concurrently, each dispatching to the shared global thread pools.   │
+│  Each PoolWorker serializes its test runs — this is how parallel-    │
+│  ization is achieved: vitest's maxWorkers PoolWorker instances run   │
+│  files concurrently, each dispatching to the shared global pools.    │
 └───────────┬──────────────────────────────────────────────────────────┘
             │  Tinypool task dispatch
             ↓
@@ -85,16 +85,18 @@ The primary architecture targets **vitest 5.x (and 4.x)** using the `PoolWorker`
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Vitest creates one `AssemblyScriptPoolWorker` instance per `maxWorkers`. This is how parallelization is achieved: each PoolWorker processes files concurrently, but only allows one active thread operation at a time (either a compile dispatch or a test run dispatch). The global thread pools are specialized hot threads shared across all PoolWorker instances — they could theoretically be sized beyond `maxWorkers` for tuning scenarios requiring more hot-swap thread availability, but the PoolWorker serialization is the parallelism governor, ensuring we don't exceed the configured level of parallelism.
+Vitest creates one `AssemblyScriptPoolWorker` instance per `maxWorkers`, and normally sends each instance **one file per run message**. This is how parallelization is achieved: each PoolWorker only allows one active test-run dispatch at a time, but taken as a whole all together, files are processed concurrently. The global thread pools are specialized hot threads shared across all PoolWorker instances — they could theoretically be sized beyond `maxWorkers` for tuning scenarios requiring more hot-swap thread availability, but the PoolWorker serialization is the parallelism governor, ensuring we don't exceed the configured level of parallelism.
 
-### PoolWorker Deviation from Standard Pattern
+**File batching exception:** with `isolate: false` and `maxWorkers: 1`, vitest batches all of a project's files into a *single* run message. In that case the PoolWorker compiles the batch concurrently (bounded by the compile pool's thread count) but still dispatches test runs strictly one file at a time — the timeout enforcement machinery tracks a single active run (control port, abort controller, current test), so sequential run dispatch keeps that state valid by construction. See [Execution Pipeline](#execution-pipeline).
 
-While `AssemblyScriptPoolWorker` implements vitest's `PoolWorker` interface (`start/stop/send/on/off`), it does **not** follow vitest's example pattern of having the PoolWorker act as a thin passthrough to a dedicated worker thread. Instead, the PoolWorker itself contains significant orchestration logic: it manages its own global thread pools, dispatches work to compile and run pool threads, enforces timeouts from the main thread, and handles abort + resume across thread boundaries.
+### PoolWorker Deviation from Standard Vitest Internal Pool Pattern
+
+While `AssemblyScriptPoolWorker` implements vitest's `PoolWorker` interface (`start`/`stop`/`send`/`on`/`off`, plus `deserialize` and `canReuse` — the latter returns `true` so vitest reuses idle PoolWorker instances for subsequent files), it does **not** follow vitest's example pattern of having the PoolWorker act as a thin passthrough to a dedicated worker thread. Instead, the PoolWorker itself contains significant orchestration logic: it manages its own global thread pools, dispatches work to compile and run pool threads, enforces timeouts from the main thread, and handles abort + resume across thread boundaries.
 
 This deviation is intentional. The standard passthrough model doesn't support our requirements:
 - **Main-thread timeout enforcement**: WASM infinite loops block the worker thread's event loop, so timeouts must be enforced externally from the PoolWorker
 - **Timeout resume**: After aborting a timed-out thread, the PoolWorker re-dispatches remaining work with preserved state — this requires orchestration logic that lives outside the worker threads
-- **Custom thread pools**: We determined that using two specialized pools with different thread counts and lifetimes helps to optimize performance for WASM workloads (rather than a single 1:1 PoolWorker <-> worker thread). Note: We still **do not exceed** the `maxWorkers` number of ***active*** threads at any time - Each PoolWorker is only ever `await`-ing a single thread pool dispatch at a time, but having the pools allows for a faster and cleaner re-use and respawn mechanism.
+- **Custom thread pools**: We determined that using two specialized pools with different thread counts and lifetimes helps to optimize performance for WASM workloads (rather than a single 1:1 PoolWorker <-> worker thread). Note: We still **do not exceed** the `maxWorkers` number of ***active*** test-run threads at any time - Each PoolWorker is only ever `await`-ing a single test-run dispatch at a time, but having the pools allows for a faster and cleaner re-use and respawn mechanism.
 - **Lean worker threads**: Keeping worker threads focused on *either* compilation *or* test execution (not both) also allows faster thread respawn after timeout aborts
 
 ### Vitest Integration Contract
@@ -158,7 +160,7 @@ The pool uses two separate global Tinypool instances rather than vitest's simple
 
 These two concerns have fundamentally different optimal thread counts, so they need separate pools. A single pool would force a compromise: either too few threads for test execution, or too many threads for compilation (destroying warmup benefits).
 
-**The global pool pattern** means thread initialization overhead is paid once (not per PoolWorker), and threads stay warm across multiple vitest worker lifecycles and watch mode re-runs. The compile pool's 2-thread count is hardcoded based on empirical observations, with a note to test on higher-parallelism platforms (>8 cores) to verify the tradeoff holds.
+**The global pool pattern** means thread initialization overhead is paid once (not per PoolWorker), and threads stay warm across multiple vitest worker lifecycles and watch mode re-runs. The compile pool's 2-thread count is hardcoded based on empirical observations (dropping to 1 when `maxWorkers` is 1), with a note to test on higher-parallelism platforms (>8 cores) to verify the tradeoff holds.
 
 **Key source:** [`src/pool/pool-worker.ts`](../src/pool/pool-worker.ts) — `getGlobalThreadPools()`
 
@@ -184,11 +186,27 @@ PoolWorker B (file3):
 
 The pipeline is orchestrated by `orchestrateFileRuns()` in [`pool-worker.ts`](../src/pool/pool-worker.ts):
 
-1. **Compile phase**: All files assigned to this PoolWorker are compiled in parallel via `dispatchCompile()`, each dispatched to the compile pool. Each compile thread runs `runCompileAndDiscover()`, which compiles the AssemblyScript to WASM (with optional instrumentation via native addon), then discovers tests by instantiating the binary and executing `_start`.
+1. **Compile phase**: All files in the current run message (normally just one — see below) are compiled concurrently via `dispatchCompile()`, each dispatched to the compile pool. Each compile thread runs `runCompileAndDiscover()`, which compiles the AssemblyScript to WASM (with optional instrumentation via native addon), then discovers tests by instantiating the binary and executing `_start`. Compilation also applies the pool's compiler transforms — see [Compiler Transforms](#compiler-transforms).
 
-2. **Test phase** (if not collect-only mode): All files are dispatched to the run pool via `dispatchRunTests()`. Each run thread calls `runSuite()`, which recursively walks the suite hierarchy (describe blocks) and executes each test via `runTest()`.
+2. **Test phase** (if not collect-only mode): Files are dispatched to the run pool **one at a time** via `dispatchRunTests()`. Each run thread calls `runSuite()`, which recursively walks the suite hierarchy (describe blocks) and executes each test via `runTest()`.
 
 Tests within a file execute sequentially — parallelism comes from multiple PoolWorkers processing different files concurrently. This is a deliberate simplification from earlier architectures that dispatched individual tests to workers. Sequential per-file execution simplifies suite hierarchy management, coverage aggregation, and timeout resume logic.
+
+### File Batching (Non-Isolated Single Worker)
+
+Vitest normally sends one file per run message, so a PoolWorker's "batch" is a single file. The exception is `isolate: false` combined with `maxWorkers: 1`, where vitest sends **all** of a project's matching files to one PoolWorker in a single run message. The pipeline handles this case deliberately:
+
+- **Compiles fan out concurrently** (bounded by the compile pool's thread count) — compile dispatches carry no timeout-tracking state, each manages its own RPC port locally.
+- **Test runs dispatch strictly sequentially** — the PoolWorker's main-thread timeout enforcement tracks a single active run (control port, abort controller, current test record), so one-at-a-time dispatch guarantees a timeout always aborts the thread actually running the test.
+- **On timeout resume**, the whole batch is re-dispatched: the timed-out test is passed only to the dispatch for its own file, completed files short-circuit via their finalized results, and not-yet-run files execute normally.
+
+### Compiler Transforms
+
+Compilation always registers the **deep-equals transform** ([`src/compiler/transforms/deep-equals.mts`](../src/compiler/transforms/deep-equals.mts)), which injects deep-equality comparison, runtime type-name, and stringify methods into user-defined classes — these power `toEqual`/`toStrictEqual` matching and the formatted values in assertion diffs (see [Matchers API](matchers-api.md)).
+
+When the `stripInline` pool option is enabled (the default), the **strip-inline transform** ([`src/compiler/transforms/strip-inline.mts`](../src/compiler/transforms/strip-inline.mts)) removes `@inline` decorators so those functions are compiled as real functions — keeping them visible in coverage reports and ensuring source-mapped errors point to the correct lines.
+
+Both are standard AS compiler `--transform` modules, loaded by file path from the compiled `dist/` output (transforms must be plain JavaScript when the AS compiler imports them — see [`src/compiler/index.ts`](../src/compiler/index.ts)).
 
 **Key source files:**
 - [`src/pool/pool-worker.ts`](../src/pool/pool-worker.ts) — `orchestrateFileRuns()`, `dispatchCompile()`, `dispatchRunTests()`
@@ -229,14 +247,20 @@ Pool-specific callbacks are declared in WASM via `@external("__as_pool_env__", "
 
 | Callback | Purpose |
 |----------|---------|
-| `__register_test(namePtr, fnIndex, ...)` | Register test during discovery (name + function table index + options) |
-| `__begin_register_suite(namePtr, timeout, ...)` | Push new suite onto suite stack during discovery |
+| `__register_test(namePtr, fnIndex, timeout, retry, skip, only, fails)` | Register test during discovery (name + function table index + resolved test options) |
+| `__begin_register_suite(namePtr, timeout, retry, skip, only, fails)` | Push new suite onto suite stack during discovery (with suite-level default options) |
 | `__end_register_suite(namePtr)` | Pop suite from stack during discovery |
 | `__assertion_pass()` | Increment passed assertion counter |
-| `__assertion_fail(msgPtr, msgLen, ...)` | Mark test failed with error message |
+| `__assertion_fail(msgPtr, actualTypeNamePtr, expectedTypeNamePtr, valuesProvided, actualPtr?, expectedPtr?)` | Record failed assertion (message + typed actual/expected values for diff output) |
+| `__expect_throw(fnIndex, expectedErrorMsgPtr?)` | `toThrowError` support: invoke the function expected to abort; the abort handler then matches the thrown message against the expected one |
+| `__end_expect_throw()` | `toThrowError` support: reached only if no abort occurred — fails the test as "expected to throw" |
 | `abort(msgPtr, filePtr, line, column)` | AS runtime abort handler — see [Error Handling](#error-handling--source-mapping) |
 | `memory` | `WebAssembly.Memory` import — created in Node.js, shared with WASM via `--importMemory` |
 | `__coverage_memory` | Separate `WebAssembly.Memory` for coverage counters (when instrumented) |
+
+The registration callbacks (`__register_test`, `__begin/__end_register_suite`) are live during discovery and stubbed as no-ops during test execution; the assertion and throw-expectation callbacks are the reverse.
+
+The `env` module additionally carries console-capture imports (so AssemblyScript `console.*` output is captured and reported to vitest), and any [user-provided WASM imports](providing-wasm-imports.md) (`wasmImportsFactory`) are merged in — user `env` entries can intentionally shadow the pool's console imports, and user-defined custom modules are passed through alongside.
 
 Import callbacks cannot be tree-shaken by the AS compiler (they're external dependencies), which avoids the tree-shaking problems that affect other approaches to test function registration.
 
@@ -561,7 +585,7 @@ If the native build failed during install, the `.native-build-error` marker file
 ### Node Version Support
 
 - **Node 22+**: Full support (test execution + coverage)
-- **Node 20**: Test execution works, but coverage requires WASM multi-memory (V8 12.0+, shipped in Node 22). A warning is displayed via `warnIfASCoverageNotSupportedByNode()` when coverage is enabled on Node < 22.
+- **Node 20**: Test execution works, but coverage requires WASM multi-memory (V8 12.0+, shipped in Node 22). A warning is displayed via `warnIfASCoverageNotSupportedByNode()` when coverage is enabled on Node < 22. Note that this is no longer actively tested, as Node 20 reached EOL on April 30, 2026.
 
 **Key source files:**
 - [`scripts/install-native-addon.js`](../scripts/install-native-addon.js) — install hook
@@ -626,19 +650,17 @@ Both versions use the same:
 
 ### Separate Entry Points
 
-The package exports separate entry points for v3 and v4:
+The package exports separate entry points for v3 and v4+:
 
 | Export | Entry | Purpose |
 |--------|-------|---------|
-| `.` | [`src/index.ts`](../src/index.ts) | v4 pool factory (`createAssemblyScriptPool`) |
+| `.` | [`src/index.ts`](../src/index.ts) | v4+ pool factory (`createAssemblyScriptPool`) |
 | `./v3` | [`src/index-v3.ts`](../src/index-v3.ts) | v3 pool factory (default export) |
-| `./config` | [`src/config/index.ts`](../src/config/index.ts) | v4 config helpers |
+| `./config` | [`src/config/index.ts`](../src/config/index.ts) | v4+ config helpers |
 | `./v3/config` | [`src/config/index-v3.ts`](../src/config/index-v3.ts) | v3 config helpers |
 | `./coverage` | [`src/coverage-provider/index.ts`](../src/coverage-provider/index.ts) | Coverage provider (shared) |
-| `./assembly` | [`assembly/index.mts`](../assembly/index.mts) | AS test framework (shared) |
-| `./__internal` | [`src/index-internal.ts`](../src/index-internal.ts) | Pool internals for unit tests (may be removed) |
 
-Separate entry points were not the preferred approach — a single entry point would be simpler for users. However, v3 and v4 have different vitest API dependencies and version-specific code. The v4 entry imports `PoolWorker` and `PoolRunnerInitializer` types that don't exist in vitest 3, and the v3 entry imports `ProcessPool` and `Vitest` types with v3-specific signatures. Bundling them together would cause import failures when only one vitest version is installed. Separate entry points allow each to import only the APIs available in its target vitest version.
+Separate entry points were not the preferred approach — a single entry point would be simpler for users. However, v3 and v4+ have different vitest API dependencies and version-specific code. The v4+ entry imports `PoolWorker` and `PoolRunnerInitializer` types that don't exist in vitest 3, and the v3 entry imports `ProcessPool` and `Vitest` types with v3-specific signatures. Bundling them together would cause import failures when only one vitest version is installed. Separate entry points allow each to import only the APIs available in its target vitest version.
 
 **Key source files:**
 - [`src/pool/v3-process-pool.ts`](../src/pool/v3-process-pool.ts) — `createAssemblyScriptProcessPool()`

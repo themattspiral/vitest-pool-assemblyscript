@@ -305,7 +305,7 @@ I began this as a hobby project to improve my own AssemblyScript testing workflo
 | Vitest | 3.2.x, 4.x.x, 5.x.x-beta |
 | AssemblyScript | 0.28.18+ ([more?](#frequently-asked-questions)) |
 
-***Node 20 Support:** If you don't need code coverage, Node 20 should continue to work for test execution.
+***Node 20 Support:** If you don't need code coverage, Node 20 should continue to work for test execution, though it is no longer tested because it reached EOL on April 30, 2026.
 
 >ℹ️ WASM coverage instrumentation is implemented using [WebAssembly multi-memory](https://github.com/WebAssembly/multi-memory) to isolate coverage counters from user test memory. This feature shipped in V8 12.0 / Node 22.
 
@@ -320,7 +320,7 @@ Platforms with prebuilt native binaries for coverage instrumentation:
 | macOS | ✓ | ✓ |
 | Windows | ✓ | ✓ |
 
->ℹ️ Platforms without prebuilts will fallback to using an installation script to compile the native component. This must be [explicitly allowed with newest versions of npm (>=11)](https://docs.npmjs.com/cli/v11/commands/npm-approve-scripts).
+>ℹ️ Platforms without prebuilds will fallback to using an installation script to compile the native component. This must be [explicitly allowed with newest versions of npm (>=11)](https://docs.npmjs.com/cli/v11/commands/npm-approve-scripts).
 
 ---
 

@@ -10,12 +10,9 @@ const PROJECT_ROOT = resolve(__dirname, '../../..');
 
 const RESULTS_PATH = resolve(PROJECT_ROOT, 'tmp/.meta-verify-results.json');
 
-// --- Coverage enabled check (mirrors global-setup-capture-meta-run.ts logic) ---
+const isExternalContext = process.env.RUN_CONTEXT === 'external';
 
-/** Whether coverage data is available in this run context. */
-export const COVERAGE_ENABLED: boolean = process.env.RUN_CONTEXT !== 'external_no_coverage';
-
-const isExternalContext = process.env.RUN_CONTEXT === 'external' || process.env.RUN_CONTEXT === 'external_no_coverage';
+export const COVERAGE_ENABLED = true;
 
 /**
  * Path prefix for test file paths in CLI output.

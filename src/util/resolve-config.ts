@@ -129,13 +129,9 @@ export function getConfigs(ctx: Vitest): {
   const configs = Object.values(projects);
   if (configs.length > 0) {
     for (const config of configs) {
+      // if debug is true on any AS project, it becomes true in the fallback
       if (config.v3PoolOptions?.debug) {
         fallbackPoolOptions.debug = true;
-      }
-      if (config.v3PoolOptions?.maxThreadsV3 !== undefined
-        && config.v3PoolOptions.maxThreadsV3 > fallbackPoolOptions.maxThreadsV3
-      ) {
-        fallbackPoolOptions.maxThreadsV3 = config.v3PoolOptions.maxThreadsV3;
       }
     }
   }

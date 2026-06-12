@@ -15,7 +15,7 @@
     "// SETUP": "  scripts/setup-test-external.js copies this template to a sibling dir and installs our npm packed project ",
     "// RUNNER": " scripts/run-vitest-external.js executes vitest in the sibling dir, passing arguments needed to configure the run ",
     "// USAGE": "  From vitest-pool-assemblyscript: `npm run eptest` OR `npm run emtest` OR `npm run emvtest` (see docs/developer-guide.md) ",
-    "// CI": "     CI runs test:ext:pass + test:ext:meta:verify (and no-cov variants for Node 20) ",
+    "// CI": "     CI runs test:ext:setup + test:ext:pass + test:ext:meta:verify (for all tested vitest versions) ",
     "// META": "  A globalSetup (test/meta-verify/helpers/global-setup-capture-meta-run.ts) runs scripts/run-vitest-external.js in capture mode against this dir ",
     "// META2": " run-vitest-external.js captures JSON output, CLI output, and exit code, which globalSetup writes to .meta-verify-results.json ",
     "// META3": " Verification tests (test/meta-verify/) read the pre-computed results and assert on specific expected output "

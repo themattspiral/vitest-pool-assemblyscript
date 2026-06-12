@@ -10,7 +10,7 @@
 
 ## AssemblyScript Pool Options
 
-These options control how the pool processes and handles AssemblyScript. They're provided as an argument to `createAssemblyScriptPool()` (vitest v4), or within the `poolOptions.assemblyScript` config section (vitest v3) - See [Config Templates](#config-templates) for placement.
+These options control how the pool processes and handles AssemblyScript. They're provided as an argument to `createAssemblyScriptPool()` (vitest v4+), or within the `poolOptions.assemblyScript` config section (vitest v3) - See [Config Templates](#config-templates) for placement.
 
 - `stripInline` *(boolean)* — Strip `@inline` decorators during compilation so that inlined functions remain visible in coverage reports and source-mapped errors point to the correct lines. **Default: `true`**
 - `testMemoryPagesInitial` *(number)* — Initial WASM memory size in [pages](https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/Memory) (64 KiB each) allocated for each test instance. **Default: `1`**
@@ -18,6 +18,7 @@ These options control how the pool processes and handles AssemblyScript. They're
 - `wasmImportsFactory` *(string)* — Path to an ES module exporting a factory function that creates custom WASM imports. Path is relative to the vitest project root. See [Providing WASM Imports](providing-wasm-imports.md) for details.
 - `extraCompilerFlags` *(string[])* — Additional flags passed to the AssemblyScript compiler (`asc`). **Default: `[]`**
 - `maxThreadsV3` *(number)* — Maximum concurrent file execution threads. **vitest 3.x only** — for vitest 4.x and 5.x, use vitest's standard `test.maxWorkers` instead. **Default: `availableParallelism() - 1`**
+>⚠️ `maxThreadsV3` is only configurable in the **top-level** config's `poolOptions.assemblyScript` section — the pool's shared thread pool is created once for the whole run, so values set in per-project `poolOptions` are ignored for thread sizing. (This mirrors vitest 3's own behavior, where `maxWorkers` and `poolOptions.*.maxThreads` only take effect from the root config.)
 
 ### Default Compiler Options
 
@@ -166,6 +167,13 @@ import { defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/v3/confi
 
 export default defineConfig({
   test: {
+    poolOptions: {
+      assemblyScript: {
+        // v3: thread count is read from the TOP-LEVEL config only
+        // maxThreadsV3: 8    // concurrent test file threads to execute (default: availableParallelism - 1)
+      }
+    },
+
     projects: [
       defineProject({
         test: {
@@ -179,10 +187,8 @@ export default defineConfig({
           pool: 'vitest-pool-assemblyscript/v3',  // in v3, point to the module
           poolOptions: {
             assemblyScript: {
-              // same available options as v4 createAssemblyScriptPool are passed here
-              
-              // Additional - v3 Only
-              // maxThreadsV3: 8    // concurrent test file threads to execute (default: availableParallelism - 1)
+              // same available options as v4+ createAssemblyScriptPool are passed here
+              // (except maxThreadsV3, which is only read at the top level — see above)
             }
           }
         }
@@ -202,7 +208,10 @@ export default defineAssemblyScriptConfig({
     pool: 'vitest-pool-assemblyscript/v3',
     poolOptions: {
       assemblyScript: {
-        // same available options as v4 createAssemblyScriptPool and v3 multi-project
+        // same available options as v4+ createAssemblyScriptPool and v3 multi-project
+
+        // With a single project this IS the top-level config, so maxThreadsV3 applies here
+        // maxThreadsV3: 8    // concurrent test file threads to execute (default: availableParallelism - 1)
       }
     }
   },

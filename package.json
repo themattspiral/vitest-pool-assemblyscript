@@ -41,10 +41,6 @@
     "./coverage": {
       "types": "./dist/coverage-provider/index.d.mts",
       "default": "./dist/coverage-provider/index.mjs"
-    },
-    "./__internal": {
-      "types": "./dist/internal.d.mts",
-      "default": "./dist/internal.mjs"
     }
   },
   "files": [
@@ -80,10 +76,8 @@
     "test:ext:setup:v4": "cross-env VITEST_VERSION=4 node scripts/setup-test-external.js",
     "test:ext:setup:v3": "cross-env VITEST_VERSION=3 node scripts/setup-test-external.js",
     "test:ext:pass": "node scripts/run-vitest-external.js -c vitest.pass.config.ts",
-    "test:ext:pass:no-cov": "node scripts/run-vitest-external.js -c vitest.pass.config.ts --coverage.enabled=false",
     "test:ext:meta": "node scripts/run-vitest-external.js -c vitest.meta.config.ts",
     "test:ext:meta:verify": "cross-env RUN_CONTEXT=external vitest run -c vitest.meta-verify.config.ts",
-    "test:ext:meta:verify:no-cov": "cross-env RUN_CONTEXT=external_no_coverage vitest run -c vitest.meta-verify.config.ts",
     "//---- test shortcuts ----": "",
     "ptest": "npm run test:pass",
     "mtest": "npm run test:meta",
@@ -111,21 +105,13 @@
     "cptest": "npm run build && npm run ptest",
     "cmtest": "npm run build && npm run mtest",
     "cmvtest": "npm run build && npm run mvtest",
-    "//---- compile & external test shortcuts ----": "",
-    "ceptest": "npm run build && npm run eptest",
-    "cemtest": "npm run build && npm run emtest",
-    "cemvtest": "npm run build && npm run emvtest",
-    "//---- compile & external v3 test shortcuts ----": "",
-    "cep3test": "npm run build && npm run ep3test",
-    "cem3test": "npm run build && npm run em3test",
-    "cemv3test": "npm run build && npm run emv3test",
     "//------------ Compile/Build TypeScript Pool ------------": "",
     "build": "tsdown",
     "//------------ Compile/Build Native Addon ------------": "",
     "setup-binaryen": "node scripts/setup-binaryen.js",
     "build:native": "node-gyp rebuild",
     "build:prebuild": "prebuildify --napi --strip --tag-libc",
-    "//------------ npm Lifecycle ------------": "",
+    "//------------ npm Lifecycle (native build fallback) ------------": "",
     "install": "node scripts/install-native-addon.js"
   },
   "dependencies": {

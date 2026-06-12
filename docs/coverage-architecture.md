@@ -276,17 +276,17 @@ The current implementation provides function-level coverage. Block-level coverag
 
 ### Planned Changes
 
-**Instrumentation upgrade**: The native addon will inject counters at basic block boundaries (not just function entries), and extract expression/block position debug info alongside function metadata.
+**Instrumentation upgrade**: The native addon will additionally inject counters at basic block boundaries, and extract expression/block position debug info alongside function metadata. Function coverage is expected to keep using the existing per-function counters and matching.
 
 **Statement matching**: For each source statement (from AST), check if any hit position falls within its range. Hit positions will be line-indexed for O(1) per-line lookups. This "interval → points" query direction is more efficient than the reverse: for a typical file with 300 statements, ~1,800 operations vs ~90,000 for the naive approach, without needing complex data structures like interval trees.
 
-**Branch matching**: Branch coverage uses CFG (control flow graph) analysis. Binary branch conditions are matched to source branches by position lookup, and binary branch paths are matched to source paths via containment.
+**Branch matching**: Per-path hit counts are derived from counters on each branch path's target basic block (identified via CFG analysis). Binary branch decisions and paths are matched back to source branch constructs using containment matching, like function matching today. The exact set of branch constructs reported (and how closely it follows Istanbul's conventions) is still being finalized.
 
 ### Coverage Types by Version
 
 | Type | Current | Planned |
 |------|---------|---------|
-| Function | Per-function counters, containment matching | Block counters → expression positions, containment matching |
-| Statement | Derived from functions (function = one statement) | Block counters → expression positions, line-indexed matching |
-| Branch | Not implemented (0%) | Block counters for target blocks, position + path containment |
+| Function | Per-function counters, containment matching | Unchanged |
+| Statement | Derived from functions (function = one statement) | Block counters → expression positions, line-indexed range matching |
+| Branch | Not implemented (0%) | Target-block counters, containment matching |
 | Line | Derived from functions | Derived from statements |

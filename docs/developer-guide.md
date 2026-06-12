@@ -177,7 +177,6 @@ A [`globalSetup`](../test/meta-verify/helpers/global-setup-capture-meta-run.ts) 
 The `RUN_CONTEXT` environment variable (set via `cross-env` in the npm scripts) determines which verification context is used:
 - **`local`** (default) - runs the meta suite against local `dist/` output
 - **`external`** - runs the meta suite against the installed package in `../vitest-pool-assemblyscript-test-external/`, with coverage enabled
-- **`external_no_coverage`** - same as `external` but with coverage disabled (for Node 20 or missing native build)
 
 `RUN_CONTEXT` also drives the `COVERAGE_ENABLED` and `TEST_FILE_PREFIX` constants exported from `shared.ts`, which verification tests use to conditionally run coverage assertions and construct correct lookup keys.
 
@@ -204,16 +203,18 @@ Verification tests live in `test/meta-verify/` and are organized by category:
 
 | Shortcut | Command | Function |
 |----------|---------|-------------|
-| `npm test` | - | Run all local tests (v4 only, passing + meta output verification) |
+| `npm test` | - | Run all local tests (v5 only, passing + meta output verification) |
 | `npm run ptest` | `npm run test:pass` | Run local passing tests |
 | `npm run mtest` | `npm run test:meta` | Run local meta tests |
 | `npm run mvtest` | `npm run test:meta:verify` | Run local meta output verification |
-| - | `npm run test:ext:setup` | Prepare external test directory (v4) |
+| - | `npm run test:ext:setup` | Prepare external test directory (v5) |
 | `npm run eptest` | `npm run test:ext:pass` | Run external passing tests (setup + run) |
-| - | `npm run test:ext:pass:no-cov` | Run external passing tests without coverage - used by CI for Node 20 runs |
 | `npm run emtest` | `npm run test:ext:meta` | Run external meta tests (setup + run) |
 | `npm run emvtest` | `npm run test:ext:meta:verify` | Run external meta output verification (setup + run) |
-| - | `npm run test:ext:meta:verify:no-cov` | Run external meta output verification without coverage - used by CI for Node 20 runs |
+| - | `npm run test:ext:setup:v4` | Prepare external test directory (v4) |
+| `npm run ep4test` | `npm run test:ext:setup:v4 && npm run test:ext:pass` | Run external v4 passing tests (setup + run) |
+| `npm run em4test` | `npm run test:ext:setup:v4 && npm run test:ext:meta` | Run external v4 meta tests (setup + run) |
+| `npm run emv4test` | `npm run test:ext:setup:v4 && npm run test:ext:meta:verify` | Run external v4 meta output verification (setup + run) |
 | - | `npm run test:ext:setup:v3` | Prepare external test directory (v3) |
 | `npm run ep3test` | `npm run test:ext:setup:v3 && npm run test:ext:pass` | Run external v3 passing tests (setup + run) |
 | `npm run em3test` | `npm run test:ext:setup:v3 && npm run test:ext:meta` | Run external v3 meta tests (setup + run) |

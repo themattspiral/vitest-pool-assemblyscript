@@ -145,6 +145,32 @@ export default defineConfig({
             }
           },
         }
+      }),
+
+      // AS Meta Alt Config - non-isolated single worker (batched file dispatch)
+      //
+      // NOTE: This project exists here for verification parity only — the meta-verify
+      // suite is shared across vitest versions and requires these fixture files in the
+      // captured run. The batched-dispatch scenario it exercises on vitest 4/5 (where
+      // isolate: false + maxWorkers: 1 makes vitest send ALL matching files to a single
+      // PoolWorker in ONE 'run' message) CANNOT occur on vitest 3: there is no PoolWorker
+      // API, and the v3 ProcessPool receives all specs in one runTests() call and
+      // dispatches per-file itself. The isolate/maxWorkers settings below are inert for
+      // pool sizing in v3 (sizing comes from the root config at pool creation) and are
+      // kept only to mirror the v4/v5 configs. On v3 these fixtures simply run as three
+      // ordinary files; timeout behavior is still verified through the shared pipeline.
+      defineAssemblyScriptProject({
+        test: {
+          // isolate: false,
+          // maxWorkers: 1,
+          
+          name: { label: 'as-pool-meta-no-isolate', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-no-isolate.test.ts'
+          ],
+          pool: 'vitest-pool-assemblyscript/v3',
+          
+        }
       })
     ]
   },
