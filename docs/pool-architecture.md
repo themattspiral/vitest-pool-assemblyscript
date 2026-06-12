@@ -28,24 +28,24 @@ The primary architecture targets **vitest 5.x (and 4.x)** using the `PoolWorker`
 │                      Vitest Core (Node.js)                           │
 │          Test Discovery, Watch Mode, UI, Reporters                   │
 │                                                                      │
-│  Creates 1 AssemblyScriptPoolWorker per maxWorkers                   │
-│  Each PoolWorker receives files to compile and test                  │
+│  Creates a NEW AssemblyScriptPoolWorker for each file task,          │
+│  running at most maxWorkers PoolWorkers concurrently                 │
 └───────────┬──────────────────────────────────────────────────────────┘
             │  PoolWorker interface (start/stop/send/on/off)
             ↓
 ┌──────────────────────────────────────────────────────────────────────┐
-│              AssemblyScriptPoolWorker (per maxWorkers)               │
+│   AssemblyScriptPoolWorker (1 per file task, ≤ maxWorkers active)    │
 │                     src/pool/pool-worker.ts                          │
 │                                                                      │
 │  • Receives file specs from vitest via send() messages               │
 │  • Dispatches compilation and test execution to global thread pools  │
 │  • Enforces test timeouts from the main thread                       │
 │  • Manages timeout abort + resume with state preservation            │
-│  • Only one active test-run dispatch at a time per PoolWorker        │
+│  • Only one active dispatch (compile or test-run) at a time          │
 │                                                                      │
-│  Each PoolWorker serializes its test runs — this is how parallel-    │
-│  ization is achieved: vitest's maxWorkers PoolWorker instances run   │
-│  files concurrently, each dispatching to the shared global pools.    │
+│  Each PoolWorker runs one dispatch at a time — parallelism comes     │
+│  from vitest running up to maxWorkers PoolWorkers at once, each      │
+│  dispatching to the shared global thread pools.                      │
 └───────────┬──────────────────────────────────────────────────────────┘
             │  Tinypool task dispatch
             ↓
@@ -53,7 +53,7 @@ The primary architecture targets **vitest 5.x (and 4.x)** using the `PoolWorker`
 │                 Global Thread Pools (shared, singleton)              │
 │                                                                      │
 │  ┌─────────────────────────────┐  ┌──────────────────────────────┐   │
-│  │  Compile Pool (2 threads)   │  │  Run Pool (maxWorkers thrds) │   │
+│  │  Compile Pool (2 threads)   │  │  Run Pool (core-count thrds) │   │
 │  │  compile-worker-thread.ts   │  │  test-worker-thread.ts       │   │
 │  │                             │  │                              │   │
 │  │  runCompileAndDiscoverSpec  │  │  runFileSpec                 │   │
@@ -85,9 +85,11 @@ The primary architecture targets **vitest 5.x (and 4.x)** using the `PoolWorker`
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Vitest creates one `AssemblyScriptPoolWorker` instance per `maxWorkers`, and normally sends each instance **one file per run message**. This is how parallelization is achieved: each PoolWorker only allows one active test-run dispatch at a time, but taken as a whole all together, files are processed concurrently. The global thread pools are specialized hot threads shared across all PoolWorker instances — they could theoretically be sized beyond `maxWorkers` for tuning scenarios requiring more hot-swap thread availability, but the PoolWorker serialization is the parallelism governor, ensuring we don't exceed the configured level of parallelism.
+Vitest constructs a **new** `AssemblyScriptPoolWorker` for each file task and stops it when the task completes, keeping at most `maxWorkers` PoolWorkers active concurrently (each task normally carries one file — see the batching exception below). This is how parallelization is achieved: each PoolWorker drives one thread dispatch at a time (a compile or a test run), so the number of active PoolWorkers is the number of busy threads. PoolWorker instances are cheap to construct because the expensive resources — the global thread pools — are process-level singletons shared across all instances.
 
-**File batching exception:** with `isolate: false` and `maxWorkers: 1`, vitest batches all of a project's files into a *single* run message. In that case the PoolWorker compiles the batch concurrently (bounded by the compile pool's thread count) but still dispatches test runs strictly one file at a time — the timeout enforcement machinery tracks a single active run (control port, abort controller, current test), so sequential run dispatch keeps that state valid by construction. See [Execution Pipeline](#execution-pipeline).
+The thread pools are sized from the machine's core count (`availableParallelism()`), never from vitest config: pool size is lazily-spawned *capacity*, while vitest's scheduler — admitting at most `maxWorkers` concurrent file tasks — is the parallelism *governor*. One consequence: `maxWorkers` values above the core count are effectively clamped for AS test execution, because the excess file tasks queue on the run pool rather than oversubscribing the CPU.
+
+**File batching exception:** with `isolate: false` and `maxWorkers: 1`, vitest batches all of a project's files into a *single* run message handled by a single PoolWorker. The PoolWorker processes the batch strictly one file at a time in **both** phases — compile dispatches and test-run dispatches each happen sequentially. The timeout enforcement machinery tracks a single active run (control port, abort controller, current test), and these dispatch loops are the *only* thing enforcing one-at-a-time execution — the thread pools are sized from core count and provide no backstop. See [Execution Pipeline](#execution-pipeline).
 
 ### PoolWorker Deviation from Standard Vitest Internal Pool Pattern
 
@@ -96,7 +98,7 @@ While `AssemblyScriptPoolWorker` implements vitest's `PoolWorker` interface (`st
 This deviation is intentional. The standard passthrough model doesn't support our requirements:
 - **Main-thread timeout enforcement**: WASM infinite loops block the worker thread's event loop, so timeouts must be enforced externally from the PoolWorker
 - **Timeout resume**: After aborting a timed-out thread, the PoolWorker re-dispatches remaining work with preserved state — this requires orchestration logic that lives outside the worker threads
-- **Custom thread pools**: We determined that using two specialized pools with different thread counts and lifetimes helps to optimize performance for WASM workloads (rather than a single 1:1 PoolWorker <-> worker thread). Note: We still **do not exceed** the `maxWorkers` number of ***active*** test-run threads at any time - Each PoolWorker is only ever `await`-ing a single test-run dispatch at a time, but having the pools allows for a faster and cleaner re-use and respawn mechanism.
+- **Custom thread pools**: We determined that using two specialized pools with different thread counts and lifetimes helps to optimize performance for WASM workloads (rather than a single 1:1 PoolWorker <-> worker thread). Note: We still **do not exceed** the `maxWorkers` number of ***active*** threads at any time - Each PoolWorker is only ever `await`-ing a single dispatch (compile or test-run) at a time, but having the pools allows for a faster and cleaner re-use and respawn mechanism.
 - **Lean worker threads**: Keeping worker threads focused on *either* compilation *or* test execution (not both) also allows faster thread respawn after timeout aborts
 
 ### Vitest Integration Contract
@@ -128,7 +130,7 @@ The pool uses two separate global Tinypool instances rather than vitest's simple
 │  ┌──────────────────────────────┐  ┌─────────────────────────────┐  │
 │  │  Compile Pool                │  │  Run Pool                   │  │
 │  │                              │  │                             │  │
-│  │  Threads: 2 (intentional)   │  │  Threads: maxWorkers         │  │
+│  │  Threads: 2 (intentional)   │  │  Threads: core count         │  │
 │  │  Worker: compile-worker-     │  │  Worker: test-worker-       │  │
 │  │          thread.ts           │  │          thread.ts          │  │
 │  │                              │  │                             │  │
@@ -160,7 +162,7 @@ The pool uses two separate global Tinypool instances rather than vitest's simple
 
 These two concerns have fundamentally different optimal thread counts, so they need separate pools. A single pool would force a compromise: either too few threads for test execution, or too many threads for compilation (destroying warmup benefits).
 
-**The global pool pattern** means thread initialization overhead is paid once (not per PoolWorker), and threads stay warm across multiple vitest worker lifecycles and watch mode re-runs. The compile pool's 2-thread count is hardcoded based on empirical observations (dropping to 1 when `maxWorkers` is 1), with a note to test on higher-parallelism platforms (>8 cores) to verify the tradeoff holds.
+**The global pool pattern** means thread initialization overhead is paid once (not per PoolWorker), and threads stay warm across multiple vitest worker lifecycles and watch mode re-runs. Both pools are sized from `availableParallelism()` at creation — never from vitest config — so their sizes are deterministic regardless of which PoolWorker happens to create them first. The compile pool's 2-thread count is hardcoded based on empirical observations (dropping to 1 on single-core machines), with a note to test on higher-parallelism platforms (>8 cores) to verify the tradeoff holds.
 
 **Key source:** [`src/pool/pool-worker.ts`](../src/pool/pool-worker.ts) — `getGlobalThreadPools()`
 
@@ -186,7 +188,7 @@ PoolWorker B (file3):
 
 The pipeline is orchestrated by `orchestrateFileRuns()` in [`pool-worker.ts`](../src/pool/pool-worker.ts):
 
-1. **Compile phase**: All files in the current run message (normally just one — see below) are compiled concurrently via `dispatchCompile()`, each dispatched to the compile pool. Each compile thread runs `runCompileAndDiscover()`, which compiles the AssemblyScript to WASM (with optional instrumentation via native addon), then discovers tests by instantiating the binary and executing `_start`. Compilation also applies the pool's compiler transforms — see [Compiler Transforms](#compiler-transforms).
+1. **Compile phase**: Files in the current run message (normally just one — see below) are compiled **one at a time** via `dispatchCompile()`, each dispatched to the compile pool. Each compile thread runs `runCompileAndDiscover()`, which compiles the AssemblyScript to WASM (with optional instrumentation via native addon), then discovers tests by instantiating the binary and executing `_start`. Compilation also applies the pool's compiler transforms — see [Compiler Transforms](#compiler-transforms).
 
 2. **Test phase** (if not collect-only mode): Files are dispatched to the run pool **one at a time** via `dispatchRunTests()`. Each run thread calls `runSuite()`, which recursively walks the suite hierarchy (describe blocks) and executes each test via `runTest()`.
 
@@ -196,8 +198,8 @@ Tests within a file execute sequentially — parallelism comes from multiple Poo
 
 Vitest normally sends one file per run message, so a PoolWorker's "batch" is a single file. The exception is `isolate: false` combined with `maxWorkers: 1`, where vitest sends **all** of a project's matching files to one PoolWorker in a single run message. The pipeline handles this case deliberately:
 
-- **Compiles fan out concurrently** (bounded by the compile pool's thread count) — compile dispatches carry no timeout-tracking state, each manages its own RPC port locally.
-- **Test runs dispatch strictly sequentially** — the PoolWorker's main-thread timeout enforcement tracks a single active run (control port, abort controller, current test record), so one-at-a-time dispatch guarantees a timeout always aborts the thread actually running the test.
+- **Both phases dispatch strictly sequentially** — compiles and test runs are each processed one file at a time (compile dispatches carry no timeout-tracking state and manage their RPC ports locally).
+- **The dispatch loops alone enforce one-at-a-time execution** — the thread pools are sized from core count, not config, so they provide no backstop. The PoolWorker's main-thread timeout enforcement tracks a single active run (control port, abort controller, current test record); one-at-a-time dispatch is what guarantees a timeout always aborts the thread actually running the test.
 - **On timeout resume**, the whole batch is re-dispatched: the timed-out test is passed only to the dispatch for its own file, completed files short-circuit via their finalized results, and not-yet-run files execute normally.
 
 ### Compiler Transforms

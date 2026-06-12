@@ -48,6 +48,7 @@ This is not an exhaustive list of all vitest options, but it details which ones 
 - `testTimeout` *(number)* — Milliseconds to wait before terminating a test. Can also be set per-test with `TestOptions.timeout()`. Standard vitest option.
 - `allowOnly` *(boolean)* — Whether to respect `test.only` and `describe.only` modifiers. Standard vitest option.
 - `maxWorkers` *(number)* — Maximum concurrent file execution threads. **vitest 4.x and 5.x only** — for vitest 3.x, use pool option `maxThreadsV3` instead. Standard vitest option.
+>ℹ️ `maxWorkers` values above the machine's core count are effectively clamped for AssemblyScript test execution — the pool's internal run threads are capped at `availableParallelism()`, so excess concurrent file tasks queue rather than oversubscribe the CPU.
 
 ### `coverage` section
 

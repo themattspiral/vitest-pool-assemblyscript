@@ -38,9 +38,6 @@ type EventCallback = (arg: any) => void;
 
 const THREAD_RESOLVE_TIMEOUT_MS = 2000 as const;
 const POOL_THREAD_IDLE_TIMEOUT_MS = 3_600_000 as const;
-const IDLE_RUN_THREADS_FACTOR = 1 as const;
-// @ts-ignore - see note in getGlobalThreadPools
-const IDLE_COMPILE_THREADS_FACTOR = 0.25 as const;
 
 // path assumes that we're running from dist/
 const COMPILE_WORKER_PATH = resolve(import.meta.dirname, 'pool-thread/compile-worker-thread.mjs');
@@ -140,7 +137,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
 
         setImmediate(async () => {
           const start = performance.now();
-          const { compilePool, runPool } = await this.getGlobalThreadPools(this.config?.maxWorkers);
+          const { compilePool, runPool } = await this.getGlobalThreadPools();
           
           debug(`[${this.logModuleWithId}] start: fetched global thread pools in ${(performance.now() - start).toFixed(2)} ms`
             + ` | compilePool queueSize: ${compilePool.queueSize} | runPool queueSize: ${runPool.queueSize}`
@@ -241,31 +238,30 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   // Thread Pool Management
   // ─────────────────────────────────────────────────────────────────────────────
 
-  private async getGlobalThreadPools(workerCount?: number): Promise<GlobalThreadPools> {
+  private async getGlobalThreadPools(): Promise<GlobalThreadPools> {
     if (GLOBAL_POOLS_PROMISE) {
       return GLOBAL_POOLS_PROMISE;
     }
 
     GLOBAL_POOLS_PROMISE = new Promise<GlobalThreadPools>(async (resolve, _reject) => {
-      const workers = workerCount ?? availableParallelism();
+      const parallelism = availableParallelism();
 
       // TODO - decide which is better when scaling
-      // Empirical observations seem to show that minimum parallelization for compilation
-      // tends to *dramatically* improve compilation times because of v8 warmpup on repeated calls to asc.main,
-      // so much so that this time savings **almost always** outweighs the benefits of speading over many
+      // Empirical observations show that near-minimum parallelization for compilation
+      // tends to *dramatically* improve compilation times because of v8 warmup on repeated calls to asc.main,
+      // so much so that this time savings **almost always** outweighs the benefits of spreading over many
       // available threads. The **almost** is the key word here- this needs to be tested on platforms with
-      // higher available paralellism (> 8) to see if it holds true.
-      const actualCompileThreadCount = workers > 1 ? 2 : 1;
-      // const actualCompileThreadCount = Math.max(Math.ceil(workers * IDLE_COMPILE_THREADS_FACTOR), 1);
+      // higher available parallelism (> 8) to see if it holds true.
+      const compileThreads = parallelism > 1 ? 2 : 1;
 
-      debug(`[${this.logModuleWithId}] Creating global compile thread pool | ${actualCompileThreadCount} threads`);
+      debug(`[${this.logModuleWithId}] Creating global compile thread pool | ${compileThreads} max concurrent threads`);
       
       const start = performance.now();
       
       const compilePool = new Tinypool({
         filename: COMPILE_WORKER_PATH,
         minThreads: 1,
-        maxThreads: actualCompileThreadCount,
+        maxThreads: compileThreads,
         isolateWorkers: false,
         idleTimeout: POOL_THREAD_IDLE_TIMEOUT_MS,
         env: this.poolOptions.env as Record<string, string>,
@@ -275,13 +271,12 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
         } satisfies WorkerThreadInitData
       });
 
-      const actualRunThreadCount = Math.max(Math.ceil(workers * IDLE_RUN_THREADS_FACTOR), 1);
-      debug(`[${this.logModuleWithId}] Creating global run thread pool | ${actualRunThreadCount} threads`);
+      debug(`[${this.logModuleWithId}] Creating global run thread pool | ${parallelism} max concurrent threads`);
 
       const runPool = new Tinypool({
         filename: TEST_WORKER_PATH,
         minThreads: 1,
-        maxThreads: actualRunThreadCount,
+        maxThreads: parallelism,
         isolateWorkers: false,
         idleTimeout: POOL_THREAD_IDLE_TIMEOUT_MS,
         env: this.poolOptions.env as Record<string, string>,
@@ -433,24 +428,20 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       + ` | files: "${this.threadSpecs.map(s => s.file.filepath).join(',')}"`
     );
 
-    const { compilePool, runPool } = await this.getGlobalThreadPools(this.config?.maxWorkers);
+    const { compilePool, runPool } = await this.getGlobalThreadPools();
 
-    // compile
+    // compile file
     if (!isResume) {
-      // limited to compilePool.maxThreads at once
-      await Promise.all(
-        this.threadSpecs.map(spec => this.dispatchCompile(spec, compilePool))
-      );
+      for (const spec of this.threadSpecs) {
+        await this.dispatchCompile(spec, compilePool);
+      }
     }
 
     // execute tests
     if (!this.isCollectTestsMode) {
       // usually there is only one thread spec (file) provided at a time, except for when
       // maxWorkers = 1 and isolate = false in the vitest project config, in which case we
-      // get multiple threadspecs here all at once. while this is similarly limited to 
-      // runPool.maxThreads at once (which would just be 1 in this case because maxWorkers = 1),
-      // the timeout enforcement mechanism requires tracking run state (thread control port, abort controller),
-      // so awaiting one at a time is the safe way to do this.
+      // get multiple threadspecs here all at once
       for (const spec of this.threadSpecs) {
         const specTimedOutTest = timedOutTest?.file.filepath === spec.file.filepath ? timedOutTest : undefined;
         await this.dispatchRunTests(spec, runPool, specTimedOutTest);
