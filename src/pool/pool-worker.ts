@@ -372,7 +372,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     } satisfies RunCompileAndDiscoverTask, {
       name: 'runCompileAndDiscoverSpec',
       transferList: [workerPort],
-      signal: GLOBAL_POOL_ABORT_CONTROLLER!.signal,
+      signal: AbortSignal.any([this.threadAbortController!.signal, GLOBAL_POOL_ABORT_CONTROLLER!.signal]),
     });
 
     try {
@@ -390,8 +390,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     timedOutTest?: Test,
   ): Promise<void> {
     const { workerPort, poolPort } = createWorkerRPCChannel(this.poolOptions.project, this.isCollectTestsMode);
-    
-    this.threadAbortController = new AbortController();
+
     this.threadControlPort = poolPort;
     this.threadControlPort.on('message', this.getWorkerThreadMessageHandler());
 
@@ -408,7 +407,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     } satisfies RunTestsTask, {
       name: 'runFileSpec',
       transferList: [workerPort],
-      signal: AbortSignal.any([this.threadAbortController.signal, GLOBAL_POOL_ABORT_CONTROLLER!.signal]),
+      signal: AbortSignal.any([this.threadAbortController!.signal, GLOBAL_POOL_ABORT_CONTROLLER!.signal]),
     });
 
     try {
@@ -429,6 +428,11 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     );
 
     const { compilePool, runPool } = await this.getGlobalThreadPools();
+
+    // one abort lever per orchestration cycle: only one dispatch (compile or run)
+    // is ever in flight, so stopThread/handleTimeout can abort the current work
+    // without needing to know which phase is active
+    this.threadAbortController = new AbortController();
 
     // compile file
     if (!isResume) {
