@@ -37,7 +37,7 @@ export default defineConfig({
           include: [ '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts' ],
           exclude: [ '../vitest-pool-assemblyscript/test/assembly/**/*.meta*.test.ts' ],
           pool: createAssemblyScriptPool({
-            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/user-imports-factory/create-user-imports.js',
             extraCompilerFlags: ['--enable', 'simd'],
           }),
         }
@@ -50,7 +50,7 @@ export default defineConfig({
           include: [ '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts' ],
           exclude: [ '../vitest-pool-assemblyscript/test/assembly/**/*.meta*.test.ts' ],
           pool: createAssemblyScriptPool({
-            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/user-imports-factory/create-user-imports.js',
             extraCompilerFlags: [
               '--enable', 'simd',
               '--runtime', 'incremental'

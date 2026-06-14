@@ -58,7 +58,7 @@ export default defineConfig({
             debug: false,
             debugNative: false,
             debugCoverageExtract: false,
-            wasmImportsFactory: 'test/helpers/create-user-imports.js',
+            wasmImportsFactory: 'test/user-imports-factory/create-user-imports.js',
             extraCompilerFlags: ['--enable', 'simd'],
 
             // instrument our pool internals to get our own (usually excluded) coverage

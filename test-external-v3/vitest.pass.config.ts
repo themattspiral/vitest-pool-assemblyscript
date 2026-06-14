@@ -38,7 +38,7 @@ export default defineAssemblyScriptConfig({
           pool: 'vitest-pool-assemblyscript/v3',
           poolOptions: {
             assemblyScript: {
-              wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
+              wasmImportsFactory: '../vitest-pool-assemblyscript/test/user-imports-factory/create-user-imports.js',
               extraCompilerFlags: ['--enable', 'simd'],
             }
           },
@@ -54,7 +54,7 @@ export default defineAssemblyScriptConfig({
           pool: 'vitest-pool-assemblyscript/v3',
           poolOptions: {
             assemblyScript: {
-              wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
+              wasmImportsFactory: '../vitest-pool-assemblyscript/test/user-imports-factory/create-user-imports.js',
               extraCompilerFlags: [
                 '--enable', 'simd',
                 '--runtime', 'incremental'

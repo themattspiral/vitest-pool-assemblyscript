@@ -398,7 +398,7 @@ describe('stack trace source mapping verification', () => {
         expect(frames.length).toBeGreaterThanOrEqual(3);
         expect(frames.slice(0, 3))
           .toEqual([
-            ` ❯ failingUserFunction ${TEST_FILE_PREFIX}test/helpers/create-user-imports.js:14:21`,
+            ` ❯ failingUserFunction ${TEST_FILE_PREFIX}test/user-imports-factory/create-user-imports.js:14:21`,
             ` ❯ runFailingUserFunction ${SRC}/user-import-error-wrapper.meta.ts:9:10`,
             ` ❯ anonymous|0 ${FIXTURE_FILE}:118:14`,
           ]);
@@ -416,7 +416,7 @@ describe('stack trace source mapping verification', () => {
         expect(frames.length).toBeGreaterThanOrEqual(3);
         expect(frames.slice(0, 3))
           .toEqual([
-            ` ❯ failingUserFunctionNonexistantRef ${TEST_FILE_PREFIX}test/helpers/create-user-imports.js:19:30`,
+            ` ❯ failingUserFunctionNonexistantRef ${TEST_FILE_PREFIX}test/user-imports-factory/create-user-imports.js:19:30`,
             ` ❯ runFailingUserFunctionNonexistantRef ${SRC}/user-import-error-wrapper.meta.ts:17:10`,
             ` ❯ anonymous|1 ${FIXTURE_FILE}:122:14`,
           ]);
@@ -434,9 +434,9 @@ describe('stack trace source mapping verification', () => {
         expect(frames.length).toBeGreaterThanOrEqual(9);
         expect(frames.slice(0, 9))
           .toEqual([
-            ` ❯ overflow ${TEST_FILE_PREFIX}test/helpers/create-user-imports.js:2:3`,
+            ` ❯ overflow ${TEST_FILE_PREFIX}test/user-imports-factory/create-user-imports.js:2:3`,
             ].concat(new Array(8).fill(
-              ` ❯ overflow ${TEST_FILE_PREFIX}test/helpers/create-user-imports.js:2:14`
+              ` ❯ overflow ${TEST_FILE_PREFIX}test/user-imports-factory/create-user-imports.js:2:14`
             ))
           );
         
@@ -465,7 +465,7 @@ describe('stack trace source mapping verification', () => {
         const frames = extractStackFrames(parsedCli, errorBlockKey);
         expect(frames.length).toBeGreaterThanOrEqual(1);
         expect(frames[0]).toBe(
-          ` ❯ createWasmImports ${TEST_FILE_PREFIX}test/helpers/failing-create-user-imports.js:8:12`
+          ` ❯ createWasmImports ${TEST_FILE_PREFIX}test/user-imports-factory/failing-create-user-imports.js:8:12`
         );
 
         // ensure erroring source code from user's JS imports is displayed
