@@ -66,11 +66,7 @@ Coverage counters are stored in a separate `WebAssembly.Memory` instance (`__cov
 
 Each instrumented function is assigned a `coverageMemoryIndex` — an offset into coverage memory where its hit counter lives. Counter increments use native WASM `i32.load`/`i32.store` operations with no JS boundary crossing during test execution.
 
-Coverage memory can be sized by pool configuration:
-- `coverageMemoryPagesInitial`: minimum pages (default: 1)
-- `coverageMemoryPagesMax`: maximum pages (default: 4)
-
-Each WASM memory page is 64KB. At 4 bytes per counter (i32), one page supports 16,384 counters. The default maximum of 4 pages supports 65,536 instrumented functions per file — more than sufficient for any realistic codebase.
+Coverage memory is sized automatically based on the number of instrumentation counters required.
 
 ### Representative Location
 

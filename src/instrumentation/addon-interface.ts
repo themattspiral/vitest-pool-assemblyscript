@@ -328,8 +328,6 @@ export const instrumentForCoverage: InstrumentForCoverageFunc = (
   const startTime = performance.now();
 
   const options: NativeInstrumentationOptions = {
-    coverageMemoryPagesMin: instrumentationOptions.coverageMemoryPagesMin,
-    coverageMemoryPagesMax: instrumentationOptions.coverageMemoryPagesMax,
     excludedFiles: instrumentationOptions.relativeExcludedFiles,
     excludedLibraryFilePrefix: instrumentationOptions.excludedLibraryFilePrefix,
     excludedLibraryFileOverridePrefix: instrumentationOptions.excludedLibraryFileOverridePrefix,

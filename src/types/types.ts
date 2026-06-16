@@ -101,9 +101,6 @@ export interface AssemblyScriptPoolOptions {
    */
   maxThreadsV3?: number;
 
-  coverageMemoryPagesInitial?: number;
-  coverageMemoryPagesMax?: number;
-
   testMemoryPagesInitial?: number;
   testMemoryPagesMax?: number;
 
@@ -167,8 +164,6 @@ export const AS_POOL_FIELDS_WITH_DEFAULTS = [
 export const AS_POOL_OPTIONAL_FIELDS = [
   'testMemoryPagesInitial',
   'testMemoryPagesMax',
-  'coverageMemoryPagesInitial',
-  'coverageMemoryPagesMax',
   'wasmImportsFactory'
 ] as const;
 
@@ -261,8 +256,6 @@ export interface InstrumentationOptions {
   excludedLibraryFilePrefix: string;
   excludedLibraryFileOverridePrefix?: string;
   excludedInternalFunctionSubstring: string;
-  coverageMemoryPagesMin: number;
-  coverageMemoryPagesMax?: number;
   debug?: boolean;
   coverageMemoryModule: string;
   coverageMemoryName: string;
