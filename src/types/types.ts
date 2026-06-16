@@ -101,9 +101,6 @@ export interface AssemblyScriptPoolOptions {
    */
   maxThreadsV3?: number;
 
-  coverageMemoryPagesInitial?: number;
-  coverageMemoryPagesMax?: number;
-
   testMemoryPagesInitial?: number;
   testMemoryPagesMax?: number;
 
@@ -167,8 +164,6 @@ export const AS_POOL_FIELDS_WITH_DEFAULTS = [
 export const AS_POOL_OPTIONAL_FIELDS = [
   'testMemoryPagesInitial',
   'testMemoryPagesMax',
-  'coverageMemoryPagesInitial',
-  'coverageMemoryPagesMax',
   'wasmImportsFactory'
 ] as const;
 
@@ -261,8 +256,6 @@ export interface InstrumentationOptions {
   excludedLibraryFilePrefix: string;
   excludedLibraryFileOverridePrefix?: string;
   excludedInternalFunctionSubstring: string;
-  coverageMemoryPagesMin: number;
-  coverageMemoryPagesMax?: number;
   debug?: boolean;
   coverageMemoryModule: string;
   coverageMemoryName: string;
@@ -518,6 +511,11 @@ export interface NativeAddon {
 // These types represent information parsed from source files via AST.
 // Parsed source info has *ranges* (start and end positions) for containment matching.
 
+export interface ParsedSourceFunctions {
+  functionsByLineSpan: Record<number, ParsedSourceFunctionInfo[]>;
+  uniqueFunctions: Record<string, ParsedSourceFunctionInfo>;
+}
+
 /**
  * Function info parsed from AssemblyScript source via AST
  */
@@ -528,6 +526,8 @@ export interface ParsedSourceFunctionInfo {
   shortName: string;
   /** Source range for containment matching */
   range: SourceRange;
+  /** Unique function ID "startLine:startColumn" */
+  id: string;
 }
 
 /**

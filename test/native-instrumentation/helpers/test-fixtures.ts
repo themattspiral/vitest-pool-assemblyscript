@@ -105,7 +105,6 @@ export async function compileAndExtract(
         relativeExcludedFiles: [fixture.relPath].concat(POOL_INTERNAL_PATHS),
         excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
         excludedInternalFunctionSubstring: INTERNAL_FUNCTION_NAME_SUBSTRING,
-        coverageMemoryPagesMin: 1,
         coverageMemoryModule: AS_POOL_WASM_IMPORTS_MODULE_NAME,
         coverageMemoryName: AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME,
       },

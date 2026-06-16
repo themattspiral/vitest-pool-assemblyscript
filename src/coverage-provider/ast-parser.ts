@@ -29,7 +29,7 @@ import {
   FunctionExpression,
 } from 'assemblyscript';
 
-import type { ParsedSourceFunctionInfo, SourceRange } from '../types/types.js';
+import type { ParsedSourceFunctionInfo, ParsedSourceFunctions, SourceRange } from '../types/types.js';
 import { ASCommonFlags, ASNodeKind } from '../types/constants.js';
 import { ASTVisitor } from '../util/ast-visitor.js';
 
@@ -43,8 +43,12 @@ class FunctionExtractorVisitor extends ASTVisitor {
   private modulePath: string;
   /** Absolute file path */
   private filePath: string;
-  /** Accumulated function records, keyed by start line */
-  readonly functions: Record<number, ParsedSourceFunctionInfo[]> = {};
+
+  /** Accumulated function records, keyed by all lines the function spans for fast lookup */
+  readonly functionsByLineSpan: Record<number, ParsedSourceFunctionInfo[]> = {};
+  /** Accumulated unique function records, keyed by the function id */
+  readonly uniqueFunctions: Record<string, ParsedSourceFunctionInfo> = {};
+  
   /** Namespace context stack (supports nested namespaces) */
   private namespaceStack: string[] = [];
   /** Current class name (when inside a class) */
@@ -193,14 +197,28 @@ class FunctionExtractorVisitor extends ASTVisitor {
   }
 
   /**
-   * Add a function to the functions record, keyed by start line
+   * Add a function to the functions record
    */
   private addFunction(qualifiedName: string, shortName: string, range: SourceRange): void {
-    const startLine = range.startLine;
-    if (!this.functions[startLine]) {
-      this.functions[startLine] = [];
+    const func: ParsedSourceFunctionInfo = {
+      qualifiedName,
+      shortName,
+      range,
+      id: `${range.startLine}:${range.startColumn}`
+    };
+    
+    // the function record is duplicated across all lines that
+    // it spans for fast lookup in hit position containment matching
+    for (let line = range.startLine; line <= range.endLine; line++) {
+      if (!this.functionsByLineSpan[line]) {
+        this.functionsByLineSpan[line] = [];
+      }
+
+      this.functionsByLineSpan[line]!.push(func);
     }
-    this.functions[startLine].push({ qualifiedName, shortName, range });
+
+    // also track uniquely to be used as source of truth in coverage generation
+    this.uniqueFunctions[func.id] = func;
   }
 
   /**
@@ -228,7 +246,7 @@ class FunctionExtractorVisitor extends ASTVisitor {
 export async function parseFunctionsFromFile(
   absoluteSourceFilePath: string,
   relativeSourceFilePath: string,
-): Promise<Record<number, ParsedSourceFunctionInfo[]>> {
+): Promise<ParsedSourceFunctions> {
   const sourceCode = await readFile(absoluteSourceFilePath, 'utf8');
 
   // Build the module path (strip any extension, use forward slashes)
@@ -241,12 +259,15 @@ export async function parseFunctionsFromFile(
 
   const source = asParser.currentSource;
   if (!source) {
-    return {};
+    return { functionsByLineSpan: {}, uniqueFunctions: {} };
   }
 
   // Create visitor and traverse
   const visitor = new FunctionExtractorVisitor(source, modulePath, absoluteSourceFilePath);
   visitor.visitSource(source);
 
-  return visitor.functions || {};
+  return {
+    functionsByLineSpan: visitor.functionsByLineSpan,
+    uniqueFunctions: visitor.uniqueFunctions
+  };
 }

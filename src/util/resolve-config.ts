@@ -54,16 +54,6 @@ export function resolvePoolOptions(userPoolOptions?: any): ResolvedAssemblyScrip
     );
   }
 
-  if (
-    (resolved.coverageMemoryPagesInitial !== undefined && resolved.coverageMemoryPagesInitial < 1)
-    || (resolved.coverageMemoryPagesMax !== undefined && resolved.coverageMemoryPagesMax < 1)
-  ) {
-    throw createPoolConfigError(
-      `AssemblyScript WASM coverage memory page size options must be positive if defined - coverageMemoryPagesMin: ${resolved.coverageMemoryPagesInitial}`
-        + ` | coverageMemoryPagesMax: ${resolved.coverageMemoryPagesMax}`,
-    );
-  }
-
   return resolved;
 }
 

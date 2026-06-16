@@ -84,8 +84,6 @@ export async function runCompileAndDiscover(
       excludedLibraryFilePrefix: ASSEMBLYSCRIPT_LIB_PREFIX,
       excludedLibraryFileOverridePrefix: asPoolOptions._instrumentPoolInternals ? INTERNAL_PATH_LIB_PREFIX : undefined,
       excludedInternalFunctionSubstring: INTERNAL_FUNCTION_NAME_SUBSTRING,
-      coverageMemoryPagesMin: asPoolOptions.coverageMemoryPagesInitial ?? 1,
-      coverageMemoryPagesMax: asPoolOptions.coverageMemoryPagesMax,
       debug: asPoolOptions.debugNative,
       coverageMemoryModule: AS_POOL_WASM_IMPORTS_MODULE_NAME,
       coverageMemoryName: AS_POOL_WASM_COVERAGE_MEM_IMPORT_NAME

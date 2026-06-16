@@ -26,24 +26,18 @@
 import type { ParsedSourceFunctionInfo, SourceRange } from '../types/types.js';
 
 /**
- * Functions indexed by file path, then by start line.
- * Multiple functions can start on the same line (e.g., nested arrow functions).
- */
-export type FunctionsByFileAndStartLine = Record<string, Record<number, ParsedSourceFunctionInfo[]>>;
-
-/**
  * Find the source function whose range contains the given position.
  *
  * For nested functions, uses "tightest fit" - returns the innermost function
  * (the one with the largest start position among all containing functions).
  *
- * @param functionsByStartLine - Functions for a single file, indexed by start line
+ * @param fileFunctionsByLineSpan - Functions for a single file, indexed by every line they span
  * @param line - Target line number (1-based)
  * @param column - Target column number (1-based)
  * @returns The containing function, or undefined if no match
  */
 export function findFunctionContainingPosition(
-  functionsByStartLine: Record<number, ParsedSourceFunctionInfo[]>,
+  fileFunctionsByLineSpan: Record<number, ParsedSourceFunctionInfo[]>,
   line: number,
   column: number
 ): ParsedSourceFunctionInfo | undefined {
@@ -51,24 +45,18 @@ export function findFunctionContainingPosition(
   let bestStartLine = -1;
   let bestStartColumn = -1;
 
-  // Check functions starting on lines <= target line
-  for (const [startLineStr, functions] of Object.entries(functionsByStartLine)) {
-    const startLine = Number(startLineStr);
-    if (startLine > line) continue;
+  for (const func of fileFunctionsByLineSpan[line] ?? []) {
+    const { range } = func;
 
-    for (const func of functions) {
-      const { range } = func;
+    // Check if position is within this function's range
+    if (!isPositionInRange(line, column, range)) continue;
 
-      // Check if position is within this function's range
-      if (!isPositionInRange(line, column, range)) continue;
-
-      // Tightest fit: prefer function with largest start position (innermost)
-      if (startLine > bestStartLine ||
-          (startLine === bestStartLine && range.startColumn > bestStartColumn)) {
-        bestMatch = func;
-        bestStartLine = startLine;
-        bestStartColumn = range.startColumn;
-      }
+    // Tightest fit: prefer function with largest start position (innermost)
+    if (range.startLine > bestStartLine ||
+        (range.startLine === bestStartLine && range.startColumn > bestStartColumn)) {
+      bestMatch = func;
+      bestStartLine = range.startLine;
+      bestStartColumn = range.startColumn;
     }
   }
 

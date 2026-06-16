@@ -136,9 +136,21 @@ npm run cmtest     # Build + Run local meta tests for debugging (shortcut)
 
 **External tests** validate the published package by running against an `npm pack`-ed and installed tarball. The [`scripts/setup-test-external.js`](../scripts/setup-test-external.js) script:
 1. Cleans the sibling directory `../vitest-pool-assemblyscript-test-external/`
-2. Copies the `test-external/` template (configs, package.json) into it
+2. Copies the version-specific external template directory (selected by the `VITEST_VERSION` env var — see below) into it
 3. Runs `npm pack` to create a tarball
 4. Installs the tarball and dependencies in the external directory
+
+#### Three Parallel External Template Directories
+
+External tests run against each supported vitest major version, and **each version has its own template directory**. `setup-test-external.js` chooses one based on the `VITEST_VERSION` env var:
+
+| Template dir | Vitest version | Selected by |
+|---|---|---|
+| `test-external/` | 5.x (default) | `test:ext:setup` (no `VITEST_VERSION`) |
+| `test-external-v4/` | 4.x | `test:ext:setup:v4` (`VITEST_VERSION=4`) |
+| `test-external-v3/` | 3.x | `test:ext:setup:v3` (`VITEST_VERSION=3`) |
+
+Each directory contains its own `vitest.pass.config.ts` and `vitest.meta.config.ts`. They are **parallel templates with no shared base config**, so any change to an external config (a new project, a glob, a `globalSetup`, etc.) must be replicated across **all three** directories. Note that the v3 configs use the v3 config API (`defineAssemblyScriptConfig` / `poolOptions`) rather than `createAssemblyScriptPool`, so the equivalent change there differs in form.
 
 This validates that dist output, package.json exports, entry points, prebuilt binaries, and bundled dependencies all work correctly in a real install scenario. These shortcuts are the most frequently used:
 
@@ -154,6 +166,21 @@ npm run emtest    # External meta tests for debugging (setup + run - shortcut)
 **Standard tests** (`.test.ts` files in `test/assembly/`) are expected to pass 100% of the time, as a normal test suite would be. They validate pool features (matchers, test options, coverage collection, suites) and enforce coverage thresholds. Their AssemblyScript source lives in `test/assembly-src/*.ts`.
 
 **Meta tests** are designed to fail, timeout, produce errors, or otherwise exercise vitest behavior. They verify that the pool handles error scenarios correctly: failed assertions produce proper diffs, timeouts trigger with correct behavior, compilation errors are reported cleanly, retry logic works, etc. The meta suite includes both AS tests (`.meta.test.ts` files in `test/assembly/`, with source in `test/assembly-src/*.meta.ts`) and JS/TS tests (`test/js-example-meta/`, with source in `test/js-example-meta-src/`) for hybrid coverage verification. AS meta sources are excluded from coverage thresholds.
+
+### Generated Fixtures
+
+Some fixtures are too large to cleanly commit as source. The large function count stress fixture, for instance, needs more instrumented functions than fit in a single coverage-memory page (>16,384) — roughly 34k lines of generated AssemblyScript. Rather than commit that output, we **commit a small parameterized generator and emit the fixture at test time** into the gitignored `test-generated/` directory. This is the same scaffolding-by-script approach used by [`scripts/setup-test-external.js`](../scripts/setup-test-external.js), which likewise produces its test inputs programmatically rather than committing them.
+
+[`test/generators/global-setup-large-fixture.js`](../test/generators/global-setup-large-fixture.js) generates the large coverage fixture:
+
+- It is wired as a vitest [`globalSetup`](https://vitest.dev/config/#globalsetup) on the passing and meta configs, so it runs once before any test workers spawn and regenerates the fixture on every run.
+- It writes the AssemblyScript source (`test-generated/assembly-src/`) plus the test files that import it (`test-generated/assembly/`), all derived from a single function-count parameter (overridable via the `LARGE_FIXTURE_FN_COUNT` env var).
+- Paths resolve against the main repo via `import.meta.url`, so generation writes to the correct location even when vitest runs from the external sibling install directory (where its cwd differs).
+- `test-generated/` is gitignored, so the output never appears in the repo — only the generator is reviewed.
+
+The fixture provides a large-scale workload for containment matching and pushes coverage counters past the one-page memory boundary: a **passing** test executes every instrumented function (with the default auto-sized coverage memory, the high-index counters in page ≥2 must store without trapping).
+
+> The `globalSetup` is wired into the external configs as well, so it falls under the [Three Parallel External Template Directories](#three-parallel-external-template-directories) rule — the `globalSetup` entry and the project that consumes the fixture must appear in all three external template dirs.
 
 ### Meta Test Verification
 
@@ -196,8 +223,10 @@ Verification tests live in `test/meta-verify/` and are organized by category:
 | [`vitest.config.ts`](../vitest.config.ts) | Local passing tests | `ts-pool` (TypeScript pool unit tests), `as-pool-passing` (AS passing tests) |
 | [`vitest.meta.config.ts`](../vitest.meta.config.ts) | Local meta tests | `as-pool-meta` (AS meta tests), `ts-pool-meta-example` (JS/TS meta example fixtures) |
 | [`vitest.meta-verify.config.ts`](../vitest.meta-verify.config.ts) | Meta output verification (all contexts) | `ts-pool-meta-verify` (verification tests with globalSetup) |
-| [`test-external/vitest.pass.config.ts`](../test-external/vitest.pass.config.ts) | External passing tests | `as-pool-passing` (AS passing tests with 100% coverage thresholds) |
-| [`test-external/vitest.meta.config.ts`](../test-external/vitest.meta.config.ts) | External meta tests | `as-pool-meta` (AS meta tests), `ts-pool-meta-example` (JS/TS meta example fixtures) |
+| [`test-external/vitest.pass.config.ts`](../test-external/vitest.pass.config.ts) (+ `test-external-v4/`, `test-external-v3/` variants) | External passing tests (v5 default, v4, v3) | `as-pool-passing` (AS passing tests with 100% coverage thresholds) |
+| [`test-external/vitest.meta.config.ts`](../test-external/vitest.meta.config.ts) (+ `test-external-v4/`, `test-external-v3/` variants) | External meta tests (v5 default, v4, v3) | `as-pool-meta` (AS meta tests), `ts-pool-meta-example` (JS/TS meta example fixtures) |
+
+> **External configs come in three parallel copies** — `test-external/` (v5), `test-external-v4/`, and `test-external-v3/` — each with its own `vitest.pass.config.ts` and `vitest.meta.config.ts`. A change to one must be made in all three. See [Three Parallel External Template Directories](#three-parallel-external-template-directories).
 
 ### DX Command Reference
 

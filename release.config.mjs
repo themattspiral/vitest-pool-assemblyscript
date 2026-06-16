@@ -3,9 +3,10 @@ export default {
   plugins: [
     ['@semantic-release/commit-analyzer', {
       releaseRules: [
-        // Stay in 0.x: remap breaking changes to minor bumps
+        // Stay in 0.x: remap breaking and feature changes to minor bumps
         { breaking: true, release: 'minor' },
         { type: 'feat', release: 'minor' },
+
         { type: 'fix', release: 'patch' },
         { type: 'perf', release: 'patch' },
       ]
@@ -16,7 +17,7 @@ export default {
         types: [
           { type: 'feat', section: '✨ Features' },
           { type: 'fix', section: '🐛 Bug Fixes' },
-          { type: 'perf', section: '⚡ Performance' },
+          { type: 'perf', section: '⚡ Performance', hidden: false },
           { type: 'docs', section: '📝 Documentation', hidden: false },
           { type: 'style', hidden: true },
           { type: 'refactor', hidden: true },

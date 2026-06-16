@@ -8,6 +8,10 @@ export default defineConfig({
     environment: 'node',
     reporters: ['verbose'],
 
+    globalSetup: [
+      './test/generators/global-setup-large-fixture.js'
+    ],
+
     coverage: {
       enabled: true,
       reportOnFailure: true,
@@ -23,11 +27,13 @@ export default defineConfig({
       exclude: [],
       
       assemblyScriptInclude: [
-        'assembly/**/*.ts',         // actual pool internals
-        'test/assembly-src/**/*.ts' // passing (100% coverage) test source (meta excluded) 
+        'assembly/**/*.ts',                   // actual pool internals
+        'test/assembly-src/**/*.ts',          // passing (100% coverage) test source (meta excluded)
+        'test-generated/assembly-src/**/*.ts' // passing (100% coverage) generated test source (meta excluded)
       ],
       assemblyScriptExclude: [
-        'test/assembly-src/**/*.meta*.ts' // non-100% scenarios
+        'test/assembly-src/**/*.meta*.ts',          // non-100% scenarios
+        'test-generated/assembly-src/**/*.meta*.ts' // non-100% scenarios
       ],
 
       debugIstanbul: false,
@@ -51,14 +57,20 @@ export default defineConfig({
       defineProject({
         test: {
           name: { label: 'as-pool-passing', color: 'green' },
-          include: ['test/assembly/**/*.test.ts'],
-          exclude: ['test/assembly/**/*.meta*.test.ts'],   // meta tests executed separately
+          include: [
+            'test/assembly/**/*.test.ts',
+            'test-generated/assembly/**/*.test.ts',       // generated tests
+          ],
+          exclude: [
+            'test/assembly/**/*.meta*.test.ts',           // meta tests executed separately
+            'test-generated/assembly/**/*.meta*.test.ts', // generated meta tests
+          ],
           
           pool: createAssemblyScriptPool({
             debug: false,
             debugNative: false,
             debugCoverageExtract: false,
-            wasmImportsFactory: 'test/helpers/create-user-imports.js',
+            wasmImportsFactory: 'test/user-imports-factory/create-user-imports.js',
             extraCompilerFlags: ['--enable', 'simd'],
 
             // instrument our pool internals to get our own (usually excluded) coverage

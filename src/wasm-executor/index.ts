@@ -50,24 +50,6 @@ function verifyMemoryRequirements(
       + ` (${poolOptions.testMemoryPagesMax}). Increase value, or remove for auto sizing.`,
     );
   }
-  
-  if (poolOptions.coverageMemoryPagesInitial && poolOptions.coverageMemoryPagesInitial < compilation.requiredMemory.coverageMemory.initialPages) {
-    throw createPoolError(
-      POOL_ERROR_NAMES.PoolConfigError,
-      `WASM binary requires initial coverage memory pages (${compilation.requiredMemory.coverageMemory.initialPages}) exceeding configured "coverageMemoryPagesInitial"`
-      + ` (${poolOptions.coverageMemoryPagesInitial}). Increase value, or remove for auto sizing.`,
-    );
-  }
-
-  if (poolOptions.coverageMemoryPagesMax && compilation.requiredMemory.coverageMemory.maximumPages
-    && poolOptions.coverageMemoryPagesMax < compilation.requiredMemory.coverageMemory.maximumPages
-  ) {
-    throw createPoolError(
-      POOL_ERROR_NAMES.PoolConfigError,
-      `WASM binary requires maximum coverage memory pages (${compilation.requiredMemory.coverageMemory.maximumPages}) exceeding configured "coverageMemoryPagesMax"`
-      + ` (${poolOptions.coverageMemoryPagesMax}). Increase value, or remove for auto sizing.`,
-    );
-  }
 }
 
 function createExecutorMemories(
@@ -83,8 +65,8 @@ function createExecutorMemories(
   );
   const coverageMemory = includeCoverageMemory ?
     createMemory(
-      poolOptions.coverageMemoryPagesInitial ?? compilation.requiredMemory.coverageMemory.initialPages,
-      poolOptions.coverageMemoryPagesMax ?? compilation.requiredMemory.coverageMemory.maximumPages
+      compilation.requiredMemory.coverageMemory.initialPages,
+      compilation.requiredMemory.coverageMemory.maximumPages
     )
     : undefined;
 

@@ -23,7 +23,8 @@ export default defineConfig({
       ],
 
       assemblyScriptInclude: [
-        '../vitest-pool-assemblyscript/test/assembly-src/**/*.meta.ts'
+        '../vitest-pool-assemblyscript/test/assembly-src/**/*.meta.ts',
+        '../vitest-pool-assemblyscript/test-generated/assembly-src/**/*.meta*.ts'
       ],
 
       reporter: [
@@ -55,10 +56,11 @@ export default defineConfig({
         test: {
           name: { label: 'as-pool-meta', color: 'yellow' },
           include: [
-            '../vitest-pool-assemblyscript/test/assembly/**/*.meta.test.ts'
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta.test.ts',
+            '../vitest-pool-assemblyscript/test-generated/assembly/**/*.meta*.test.ts',
           ],
           pool: createAssemblyScriptPool({
-            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/create-user-imports.js',
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/user-imports-factory/create-user-imports.js',
             extraCompilerFlags: ['--enable', 'simd'],
           }),
         }
@@ -72,7 +74,7 @@ export default defineConfig({
             '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-create-fail.test.ts'
           ],
           pool: createAssemblyScriptPool({
-            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/failing-create-user-imports.js',
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/user-imports-factory/failing-create-user-imports.js',
           }),
         }
       }),
@@ -98,7 +100,7 @@ export default defineConfig({
             '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-module-missing.test.ts'
           ],
           pool: createAssemblyScriptPool({
-            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/missing-module-create-user-imports.js',
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/user-imports-factory/missing-module-create-user-imports.js',
           }),
         }
       }),
@@ -111,7 +113,7 @@ export default defineConfig({
             '../vitest-pool-assemblyscript/test/assembly/**/*.meta-imports-function-missing.test.ts'
           ],
           pool: createAssemblyScriptPool({
-            wasmImportsFactory: '../vitest-pool-assemblyscript/test/helpers/missing-function-create-user-imports.js',
+            wasmImportsFactory: '../vitest-pool-assemblyscript/test/user-imports-factory/missing-function-create-user-imports.js',
           }),
         }
       }),

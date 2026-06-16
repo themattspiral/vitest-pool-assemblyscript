@@ -279,7 +279,10 @@ bool shouldInstrumentFunction(
 }
 
 /**
- * Find representative expression within a function's Block-type body (Return preferred, then first non-Const)
+ * Find a representative source location within a function's Block-type body by
+ * scanning the block's direct child expressions in order and returning the
+ * location of the first one that carries a debug location. Returns a
+ * non-existent location if none of the body's expressions have one.
  */
 SourceDebugLocation getRepresentativeLocationInBlockBody(
   Block* blockBody,
@@ -440,14 +443,6 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     std::string coverageMemoryModule = "";
     std::string coverageMemoryName = "";
 
-    // 1 page = 64KB / 4bytes (32bits) each = 16384 counters
-    int32_t coverageMemoryPagesMin = 1;
-    // 4 pages = 256KB / 4bytes (32bits) each = 65536 counters
-    int32_t coverageMemoryPagesMax = -1;
-
-    // computed values
-    int32_t maxCounters = coverageMemoryPagesMax == -1 ? -1 : coverageMemoryPagesMax * COUNTERS_PER_PAGE;
-
     if (options.Has("logPrefix")) {
       Napi::Value logPrefixProp = options.Get("logPrefix");
       if (logPrefixProp.IsString()) {
@@ -523,32 +518,6 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         }
       }
     }
-    
-    if (options.Has("coverageMemoryPagesMin")) {
-      Napi::Value coverageMinProperty = options.Get("coverageMemoryPagesMin");
-      if (coverageMinProperty.IsNumber()) {
-        coverageMemoryPagesMin = coverageMinProperty.As<Napi::Number>().Int32Value();
-        
-        if (DEBUG) {
-          const int32_t minCounters = coverageMemoryPagesMin * COUNTERS_PER_PAGE;
-          std::cout << LOG_PREFIX << " - OPTIONS - Coverage Memory Pages MIN: " << coverageMemoryPagesMin
-                    << " (" << minCounters << " counters)" << std::endl;
-        }
-      }
-    }
-    
-    if (options.Has("coverageMemoryPagesMax")) {
-      Napi::Value coverageMaxProperty = options.Get("coverageMemoryPagesMax");
-      if (coverageMaxProperty.IsNumber()) {
-        coverageMemoryPagesMax = coverageMaxProperty.As<Napi::Number>().Int32Value();
-        maxCounters = coverageMemoryPagesMax * COUNTERS_PER_PAGE;
-        
-        if (DEBUG) {
-          std::cout << LOG_PREFIX << " - OPTIONS - Coverage Memory Pages MAX: " << coverageMemoryPagesMax
-                    << " (" << maxCounters << " counters)" << std::endl;
-        }
-      }
-    }
 
     if (options.Has("coverageMemoryModule")) {
       Napi::Value coverageMemoryModuleProperty = options.Get("coverageMemoryModule");
@@ -605,14 +574,6 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
 
     ModuleUtils::iterDefinedFunctions(module, [&](Function* func) {
       std::string funcName = func->name.toString();
-
-      if (maxCounters > 0 && coverageIndex >= maxCounters) {
-        if (DEBUG) {
-          std::cout << LOG_PREFIX << " - ERROR: Processing function: \"" << funcName << "\""
-                    << " Further instrumentation would exceed max coverage memory size" << std::endl;
-        }
-        return;
-      }
 
       if (DEBUG) {
         std::cout << LOG_PREFIX << " - Processing function: \"" << funcName << "\"" << std::endl;
@@ -719,23 +680,18 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       coverageIndex++;
     });
 
-    int32_t requiredCoverageMemoryPagesMax = std::ceil(coverageIndex / static_cast<double>(COUNTERS_PER_PAGE));
+    int32_t requiredCoverageMemoryPages = std::ceil(coverageIndex / static_cast<double>(COUNTERS_PER_PAGE));
 
     // Add __coverage_memory import
     auto coverageMemory = Builder::makeMemory(coverageMemoryWasmName);
     coverageMemory->module = coverageMemoryModule;
     coverageMemory->base = coverageMemoryName;
     coverageMemory->shared = false;
-    coverageMemory->initial = coverageMemoryPagesMin;
-
-    if (coverageMemoryPagesMax <= 0) {
-      coverageMemory->max = requiredCoverageMemoryPagesMax <= 0 ? 1 : requiredCoverageMemoryPagesMax;
-    } else {
-      coverageMemory->max = coverageMemoryPagesMax;
-    }
+    coverageMemory->initial = requiredCoverageMemoryPages;
+    coverageMemory->max = requiredCoverageMemoryPages;
 
     if (DEBUG) {
-      std::cout << LOG_PREFIX << " - Coverage memory max pages set to: " << coverageMemory->max << std::endl;
+      std::cout << LOG_PREFIX << " - Coverage memory pages set to: " << requiredCoverageMemoryPages << std::endl;
     }
     
     module.addMemory(std::move(coverageMemory));
