@@ -168,7 +168,7 @@ The parser uses a `FunctionExtractorVisitor` that walks the AST and extracts:
 - **Method declarations** — instance methods, static methods, getters, setters (with naming conventions matching the binary: `ClassName#methodName`, `ClassName.staticMethod`, `ClassName#get:prop`)
 - **Arrow functions** — variable declarations with function expression initializers
 
-Functions are grouped by start line (`Record<number, ParsedSourceFunctionInfo[]>`) for efficient containment matching — multiple functions can start on the same line (e.g. nested arrow functions).
+The parser emits two structures (`ParsedSourceFunctions`): `functionsByLineSpan` indexes each function under **every** source line its range spans (`Record<number, ParsedSourceFunctionInfo[]>`) for direct per-line lookup during containment matching, and `uniqueFunctions` holds one record per function keyed by `startLine:startColumn` as the source of truth for the emitted Istanbul function set. The per-line index stores a list because multiple functions can occupy the same line (nested or overlapping definitions).
 
 ### Why Source Parsing Happens in the Provider
 
@@ -194,16 +194,20 @@ Containment matching bridges the gap between binary execution data and source co
 
 ### Algorithm
 
-For each binary hit position:
-1. Look up source functions whose start line is ≤ the hit position's line
-2. Check if the hit position falls within each candidate function's range
+Functions are indexed under every source line their range spans (see [AST Source Parsing](#ast-source-parsing)), so matching a hit position is a direct lookup rather than a scan. For each binary hit position:
+1. Fetch the functions indexed under the hit position's exact line — a direct map lookup
+2. Of those, keep the ones whose range actually contains the position (a hit on a spanned line can still fall outside the range by column on the start or end line)
 3. If multiple functions contain the position (nested functions), use "tightest fit" — the innermost function (largest start position) wins
 
 This is implemented in `findFunctionContainingPosition()` in [`containment-matcher.ts`](../src/coverage-provider/containment-matcher.ts).
 
 ### Performance
 
-Function matching uses a linear scan of start lines, which is efficient for typical file sizes (10-50 functions, ~1,250 operations per file). Optimizations like binary search or interval trees offer diminishing returns at these sizes and would only warrant consideration for files with 200+ functions, which is rare for AssemblyScript projects.
+Because functions are indexed by every line they span, each hit-position lookup is a direct map access followed by a scan of only the functions present on that one line — typically a single function, a handful where definitions nest or overlap. Total matching cost is therefore roughly linear in the number of hit positions and independent of the file's total function count.
+
+This replaced an earlier (<= [v0.13.2](https://github.com/themattspiral/vitest-pool-assemblyscript/releases/tag/v0.13.2)) start-line scan that, for every hit position, walked all functions starting at or before that line (and re-materialized the start-line index on each hit). Since hit positions scale with function count, that made file-level matching quadratic — on the order of F²/2 comparisons for F functions. It was negligible for small files (a few thousand operations at 50 functions) but degraded sharply on files with thousands of functions, such as generated or bundled sources.
+
+The tradeoff is index size: a function occupies one slot per line it spans, so `functionsByLineSpan` is proportional to the total source lines covered by functions rather than to the function count — still linear in file size, and built once per file during parsing. The separate `uniqueFunctions` map (keyed by `startLine:startColumn`) holds one record per function as the source of truth for the emitted Istanbul function set, so span duplication affects lookup only, never the function set or hit attribution.
 
 **Key source files:**
 - [`src/coverage-provider/containment-matcher.ts`](../src/coverage-provider/containment-matcher.ts) — `findFunctionContainingPosition()`, `isPositionInRange()`

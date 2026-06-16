@@ -518,6 +518,11 @@ export interface NativeAddon {
 // These types represent information parsed from source files via AST.
 // Parsed source info has *ranges* (start and end positions) for containment matching.
 
+export interface ParsedSourceFunctions {
+  functionsByLineSpan: Record<number, ParsedSourceFunctionInfo[]>;
+  uniqueFunctions: Record<string, ParsedSourceFunctionInfo>;
+}
+
 /**
  * Function info parsed from AssemblyScript source via AST
  */
@@ -528,6 +533,8 @@ export interface ParsedSourceFunctionInfo {
   shortName: string;
   /** Source range for containment matching */
   range: SourceRange;
+  /** Unique function ID "startLine:startColumn" */
+  id: string;
 }
 
 /**

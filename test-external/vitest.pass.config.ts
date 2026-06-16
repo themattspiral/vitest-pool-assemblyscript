@@ -7,6 +7,10 @@ export default defineConfig({
     environment: 'node',
     reporters: ['verbose'],
 
+    globalSetup: [
+      '../vitest-pool-assemblyscript/test/generators/global-setup-large-fixture.js'
+    ],
+
     coverage: {
       enabled: true,
       reportsDirectory: 'coverage/',
@@ -15,10 +19,12 @@ export default defineConfig({
       
       include: [ '!*' ],
       assemblyScriptInclude: [
-        '../vitest-pool-assemblyscript/test/assembly-src/**/*.ts'
+        '../vitest-pool-assemblyscript/test/assembly-src/**/*.ts',
+        '../vitest-pool-assemblyscript/test-generated/assembly-src/**/*.ts'
       ],
       assemblyScriptExclude: [
-        '../vitest-pool-assemblyscript/test/assembly-src/**/*.meta*.ts'
+        '../vitest-pool-assemblyscript/test/assembly-src/**/*.meta*.ts',
+        '../vitest-pool-assemblyscript/test-generated/assembly-src/**/*.meta*.ts'
       ],
 
       debugIstanbul: false,
@@ -34,8 +40,14 @@ export default defineConfig({
       defineProject({
         test: {
           name: { label: 'as-pool-passing', color: 'green' },
-          include: [ '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts' ],
-          exclude: [ '../vitest-pool-assemblyscript/test/assembly/**/*.meta*.test.ts' ],
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts',
+            '../vitest-pool-assemblyscript/test-generated/assembly/**/*.test.ts',
+          ],
+          exclude: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta*.test.ts',
+            '../vitest-pool-assemblyscript/test-generated/assembly/**/*.meta*.test.ts',
+          ],
           pool: createAssemblyScriptPool({
             wasmImportsFactory: '../vitest-pool-assemblyscript/test/user-imports-factory/create-user-imports.js',
             extraCompilerFlags: ['--enable', 'simd'],
@@ -47,8 +59,14 @@ export default defineConfig({
       defineProject({
         test: {
           name: { label: 'as-pool-passing-incremental', color: 'green' },
-          include: [ '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts' ],
-          exclude: [ '../vitest-pool-assemblyscript/test/assembly/**/*.meta*.test.ts' ],
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts',
+            '../vitest-pool-assemblyscript/test-generated/assembly/**/*.test.ts',
+          ],
+          exclude: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta*.test.ts',
+            '../vitest-pool-assemblyscript/test-generated/assembly/**/*.meta*.test.ts',
+          ],
           pool: createAssemblyScriptPool({
             wasmImportsFactory: '../vitest-pool-assemblyscript/test/user-imports-factory/create-user-imports.js',
             extraCompilerFlags: [

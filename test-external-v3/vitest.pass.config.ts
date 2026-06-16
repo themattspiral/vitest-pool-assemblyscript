@@ -14,10 +14,12 @@ export default defineAssemblyScriptConfig({
       
       include: [ '!*' ],
       assemblyScriptInclude: [
-        '../vitest-pool-assemblyscript/test/assembly-src/**/*.ts'
+        '../vitest-pool-assemblyscript/test/assembly-src/**/*.ts',
+        '../vitest-pool-assemblyscript/test-generated/assembly-src/**/*.ts'
       ],
       assemblyScriptExclude: [
-        '../vitest-pool-assemblyscript/test/assembly-src/**/*.meta*.ts'
+        '../vitest-pool-assemblyscript/test/assembly-src/**/*.meta*.ts',
+        '../vitest-pool-assemblyscript/test-generated/assembly-src/**/*.meta*.ts'
       ],
 
       debugIstanbul: false,
@@ -33,8 +35,14 @@ export default defineAssemblyScriptConfig({
       defineAssemblyScriptProject({
         test: {
           name: { label: 'as-pool-passing-incremental', color: 'green' },
-          include: [ '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts' ],
-          exclude: [ '../vitest-pool-assemblyscript/test/assembly/**/*.meta*.test.ts' ],
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts',
+            '../vitest-pool-assemblyscript/test-generated/assembly/**/*.test.ts',
+          ],
+          exclude: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta*.test.ts',
+            '../vitest-pool-assemblyscript/test-generated/assembly/**/*.meta*.test.ts',
+          ],
           pool: 'vitest-pool-assemblyscript/v3',
           poolOptions: {
             assemblyScript: {
@@ -49,8 +57,14 @@ export default defineAssemblyScriptConfig({
       defineAssemblyScriptProject({
         test: {
           name: { label: 'as-pool-passing', color: 'green' },
-          include: [ '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts' ],
-          exclude: [ '../vitest-pool-assemblyscript/test/assembly/**/*.meta*.test.ts' ],
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts',
+            '../vitest-pool-assemblyscript/test-generated/assembly/**/*.test.ts',
+          ],
+          exclude: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta*.test.ts',
+            '../vitest-pool-assemblyscript/test-generated/assembly/**/*.meta*.test.ts',
+          ],
           pool: 'vitest-pool-assemblyscript/v3',
           poolOptions: {
             assemblyScript: {
