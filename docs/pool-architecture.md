@@ -567,13 +567,13 @@ Binaryen version is pinned via the `BINARYEN_VERSION` file at the project root.
 
 ### Platform Compiler Flags
 
-The addon requires C++17 with exceptions enabled ([`binding.gyp`](../binding.gyp)):
+The addon requires C++20 with exceptions enabled ([`binding.gyp`](../binding.gyp)):
 
 | Platform | Key Flags | Notes |
 |----------|-----------|-------|
-| Linux | `-std=c++17 -fexceptions -O3`, `-lpthread` | Explicitly removes node-gyp's default `-fno-exceptions` |
-| macOS | `-std=c++17 -fexceptions -O3`, `MACOSX_DEPLOYMENT_TARGET: 10.15` | Minimum for C++17 std library support |
-| Windows | `/std:c++17 /permissive /EHsc` | `/permissive` (lenient, NO dash) needed for Binaryen C++17 patterns |
+| Linux | `-std=c++20 -fexceptions -O3`, `-lpthread` | Explicitly removes node-gyp's default `-fno-exceptions` |
+| macOS | `-std=c++20 -fexceptions -O3`, `MACOSX_DEPLOYMENT_TARGET: 10.15` | Floor for C++17 standard-library support; the C++20 code in play uses no deployment-target-gated lib features |
+| Windows | `/std:c++20 /permissive /EHsc` | `/permissive` (lenient, NO dash) needed for Binaryen's C++ patterns that MSVC's strict conformance mode (`/permissive-`) rejects |
 
 ### Runtime Error Handling
 

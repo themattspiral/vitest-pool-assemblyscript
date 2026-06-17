@@ -38,7 +38,8 @@
           "xcode_settings": {
             "GCC_ENABLE_CPP_EXCEPTIONS": "YES",
             "CLANG_CXX_LIBRARY": "libc++",
-            # Minimum macOS deployment target for C++20 support
+            # 10.15 is the floor for C++17 standard-library runtime support and C++20 code here
+            # uses no deployment-target-gated library features to raise the minimum
             "MACOSX_DEPLOYMENT_TARGET": "10.15",
             "OTHER_CPLUSPLUSFLAGS": ["-std=c++20", "-fexceptions", "-O3"]
           }

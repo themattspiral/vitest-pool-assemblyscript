@@ -37,7 +37,7 @@ See the Readme's [Compatibility section](../README.md#compatibility) for informa
 Additionally for developers:
 
 **C++ build tools** (for native addon development):
-- GCC 7+ or Clang 5+ (C++17 support required)
+- C++20 compiler support required ([GCC 10+ or Clang 10+](https://en.cppreference.com/cpp/compiler_support/20))
 - Python 3.x (required by node-gyp)
 
 The distributed npm package includes prebuilt native binaries for [most platforms](../README.md#compatibility), so *end users* don't need C++ tools. These are only needed when developing the native addon or building from source.
