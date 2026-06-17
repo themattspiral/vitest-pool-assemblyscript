@@ -91,6 +91,7 @@ export function createBinaryDebugInfo(
     debugSourceFiles: [],
     functionsByFileAndPosition: {},
     instrumentedFunctionCount: 0,
+    totalInstrumentationCounters: 0,
     ...overrides,
   };
 }

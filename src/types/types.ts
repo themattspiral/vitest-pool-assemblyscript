@@ -447,6 +447,12 @@ export interface BinaryDebugInfo {
   functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo[]>>;
 
   instrumentedFunctionCount: number;
+  /**
+   * Total coverage counter slots in coverage memory: function-entry counters
+   * (region 1, indices [0, instrumentedFunctionCount)) plus block counters
+   * (region 2). The executor reads this many counters once block counters are consumed.
+   */
+  totalInstrumentationCounters: number;
 }
 
 /**
@@ -464,6 +470,8 @@ export interface NativeDebugInfoOutput {
   debugSourceFiles: string[];
   /** Flat list of all functions with their debug info */
   functions: NativeFunctionDebugInfo[];
+  /** Total coverage counter slots (function-entry + block counters) */
+  totalInstrumentationCounters: number;
 }
 
 export interface NativeFunctionDebugInfo extends Omit<FunctionDebugInfo, 'expressions' | 'representativeLocation'> {

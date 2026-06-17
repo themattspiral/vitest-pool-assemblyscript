@@ -444,6 +444,47 @@ Expression* makeCounterIncrement(
 }
 
 /**
+ * PostWalker that injects block coverage counters at pre-recorded anchor
+ * expressions. For each anchor, wraps it in a Block { counterIncrement, anchor },
+ * finalized to the anchor's type — so the value and type seen by the surrounding
+ * IR are unchanged, while the counter increments BEFORE the block's first
+ * expression executes (entry-anchored).
+ *
+ * The anchor->counterIndex map holds original IR expression pointers captured
+ * during the collection walk. They remain valid through injection because only
+ * integer counter indices are assigned in between; the function-entry counter
+ * prepend wraps the outer body without moving inner expressions.
+ */
+struct CounterInjectionWalker : public PostWalker<CounterInjectionWalker, UnifiedExpressionVisitor<CounterInjectionWalker>> {
+  Builder& builder;
+  Name coverageMemoryWasmName;
+  const std::unordered_map<Expression*, int32_t>& anchorToCounterIndex;
+
+  CounterInjectionWalker(
+    Builder& b,
+    const Name& memName,
+    const std::unordered_map<Expression*, int32_t>& map
+  ) : builder(b), coverageMemoryWasmName(memName), anchorToCounterIndex(map) {}
+
+  void visitExpression(Expression* curr) {
+    auto it = anchorToCounterIndex.find(curr);
+    if (it == anchorToCounterIndex.end()) {
+      return;
+    }
+
+    Expression** currp = getCurrentPointer();
+    Expression* counterInc = makeCounterIncrement(builder, coverageMemoryWasmName, it->second);
+
+    // Entry-anchored: counter increment runs before the anchor expression.
+    Block* wrapped = builder.makeBlock();
+    wrapped->list.push_back(counterInc);
+    wrapped->list.push_back(*currp);
+    wrapped->finalize(curr->type);
+    *currp = wrapped;
+  }
+};
+
+/**
  * Instrument WASM binary for coverage and regenerate source map
  *
  * This function:
@@ -708,6 +749,47 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       coverageIndex++;
     });
 
+    // ── Block counter assignment (region 2) + injection ──
+    // Function-entry counters occupy indices [0, coverageIndex) — region 1, with
+    // contiguous per-function indices. Block counters are assigned next, so
+    // function counter indices stay stable and the existing per-function read
+    // path is unaffected until the executor is updated to read the full array.
+    const int32_t functionCounterCount = coverageIndex;
+    for (auto& funcInfo : instrumentedFunctions) {
+      std::unordered_map<Expression*, int32_t> anchorToCounterIndex;
+
+      for (auto& block : funcInfo.blocks) {
+        // Instrument a block if it has a located expression (statement coverage)
+        // OR is a decision (branch coverage needs the decision's hit count). An
+        // injection anchor (the block's first expression) is required.
+        //
+        // NOTE: a decision block whose condition is itself a control-flow
+        // construct has NO expression of its own and so cannot be anchored here.
+        // The clearest case is `if (a && b)`: the outer `if` branches on the
+        // value of the inner short-circuit `If`, which CFGWalker never visits, so
+        // the outer decision block is empty. Such empty decision blocks are not
+        // counted by this pass; their hit count would need per-predecessor
+        // injection or to be derived from the owning logical decision's counter.
+        const bool shouldInstrument =
+          (!block.expressionIndices.empty() || block.isDecision) && block.anchorExpr != nullptr;
+        if (!shouldInstrument) {
+          continue;
+        }
+        block.coverageMemoryIndex = coverageIndex++;
+        anchorToCounterIndex[block.anchorExpr] = block.coverageMemoryIndex;
+      }
+
+      if (!anchorToCounterIndex.empty()) {
+        CounterInjectionWalker injector(builder, coverageMemoryWasmName, anchorToCounterIndex);
+        injector.walkFunctionInModule(funcInfo.func, &module);
+      }
+    }
+
+    if (DEBUG) {
+      std::cout << LOG_PREFIX << " - Counters: " << functionCounterCount << " function-entry + "
+                << (coverageIndex - functionCounterCount) << " block = " << coverageIndex << " total" << std::endl;
+    }
+
     int32_t requiredCoverageMemoryPages = std::ceil(coverageIndex / static_cast<double>(COUNTERS_PER_PAGE));
 
     // Add __coverage_memory import
@@ -725,7 +807,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     module.addMemory(std::move(coverageMemory));
 
     if (DEBUG) {
-      std::cout << LOG_PREFIX << " - Instrumentation complete: " << coverageIndex << " functions instrumented" << std::endl;
+      std::cout << LOG_PREFIX << " - Instrumentation complete: " << functionCounterCount << " functions instrumented" << std::endl;
     }
 
     // Write instrumented module with source map regeneration
@@ -764,6 +846,10 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       debugSourceFiles[i] = Napi::String::New(env, module.debugInfoFileNames[i]);
     }
     debugInfo.Set("debugSourceFiles", debugSourceFiles);
+
+    // Total counter slots (function-entry + block). Used by the executor to size
+    // its read of coverage memory once it reads block counters.
+    debugInfo.Set("totalInstrumentationCounters", Napi::Number::New(env, coverageIndex));
 
     // Add function information
     Napi::Array functions = Napi::Array::New(env, instrumentedFunctions.size());

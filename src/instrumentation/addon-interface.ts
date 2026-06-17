@@ -282,6 +282,7 @@ function transformDebugInfo(
     debugSourceFiles: raw.debugSourceFiles,
     functionsByFileAndPosition,
     instrumentedFunctionCount,
+    totalInstrumentationCounters: raw.totalInstrumentationCounters,
   };
 }
 
