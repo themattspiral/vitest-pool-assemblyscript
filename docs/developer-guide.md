@@ -77,6 +77,8 @@ This compiles the C++ native addon (`src/instrumentation/native/addon.cpp`) usin
 - `src/instrumentation/native/addon.cpp`
 - `binding.gyp`
 
+> ℹ️ **Before testing native changes *externally*, run `npm run build:prebuild` instead.** `build:native` updates only `build/Release`, which *local* tests load. External tests run against an `npm pack`-ed tarball that ships only `prebuilds/` (never `build/`), so `build:native` alone leaves a stale prebuild for external runs. `build:prebuild` (prebuildify) rebuilds both `build/Release` and `prebuilds/` from one source build, making it the safe single command for local and external alike.
+
 ### 5. Build the pool
 
 ```bash
@@ -139,6 +141,8 @@ npm run cmtest     # Build + Run local meta tests for debugging (shortcut)
 2. Copies the version-specific external template directory (selected by the `VITEST_VERSION` env var — see below) into it
 3. Runs `npm pack` to create a tarball
 4. Installs the tarball and dependencies in the external directory
+
+> ℹ️ **Native/C++ changes:** run `npm run build:prebuild` before any external run — external installs load the packed `prebuilds/`, not `build:native`'s `build/Release` output, so `build:native` alone leaves a stale prebuild. See [Build the native addon](#4-build-the-native-addon).
 
 #### Three Parallel External Template Directories
 
