@@ -393,13 +393,18 @@ export interface ExpressionDebugInfo {
 export interface BasicBlockDebugInfo {
   /** Block index within the function */
   index: number;
+  /**
+   * Whether this block is a branch decision (CFG out-degree >= 2).
+   * Single source of truth for both branch identification and counter allocation.
+   */
+  isDecision: boolean;
   /** Indices of expressions contained in this block */
   expressionIndices: number[];
   /** Outgoing branch edges */
   branches: BranchEdgeDebugInfo[];
   /**
-   * Index into coverage memory counters
-   * v2 only: Source of truth for block-level coverage
+   * Index into coverage memory counters.
+   * Source of truth for block-level coverage; absent when the block is not instrumented.
    */
   coverageMemoryIndex?: number;
 }

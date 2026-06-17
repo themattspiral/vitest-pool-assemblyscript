@@ -60,8 +60,13 @@ struct ExpressionInfo {
  * Structure to hold basic block information
  */
 struct BasicBlockInfo {
-  std::vector<size_t> expressionIndices;  // Indices into the flat expression array
+  std::vector<size_t> expressionIndices;  // Indices into the flat expression array (located exprs only)
   std::vector<size_t> branches;            // Indices of blocks this block branches to
+  bool isDecision = false;                 // out-degree >= 2: an Istanbul branch decision. Single source
+                                           // of truth for both branch identification and counter allocation.
+  Expression* anchorExpr = nullptr;        // First expression in the block (entry-anchor for counter injection).
+                                           // May be unlocated (e.g. an `if` consuming a logical result).
+  int32_t coverageMemoryIndex = -1;        // Assigned block counter slot (region 2); -1 = block not instrumented.
 };
 
 // Data structure to collect function info during instrumentation
@@ -71,6 +76,7 @@ struct FunctionInfo {
   SourceDebugLocation representativeLocation;
   std::vector<ExpressionInfo> expressions;
   std::vector<BasicBlockInfo> blocks;
+  Function* func = nullptr;                // Retained for the block-counter injection pass (after the function loop)
 };
 
 /**
@@ -100,65 +106,24 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
   explicit DebugInfoWalker(Module* m) : module(m) {}
 
   /**
-   * Called for each expression during CFG walk
-   * Collects expression info and adds to current basic block
+   * Called for each expression during CFG walk.
+   *
+   * Retains EVERY non-Block expression in the current basic block (located or
+   * not). Two reasons we keep unlocated expressions now (previously skipped):
+   *   - block-counter injection needs an anchor even for unlocated decision
+   *     blocks (e.g. an `if` consuming a logical result has no located condition)
+   *   - the first-executed expression (the entry anchor) may itself be unlocated
+   *
+   * Located-expression extraction (for statement coverage) and branch/decision
+   * analysis happen in doWalkFunction, once the block structure is finalized.
    */
   void visitExpression(Expression* curr) {
-    // skip collecting expressions if:
-    //   - Not currently inside a basicBlock (`currBasicBlock` provided by CFGWalker)
-    //   - expression is a Block (Blocks are only containers and have no debug locations)
+    // Skip if not inside a basic block (CFGWalker state) or if a Block container
+    // (Blocks are only containers and have no source locations of their own).
     if (!currBasicBlock || curr->is<Block>()) {
       return;
     }
 
-    // Get debug location from function's debugLocations map
-    Function* func = getFunction();
-    ExpressionInfo info;
-    info.hasDebugLocation = false;
-
-    // Check debugLocations map
-    auto it = func->debugLocations.find(curr);
-    if (it != func->debugLocations.end() && it->second.has_value()) {
-      const auto& loc = it->second.value();
-      info.fileIndex = loc.fileIndex;
-      info.lineNumber = loc.lineNumber;
-      info.columnNumber = loc.columnNumber;
-      info.hasDebugLocation = true;
-    }
-
-    // skip expressions without debug locations
-    // TODO - determine if this will cause problems in branch coverage
-    if (!info.hasDebugLocation) {
-      return;
-    }
-
-    info.type = getExpressionName(curr);  // Expression type string
-
-    // Determine if this is a branch expression and count paths
-    info.isBranch = false;
-    info.branchPaths = 0;
-
-    // TODO - determine if we're missing any branch types (SIMDTernary?)
-    if (curr->is<If>()) {
-      info.isBranch = true;
-      auto* ifExpr = curr->cast<If>();
-      info.branchPaths = ifExpr->ifFalse ? 2 : 1;  // If/else = 2, if only = 1
-    } else if (curr->is<Break>()) {
-      info.isBranch = true;
-      info.branchPaths = 2;  // Branch taken or not (conditional break)
-    } else if (curr->is<Select>()) {
-      info.isBranch = true;
-      info.branchPaths = 2;  // True or false condition
-    } else if (curr->is<Switch>()) {
-      info.isBranch = true;
-      auto* switchExpr = curr->cast<Switch>();
-      info.branchPaths = switchExpr->targets.size() + 1;  // N targets + default
-    }
-
-    // Add to flat expressions array
-    expressions.push_back(info);
-
-    // Add expression to current basic block's content
     currBasicBlock->contents.expressions.push_back(curr);
   }
 
@@ -175,19 +140,65 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
     // Walk the function using CFGWalker
     CFGWalker<DebugInfoWalker, UnifiedExpressionVisitor<DebugInfoWalker>, BlockContent>::doWalkFunction(func);
 
-    // After walk, build out basic block info with expression indices.
-    // `basicBlocks` provided by CFGWalker, now populated after the function walk
-    size_t exprIndex = 0;
-    for (auto& bb : basicBlocks) {  
+    // Build per-block info from the collected expressions. The flat expressions[]
+    // array and each block's expressionIndices are built together here (rather
+    // than during the walk), so the indices always reference the correct entries
+    // regardless of CFG vs. visit ordering.
+    for (auto& bb : basicBlocks) {
       BasicBlockInfo blockInfo;
 
       // Store the index for this block
       blockIndexMap[bb.get()] = blocks.size();
 
-      // Record expression indices for this block
-      size_t expressionCount = bb->contents.expressions.size();
-      for (size_t i = 0; i < expressionCount; i++) {
-        blockInfo.expressionIndices.push_back(exprIndex++);
+      // A decision block (out-degree >= 2) is the single source of truth for
+      // both branch identification (matcher) and counter allocation.
+      blockInfo.isDecision = (bb->out.size() >= 2);
+
+      // Entry-anchor: the block's first expression. CFGWalker extends PostWalker,
+      // so visit order == execution order, making [0] the first-executed
+      // expression. May be unlocated.
+      if (!bb->contents.expressions.empty()) {
+        blockInfo.anchorExpr = bb->contents.expressions[0];
+      }
+
+      // Collect located expressions for statement coverage. Unlocated
+      // expressions are retained (above, for anchoring) but not emitted here.
+      for (Expression* curr : bb->contents.expressions) {
+        auto locIt = func->debugLocations.find(curr);
+        if (locIt == func->debugLocations.end() || !locIt->second.has_value()) {
+          continue;
+        }
+        const auto& loc = locIt->second.value();
+
+        ExpressionInfo info;
+        info.type = getExpressionName(curr);
+        info.fileIndex = loc.fileIndex;
+        info.lineNumber = loc.lineNumber;
+        info.columnNumber = loc.columnNumber;
+        info.hasDebugLocation = true;
+
+        // Legacy per-expression branch flag. Phase 0 established this is dead at
+        // -O0 (CFGWalker never visits If; only an unconditional Break ever sets
+        // it) — branch identification now uses per-block isDecision. Kept until
+        // the disabled debug-info validators that reference it are dispositioned.
+        info.isBranch = false;
+        info.branchPaths = 0;
+        if (curr->is<If>()) {
+          info.isBranch = true;
+          info.branchPaths = curr->cast<If>()->ifFalse ? 2 : 1;
+        } else if (curr->is<Break>()) {
+          info.isBranch = true;
+          info.branchPaths = 2;
+        } else if (curr->is<Select>()) {
+          info.isBranch = true;
+          info.branchPaths = 2;
+        } else if (curr->is<Switch>()) {
+          info.isBranch = true;
+          info.branchPaths = curr->cast<Switch>()->targets.size() + 1;
+        }
+
+        blockInfo.expressionIndices.push_back(expressions.size());
+        expressions.push_back(info);
       }
 
       blocks.push_back(blockInfo);
@@ -676,6 +687,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       funcInfo.coverageMemoryIndex = coverageIndex;
       funcInfo.expressions = walker.expressions;
       funcInfo.blocks = walker.blocks;
+      funcInfo.func = func;
 
       // add to list
       instrumentedFunctions.push_back(funcInfo);
@@ -801,6 +813,10 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         Napi::Object blockObj = Napi::Object::New(env);
 
         blockObj.Set("index", Napi::Number::New(env, j));
+        blockObj.Set("isDecision", Napi::Boolean::New(env, block.isDecision));
+        if (block.coverageMemoryIndex >= 0) {
+          blockObj.Set("coverageMemoryIndex", Napi::Number::New(env, block.coverageMemoryIndex));
+        }
 
         Napi::Array exprIndices = Napi::Array::New(env, block.expressionIndices.size());
         for (size_t k = 0; k < block.expressionIndices.size(); k++) {
