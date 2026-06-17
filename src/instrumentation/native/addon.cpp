@@ -386,6 +386,53 @@ SourceDebugLocation getRepresentativeLocation(Function* func) {
 }
 
 /**
+ * Build a coverage counter-increment sequence for a given counter slot:
+ *   counter = i32.load(addr, __coverage_memory)
+ *   i32.store(addr, counter + 1, __coverage_memory)
+ *
+ * Returns the store expression (which embeds the load + increment). Used for
+ * both function-entry counters and basic-block counters. Two distinct address
+ * Const nodes are built (one for the load, one for the store) so no IR node is
+ * aliased into two tree positions; the emitted WASM is identical either way.
+ */
+Expression* makeCounterIncrement(
+  Builder& builder,
+  const Name& coverageMemoryWasmName,
+  int32_t counterIndex
+) {
+  const int32_t counterAddressVal = counterIndex * BYTES_PER_COUNTER;
+
+  // Load current counter value
+  Expression* counterValue = builder.makeLoad(
+    BYTES_PER_COUNTER,  // bytes - size
+    false,              // signed - false, treat as unsigned (and no extension needed anyway)
+    0,                  // offset - none, we already calculate the address based on data size
+    BYTES_PER_COUNTER,  // align - we should always be aligned
+    builder.makeConstantExpression(Literal(counterAddressVal)),  // address
+    Type::i32,
+    coverageMemoryWasmName
+  );
+
+  // Increment counter
+  Expression* incrementedCounter = builder.makeBinary(
+    AddInt32,
+    counterValue,
+    builder.makeConst(1)
+  );
+
+  // Store incremented value back
+  return builder.makeStore(
+    BYTES_PER_COUNTER,  // bytes
+    0,                  // offset
+    BYTES_PER_COUNTER,  // align hint
+    builder.makeConstantExpression(Literal(counterAddressVal)),  // address
+    incrementedCounter, // value
+    Type::i32,
+    coverageMemoryWasmName
+  );
+}
+
+/**
  * Instrument WASM binary for coverage and regenerate source map
  *
  * This function:
@@ -587,13 +634,10 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         return;
       }
 
-      // Walk function to collect expressions and basic blocks
-      walker.walkFunctionInModule(func, &module);
-      
-      if (DEBUG) {
-        std::cout << LOG_PREFIX << " -   CFG Walked function - expressions with locations: " << walker.expressions.size() << std::endl;
-      }
-
+      // Determine the representative location and excluded-file status BEFORE
+      // the CFG walk, so excluded / unlocatable functions skip the walk
+      // entirely. repLoc depends only on func->body + func->debugLocations
+      // (populated by the binary reader, not the walk), so it is available here.
       const SourceDebugLocation representativeLocation = getRepresentativeLocation(func);
 
       // skip function if it has no representative location
@@ -615,7 +659,11 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         return;
       }
 
+      // Walk function to collect expressions and basic blocks
+      walker.walkFunctionInModule(func, &module);
+
       if (DEBUG) {
+        std::cout << LOG_PREFIX << " -   CFG Walked function - expressions with locations: " << walker.expressions.size() << std::endl;
         std::cout << LOG_PREFIX << " -   Selected reprLoc=" << representativeLocation.fileIndex << ":" << representativeLocation.lineNumber
                   << ":" << representativeLocation.columnNumber << " | Now instrumenting with coverageMemoryIndex [" << coverageIndex << "]"
                   << " | " << std::endl;
@@ -632,44 +680,12 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       // add to list
       instrumentedFunctions.push_back(funcInfo);
 
-      // Coverage instrumentation:
-      //   counter = i32.load(addr, __coverage_memory)
-      //   incremented = counter + 1
-      //   i32.store(addr, incremented, __coverage_memory)
-
-      const int32_t counterAddressVal = coverageIndex * BYTES_PER_COUNTER;
-      Expression* counterAddress = builder.makeConstantExpression(Literal(counterAddressVal));
-
-      // Load current counter value
-      Expression* counterValue = builder.makeLoad(
-        BYTES_PER_COUNTER,  // bytes - size
-        false,              // signed - false, treat as unsigned (and no extension needed anyway)
-        0,                  // offset - none, we already calculate the address based on data size
-        BYTES_PER_COUNTER,  // align - we should always be aligned
-        counterAddress,     // address
-        Type::i32,
-        coverageMemoryWasmName
+      // Prepend function-entry counter increment to the function body
+      func->body = builder.makeSequence(
+        makeCounterIncrement(builder, coverageMemoryWasmName, coverageIndex),
+        func->body,
+        func->body->type
       );
-
-      // Increment counter
-      Expression* incrementedCounter = builder.makeBinary(
-        AddInt32,
-        counterValue,
-        builder.makeConst(1)
-      );
-
-      Expression* storeCounter = builder.makeStore(
-        BYTES_PER_COUNTER,  // bytes
-        0,                  // offset
-        BYTES_PER_COUNTER,  // align hint
-        counterAddress,     // address
-        incrementedCounter, // value
-        Type::i32,
-        coverageMemoryWasmName
-      );
-
-      // Prepend instrumentation to function body
-      func->body = builder.makeSequence(storeCounter, func->body, func->body->type);
 
       if (DEBUG) {
         std::cout << LOG_PREFIX << " -   INSTRUMENTED \"" << funcName << "\" | coverageMemoryIndex [" << coverageIndex << "]"

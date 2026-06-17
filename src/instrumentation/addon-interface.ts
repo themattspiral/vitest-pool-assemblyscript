@@ -39,7 +39,7 @@ import { createPoolError } from '../util/pool-errors.js';
 import { getShortFunctionName } from '../wasm-executor/wasm-names.js';
 
 // Load the native addon via node-gyp-build
-// node-gyp-build checks: prebuilds/ first, then build/Release/
+// node-gyp-build checks: build/Release/ (local dev build) first, then prebuilds/ (shipped binaries).
 // It searches from the given directory for a package.json to find the package root.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
