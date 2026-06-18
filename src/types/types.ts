@@ -621,6 +621,14 @@ export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
   suitePreparedSent: boolean;
   resultFinal: boolean;
   coverageData?: CoverageData;
+  /**
+   * Statement/expression-level coverage: block counters attributed to source
+   * positions (per-instance MAX across a function instance's same-position
+   * blocks, then SUM across monomorphizations — D5). Same shape as coverageData,
+   * so it merges up the suite tree via mergeCoverageData and survives the
+   * timeout-resume thread boundary as a plain object.
+   */
+  expressionHits?: CoverageData;
 }
 
 export interface AssemblyScriptTestTaskMeta extends TaskMeta {
@@ -630,6 +638,11 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   assertionsFailed: FailedAssertion[];
   resultFinal: boolean;
   coverageData?: CoverageData;
+  /**
+   * Statement/expression-level coverage (block counters attributed to source
+   * positions). Same shape as coverageData. See AssemblyScriptSuiteTaskMeta.
+   */
+  expressionHits?: CoverageData;
   lastError?: AssemblyScriptTestError;
   lastErrorValuesProvided?: boolean;
   lastErrorRawCallStack?: NodeJS.CallSite[];

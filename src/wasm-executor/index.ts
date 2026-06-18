@@ -21,6 +21,7 @@ import { enhanceTestError } from './wasm-errors.js';
 import { createPoolError, wrapPoolError } from '../util/pool-errors.js';
 import { failTestRuntimeError, getTaskLogLabel } from '../util/vitest-tasks.js';
 import { extractCallStack } from './source-maps.js';
+import { buildExpressionHits } from './coverage-extraction.js';
 
 const SIG_MISMATCH_ERROR_MSG = `WASM function signature type mismatch during test collection.`
   + ` This is most likely caused by passing a type-inferred, non-void callback to expect().`
@@ -308,9 +309,14 @@ export async function executeWASMTest(
       hitCountsByFileAndPosition: {},
     };
 
-    // Read counters from coverage memory
-    const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, compilation.debugInfo.instrumentedFunctionCount);
-    covDebug(`${logPrefix} - Read coverage memory for ${compilation.debugInfo.instrumentedFunctionCount} instrumented functions`);
+    // Read all coverage counters (region 1: function-entry counters [0, F);
+    // region 2: block counters [F, total)). Function-coverage extraction below
+    // only indexes region-1 slots, so the longer read is transparent to it.
+    const counterCount = compilation.debugInfo.totalInstrumentationCounters
+      ?? compilation.debugInfo.instrumentedFunctionCount;
+    const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, counterCount);
+    covDebug(`${logPrefix} - Read ${counterCount} coverage counters `
+      + `(${compilation.debugInfo.instrumentedFunctionCount} function-entry + block counters)`);
 
     // Iterate all instrumented functions and build coverage data with hit counts extracted from coverage memory
     let functionsHit = 0;
@@ -347,7 +353,13 @@ export async function executeWASMTest(
     }
 
     meta.coverageData = coverage;
-    debug(`${logPrefix} - Extracted coverage data | ${functionsHit} functions hit`);
+
+    // Build statement/expression coverage from block counters (D5 aggregation:
+    // per-instance MAX over same-position blocks, then SUM across monomorphizations).
+    meta.expressionHits = buildExpressionHits(compilation.debugInfo, extractedHitCounters);
+
+    debug(`${logPrefix} - Extracted coverage data | ${functionsHit} functions hit`
+      + ` | ${Object.keys(meta.expressionHits.hitCountsByFileAndPosition).length} file(s) with statement hits`);
   }
 
   testTimings.fnfinal = performance.now();
