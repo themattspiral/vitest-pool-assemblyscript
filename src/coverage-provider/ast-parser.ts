@@ -268,10 +268,19 @@ class FunctionExtractorVisitor extends ASTVisitor {
       const implicitPathIndices: number[] = [];
       let hasDefault = false;
 
-      // Each case clause (including default) is an arm. A fallthrough/empty case
-      // is still its own arm; hit attribution is handled later during matching.
+      // Each case/default clause is an arm. Switch lowers to a comparison chain
+      // whose case BODIES carry the per-case hit counts (read later via
+      // statement-entry, not arm-matching — see computeBranchPathHits). So a
+      // case's path range is its BODY span: starting at its first statement
+      // excludes the `case X:` label, whose position otherwise carries the
+      // comparison block's (wrong) count. A fallthrough/empty case has no body of
+      // its own and falls back to the clause range.
       for (const switchCase of sw.cases) {
-        paths.push(this.buildRange(switchCase, null));
+        const statements = switchCase.statements;
+        const caseRange = statements.length > 0
+          ? this.buildRange(statements[statements.length - 1]!, statements[0]!)
+          : this.buildRange(switchCase, null);
+        paths.push(caseRange);
         if (!switchCase.label) {
           hasDefault = true; // the default clause has no case label
         }

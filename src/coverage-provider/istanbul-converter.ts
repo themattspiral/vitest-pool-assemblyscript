@@ -16,9 +16,25 @@
  */
 
 import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
-import type { ParsedSourceFunctions } from '../types/types.js';
-import { findFunctionContainingPosition, buildHitsByLine, findStatementEntryHitCount } from './containment-matcher.js';
+import type { BranchPathHits, ParsedSourceFunctions, SourceRange } from '../types/types.js';
+import {
+  findFunctionContainingPosition,
+  buildHitsByLine,
+  findStatementEntryHitCount,
+  buildArmsByLine,
+  computeBranchPathHits,
+} from './containment-matcher.js';
 import { debugOverride, debug } from '../util/debug.js';
+
+/**
+ * Convert an internal 1-based-column SourceRange to an Istanbul Range (0-based columns).
+ */
+function toIstanbulRange(range: SourceRange): Range {
+  return {
+    start: { line: range.startLine, column: range.startColumn - 1 },
+    end: { line: range.endLine, column: range.endColumn - 1 },
+  };
+}
 
 /**
  * Convert AssemblyScript coverage data to Istanbul format for a single file.
@@ -32,11 +48,14 @@ import { debugOverride, debug } from '../util/debug.js';
  * fileExpressionHits (see findStatementEntryHitCount). Functions and statements
  * use independent Istanbul index keyspaces.
  *
- * Branch coverage (branchMap / b) is not produced yet.
+ * Branch coverage (branchMap / b): each source branch's arms are matched to binary
+ * decision arms by entry location; implicit arms and the logical left operand are
+ * derived from the decision's evaluation count (see computeBranchPathHits).
  *
- * @param fileFunctions - Parsed source functions + statements for one file (from the AST parser)
+ * @param fileFunctions - Parsed source functions + statements + branches for one file (from the AST parser)
  * @param fileFunctionHits - Function-level hit counts, keyed by position "line:column"
  * @param fileExpressionHits - Statement/expression-level hit counts, keyed by position "line:column"
+ * @param fileBranchHits - Branch hits keyed by decision key (located arm-target positions)
  * @param absoluteFilePath - Absolute path to the source file (for Istanbul output)
  * @param istanbulDebugEnabled - Enable verbose conversion logging
  * @returns Istanbul FileCoverage object
@@ -45,6 +64,7 @@ export async function convertToIstanbulFormat(
   fileFunctions: ParsedSourceFunctions,
   fileFunctionHits: Record<string, number>,
   fileExpressionHits: Record<string, number>,
+  fileBranchHits: Record<string, BranchPathHits>,
   absoluteFilePath: string,
   istanbulDebugEnabled: boolean
 ): Promise<FileCoverageData> {
@@ -134,11 +154,7 @@ export async function convertToIstanbulFormat(
 
     // Create function mapping
     // Both 'decl' (declaration) and 'loc' (location) use the same range
-    // Internal ParsedSourceFunctionInfo uses 1-based columns, Istanbul expects 0-based
-    const istanbulRange: Range = {
-      start: { line: range.startLine, column: range.startColumn - 1 },
-      end: { line: range.endLine, column: range.endColumn - 1 }
-    };
+    const istanbulRange = toIstanbulRange(range);
 
     const idxStr = funcIdx.toString();
     fnMap[idxStr] = {
@@ -166,16 +182,36 @@ export async function convertToIstanbulFormat(
 
     const hitCount = findStatementEntryHitCount(expressionHitsByLine, range);
 
-    // Internal ranges use 1-based columns; Istanbul expects 0-based.
-    const stmtRange: Range = {
-      start: { line: range.startLine, column: range.startColumn - 1 },
-      end: { line: range.endLine, column: range.endColumn - 1 }
-    };
-
     const stmtIdxStr = stmtIdx.toString();
-    statementMap[stmtIdxStr] = stmtRange;
+    statementMap[stmtIdxStr] = toIstanbulRange(range);
     s[stmtIdxStr] = hitCount;
     stmtIdx++;
+  }
+
+  // Convert branch coverage to Istanbul format. Each source branch's arms are
+  // matched to binary decision arms by entry location; implicit arms (else /
+  // default) and the logical left operand are derived from the decision's
+  // evaluation count (see computeBranchPathHits). Branches use their own index
+  // keyspace, independent of fnMap / statementMap.
+  const armsByLine = buildArmsByLine(fileBranchHits);
+  let branchIdx = 0;
+  for (const branch of fileFunctions.branches) {
+    // Defensive: skip branches with invalid metadata
+    if (branch.range.startLine === 0) {
+      continue;
+    }
+
+    const pathHits = computeBranchPathHits(branch, armsByLine, expressionHitsByLine);
+
+    const branchIdxStr = branchIdx.toString();
+    branchMap[branchIdxStr] = {
+      type: branch.branchType,
+      loc: toIstanbulRange(branch.range),
+      locations: branch.paths.map(toIstanbulRange),
+      line: branch.range.startLine,
+    };
+    b[branchIdxStr] = pathHits;
+    branchIdx++;
   }
 
   const done = performance.now();
