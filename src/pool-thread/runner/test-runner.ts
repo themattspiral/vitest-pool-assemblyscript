@@ -46,7 +46,7 @@ import {
   updateTestResultAfterRun,
   isSuiteOwnFile
 } from '../../util/vitest-tasks.js';
-import { mergeCoverageData } from '../../coverage-provider/coverage-merge.js';
+import { mergeCoverageData, mergeBranchHits } from '../../coverage-provider/coverage-merge.js';
 import { failFile } from '../../util/vitest-file-tasks.js';
 import { buildEnhancedFileError } from '../../util/pool-errors.js';
 
@@ -261,6 +261,7 @@ export async function runSuite(
     // initialize aggregated coverage data for suite, which gets updated as each subtask completes
     suiteMeta.functionHits = { hitCountsByFileAndPosition: {} };
     suiteMeta.expressionHits = { hitCountsByFileAndPosition: {} };
+    suiteMeta.branchHits = { hitsByFileAndDecision: {} };
     debug(`${suiteLogPrefix} - Initialized empty suite coverage data`);
 
     let tasksToRun: Task[] = getRunnableTasks(suite);
@@ -281,6 +282,9 @@ export async function runSuite(
         }
         if (suiteMeta.expressionHits && suiteTaskMeta.expressionHits) {
           mergeCoverageData(suiteMeta.expressionHits, suiteTaskMeta.expressionHits);
+        }
+        if (suiteMeta.branchHits && suiteTaskMeta.branchHits) {
+          mergeBranchHits(suiteMeta.branchHits, suiteTaskMeta.branchHits);
         }
 
       } else {
@@ -351,6 +355,9 @@ export async function runSuite(
         }
         if (suiteMeta.expressionHits && testTaskMeta.expressionHits) {
           mergeCoverageData(suiteMeta.expressionHits, testTaskMeta.expressionHits);
+        }
+        if (suiteMeta.branchHits && testTaskMeta.branchHits) {
+          mergeBranchHits(suiteMeta.branchHits, testTaskMeta.branchHits);
         }
       }
     }

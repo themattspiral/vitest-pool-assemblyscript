@@ -23,11 +23,12 @@ const { createCoverageMap } = istanbulCoverage;
 import { convertToIstanbulFormat } from './istanbul-converter.js';
 import { parseFunctionsFromFile } from './ast-parser.js';
 import { globFiles } from './glob-utils.js';
-import { mergeCoverageData } from './coverage-merge.js';
+import { mergeCoverageData, mergeBranchHits } from './coverage-merge.js';
 import { debug } from '../util/debug.js';
 import { createPoolError } from '../util/pool-errors.js';
 import type {
   AssemblyScriptCoveragePayload,
+  BranchHits,
   CoverageData,
   GlobResult,
   ResolvedHybridProviderOptions,
@@ -44,6 +45,7 @@ export class HybridCoverageProvider implements CoverageProvider {
   private v8Provider: CoverageProvider | undefined;
   private accumulatedFunctionHits: CoverageData = { hitCountsByFileAndPosition: {} };
   private accumulatedExpressionHits: CoverageData = { hitCountsByFileAndPosition: {} };
+  private accumulatedBranchHits: BranchHits = { hitsByFileAndDecision: {} };
   private projectRoot: string = '';
   private definedCoverageOptions: ResolvedCoverageOptions = {} as ResolvedCoverageOptions;
   private resolvedProviderOptions: ResolvedHybridProviderOptions = {} as ResolvedHybridProviderOptions;
@@ -86,7 +88,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     // Check for AssemblyScript format marker
     if (format === COVERAGE_PAYLOAD_FORMATS.AssemblyScript) {
       const payload = meta.coverage as AssemblyScriptCoveragePayload;
-      const { functionHits, expressionHits, suiteLogLabel: label } = payload;
+      const { functionHits, expressionHits, branchHits, suiteLogLabel: label } = payload;
       suiteLogLabel = label;
 
       debug(() => {
@@ -99,11 +101,18 @@ export class HybridCoverageProvider implements CoverageProvider {
       // Merge incoming coverage data into accumulated (by position, summing hit counts)
       mergeCoverageData(this.accumulatedFunctionHits, functionHits);
       mergeCoverageData(this.accumulatedExpressionHits, expressionHits);
+      mergeBranchHits(this.accumulatedBranchHits, branchHits);
 
       debug(() => {
         const positionCount = Object.values(this.accumulatedExpressionHits.hitCountsByFileAndPosition)
           .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
         return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun - Accumulated statement hits: ${positionCount} unique positions`;
+      });
+
+      debug(() => {
+        const decisionCount = Object.values(this.accumulatedBranchHits.hitsByFileAndDecision)
+          .reduce((sum, decisions) => sum + Object.keys(decisions).length, 0);
+        return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun - Accumulated branch hits: ${decisionCount} decisions`;
       });
 
       debug(() => {
@@ -299,6 +308,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     if (clean) {
       this.accumulatedFunctionHits = { hitCountsByFileAndPosition: {} };
       this.accumulatedExpressionHits = { hitCountsByFileAndPosition: {} };
+      this.accumulatedBranchHits = { hitsByFileAndDecision: {} };
       debug('[HybridCoverageProvider] Cleaned all internal coverage data');
     }
 
