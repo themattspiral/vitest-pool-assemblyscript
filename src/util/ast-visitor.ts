@@ -76,6 +76,19 @@ const STATEMENT_NODE_KINDS: ReadonlySet<number> = new Set<number>([
 ]);
 
 /**
+ * Node kinds that represent branch constructs (Istanbul branch granularity):
+ * if, ternary (cond-expr), switch, and logical &&/|| (binary-expr — the consumer
+ * filters Binary nodes to the logical operators). Loops are NOT branches
+ * (Istanbul treats them as statements).
+ */
+const BRANCH_NODE_KINDS: ReadonlySet<number> = new Set<number>([
+  ASNodeKind.If,
+  ASNodeKind.Ternary,
+  ASNodeKind.Switch,
+  ASNodeKind.Binary,
+]);
+
+/**
  * Abstract base class for AST visitors.
  *
  * Subclasses override hook methods to perform tasks during traversal:
@@ -108,6 +121,14 @@ export abstract class ASTVisitor {
    * nested statements each fire their own call.
    */
   protected onStatement(_node: Node): void {}
+
+  /**
+   * Hook called when visiting a branch construct node (see BRANCH_NODE_KINDS).
+   * Override to extract branch info. Fires before recursing, so nested branches
+   * each fire their own call. Binary nodes fire for ALL binary expressions — the
+   * consumer must filter to the logical operators (&&, ||).
+   */
+  protected onBranch(_node: Node): void {}
 
   /**
    * Hook called when entering a namespace declaration.
@@ -171,6 +192,12 @@ export abstract class ASTVisitor {
     // recursing, so nested statements each fire their own call.
     if (STATEMENT_NODE_KINDS.has(node.kind)) {
       this.onStatement(node);
+    }
+
+    // Branch extraction hook — fires for branch construct kinds (consumer filters
+    // Binary to logical operators).
+    if (BRANCH_NODE_KINDS.has(node.kind)) {
+      this.onBranch(node);
     }
 
     // Recurse into children based on node kind

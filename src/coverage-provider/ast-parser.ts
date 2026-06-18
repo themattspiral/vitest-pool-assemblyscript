@@ -28,9 +28,11 @@ import {
   VariableDeclaration,
   VariableStatement,
   FunctionExpression,
+  IfStatement,
+  TernaryExpression,
 } from 'assemblyscript';
 
-import type { ParsedSourceFunctionInfo, ParsedSourceFunctions, ParsedSourceStatementInfo, SourceRange } from '../types/types.js';
+import type { ParsedSourceFunctionInfo, ParsedSourceFunctions, ParsedSourceStatementInfo, ParsedSourceBranchInfo, SourceRange } from '../types/types.js';
 import { ASCommonFlags, ASNodeKind } from '../types/constants.js';
 import { ASTVisitor } from '../util/ast-visitor.js';
 
@@ -51,6 +53,8 @@ class FunctionExtractorVisitor extends ASTVisitor {
   readonly uniqueFunctions: Record<string, ParsedSourceFunctionInfo> = {};
   /** Accumulated coverable statements, in source order */
   readonly statements: ParsedSourceStatementInfo[] = [];
+  /** Accumulated branch constructs, in source order */
+  readonly branches: ParsedSourceBranchInfo[] = [];
   
   /** Namespace context stack (supports nested namespaces) */
   private namespaceStack: string[] = [];
@@ -209,6 +213,47 @@ class FunctionExtractorVisitor extends ASTVisitor {
   }
 
   /**
+   * Extract branch constructs (Istanbul branch granularity). For each construct:
+   * the whole-construct range (Istanbul branch location), the condition range
+   * (the decision-matching target), and per-arm ranges. An `if` without `else`
+   * gets an implicit second arm (Istanbul convention: the construct range).
+   *
+   * Switch and logical &&/|| are handled in a follow-up pass.
+   */
+  protected onBranch(node: Node): void {
+    if (node.kind === ASNodeKind.If) {
+      const ifNode = node as IfStatement;
+      const range = this.buildRange(ifNode, null);
+      const paths: SourceRange[] = [this.buildRange(ifNode.ifTrue, null)];
+      const implicitPathIndices: number[] = [];
+
+      if (ifNode.ifFalse) {
+        paths.push(this.buildRange(ifNode.ifFalse, null));
+      } else {
+        paths.push(range); // implicit else — Istanbul uses the construct range
+        implicitPathIndices.push(1);
+      }
+
+      this.branches.push({
+        range,
+        branchType: 'if',
+        conditionRange: this.buildRange(ifNode.condition, null),
+        paths,
+        implicitPathIndices,
+      });
+    } else if (node.kind === ASNodeKind.Ternary) {
+      const ternary = node as TernaryExpression;
+      this.branches.push({
+        range: this.buildRange(ternary, null),
+        branchType: 'cond-expr',
+        conditionRange: this.buildRange(ternary.condition, null),
+        paths: [this.buildRange(ternary.ifThen, null), this.buildRange(ternary.ifElse, null)],
+        implicitPathIndices: [],
+      });
+    }
+  }
+
+  /**
    * Check if a function body has statements (non-empty body)
    */
   private hasBodyStatements(body: Node): boolean {
@@ -298,7 +343,7 @@ export function parseSource(
 
   const source = asParser.currentSource;
   if (!source) {
-    return { functionsByLineSpan: {}, uniqueFunctions: {}, statements: [] };
+    return { functionsByLineSpan: {}, uniqueFunctions: {}, statements: [], branches: [] };
   }
 
   // Create visitor and traverse
@@ -309,5 +354,6 @@ export function parseSource(
     functionsByLineSpan: visitor.functionsByLineSpan,
     uniqueFunctions: visitor.uniqueFunctions,
     statements: visitor.statements,
+    branches: visitor.branches,
   };
 }

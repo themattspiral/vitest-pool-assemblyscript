@@ -65,3 +65,85 @@ describe('parseSource — statement extraction', () => {
     expect(statements[0]!.range.startLine).toBe(2);
   });
 });
+
+describe('parseSource — branch extraction (if / ternary)', () => {
+  const branches = (src: string) => parseSource(src, REL, ABS).branches;
+
+  test('if without else: two paths, the implicit else marked', () => {
+    const src = [
+      'export function f(n: i32): i32 {', // 1
+      '  if (n > 0) {',                   // 2  if, condition n > 0
+      '    return 1;',                    // 3  then
+      '  }',                              // 4
+      '  return 0;',                      // 5
+      '}',                                // 6
+    ].join('\n');
+    const b = branches(src);
+    expect(b).toHaveLength(1);
+    expect(b[0]!.branchType).toBe('if');
+    expect(b[0]!.conditionRange.startLine).toBe(2);
+    expect(b[0]!.paths).toHaveLength(2);
+    expect(b[0]!.implicitPathIndices).toEqual([1]); // implicit else
+    // implicit arm uses the construct range (Istanbul convention)
+    expect(b[0]!.paths[1]).toEqual(b[0]!.range);
+  });
+
+  test('if/else: two explicit paths, no implicit', () => {
+    const src = [
+      'export function g(n: i32): i32 {', // 1
+      '  if (n > 0) {',                   // 2
+      '    return 1;',                    // 3  then
+      '  } else {',                       // 4
+      '    return -1;',                   // 5  else
+      '  }',                              // 6
+      '}',                                // 7
+    ].join('\n');
+    const b = branches(src);
+    expect(b).toHaveLength(1);
+    expect(b[0]!.branchType).toBe('if');
+    expect(b[0]!.paths).toHaveLength(2);
+    expect(b[0]!.implicitPathIndices).toEqual([]);
+    // Arm ranges start at the block's `{`, so assert each arm CONTAINS its
+    // distinguishing statement (then → `return 1` line 3; else → `return -1` line 5)
+    // rather than over-fitting to brace positions.
+    const [thenArm, elseArm] = b[0]!.paths;
+    expect(thenArm!.startLine).toBeLessThanOrEqual(3);
+    expect(thenArm!.endLine).toBeGreaterThanOrEqual(3);
+    expect(elseArm!.startLine).toBeLessThanOrEqual(5);
+    expect(elseArm!.endLine).toBeGreaterThanOrEqual(5);
+    expect(elseArm!.startLine).toBeGreaterThan(thenArm!.startLine); // distinct arms
+  });
+
+  test('ternary: cond-expr with two explicit arms', () => {
+    const src = [
+      'export function h(n: i32): i32 {', // 1
+      '  return n > 0 ? 1 : -1;',         // 2  ternary
+      '}',                                // 3
+    ].join('\n');
+    const b = branches(src);
+    expect(b).toHaveLength(1);
+    expect(b[0]!.branchType).toBe('cond-expr');
+    expect(b[0]!.paths).toHaveLength(2);
+    expect(b[0]!.implicitPathIndices).toEqual([]);
+    expect(b[0]!.conditionRange.startLine).toBe(2);
+  });
+
+  test('nested ifs produce one branch each', () => {
+    const src = [
+      'export function k(n: i32): i32 {', // 1
+      '  if (n > 0) {',                   // 2  if #1
+      '    if (n > 10) {',                // 3  if #2 (nested)
+      '      return 2;',                  // 4
+      '    }',                            // 5
+      '    return 1;',                    // 6
+      '  }',                              // 7
+      '  return 0;',                      // 8
+      '}',                                // 9
+    ].join('\n');
+    const b = branches(src);
+    expect(b).toHaveLength(2);
+    expect(b.every((x) => x.branchType === 'if')).toBe(true);
+    // both are if-without-else → each has an implicit arm
+    expect(b.every((x) => x.implicitPathIndices.length === 1)).toBe(true);
+  });
+});

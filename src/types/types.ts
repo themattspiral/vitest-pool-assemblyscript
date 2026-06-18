@@ -535,6 +535,11 @@ export interface ParsedSourceFunctions {
    * order. Iterated source-side during containment matching.
    */
   statements: ParsedSourceStatementInfo[];
+  /**
+   * Branch constructs in the file (D6 set: if, cond-expr, switch, binary-expr),
+   * in source order. Iterated source-side during arm-driven branch matching.
+   */
+  branches: ParsedSourceBranchInfo[];
 }
 
 /**
@@ -571,10 +576,16 @@ export interface ParsedSourceStatementInfo {
  * Binary branch expressions are matched to source branch ranges.
  */
 export interface ParsedSourceBranchInfo {
-  /** Source range for containment matching */
+  /** Whole construct range (the Istanbul branch location) */
   range: SourceRange;
-  /** Type of branch construct */
-  branchType: 'if' | 'ternary' | 'switch' | 'logical';
+  /** Branch construct type (Istanbul naming) */
+  branchType: 'if' | 'cond-expr' | 'switch' | 'binary-expr';
+  /** Condition range — the containment target for matching the decision (D9) */
+  conditionRange: SourceRange;
+  /** Per-arm ranges; an implicit else/default arm uses the construct range (Istanbul convention) */
+  paths: SourceRange[];
+  /** Indices into paths[] for arms with no source body (hits derived, not directly counted) */
+  implicitPathIndices: number[];
 }
 
 // ============================================================================
