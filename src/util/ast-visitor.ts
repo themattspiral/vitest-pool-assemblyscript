@@ -55,6 +55,27 @@ import {
 import { ASNodeKind } from '../types/constants.js';
 
 /**
+ * Node kinds that represent coverable statements (Istanbul statement granularity).
+ * Excludes Block / Empty / ForOf and bare declarations. Variable statements fire
+ * here too; the consumer extracts per-declarator-with-initializer.
+ */
+const STATEMENT_NODE_KINDS: ReadonlySet<number> = new Set<number>([
+  ASNodeKind.Expression,
+  ASNodeKind.Variable,
+  ASNodeKind.Return,
+  ASNodeKind.If,
+  ASNodeKind.While,
+  ASNodeKind.Do,
+  ASNodeKind.For,
+  ASNodeKind.Switch,
+  ASNodeKind.Throw,
+  ASNodeKind.Break,
+  ASNodeKind.Continue,
+  ASNodeKind.Try,
+  ASNodeKind.Void,
+]);
+
+/**
  * Abstract base class for AST visitors.
  *
  * Subclasses override hook methods to perform tasks during traversal:
@@ -80,6 +101,13 @@ export abstract class ASTVisitor {
    * Override to perform pre-visit tasks (e.g., stripping decorators).
    */
   protected beforeVisit(_node: Node): void {}
+
+  /**
+   * Hook called when visiting a coverable statement node (see STATEMENT_NODE_KINDS).
+   * Override to extract statement info. Fires before recursing into children, so
+   * nested statements each fire their own call.
+   */
+  protected onStatement(_node: Node): void {}
 
   /**
    * Hook called when entering a namespace declaration.
@@ -138,6 +166,12 @@ export abstract class ASTVisitor {
   visitNode(node: Node): void {
     // Call pre-visit hook
     this.beforeVisit(node);
+
+    // Statement extraction hook — fires for coverable statement kinds, before
+    // recursing, so nested statements each fire their own call.
+    if (STATEMENT_NODE_KINDS.has(node.kind)) {
+      this.onStatement(node);
+    }
 
     // Recurse into children based on node kind
     switch (node.kind) {

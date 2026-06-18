@@ -530,6 +530,11 @@ export interface NativeAddon {
 export interface ParsedSourceFunctions {
   functionsByLineSpan: Record<number, ParsedSourceFunctionInfo[]>;
   uniqueFunctions: Record<string, ParsedSourceFunctionInfo>;
+  /**
+   * Coverable statements in the file (Istanbul statement granularity), in source
+   * order. Iterated source-side during containment matching.
+   */
+  statements: ParsedSourceStatementInfo[];
 }
 
 /**

@@ -26,10 +26,11 @@ import {
   ClassDeclaration,
   NamespaceDeclaration,
   VariableDeclaration,
+  VariableStatement,
   FunctionExpression,
 } from 'assemblyscript';
 
-import type { ParsedSourceFunctionInfo, ParsedSourceFunctions, SourceRange } from '../types/types.js';
+import type { ParsedSourceFunctionInfo, ParsedSourceFunctions, ParsedSourceStatementInfo, SourceRange } from '../types/types.js';
 import { ASCommonFlags, ASNodeKind } from '../types/constants.js';
 import { ASTVisitor } from '../util/ast-visitor.js';
 
@@ -48,6 +49,8 @@ class FunctionExtractorVisitor extends ASTVisitor {
   readonly functionsByLineSpan: Record<number, ParsedSourceFunctionInfo[]> = {};
   /** Accumulated unique function records, keyed by the function id */
   readonly uniqueFunctions: Record<string, ParsedSourceFunctionInfo> = {};
+  /** Accumulated coverable statements, in source order */
+  readonly statements: ParsedSourceStatementInfo[] = [];
   
   /** Namespace context stack (supports nested namespaces) */
   private namespaceStack: string[] = [];
@@ -185,6 +188,27 @@ class FunctionExtractorVisitor extends ASTVisitor {
   }
 
   /**
+   * Extract coverable statements (Istanbul statement granularity). Variable
+   * statements are recorded per declarator that has an initializer; every other
+   * statement kind is recorded by its full range. The entry-position (the spot a
+   * statement's hit count is read at, D11) is determined later during matching,
+   * where it can be pinned against the real instrumented hit positions.
+   */
+  protected onStatement(node: Node): void {
+    if (node.kind === ASNodeKind.Variable) {
+      const varStmt = node as VariableStatement;
+      for (const decl of varStmt.declarations) {
+        if (decl.initializer) {
+          this.statements.push({ range: this.buildRange(decl, null) });
+        }
+      }
+      return;
+    }
+
+    this.statements.push({ range: this.buildRange(node, null) });
+  }
+
+  /**
    * Check if a function body has statements (non-empty body)
    */
   private hasBodyStatements(body: Node): boolean {
@@ -248,7 +272,22 @@ export async function parseFunctionsFromFile(
   relativeSourceFilePath: string,
 ): Promise<ParsedSourceFunctions> {
   const sourceCode = await readFile(absoluteSourceFilePath, 'utf8');
+  return parseSource(sourceCode, relativeSourceFilePath, absoluteSourceFilePath);
+}
 
+/**
+ * Parse coverage info from AS source code (string). Separated from file I/O so it
+ * can be unit-tested directly without touching the filesystem.
+ *
+ * @param sourceCode - AS source text
+ * @param relativeSourceFilePath - Relative path (used for the module path + parser)
+ * @param absoluteSourceFilePath - Absolute path (stored on each range's filePath)
+ */
+export function parseSource(
+  sourceCode: string,
+  relativeSourceFilePath: string,
+  absoluteSourceFilePath: string,
+): ParsedSourceFunctions {
   // Build the module path (strip any extension, use forward slashes)
   const parsed = parsePath(relativeSourceFilePath);
   const modulePath = parsed.dir ? `${parsed.dir}/${parsed.name}` : parsed.name;
@@ -259,7 +298,7 @@ export async function parseFunctionsFromFile(
 
   const source = asParser.currentSource;
   if (!source) {
-    return { functionsByLineSpan: {}, uniqueFunctions: {} };
+    return { functionsByLineSpan: {}, uniqueFunctions: {}, statements: [] };
   }
 
   // Create visitor and traverse
@@ -268,6 +307,7 @@ export async function parseFunctionsFromFile(
 
   return {
     functionsByLineSpan: visitor.functionsByLineSpan,
-    uniqueFunctions: visitor.uniqueFunctions
+    uniqueFunctions: visitor.uniqueFunctions,
+    statements: visitor.statements,
   };
 }
