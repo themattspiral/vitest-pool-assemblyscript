@@ -87,3 +87,75 @@ export function isPositionInRange(
 
   return true;
 }
+
+/**
+ * A binary hit position's column + count on a given line (bucketed for statement matching).
+ */
+export interface LineHit {
+  column: number;
+  count: number;
+}
+
+/**
+ * Bucket file hit positions ("line:column" → count) by line, so statement
+ * entry-position lookups can scan only the lines a statement spans. Built once
+ * per file (transient — never crosses the RPC boundary).
+ */
+export function buildHitsByLine(fileHitsByPosition: Record<string, number>): Map<number, LineHit[]> {
+  const hitsByLine = new Map<number, LineHit[]>();
+
+  for (const [positionKey, count] of Object.entries(fileHitsByPosition)) {
+    const colonIndex = positionKey.indexOf(':');
+    if (colonIndex < 0) continue;
+
+    const line = parseInt(positionKey.slice(0, colonIndex), 10);
+    const column = parseInt(positionKey.slice(colonIndex + 1), 10);
+    if (Number.isNaN(line) || Number.isNaN(column)) continue;
+
+    const bucket = hitsByLine.get(line);
+    if (bucket) {
+      bucket.push({ column, count });
+    } else {
+      hitsByLine.set(line, [{ column, count }]);
+    }
+  }
+
+  return hitsByLine;
+}
+
+/**
+ * A statement's hit count = the count at its ENTRY: the smallest-position hit
+ * within the statement's range (D11). The entry expression sits at the
+ * statement's start, so the first line of the range that carries an in-range hit
+ * holds the entry (its smallest-column in-range hit). For a compound statement
+ * (if/loop), the body's hits sit at larger positions on later lines, so this
+ * never picks up the hotter body — avoiding the max-over-range error.
+ *
+ * Returns 0 when no hit falls within the range (an uncovered located statement).
+ */
+export function findStatementEntryHitCount(
+  hitsByLine: Map<number, LineHit[]>,
+  range: SourceRange
+): number {
+  for (let line = range.startLine; line <= range.endLine; line++) {
+    const lineHits = hitsByLine.get(line);
+    if (!lineHits) continue;
+
+    let entryColumn = Infinity;
+    let entryCount = 0;
+    let found = false;
+    for (const { column, count } of lineHits) {
+      if (!isPositionInRange(line, column, range)) continue;
+      if (column < entryColumn) {
+        entryColumn = column;
+        entryCount = count;
+        found = true;
+      }
+    }
+
+    // The first range line carrying an in-range hit holds the entry expression.
+    if (found) return entryCount;
+  }
+
+  return 0;
+}
