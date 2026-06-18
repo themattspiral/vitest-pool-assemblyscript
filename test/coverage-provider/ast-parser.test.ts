@@ -189,4 +189,40 @@ describe('parseSource — branch extraction (if / ternary)', () => {
     ].join('\n');
     expect(branches(src)).toEqual([]);
   });
+
+  test('switch with default: one branch, one arm per case clause', () => {
+    const src = [
+      'export function f(n: i32): i32 {', // 1
+      '  switch (n) {',                   // 2  switch, condition n
+      '    case 1: return 10;',           // 3  case 1
+      '    case 2: return 20;',           // 4  case 2
+      '    default: return 0;',           // 5  default
+      '  }',                              // 6
+      '}',                                // 7
+    ].join('\n');
+    const b = branches(src);
+    expect(b).toHaveLength(1);
+    expect(b[0]!.branchType).toBe('switch');
+    expect(b[0]!.conditionRange.startLine).toBe(2);
+    expect(b[0]!.paths).toHaveLength(3); // case 1, case 2, default
+    expect(b[0]!.implicitPathIndices).toEqual([]); // explicit default present
+  });
+
+  test('switch without default: an implicit default arm is added', () => {
+    const src = [
+      'export function g(n: i32): i32 {', // 1
+      '  switch (n) {',                   // 2
+      '    case 1: return 10;',           // 3
+      '    case 2: return 20;',           // 4
+      '  }',                              // 5
+      '  return 0;',                      // 6
+      '}',                                // 7
+    ].join('\n');
+    const b = branches(src);
+    expect(b).toHaveLength(1);
+    expect(b[0]!.branchType).toBe('switch');
+    expect(b[0]!.paths).toHaveLength(3); // case 1, case 2, implicit default
+    expect(b[0]!.implicitPathIndices).toEqual([2]);
+    expect(b[0]!.paths[2]).toEqual(b[0]!.range); // implicit default = construct range
+  });
 });

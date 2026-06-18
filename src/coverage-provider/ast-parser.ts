@@ -31,6 +31,7 @@ import {
   IfStatement,
   TernaryExpression,
   BinaryExpression,
+  SwitchStatement,
 } from 'assemblyscript';
 
 import type { ParsedSourceFunctionInfo, ParsedSourceFunctions, ParsedSourceStatementInfo, ParsedSourceBranchInfo, SourceRange } from '../types/types.js';
@@ -219,8 +220,7 @@ class FunctionExtractorVisitor extends ASTVisitor {
    * (the decision-matching target), and per-arm ranges. An `if` without `else`
    * gets an implicit second arm (Istanbul convention: the construct range).
    * Logical &&/|| are binary-expr branches whose two arms are the operands.
-   *
-   * Switch is handled in a follow-up pass.
+   * Switch arms are the case clauses (+ an implicit default when none is present).
    */
   protected onBranch(node: Node): void {
     if (node.kind === ASNodeKind.If) {
@@ -266,6 +266,33 @@ class FunctionExtractorVisitor extends ASTVisitor {
           implicitPathIndices: [],
         });
       }
+    } else if (node.kind === ASNodeKind.Switch) {
+      const sw = node as SwitchStatement;
+      const range = this.buildRange(sw, null);
+      const paths: SourceRange[] = [];
+      const implicitPathIndices: number[] = [];
+      let hasDefault = false;
+
+      // Each case clause (including default) is an arm. A fallthrough/empty case
+      // is still its own arm; hit attribution is handled later during matching.
+      for (const switchCase of sw.cases) {
+        paths.push(this.buildRange(switchCase, null));
+        if (!switchCase.label) {
+          hasDefault = true; // the default clause has no case label
+        }
+      }
+      if (!hasDefault) {
+        paths.push(range); // implicit default — Istanbul uses the construct range
+        implicitPathIndices.push(paths.length - 1);
+      }
+
+      this.branches.push({
+        range,
+        branchType: 'switch',
+        conditionRange: this.buildRange(sw.condition, null),
+        paths,
+        implicitPathIndices,
+      });
     }
   }
 
