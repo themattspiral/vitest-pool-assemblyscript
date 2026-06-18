@@ -173,11 +173,12 @@ export class HybridCoverageProvider implements CoverageProvider {
         const parsedFunctions = await parseFunctionsFromFile(include.absolute, include.projectRootRelative) || {};
         debug(`[HybridCoverageProvider] Parsed ${Object.keys(parsedFunctions.uniqueFunctions).length} AS source lines with functions in "${include.absolute}"`);
 
-        const fileHitCountsByPosition = this.accumulatedFunctionHits.hitCountsByFileAndPosition[include.absolute] ?? {};
-        debug(`[HybridCoverageProvider] Accumulated AS coverage has ${Object.keys(fileHitCountsByPosition).length} positions for "${include.absolute}"`);
+        const fileFunctionHits = this.accumulatedFunctionHits.hitCountsByFileAndPosition[include.absolute] ?? {};
+        const fileExpressionHits = this.accumulatedExpressionHits.hitCountsByFileAndPosition[include.absolute] ?? {};
+        debug(`[HybridCoverageProvider] Accumulated AS coverage has ${Object.keys(fileFunctionHits).length} function + ${Object.keys(fileExpressionHits).length} statement positions for "${include.absolute}"`);
 
         // Containment matching (binary hit position → source) is performed during istanbul conversion
-        return convertToIstanbulFormat(parsedFunctions, fileHitCountsByPosition, include.absolute, this.resolvedProviderOptions.debugIstanbul);
+        return convertToIstanbulFormat(parsedFunctions, fileFunctionHits, fileExpressionHits, include.absolute, this.resolvedProviderOptions.debugIstanbul);
       });
 
       // Wait for all files to complete

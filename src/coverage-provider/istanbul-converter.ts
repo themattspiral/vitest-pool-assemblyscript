@@ -5,42 +5,46 @@
  * This enables integration with Vitest's coverage reporting system and standard
  * coverage tools like Codecov, Coveralls, etc.
  *
- * Current Implementation: Function-level coverage only
- * - Uses containment matching: binary positions → source function ranges
- * - Each function maps to both a function entry AND a statement entry
- * - Statement coverage matches function coverage (function-level granularity)
+ * Current Implementation: Function + statement coverage
+ * - Functions: containment matching (binary hit position → source function range)
+ * - Statements: each source statement's count read at its entry position
+ *   (smallest-position hit within its range) from block-level expression hits
  * - Branch coverage is 0% (no branches tracked yet)
  * - Line coverage derived from statement coverage
  *
- * Future Enhancement (v2): Block-level statement and branch coverage
+ * Future Enhancement: Branch coverage
  */
 
 import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
 import type { ParsedSourceFunctions } from '../types/types.js';
-import { findFunctionContainingPosition } from './containment-matcher.js';
+import { findFunctionContainingPosition, buildHitsByLine, findStatementEntryHitCount } from './containment-matcher.js';
 import { debugOverride, debug } from '../util/debug.js';
 
 /**
- * Convert AssemblyScript coverage data to Istanbul format for a single file
+ * Convert AssemblyScript coverage data to Istanbul format for a single file.
  *
- * Algorithm (containment matching):
- * 1. For each hit position in fileHitCountsByPosition:
- *    - Use containment matcher to find which source function contains this position
- *    - Record the hit count for that function
- * 2. For each function in allSourceFuncsByPosition (unique collection from fileFunctionsByLineSpan):
- *    - Add function mapping to fnMap
- *    - Add function hit count to f (from matched hits, or 0 if not hit)
- *    - Add corresponding statement mapping to statementMap
- *    - Add same hit count to s (statement coverage matches function coverage)
+ * Function coverage (fnMap / f): for each binary hit position in fileFunctionHits,
+ * containment-match it to the source function whose range contains it; each
+ * source function then gets its matched hit count (or 0 when never hit).
  *
- * @param fileFunctionsByLineSpan - Functions for a single file, indexed by every line they span (from AST parser)
- * @param fileHitCountsByPosition - Hit counts for this file, keyed by position "line:column" (from accumulated coverage)
+ * Statement coverage (statementMap / s): each source statement's count is read at
+ * its entry position — the smallest-position hit within its range, from
+ * fileExpressionHits (see findStatementEntryHitCount). Functions and statements
+ * use independent Istanbul index keyspaces.
+ *
+ * Branch coverage (branchMap / b) is not produced yet.
+ *
+ * @param fileFunctions - Parsed source functions + statements for one file (from the AST parser)
+ * @param fileFunctionHits - Function-level hit counts, keyed by position "line:column"
+ * @param fileExpressionHits - Statement/expression-level hit counts, keyed by position "line:column"
  * @param absoluteFilePath - Absolute path to the source file (for Istanbul output)
+ * @param istanbulDebugEnabled - Enable verbose conversion logging
  * @returns Istanbul FileCoverage object
  */
 export async function convertToIstanbulFormat(
   fileFunctions: ParsedSourceFunctions,
-  fileHitCountsByPosition: Record<string, number>,
+  fileFunctionHits: Record<string, number>,
+  fileExpressionHits: Record<string, number>,
   absoluteFilePath: string,
   istanbulDebugEnabled: boolean
 ): Promise<FileCoverageData> {
@@ -54,7 +58,7 @@ export async function convertToIstanbulFormat(
 
   istanbulDebug(() => {
     const sourceFunctionCount = Object.keys(fileFunctions.uniqueFunctions).length;
-    const uniqueHitPosCount = Object.keys(fileHitCountsByPosition).length;
+    const uniqueHitPosCount = Object.keys(fileFunctionHits).length;
     const coverageEstimate = sourceFunctionCount === 0 ? Infinity : ((uniqueHitPosCount * 100) / sourceFunctionCount).toFixed(2);
 
     return `[IstanbulConverter]   Processing source file: "${absoluteFilePath}"\n`
@@ -66,7 +70,7 @@ export async function convertToIstanbulFormat(
   const functionHitCounts = new Map<string, number>();
 
   // For each actual hit position in the binary, find which source function contains it
-  for (const [hitPositionKey, hitCount] of Object.entries(fileHitCountsByPosition)) {
+  for (const [hitPositionKey, hitCount] of Object.entries(fileFunctionHits)) {
     // Hit position key format is "line:column"
     const parts = hitPositionKey.split(':');
     const lineStr = parts[0];
@@ -145,14 +149,33 @@ export async function convertToIstanbulFormat(
     };
     f[idxStr] = hitCount;
 
-    // Create corresponding statement mapping
-    // For function-level coverage, each function is one "statement"
-    // The statement range matches the function range
-    // This gives us statement coverage at function granularity
-    statementMap[idxStr] = istanbulRange;
-    s[idxStr] = hitCount;
-
     funcIdx++;
+  }
+
+  // Convert statement coverage to Istanbul format. Each source statement's hit
+  // count is read at its ENTRY position (the smallest-position hit within its
+  // range); for a compound statement this is the header/condition, never the
+  // hotter body. Statements use their own index keyspace, independent of fnMap.
+  const expressionHitsByLine = buildHitsByLine(fileExpressionHits);
+  let stmtIdx = 0;
+  for (const { range } of fileFunctions.statements) {
+    // Defensive: skip statements with invalid metadata
+    if (range.startLine === 0) {
+      continue;
+    }
+
+    const hitCount = findStatementEntryHitCount(expressionHitsByLine, range);
+
+    // Internal ranges use 1-based columns; Istanbul expects 0-based.
+    const stmtRange: Range = {
+      start: { line: range.startLine, column: range.startColumn - 1 },
+      end: { line: range.endLine, column: range.endColumn - 1 }
+    };
+
+    const stmtIdxStr = stmtIdx.toString();
+    statementMap[stmtIdxStr] = stmtRange;
+    s[stmtIdxStr] = hitCount;
+    stmtIdx++;
   }
 
   const done = performance.now();
