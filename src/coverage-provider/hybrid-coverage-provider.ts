@@ -43,6 +43,7 @@ export class HybridCoverageProvider implements CoverageProvider {
 
   private v8Provider: CoverageProvider | undefined;
   private accumulatedCoverageData: CoverageData = { hitCountsByFileAndPosition: {} };
+  private accumulatedExpressionHits: CoverageData = { hitCountsByFileAndPosition: {} };
   private projectRoot: string = '';
   private definedCoverageOptions: ResolvedCoverageOptions = {} as ResolvedCoverageOptions;
   private resolvedProviderOptions: ResolvedHybridProviderOptions = {} as ResolvedHybridProviderOptions;
@@ -85,7 +86,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     // Check for AssemblyScript format marker
     if (format === COVERAGE_PAYLOAD_FORMATS.AssemblyScript) {
       const payload = meta.coverage as AssemblyScriptCoveragePayload;
-      const { coverageData, suiteLogLabel: label } = payload;
+      const { coverageData, expressionHits, suiteLogLabel: label } = payload;
       suiteLogLabel = label;
 
       debug(() => {
@@ -97,6 +98,13 @@ export class HybridCoverageProvider implements CoverageProvider {
 
       // Merge incoming coverage data into accumulated (by position, summing hit counts)
       mergeCoverageData(this.accumulatedCoverageData, coverageData);
+      mergeCoverageData(this.accumulatedExpressionHits, expressionHits);
+
+      debug(() => {
+        const positionCount = Object.values(this.accumulatedExpressionHits.hitCountsByFileAndPosition)
+          .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
+        return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun - Accumulated statement hits: ${positionCount} unique positions`;
+      });
 
       debug(() => {
         const fileCount = Object.keys(this.accumulatedCoverageData.hitCountsByFileAndPosition).length;
@@ -289,6 +297,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     debug('[HybridCoverageProvider] Clean coverage data - clean:', clean);
     if (clean) {
       this.accumulatedCoverageData = { hitCountsByFileAndPosition: {} };
+      this.accumulatedExpressionHits = { hitCountsByFileAndPosition: {} };
       debug('[HybridCoverageProvider] Cleaned all internal coverage data');
     }
 

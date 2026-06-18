@@ -322,7 +322,10 @@ export interface CoverageData {
  */
 export interface AssemblyScriptCoveragePayload {
   readonly __format: typeof COVERAGE_PAYLOAD_FORMATS.AssemblyScript;
+  /** Function-level hits (keyed by each function's representative source position). */
   coverageData: CoverageData;
+  /** Statement/expression-level hits (block counters attributed to source positions). */
+  expressionHits: CoverageData;
   suiteLogLabel: string;
 }
 

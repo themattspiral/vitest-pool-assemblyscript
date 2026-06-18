@@ -135,6 +135,7 @@ export async function reportSuiteFinished(
     const coverage: AssemblyScriptCoveragePayload = {
       __format: COVERAGE_PAYLOAD_FORMATS.AssemblyScript,
       coverageData: meta.coverageData!,
+      expressionHits: meta.expressionHits ?? { hitCountsByFileAndPosition: {} },
       suiteLogLabel: suiteLabel
     };
     

@@ -260,6 +260,7 @@ export async function runSuite(
 
     // initialize aggregated coverage data for suite, which gets updated as each subtask completes
     suiteMeta.coverageData = { hitCountsByFileAndPosition: {} };
+    suiteMeta.expressionHits = { hitCountsByFileAndPosition: {} };
     debug(`${suiteLogPrefix} - Initialized empty suite coverage data`);
 
     let tasksToRun: Task[] = getRunnableTasks(suite);
@@ -278,7 +279,10 @@ export async function runSuite(
         if (suiteMeta.coverageData && suiteTaskMeta.coverageData) {
           mergeCoverageData(suiteMeta.coverageData, suiteTaskMeta.coverageData);
         }
-        
+        if (suiteMeta.expressionHits && suiteTaskMeta.expressionHits) {
+          mergeCoverageData(suiteMeta.expressionHits, suiteTaskMeta.expressionHits);
+        }
+
       } else {
         const testLogPrefix = getTaskLogPrefix(logModule, base, task);
         const testTaskMeta = task.meta as AssemblyScriptTestTaskMeta;
@@ -344,6 +348,9 @@ export async function runSuite(
         // merge test coverage into suite coverage
         if (suiteMeta.coverageData && testTaskMeta.coverageData) {
           mergeCoverageData(suiteMeta.coverageData, testTaskMeta.coverageData);
+        }
+        if (suiteMeta.expressionHits && testTaskMeta.expressionHits) {
+          mergeCoverageData(suiteMeta.expressionHits, testTaskMeta.expressionHits);
         }
       }
     }
