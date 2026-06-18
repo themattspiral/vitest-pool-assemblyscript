@@ -323,7 +323,7 @@ export interface CoverageData {
 export interface AssemblyScriptCoveragePayload {
   readonly __format: typeof COVERAGE_PAYLOAD_FORMATS.AssemblyScript;
   /** Function-level hits (keyed by each function's representative source position). */
-  coverageData: CoverageData;
+  functionHits: CoverageData;
   /** Statement/expression-level hits (block counters attributed to source positions). */
   expressionHits: CoverageData;
   suiteLogLabel: string;
@@ -623,11 +623,11 @@ export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
   defaultTestOptions: AssemblyScriptTestOptions;
   suitePreparedSent: boolean;
   resultFinal: boolean;
-  coverageData?: CoverageData;
+  functionHits?: CoverageData;
   /**
    * Statement/expression-level coverage: block counters attributed to source
    * positions (per-instance MAX across a function instance's same-position
-   * blocks, then SUM across monomorphizations — D5). Same shape as coverageData,
+   * blocks, then SUM across monomorphizations — D5). Same shape as functionHits,
    * so it merges up the suite tree via mergeCoverageData and survives the
    * timeout-resume thread boundary as a plain object.
    */
@@ -640,10 +640,10 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   assertionsPassedCount: number;
   assertionsFailed: FailedAssertion[];
   resultFinal: boolean;
-  coverageData?: CoverageData;
+  functionHits?: CoverageData;
   /**
    * Statement/expression-level coverage (block counters attributed to source
-   * positions). Same shape as coverageData. See AssemblyScriptSuiteTaskMeta.
+   * positions). Same shape as functionHits. See AssemblyScriptSuiteTaskMeta.
    */
   expressionHits?: CoverageData;
   lastError?: AssemblyScriptTestError;

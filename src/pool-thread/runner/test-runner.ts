@@ -259,7 +259,7 @@ export async function runSuite(
     }
 
     // initialize aggregated coverage data for suite, which gets updated as each subtask completes
-    suiteMeta.coverageData = { hitCountsByFileAndPosition: {} };
+    suiteMeta.functionHits = { hitCountsByFileAndPosition: {} };
     suiteMeta.expressionHits = { hitCountsByFileAndPosition: {} };
     debug(`${suiteLogPrefix} - Initialized empty suite coverage data`);
 
@@ -276,8 +276,8 @@ export async function runSuite(
         );
 
         // merge suite task coverage into parent suite coverage
-        if (suiteMeta.coverageData && suiteTaskMeta.coverageData) {
-          mergeCoverageData(suiteMeta.coverageData, suiteTaskMeta.coverageData);
+        if (suiteMeta.functionHits && suiteTaskMeta.functionHits) {
+          mergeCoverageData(suiteMeta.functionHits, suiteTaskMeta.functionHits);
         }
         if (suiteMeta.expressionHits && suiteTaskMeta.expressionHits) {
           mergeCoverageData(suiteMeta.expressionHits, suiteTaskMeta.expressionHits);
@@ -346,8 +346,8 @@ export async function runSuite(
         }
 
         // merge test coverage into suite coverage
-        if (suiteMeta.coverageData && testTaskMeta.coverageData) {
-          mergeCoverageData(suiteMeta.coverageData, testTaskMeta.coverageData);
+        if (suiteMeta.functionHits && testTaskMeta.functionHits) {
+          mergeCoverageData(suiteMeta.functionHits, testTaskMeta.functionHits);
         }
         if (suiteMeta.expressionHits && testTaskMeta.expressionHits) {
           mergeCoverageData(suiteMeta.expressionHits, testTaskMeta.expressionHits);

@@ -424,7 +424,7 @@ export function resetTestForRetry(test: Test, startTime: number): void {
   delete meta.lastErrorRawCallStack;
   delete meta.lastErrorCallStackRef;
   delete meta.lastTimeoutTerminationTime;
-  delete meta.coverageData;
+  delete meta.functionHits;
 }
 
 

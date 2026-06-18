@@ -127,14 +127,14 @@ export async function reportSuiteFinished(
   const suiteLabel = getTaskLogLabel(base, suite);
   const rpcLogPrefix = `[${logModule} RPC] ${suiteLabel}`;
   const meta = suite.meta as AssemblyScriptSuiteTaskMeta;
-  const coverageKeys: number = Object.keys(meta.coverageData?.hitCountsByFileAndPosition ?? {}).length;
+  const coverageKeys: number = Object.keys(meta.functionHits?.hitCountsByFileAndPosition ?? {}).length;
   let coveragePromise: Promise<void> = Promise.resolve();
   
   // Report coverage if this is a file task, and coverage is available
   if (isSuiteOwnFile(suite) && coverageKeys > 0) {
     const coverage: AssemblyScriptCoveragePayload = {
       __format: COVERAGE_PAYLOAD_FORMATS.AssemblyScript,
-      coverageData: meta.coverageData!,
+      functionHits: meta.functionHits!,
       expressionHits: meta.expressionHits ?? { hitCountsByFileAndPosition: {} },
       suiteLogLabel: suiteLabel
     };

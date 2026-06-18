@@ -352,7 +352,7 @@ export async function executeWASMTest(
       }
     }
 
-    meta.coverageData = coverage;
+    meta.functionHits = coverage;
 
     // Build statement/expression coverage from block counters (D5 aggregation:
     // per-instance MAX over same-position blocks, then SUM across monomorphizations).
