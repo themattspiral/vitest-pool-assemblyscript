@@ -172,14 +172,9 @@ class FunctionExtractorVisitor extends ASTVisitor {
         const shortName = node.name.text;
         const qualifiedName = `${this.modulePath}/${shortName}`;
 
-        // Use the variable declaration's range
-        const range: SourceRange = {
-          filePath: this.filePath,
-          startLine: this.source.lineAt(node.range.start),
-          startColumn: this.source.columnAt(),
-          endLine: this.source.lineAt(node.range.end),
-          endColumn: this.source.columnAt(),
-        };
+        // Use the variable declaration's range (routed through buildRange so the
+        // lineAt/columnAt call-order contract lives in exactly one place)
+        const range = this.buildRange(node, null);
 
         this.addFunction(qualifiedName, shortName, range);
       }
