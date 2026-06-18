@@ -21,7 +21,7 @@ import { enhanceTestError } from './wasm-errors.js';
 import { createPoolError, wrapPoolError } from '../util/pool-errors.js';
 import { failTestRuntimeError, getTaskLogLabel } from '../util/vitest-tasks.js';
 import { extractCallStack } from './source-maps.js';
-import { buildExpressionHits } from './coverage-extraction.js';
+import { buildExpressionHits, buildBranchHits } from './coverage-extraction.js';
 
 const SIG_MISMATCH_ERROR_MSG = `WASM function signature type mismatch during test collection.`
   + ` This is most likely caused by passing a type-inferred, non-void callback to expect().`
@@ -358,8 +358,13 @@ export async function executeWASMTest(
     // per-instance MAX over same-position blocks, then SUM across monomorphizations).
     meta.expressionHits = buildExpressionHits(compilation.debugInfo, extractedHitCounters);
 
+    // Build branch coverage from decision/arm block counters (per-decision arm
+    // hits + decisionHits; SUM across monomorphizations).
+    meta.branchHits = buildBranchHits(compilation.debugInfo, extractedHitCounters);
+
     debug(`${logPrefix} - Extracted coverage data | ${functionsHit} functions hit`
-      + ` | ${Object.keys(meta.expressionHits.hitCountsByFileAndPosition).length} file(s) with statement hits`);
+      + ` | ${Object.keys(meta.expressionHits.hitCountsByFileAndPosition).length} file(s) with statement hits`
+      + ` | ${Object.keys(meta.branchHits.hitsByFileAndDecision).length} file(s) with branch hits`);
   }
 
   testTimings.fnfinal = performance.now();

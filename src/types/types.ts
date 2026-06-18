@@ -316,6 +316,49 @@ export interface CoverageData {
 }
 
 /**
+ * Hit count for one branch arm (a decision's out-edge target block), plus the
+ * source location of that arm's entry expression.
+ *
+ * The location is the containment-match target that maps this binary arm to a
+ * source branch arm (D9). Only LOCATED arm targets are emitted — an arm with
+ * source code has a located entry block; an arm with no source body (implicit
+ * else / implicit default) has no located block and is derived provider-side.
+ */
+export interface BranchTargetHits {
+  hits: number;
+  location: SourceLocation;
+}
+
+/**
+ * Hit counts for one binary branch decision (a CFG block with out-degree ≥ 2).
+ *
+ * - `decisionHits` — the decision's own evaluation count. `null` when the
+ *   decision block carries no counter: the fused-logical case, where an
+ *   `if`/loop/ternary branches on a synthetic `&&`/`||` result and so has no
+ *   located/anchored expression of its own. The provider then derives it from
+ *   the condition's leftmost-atom (= condition-range entry) hit count.
+ * - `targets` — per-arm hit counts of the decision's located out-edge targets.
+ */
+export interface BranchPathHits {
+  decisionHits: number | null;
+  targets: BranchTargetHits[];
+}
+
+/**
+ * Branch hit counts collected during test execution.
+ *
+ * Outer Record: keyed by absolute file path.
+ * Inner Record: keyed by a decision key — a canonical (sorted) composite of the
+ * decision's located arm-target positions (e.g. "47:9|49:3"). Source-derived, so
+ * it is stable across binaries, works when the decision block itself is unlocated,
+ * and makes identical positions across monomorphizations resolve to the same
+ * branch (correct cross-instance SUM, not a false collision).
+ */
+export interface BranchHits {
+  hitsByFileAndDecision: Record<string, Record<string, BranchPathHits>>;
+}
+
+/**
  * Coverage payload sent via RPC from worker to hybrid coverage provider
  *
  * The __format marker distinguishes AS coverage from JS coverage in onAfterSuiteRun.
@@ -326,6 +369,8 @@ export interface AssemblyScriptCoveragePayload {
   functionHits: CoverageData;
   /** Statement/expression-level hits (block counters attributed to source positions). */
   expressionHits: CoverageData;
+  /** Branch-level hits (per decision: decisionHits + per-arm target hits). */
+  branchHits: BranchHits;
   suiteLogLabel: string;
 }
 
@@ -623,6 +668,12 @@ export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
    * timeout-resume thread boundary as a plain object.
    */
   expressionHits?: CoverageData;
+  /**
+   * Branch-level coverage: per-decision arm hit counts + decisionHits. Merges up
+   * the suite tree via mergeBranchHits (SUM across tests) and survives the
+   * timeout-resume thread boundary as a plain object.
+   */
+  branchHits?: BranchHits;
 }
 
 export interface AssemblyScriptTestTaskMeta extends TaskMeta {
@@ -637,6 +688,8 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
    * positions). Same shape as functionHits. See AssemblyScriptSuiteTaskMeta.
    */
   expressionHits?: CoverageData;
+  /** Branch-level coverage (per-decision arm hits + decisionHits). See AssemblyScriptSuiteTaskMeta. */
+  branchHits?: BranchHits;
   lastError?: AssemblyScriptTestError;
   lastErrorValuesProvided?: boolean;
   lastErrorRawCallStack?: NodeJS.CallSite[];

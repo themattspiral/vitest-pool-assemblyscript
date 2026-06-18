@@ -1,8 +1,9 @@
 import { describe, test, expect } from 'vitest';
 
-import { buildExpressionHits } from '../../src/wasm-executor/coverage-extraction.js';
+import { buildExpressionHits, buildBranchHits } from '../../src/wasm-executor/coverage-extraction.js';
 import type {
   BinaryDebugInfo,
+  BranchHits,
   FunctionDebugInfo,
   ExpressionDebugInfo,
   BasicBlockDebugInfo,
@@ -153,5 +154,167 @@ describe('buildExpressionHits', () => {
       totalInstrumentationCounters: 0,
     };
     expect(buildExpressionHits(di, []).hitCountsByFileAndPosition).toEqual({});
+  });
+});
+
+// ── Decision-block builder for branch tests ──
+
+function decisionBlock(
+  index: number,
+  coverageMemoryIndex: number | undefined,
+  expressionIndices: number[],
+  targetBlockIndices: number[],
+): BasicBlockDebugInfo {
+  return {
+    index,
+    isDecision: true,
+    expressionIndices,
+    branches: targetBlockIndices.map(targetBlockIndex => ({ targetBlockIndex })),
+    coverageMemoryIndex,
+  };
+}
+
+const branchesOf = (result: BranchHits) => result.hitsByFileAndDecision[FILE] ?? {};
+const loc = (line: number, column: number) => ({ filePath: FILE, line, column });
+
+describe('buildBranchHits', () => {
+  test('records decisionHits + per-arm hits for a decision with two located arms', () => {
+    // block 0 = decision (counter 3, condition expr[2] @ 9:7) → arms blocks 1, 2
+    // block 1 = then arm (counter 4, expr[0] @ 10:3); block 2 = else arm (counter 5, expr[1] @ 12:5)
+    const di = debugInfoFor([
+      func(
+        [expr(10, 3), expr(12, 5), expr(9, 7)],
+        [decisionBlock(0, 3, [2], [1, 2]), block(1, 4, [0]), block(2, 5, [1])],
+      ),
+    ]);
+    const counters = new Array(32).fill(0);
+    counters[3] = 10; // decisionHits
+    counters[4] = 6;  // then arm
+    counters[5] = 4;  // else arm
+
+    expect(branchesOf(buildBranchHits(di, counters))).toEqual({
+      '10:3|12:5': {
+        decisionHits: 10,
+        targets: [
+          { hits: 6, location: loc(10, 3) },
+          { hits: 4, location: loc(12, 5) },
+        ],
+      },
+    });
+  });
+
+  test('decisionHits is null when the decision block has no counter (fused-logical)', () => {
+    // decision block (out-degree 2) with NO coverageMemoryIndex — an `if (a && b)`
+    // whose decision branches on the synthetic logical result; arms are located.
+    const di = debugInfoFor([
+      func(
+        [expr(10, 3), expr(12, 5)],
+        [decisionBlock(0, undefined, [], [1, 2]), block(1, 4, [0]), block(2, 5, [1])],
+      ),
+    ]);
+    const counters = new Array(32).fill(0);
+    counters[4] = 3;
+    counters[5] = 2;
+
+    expect(branchesOf(buildBranchHits(di, counters))).toEqual({
+      '10:3|12:5': {
+        decisionHits: null,
+        targets: [
+          { hits: 3, location: loc(10, 3) },
+          { hits: 2, location: loc(12, 5) },
+        ],
+      },
+    });
+  });
+
+  test('omits unlocated arm targets (implicit else/default — derived provider-side)', () => {
+    // block 2 is the implicit-else/merge target: counter but NO located expression.
+    const di = debugInfoFor([
+      func(
+        [expr(10, 3)],
+        [decisionBlock(0, 3, [], [1, 2]), block(1, 4, [0]), block(2, 5, [])],
+      ),
+    ]);
+    const counters = new Array(32).fill(0);
+    counters[3] = 8;
+    counters[4] = 5;
+    counters[5] = 99; // merge block count — not emitted (over-counts; derived instead)
+
+    expect(branchesOf(buildBranchHits(di, counters))).toEqual({
+      // key is the located arm only
+      '10:3': {
+        decisionHits: 8,
+        targets: [{ hits: 5, location: loc(10, 3) }],
+      },
+    });
+  });
+
+  test('drops a decision entirely when it has no located arms', () => {
+    const di = debugInfoFor([
+      func([], [decisionBlock(0, 3, [], [1, 2]), block(1, 4, []), block(2, 5, [])]),
+    ]);
+    const counters = new Array(32).fill(0);
+    counters[3] = 8; counters[4] = 5; counters[5] = 3;
+
+    expect(branchesOf(buildBranchHits(di, counters))).toEqual({});
+  });
+
+  test('SUMs arm hits and decisionHits across monomorphizations of one source branch', () => {
+    // Two instances at the same source position 20:1, identical arm positions.
+    const instanceA = func(
+      [expr(10, 3), expr(12, 5)],
+      [decisionBlock(0, 3, [], [1, 2]), block(1, 4, [0]), block(2, 5, [1])],
+      'pick<i32>',
+    );
+    const instanceB = func(
+      [expr(10, 3), expr(12, 5)],
+      [decisionBlock(0, 6, [], [1, 2]), block(1, 7, [0]), block(2, 8, [1])],
+      'pick<f64>',
+    );
+    const di = debugInfoFor([instanceA, instanceB], '20:1');
+    const counters = new Array(32).fill(0);
+    counters[3] = 3; counters[4] = 2; counters[5] = 1; // instance A
+    counters[6] = 4; counters[7] = 1; counters[8] = 3; // instance B
+
+    expect(branchesOf(buildBranchHits(di, counters))).toEqual({
+      '10:3|12:5': {
+        decisionHits: 7, // 3 + 4
+        targets: [
+          { hits: 3, location: loc(10, 3) }, // 2 + 1
+          { hits: 4, location: loc(12, 5) }, // 1 + 3
+        ],
+      },
+    });
+  });
+
+  test('null decisionHits stays null across monomorphizations', () => {
+    const a = func([expr(10, 3), expr(12, 5)],
+      [decisionBlock(0, undefined, [], [1, 2]), block(1, 4, [0]), block(2, 5, [1])], 'f<i32>');
+    const b = func([expr(10, 3), expr(12, 5)],
+      [decisionBlock(0, undefined, [], [1, 2]), block(1, 6, [0]), block(2, 7, [1])], 'f<u8>');
+    const di = debugInfoFor([a, b], '20:1');
+    const counters = new Array(32).fill(0);
+    counters[4] = 1; counters[5] = 1; counters[6] = 1; counters[7] = 1;
+
+    expect(branchesOf(buildBranchHits(di, counters))['10:3|12:5']?.decisionHits).toBeNull();
+  });
+
+  test('ignores non-decision blocks', () => {
+    // No isDecision block → no branch hits even though blocks have counters.
+    const di = debugInfoFor([func([expr(10, 3)], [block(0, 4, [0])])]);
+    const counters = new Array(32).fill(0);
+    counters[4] = 9;
+
+    expect(branchesOf(buildBranchHits(di, counters))).toEqual({});
+  });
+
+  test('returns empty map when there are no instrumented functions', () => {
+    const di: BinaryDebugInfo = {
+      debugSourceFiles: [],
+      functionsByFileAndPosition: {},
+      instrumentedFunctionCount: 0,
+      totalInstrumentationCounters: 0,
+    };
+    expect(buildBranchHits(di, []).hitsByFileAndDecision).toEqual({});
   });
 });

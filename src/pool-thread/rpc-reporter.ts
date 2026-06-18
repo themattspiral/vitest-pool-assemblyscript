@@ -136,6 +136,7 @@ export async function reportSuiteFinished(
       __format: COVERAGE_PAYLOAD_FORMATS.AssemblyScript,
       functionHits: meta.functionHits!,
       expressionHits: meta.expressionHits ?? { hitCountsByFileAndPosition: {} },
+      branchHits: meta.branchHits ?? { hitsByFileAndDecision: {} },
       suiteLogLabel: suiteLabel
     };
     

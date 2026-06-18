@@ -1,10 +1,10 @@
 /**
  * Coverage Data Merge Utilities
  *
- * Functions for merging CoverageData objects
+ * Functions for merging CoverageData and BranchHits objects
  */
 
-import type { CoverageData } from '../types/types.js';
+import type { BranchHits, BranchPathHits, CoverageData } from '../types/types.js';
 
 /**
  * Merge incoming CoverageData into accumulated CoverageData
@@ -34,6 +34,82 @@ export function mergeCoverageData(
       } else {
         // New position - set hit count
         accumulatedPositions[positionKey] = hitCount;
+      }
+    }
+  }
+}
+
+/**
+ * Position key ("line:column") for a branch arm target, used to merge arm hit
+ * counts by source position rather than by array index (edge order is not stable
+ * across instances).
+ */
+function targetPositionKey(target: BranchPathHits['targets'][number]): string {
+  return `${target.location.line}:${target.location.column}`;
+}
+
+/**
+ * Merge one BranchPathHits (a single decision's hits) into an accumulated one.
+ *
+ * - decisionHits: a decision either always carries a counter or never does (a
+ *   property of how its source construct lowers, identical across instances and
+ *   tests), so `null` (binary-unmeasurable, derived provider-side) stays `null`;
+ *   otherwise SUM.
+ * - targets: matched by source position (not array index) and SUMmed; new arm
+ *   positions are appended. (A located arm seen in one instance/test but not
+ *   another simply carries through.)
+ *
+ * Mutates `accumulated` in place.
+ */
+export function mergeBranchPathHits(
+  accumulated: BranchPathHits,
+  incoming: BranchPathHits
+): void {
+  if (accumulated.decisionHits === null || incoming.decisionHits === null) {
+    accumulated.decisionHits = null;
+  } else {
+    accumulated.decisionHits += incoming.decisionHits;
+  }
+
+  for (const incomingTarget of incoming.targets) {
+    const key = targetPositionKey(incomingTarget);
+    const existing = accumulated.targets.find(t => targetPositionKey(t) === key);
+    if (existing) {
+      existing.hits += incomingTarget.hits;
+    } else {
+      accumulated.targets.push({ hits: incomingTarget.hits, location: incomingTarget.location });
+    }
+  }
+}
+
+/**
+ * Merge incoming BranchHits into accumulated BranchHits.
+ *
+ * Combines by file path + decision key, summing arm hits and decisionHits via
+ * mergeBranchPathHits. Mutates the accumulated object in place. Used both to
+ * accumulate per-test branch hits up the suite tree and across files in the
+ * provider.
+ *
+ * @param accumulated - Accumulated branch hits (mutated)
+ * @param incoming - New branch hits to merge in
+ */
+export function mergeBranchHits(
+  accumulated: BranchHits,
+  incoming: BranchHits
+): void {
+  for (const [filePath, decisions] of Object.entries(incoming.hitsByFileAndDecision)) {
+    const accumulatedDecisions = (accumulated.hitsByFileAndDecision[filePath] ??= {});
+
+    for (const [decisionKey, pathHits] of Object.entries(decisions)) {
+      const existing = accumulatedDecisions[decisionKey];
+      if (existing) {
+        mergeBranchPathHits(existing, pathHits);
+      } else {
+        // Copy so the accumulated object never aliases the incoming payload.
+        accumulatedDecisions[decisionKey] = {
+          decisionHits: pathHits.decisionHits,
+          targets: pathHits.targets.map(t => ({ hits: t.hits, location: t.location })),
+        };
       }
     }
   }
