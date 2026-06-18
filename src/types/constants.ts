@@ -167,15 +167,18 @@ type NodeKindMap = Record<keyof typeof AS.NodeKind, number>;
 type CommonFlagsMap = Record<keyof typeof AS.CommonFlags, number>;
 type DecoratorKindMap = Record<keyof typeof AS.DecoratorKind, number>;
 type SourceKindMap = Record<keyof typeof AS.SourceKind, number>;
+type TokenMap = Record<keyof typeof AS.Token, number>;
 
 const asRuntime = ascript as unknown as {
   NodeKind: NodeKindMap;
   CommonFlags: CommonFlagsMap;
   DecoratorKind: DecoratorKindMap;
   SourceKind: SourceKindMap;
+  Token: TokenMap;
 };
 
 export const ASNodeKind: NodeKindMap = asRuntime.NodeKind;
 export const ASCommonFlags: CommonFlagsMap = asRuntime.CommonFlags;
 export const ASDecoratorKind: DecoratorKindMap = asRuntime.DecoratorKind;
 export const ASSourceKind: SourceKindMap = asRuntime.SourceKind;
+export const ASToken: TokenMap = asRuntime.Token;

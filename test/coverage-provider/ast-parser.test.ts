@@ -146,4 +146,47 @@ describe('parseSource — branch extraction (if / ternary)', () => {
     // both are if-without-else → each has an implicit arm
     expect(b.every((x) => x.implicitPathIndices.length === 1)).toBe(true);
   });
+
+  test('logical && is a binary-expr branch with two operand arms', () => {
+    const src = [
+      'export function f(a: bool, b: bool): bool {', // 1
+      '  return a && b;',                            // 2  &&
+      '}',                                           // 3
+    ].join('\n');
+    const b = branches(src);
+    expect(b).toHaveLength(1);
+    expect(b[0]!.branchType).toBe('binary-expr');
+    expect(b[0]!.paths).toHaveLength(2);
+    expect(b[0]!.implicitPathIndices).toEqual([]);
+  });
+
+  test('logical || is a binary-expr branch', () => {
+    const src = 'export function f(a: bool, b: bool): bool {\n  return a || b;\n}\n';
+    const b = branches(src);
+    expect(b).toHaveLength(1);
+    expect(b[0]!.branchType).toBe('binary-expr');
+  });
+
+  test('if with a logical condition yields both the && and the if as branches', () => {
+    const src = [
+      'export function g(a: bool, b: bool): i32 {', // 1
+      '  if (a && b) {',                            // 2  && + if
+      '    return 1;',                              // 3
+      '  }',                                        // 4
+      '  return 0;',                                // 5
+      '}',                                          // 6
+    ].join('\n');
+    const types = branches(src).map((x) => x.branchType).sort();
+    expect(types).toEqual(['binary-expr', 'if']);
+  });
+
+  test('arithmetic and comparison binaries are NOT branches', () => {
+    const src = [
+      'export function h(a: i32, b: i32): bool {', // 1
+      '  let sum = a + b;',                        // 2  + (not a branch)
+      '  return sum > 0 == (a == b);',             // 3  >, == (not branches)
+      '}',                                         // 4
+    ].join('\n');
+    expect(branches(src)).toEqual([]);
+  });
 });

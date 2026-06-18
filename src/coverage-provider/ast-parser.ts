@@ -30,10 +30,11 @@ import {
   FunctionExpression,
   IfStatement,
   TernaryExpression,
+  BinaryExpression,
 } from 'assemblyscript';
 
 import type { ParsedSourceFunctionInfo, ParsedSourceFunctions, ParsedSourceStatementInfo, ParsedSourceBranchInfo, SourceRange } from '../types/types.js';
-import { ASCommonFlags, ASNodeKind } from '../types/constants.js';
+import { ASCommonFlags, ASNodeKind, ASToken } from '../types/constants.js';
 import { ASTVisitor } from '../util/ast-visitor.js';
 
 /**
@@ -217,8 +218,9 @@ class FunctionExtractorVisitor extends ASTVisitor {
    * the whole-construct range (Istanbul branch location), the condition range
    * (the decision-matching target), and per-arm ranges. An `if` without `else`
    * gets an implicit second arm (Istanbul convention: the construct range).
+   * Logical &&/|| are binary-expr branches whose two arms are the operands.
    *
-   * Switch and logical &&/|| are handled in a follow-up pass.
+   * Switch is handled in a follow-up pass.
    */
   protected onBranch(node: Node): void {
     if (node.kind === ASNodeKind.If) {
@@ -250,6 +252,20 @@ class FunctionExtractorVisitor extends ASTVisitor {
         paths: [this.buildRange(ternary.ifThen, null), this.buildRange(ternary.ifElse, null)],
         implicitPathIndices: [],
       });
+    } else if (node.kind === ASNodeKind.Binary) {
+      // Only logical operators (&& / ||) are branches (binary-expr); arithmetic
+      // and comparison binaries are not. The two operands are the two arms; the
+      // short-circuit decision happens on the left operand.
+      const binary = node as BinaryExpression;
+      if (binary.operator === ASToken.Ampersand_Ampersand || binary.operator === ASToken.Bar_Bar) {
+        this.branches.push({
+          range: this.buildRange(binary, null),
+          branchType: 'binary-expr',
+          conditionRange: this.buildRange(binary.left, null),
+          paths: [this.buildRange(binary.left, null), this.buildRange(binary.right, null)],
+          implicitPathIndices: [],
+        });
+      }
     }
   }
 
