@@ -54,11 +54,24 @@ export interface MetaRunResults {
 
 // --- Coverage data types (from coverage-final.json / Istanbul format) ---
 
+export interface SourceSpan {
+  start: { line: number; column: number };
+  end: { line: number; column: number };
+}
+
 export interface FunctionInfo {
   name: string;
-  decl: { start: { line: number; column: number }; end: { line: number; column: number } };
-  loc: { start: { line: number; column: number }; end: { line: number; column: number } };
+  decl: SourceSpan;
+  loc: SourceSpan;
   line: number;
+}
+
+/** Istanbul branchMap entry: branch type + whole-construct loc + per-arm locations. */
+export interface BranchInfo {
+  type: string;
+  line: number;
+  loc: SourceSpan;
+  locations: SourceSpan[];
 }
 
 export interface FileCoverage {
@@ -67,8 +80,9 @@ export interface FileCoverage {
   f: Record<string, number>;
   statementMap: Record<string, unknown>;
   s: Record<string, number>;
-  branchMap: Record<string, unknown>;
-  b: Record<string, number>;
+  branchMap: Record<string, BranchInfo>;
+  /** Per-branch arm hit counts: one entry per branch id, each a per-arm count array. */
+  b: Record<string, number[]>;
 }
 
 export type CoverageMap = Record<string, FileCoverage>;
@@ -604,4 +618,18 @@ export function totalFunctions(entry: FileCoverage): number {
  */
 export function functionInfo(entry: FileCoverage, funcName: string): FunctionInfo | undefined {
   return Object.values(entry.fnMap).find(fn => fn.name === funcName);
+}
+
+/**
+ * Per-arm branch hit-count arrays for all branches of a given Istanbul branch
+ * type ('if', 'cond-expr', 'switch', 'binary-expr'), ordered by source line.
+ * Each element is that branch's `b` array (one count per arm, in source order),
+ * so multiple branches of the same type are distinguished by their position in
+ * the returned list.
+ */
+export function branchHitsByType(entry: FileCoverage, type: string): number[][] {
+  return Object.entries(entry.branchMap)
+    .filter(([, info]) => info.type === type)
+    .sort(([, a], [, b]) => a.loc.start.line - b.loc.start.line)
+    .map(([id]) => entry.b[id] ?? []);
 }
