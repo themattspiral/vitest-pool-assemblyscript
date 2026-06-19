@@ -67,6 +67,10 @@ struct BasicBlockInfo {
   Expression* anchorExpr = nullptr;        // First expression in the block (entry-anchor for counter injection).
                                            // May be unlocated (e.g. an `if` consuming a logical result).
   int32_t coverageMemoryIndex = -1;        // Assigned block counter slot (region 2); -1 = block not instrumented.
+  Expression* postAnchorExpr = nullptr;    // Empty fall-through blocks (e.g. an empty switch case) have no
+                                           // expression of their own. This is the named Block they fall out
+                                           // of; the counter is injected AFTER it (post-anchored), so it
+                                           // increments exactly when control branches/falls to that block's end.
 };
 
 // Data structure to collect function info during instrumentation
@@ -103,7 +107,25 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
   // Map from BasicBlock pointer to block index for building branches
   std::map<BasicBlock*, size_t> blockIndexMap;
 
+  // Fall-through basic blocks created when a named Block ends, mapped to that
+  // Block expression. An empty one (e.g. an empty switch case that branches to
+  // the block's end) has no expression to anchor a counter on, so we post-anchor
+  // the counter onto the Block it falls out of (captured in doEndBlock below).
+  std::map<BasicBlock*, Expression*> postAnchorByBB;
+
   explicit DebugInfoWalker(Module* m) : module(m) {}
+
+  // Override CFGWalker::doEndBlock to record the Block expression each new
+  // fall-through basic block falls out of. When a named Block with branches ends,
+  // the base creates a fresh basic block for the fall-through/branch targets; at
+  // that moment *currp is the Block and currBasicBlock is the new block.
+  static void doEndBlock(DebugInfoWalker* self, Expression** currp) {
+    BasicBlock* before = self->currBasicBlock;
+    CFGWalker<DebugInfoWalker, UnifiedExpressionVisitor<DebugInfoWalker>, BlockContent>::doEndBlock(self, currp);
+    if (self->currBasicBlock != nullptr && self->currBasicBlock != before) {
+      self->postAnchorByBB[self->currBasicBlock] = *currp;
+    }
+  }
 
   /**
    * Called for each expression during CFG walk.
@@ -136,6 +158,7 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
     expressions.clear();
     blocks.clear();
     blockIndexMap.clear();
+    postAnchorByBB.clear();
 
     // Walk the function using CFGWalker
     CFGWalker<DebugInfoWalker, UnifiedExpressionVisitor<DebugInfoWalker>, BlockContent>::doWalkFunction(func);
@@ -159,6 +182,13 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
       // expression. May be unlocated.
       if (!bb->contents.expressions.empty()) {
         blockInfo.anchorExpr = bb->contents.expressions[0];
+      } else {
+        // Empty block: if it's a fall-through created at the end of a named Block,
+        // it can still be counted by post-anchoring a counter onto that Block.
+        auto pit = postAnchorByBB.find(bb.get());
+        if (pit != postAnchorByBB.end()) {
+          blockInfo.postAnchorExpr = pit->second;
+        }
       }
 
       // Collect located expressions for statement coverage. Unlocated
@@ -458,29 +488,44 @@ Expression* makeCounterIncrement(
 struct CounterInjectionWalker : public PostWalker<CounterInjectionWalker, UnifiedExpressionVisitor<CounterInjectionWalker>> {
   Builder& builder;
   Name coverageMemoryWasmName;
-  const std::unordered_map<Expression*, int32_t>& anchorToCounterIndex;
+  const std::unordered_map<Expression*, int32_t>& anchorToCounterIndex;       // entry-anchored (counter before)
+  const std::unordered_map<Expression*, int32_t>& postAnchorToCounterIndex;   // post-anchored (counter after)
 
   CounterInjectionWalker(
     Builder& b,
     const Name& memName,
-    const std::unordered_map<Expression*, int32_t>& map
-  ) : builder(b), coverageMemoryWasmName(memName), anchorToCounterIndex(map) {}
+    const std::unordered_map<Expression*, int32_t>& preMap,
+    const std::unordered_map<Expression*, int32_t>& postMap
+  ) : builder(b), coverageMemoryWasmName(memName),
+      anchorToCounterIndex(preMap), postAnchorToCounterIndex(postMap) {}
 
   void visitExpression(Expression* curr) {
     auto it = anchorToCounterIndex.find(curr);
-    if (it == anchorToCounterIndex.end()) {
+    if (it != anchorToCounterIndex.end()) {
+      Expression** currp = getCurrentPointer();
+      Expression* counterInc = makeCounterIncrement(builder, coverageMemoryWasmName, it->second);
+      // Entry-anchored: counter increment runs before the anchor expression.
+      Block* wrapped = builder.makeBlock();
+      wrapped->list.push_back(counterInc);
+      wrapped->list.push_back(*currp);
+      wrapped->finalize(curr->type);
+      *currp = wrapped;
       return;
     }
 
-    Expression** currp = getCurrentPointer();
-    Expression* counterInc = makeCounterIncrement(builder, coverageMemoryWasmName, it->second);
-
-    // Entry-anchored: counter increment runs before the anchor expression.
-    Block* wrapped = builder.makeBlock();
-    wrapped->list.push_back(counterInc);
-    wrapped->list.push_back(*currp);
-    wrapped->finalize(curr->type);
-    *currp = wrapped;
+    auto pit = postAnchorToCounterIndex.find(curr);
+    if (pit != postAnchorToCounterIndex.end()) {
+      Expression** currp = getCurrentPointer();
+      Expression* counterInc = makeCounterIncrement(builder, coverageMemoryWasmName, pit->second);
+      // Post-anchored: counter runs AFTER the (named) Block, so it increments when
+      // control branches/falls to that block's end (an empty fall-through case).
+      Block* wrapped = builder.makeBlock();
+      wrapped->list.push_back(*currp);
+      wrapped->list.push_back(counterInc);
+      wrapped->finalize(curr->type);
+      *currp = wrapped;
+      return;
+    }
   }
 };
 
@@ -757,30 +802,33 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     const int32_t functionCounterCount = coverageIndex;
     for (auto& funcInfo : instrumentedFunctions) {
       std::unordered_map<Expression*, int32_t> anchorToCounterIndex;
+      std::unordered_map<Expression*, int32_t> postAnchorToCounterIndex;
 
       for (auto& block : funcInfo.blocks) {
         // Instrument a block if it has a located expression (statement coverage)
-        // OR is a decision (branch coverage needs the decision's hit count). An
-        // injection anchor (the block's first expression) is required.
-        //
-        // NOTE: a decision block whose condition is itself a control-flow
-        // construct has NO expression of its own and so cannot be anchored here.
-        // The clearest case is `if (a && b)`: the outer `if` branches on the
-        // value of the inner short-circuit `If`, which CFGWalker never visits, so
-        // the outer decision block is empty. Such empty decision blocks are not
-        // counted by this pass; their hit count would need per-predecessor
-        // injection or to be derived from the owning logical decision's counter.
-        const bool shouldInstrument =
+        // OR is a decision (branch coverage needs the decision's hit count), via
+        // an entry anchor (the block's first expression).
+        const bool entryInstrument =
           (!block.expressionIndices.empty() || block.isDecision) && block.anchorExpr != nullptr;
-        if (!shouldInstrument) {
+        if (entryInstrument) {
+          block.coverageMemoryIndex = coverageIndex++;
+          anchorToCounterIndex[block.anchorExpr] = block.coverageMemoryIndex;
           continue;
         }
-        block.coverageMemoryIndex = coverageIndex++;
-        anchorToCounterIndex[block.anchorExpr] = block.coverageMemoryIndex;
+
+        // An empty fall-through block (e.g. an empty switch case) has no entry
+        // anchor, but can be counted by post-anchoring onto the named Block it
+        // falls out of. (A fused-logical decision block — `if (a && b)`, whose
+        // condition is a control-flow construct CFGWalker never visits — is empty
+        // with no post-anchor and is still not counted here.)
+        if (block.postAnchorExpr != nullptr) {
+          block.coverageMemoryIndex = coverageIndex++;
+          postAnchorToCounterIndex[block.postAnchorExpr] = block.coverageMemoryIndex;
+        }
       }
 
-      if (!anchorToCounterIndex.empty()) {
-        CounterInjectionWalker injector(builder, coverageMemoryWasmName, anchorToCounterIndex);
+      if (!anchorToCounterIndex.empty() || !postAnchorToCounterIndex.empty()) {
+        CounterInjectionWalker injector(builder, coverageMemoryWasmName, anchorToCounterIndex, postAnchorToCounterIndex);
         injector.walkFunctionInModule(funcInfo.func, &module);
       }
     }
