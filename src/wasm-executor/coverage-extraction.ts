@@ -200,3 +200,111 @@ export function buildBranchHits(
 
   return branchHits;
 }
+
+/**
+ * The last located expression in a block, in expression (≈ execution) order. For
+ * a switch comparison decision (`day == <case-label>`), this is the case-label
+ * `Const` — the discriminant `LocalGet` precedes it, and on the first comparison
+ * the switch preamble precedes it too (the eq/br_if that follow carry no location).
+ * Returns undefined for a block with no located expressions.
+ */
+function lastLocatedExpressionLocation(
+  funcInfo: FunctionDebugInfo,
+  block: BasicBlockDebugInfo,
+): SourceLocation | undefined {
+  for (let i = block.expressionIndices.length - 1; i >= 0; i--) {
+    const location = funcInfo.expressions[block.expressionIndices[i]!]?.location;
+    if (location) {
+      return location;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The decision block that branches into the given block (its in-edge). For an
+ * empty fall-through switch case, this is the comparison decision whose matched
+ * (true) edge targets the empty case region. Returns the first decision whose
+ * out-edges include the target index.
+ */
+function findInEdgeDecision(
+  funcInfo: FunctionDebugInfo,
+  targetBlockIndex: number,
+): BasicBlockDebugInfo | undefined {
+  for (const block of funcInfo.basicBlocks) {
+    if (!block.isDecision) {
+      continue;
+    }
+    for (const edge of block.branches) {
+      if (edge.targetBlockIndex === targetBlockIndex) {
+        return block;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Build empty fall-through switch-case coverage from post-anchored block counters.
+ *
+ * An empty fall-through case (`case A: case B: <body>`, where `case A` has no
+ * statements of its own) carries its "entered" count on a post-anchored block —
+ * one with a counter but NO located expression, so it is invisible to both
+ * buildExpressionHits and buildBranchHits. Here we surface it: for each such block
+ * (counted, no located expression, not a decision), find its in-edge decision (the
+ * comparison block that branches into it) and borrow that decision's case-label
+ * position (its last located expression — the `case X:` literal), recording
+ * `{caseLabelPosition: counter}`.
+ *
+ * This goes in a DEDICATED map rather than expressionHits/branchHits because the
+ * case-label position is already occupied in BOTH shared maps — by the comparison
+ * block's own case-label `Const` (expressionHits) and by the previous comparison's
+ * false-edge arm (branchHits) — each carrying the wrong comparison-chain count. The
+ * dedicated map holds only empty-case entries, so it is collision-free.
+ *
+ * Cross-test / cross-monomorphization SUM is applied later by merging up the suite
+ * tree (mergeCoverageData). There is at most one empty-case entry per case-label
+ * per function instance, so no within-instance aggregation is needed.
+ *
+ * @param debugInfo - processed binary debug info
+ * @param counters - coverage counter values, indexed by coverageMemoryIndex
+ * @returns positional empty-case hit map (CoverageData shape, keyed by case-label position)
+ */
+export function buildCaseHits(
+  debugInfo: BinaryDebugInfo,
+  counters: ArrayLike<number>,
+): CoverageData {
+  const caseHits: CoverageData = { hitCountsByFileAndPosition: {} };
+
+  for (const debugFunctions of Object.values(debugInfo.functionsByFileAndPosition)) {
+    for (const funcInfos of Object.values(debugFunctions)) {
+      for (const funcInfo of funcInfos) {
+        for (const block of funcInfo.basicBlocks) {
+          // An empty fall-through case block: counted (post-anchored), with no
+          // located expression of its own, and not a decision (single out-edge).
+          if (block.coverageMemoryIndex === undefined
+            || block.expressionIndices.length > 0
+            || block.isDecision) {
+            continue;
+          }
+
+          const inEdgeDecision = findInEdgeDecision(funcInfo, block.index);
+          if (!inEdgeDecision) {
+            continue;
+          }
+          const location = lastLocatedExpressionLocation(funcInfo, inEdgeDecision);
+          if (!location) {
+            continue;
+          }
+
+          const hits = counters[block.coverageMemoryIndex] ?? 0;
+          const positionKey = `${location.line}:${location.column}`;
+          const fileHits = (caseHits.hitCountsByFileAndPosition[location.filePath] ??= {});
+          fileHits[positionKey] = (fileHits[positionKey] ?? 0) + hits;
+        }
+      }
+    }
+  }
+
+  return caseHits;
+}

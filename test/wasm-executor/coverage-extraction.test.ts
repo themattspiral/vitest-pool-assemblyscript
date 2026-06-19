@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 
-import { buildExpressionHits, buildBranchHits } from '../../src/wasm-executor/coverage-extraction.js';
+import { buildExpressionHits, buildBranchHits, buildCaseHits } from '../../src/wasm-executor/coverage-extraction.js';
 import type {
   BinaryDebugInfo,
   BranchHits,
@@ -316,5 +316,86 @@ describe('buildBranchHits', () => {
       totalInstrumentationCounters: 0,
     };
     expect(buildBranchHits(di, []).hitsByFileAndDecision).toEqual({});
+  });
+});
+
+describe('buildCaseHits', () => {
+  // Models a switch comparison + empty fall-through case at -O0:
+  //   decision block 0 (comparison `day == <label>`): its LAST located expression is
+  //   the case-label Const (3:10 discriminant precedes 4:9 case-label). Its out-edges
+  //   are block 1 (next comparison, false edge) and block 2 (the empty case region).
+  //   block 2 = empty fall-through case: counted (post-anchored), no located
+  //   expression, single out-edge.
+  test('attributes an empty case counter to its in-edge decision case-label (last located expr)', () => {
+    const di = debugInfoFor([
+      func(
+        [expr(3, 10), expr(4, 9)],
+        [
+          decisionBlock(0, 9, [0, 1], [1, 2]), // comparison: case-label = last located (4:9)
+          block(1, undefined, []),             // next comparison (not an empty case — no counter)
+          block(2, 5, []),                     // empty fall-through case (post-anchored)
+        ],
+      ),
+    ]);
+    const counters = new Array(32).fill(0);
+    counters[5] = 1; // empty case entered once
+
+    expect(hits(buildCaseHits(di, counters))).toEqual({ '4:9': 1 });
+  });
+
+  test('reports an untested empty case as 0 (instrumented, never entered)', () => {
+    const di = debugInfoFor([
+      func([expr(3, 10), expr(4, 9)],
+        [decisionBlock(0, 9, [0, 1], [1, 2]), block(1, undefined, []), block(2, 5, [])]),
+    ]);
+    const counters = new Array(32).fill(0); // counter 5 = 0
+
+    expect(hits(buildCaseHits(di, counters))).toEqual({ '4:9': 0 });
+  });
+
+  test('ignores body-bearing case blocks (located) — only empty post-anchored blocks count', () => {
+    // block 2 carries a located body expression (6:7) → not an empty case; its hits
+    // are read via expressionHits/statement-entry, never here.
+    const di = debugInfoFor([
+      func([expr(4, 9), expr(6, 7)],
+        [decisionBlock(0, 9, [0], [1, 2]), block(1, undefined, []), block(2, 5, [1])]),
+    ]);
+    const counters = new Array(32).fill(0);
+    counters[5] = 2;
+
+    expect(hits(buildCaseHits(di, counters))).toEqual({});
+  });
+
+  test('skips an empty case whose in-edge decision has no located expression', () => {
+    const di = debugInfoFor([
+      func([], [decisionBlock(0, 9, [], [1, 2]), block(1, undefined, []), block(2, 5, [])]),
+    ]);
+    const counters = new Array(32).fill(0);
+    counters[5] = 1;
+
+    expect(hits(buildCaseHits(di, counters))).toEqual({});
+  });
+
+  test('SUMs empty-case hits across monomorphizations of the same source switch', () => {
+    const instanceA = func([expr(3, 10), expr(4, 9)],
+      [decisionBlock(0, 9, [0, 1], [1, 2]), block(1, undefined, []), block(2, 5, [])], 's<i32>');
+    const instanceB = func([expr(3, 10), expr(4, 9)],
+      [decisionBlock(0, 10, [0, 1], [1, 2]), block(1, undefined, []), block(2, 6, [])], 's<f64>');
+    const di = debugInfoFor([instanceA, instanceB], '1:1');
+    const counters = new Array(32).fill(0);
+    counters[5] = 1; // instance A empty case
+    counters[6] = 2; // instance B empty case
+
+    expect(hits(buildCaseHits(di, counters))).toEqual({ '4:9': 3 });
+  });
+
+  test('returns empty map when there are no instrumented functions', () => {
+    const di: BinaryDebugInfo = {
+      debugSourceFiles: [],
+      functionsByFileAndPosition: {},
+      instrumentedFunctionCount: 0,
+      totalInstrumentationCounters: 0,
+    };
+    expect(buildCaseHits(di, []).hitCountsByFileAndPosition).toEqual({});
   });
 });

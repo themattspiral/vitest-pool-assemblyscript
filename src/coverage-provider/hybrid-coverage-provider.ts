@@ -46,6 +46,7 @@ export class HybridCoverageProvider implements CoverageProvider {
   private accumulatedFunctionHits: CoverageData = { hitCountsByFileAndPosition: {} };
   private accumulatedExpressionHits: CoverageData = { hitCountsByFileAndPosition: {} };
   private accumulatedBranchHits: BranchHits = { hitsByFileAndDecision: {} };
+  private accumulatedEmptyCaseHits: CoverageData = { hitCountsByFileAndPosition: {} };
   private projectRoot: string = '';
   private definedCoverageOptions: ResolvedCoverageOptions = {} as ResolvedCoverageOptions;
   private resolvedProviderOptions: ResolvedHybridProviderOptions = {} as ResolvedHybridProviderOptions;
@@ -88,7 +89,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     // Check for AssemblyScript format marker
     if (format === COVERAGE_PAYLOAD_FORMATS.AssemblyScript) {
       const payload = meta.coverage as AssemblyScriptCoveragePayload;
-      const { functionHits, expressionHits, branchHits, suiteLogLabel: label } = payload;
+      const { functionHits, expressionHits, branchHits, emptyCaseHits, suiteLogLabel: label } = payload;
       suiteLogLabel = label;
 
       debug(() => {
@@ -102,6 +103,7 @@ export class HybridCoverageProvider implements CoverageProvider {
       mergeCoverageData(this.accumulatedFunctionHits, functionHits);
       mergeCoverageData(this.accumulatedExpressionHits, expressionHits);
       mergeBranchHits(this.accumulatedBranchHits, branchHits);
+      mergeCoverageData(this.accumulatedEmptyCaseHits, emptyCaseHits);
 
       debug(() => {
         const positionCount = Object.values(this.accumulatedExpressionHits.hitCountsByFileAndPosition)
@@ -185,10 +187,11 @@ export class HybridCoverageProvider implements CoverageProvider {
         const fileFunctionHits = this.accumulatedFunctionHits.hitCountsByFileAndPosition[include.absolute] ?? {};
         const fileExpressionHits = this.accumulatedExpressionHits.hitCountsByFileAndPosition[include.absolute] ?? {};
         const fileBranchHits = this.accumulatedBranchHits.hitsByFileAndDecision[include.absolute] ?? {};
+        const fileEmptyCaseHits = this.accumulatedEmptyCaseHits.hitCountsByFileAndPosition[include.absolute] ?? {};
         debug(`[HybridCoverageProvider] Accumulated AS coverage has ${Object.keys(fileFunctionHits).length} function + ${Object.keys(fileExpressionHits).length} statement positions + ${Object.keys(fileBranchHits).length} branch decisions for "${include.absolute}"`);
 
         // Containment matching (binary hit position → source) is performed during istanbul conversion
-        return convertToIstanbulFormat(parsedFunctions, fileFunctionHits, fileExpressionHits, fileBranchHits, include.absolute, this.resolvedProviderOptions.debugIstanbul);
+        return convertToIstanbulFormat(parsedFunctions, fileFunctionHits, fileExpressionHits, fileBranchHits, fileEmptyCaseHits, include.absolute, this.resolvedProviderOptions.debugIstanbul);
       });
 
       // Wait for all files to complete
@@ -310,6 +313,7 @@ export class HybridCoverageProvider implements CoverageProvider {
       this.accumulatedFunctionHits = { hitCountsByFileAndPosition: {} };
       this.accumulatedExpressionHits = { hitCountsByFileAndPosition: {} };
       this.accumulatedBranchHits = { hitsByFileAndDecision: {} };
+      this.accumulatedEmptyCaseHits = { hitCountsByFileAndPosition: {} };
       debug('[HybridCoverageProvider] Cleaned all internal coverage data');
     }
 

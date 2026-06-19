@@ -21,7 +21,7 @@ import { enhanceTestError } from './wasm-errors.js';
 import { createPoolError, wrapPoolError } from '../util/pool-errors.js';
 import { failTestRuntimeError, getTaskLogLabel } from '../util/vitest-tasks.js';
 import { extractCallStack } from './source-maps.js';
-import { buildExpressionHits, buildBranchHits } from './coverage-extraction.js';
+import { buildExpressionHits, buildBranchHits, buildCaseHits } from './coverage-extraction.js';
 
 const SIG_MISMATCH_ERROR_MSG = `WASM function signature type mismatch during test collection.`
   + ` This is most likely caused by passing a type-inferred, non-void callback to expect().`
@@ -362,9 +362,14 @@ export async function executeWASMTest(
     // hits + decisionHits; SUM across monomorphizations).
     meta.branchHits = buildBranchHits(compilation.debugInfo, extractedHitCounters);
 
+    // Build empty fall-through switch-case coverage from post-anchored block
+    // counters (keyed by case-label position; not visible in expression/branch hits).
+    meta.emptyCaseHits = buildCaseHits(compilation.debugInfo, extractedHitCounters);
+
     debug(`${logPrefix} - Extracted coverage data | ${functionsHit} functions hit`
       + ` | ${Object.keys(meta.expressionHits.hitCountsByFileAndPosition).length} file(s) with statement hits`
-      + ` | ${Object.keys(meta.branchHits.hitsByFileAndDecision).length} file(s) with branch hits`);
+      + ` | ${Object.keys(meta.branchHits.hitsByFileAndDecision).length} file(s) with branch hits`
+      + ` | ${Object.keys(meta.emptyCaseHits.hitCountsByFileAndPosition).length} file(s) with empty-case hits`);
   }
 
   testTimings.fnfinal = performance.now();

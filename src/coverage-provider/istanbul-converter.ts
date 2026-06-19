@@ -56,6 +56,7 @@ function toIstanbulRange(range: SourceRange): Range {
  * @param fileFunctionHits - Function-level hit counts, keyed by position "line:column"
  * @param fileExpressionHits - Statement/expression-level hit counts, keyed by position "line:column"
  * @param fileBranchHits - Branch hits keyed by decision key (located arm-target positions)
+ * @param fileEmptyCaseHits - Empty fall-through switch-case hits, keyed by case-label position "line:column"
  * @param absoluteFilePath - Absolute path to the source file (for Istanbul output)
  * @param istanbulDebugEnabled - Enable verbose conversion logging
  * @returns Istanbul FileCoverage object
@@ -65,6 +66,7 @@ export async function convertToIstanbulFormat(
   fileFunctionHits: Record<string, number>,
   fileExpressionHits: Record<string, number>,
   fileBranchHits: Record<string, BranchPathHits>,
+  fileEmptyCaseHits: Record<string, number>,
   absoluteFilePath: string,
   istanbulDebugEnabled: boolean
 ): Promise<FileCoverageData> {
@@ -194,6 +196,7 @@ export async function convertToIstanbulFormat(
   // evaluation count (see computeBranchPathHits). Branches use their own index
   // keyspace, independent of fnMap / statementMap.
   const armsByLine = buildArmsByLine(fileBranchHits);
+  const caseHitsByLine = buildHitsByLine(fileEmptyCaseHits);
   let branchIdx = 0;
   for (const branch of fileFunctions.branches) {
     // Defensive: skip branches with invalid metadata
@@ -201,7 +204,7 @@ export async function convertToIstanbulFormat(
       continue;
     }
 
-    const pathHits = computeBranchPathHits(branch, armsByLine, expressionHitsByLine);
+    const pathHits = computeBranchPathHits(branch, armsByLine, expressionHitsByLine, caseHitsByLine);
 
     const branchIdxStr = branchIdx.toString();
     branchMap[branchIdxStr] = {

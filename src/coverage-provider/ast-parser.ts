@@ -237,6 +237,7 @@ class FunctionExtractorVisitor extends ASTVisitor {
         conditionRange: this.buildRange(ifNode.condition, null),
         paths,
         implicitPathIndices,
+        emptyCasePathIndices: [],
       });
     } else if (node.kind === ASNodeKind.Ternary) {
       const ternary = node as TernaryExpression;
@@ -246,6 +247,7 @@ class FunctionExtractorVisitor extends ASTVisitor {
         conditionRange: this.buildRange(ternary.condition, null),
         paths: [this.buildRange(ternary.ifThen, null), this.buildRange(ternary.ifElse, null)],
         implicitPathIndices: [],
+        emptyCasePathIndices: [],
       });
     } else if (node.kind === ASNodeKind.Binary) {
       // Only logical operators (&& / ||) are branches (binary-expr); arithmetic
@@ -259,6 +261,7 @@ class FunctionExtractorVisitor extends ASTVisitor {
           conditionRange: this.buildRange(binary.left, null),
           paths: [this.buildRange(binary.left, null), this.buildRange(binary.right, null)],
           implicitPathIndices: [],
+          emptyCasePathIndices: [],
         });
       }
     } else if (node.kind === ASNodeKind.Switch) {
@@ -266,21 +269,27 @@ class FunctionExtractorVisitor extends ASTVisitor {
       const range = this.buildRange(sw, null);
       const paths: SourceRange[] = [];
       const implicitPathIndices: number[] = [];
+      const emptyCasePathIndices: number[] = [];
       let hasDefault = false;
 
-      // Each case/default clause is an arm. Switch lowers to a comparison chain
-      // whose case BODIES carry the per-case hit counts (read later via
-      // statement-entry, not arm-matching — see computeBranchPathHits). So a
-      // case's path range is its BODY span: starting at its first statement
-      // excludes the `case X:` label, whose position otherwise carries the
-      // comparison block's (wrong) count. A fallthrough/empty case has no body of
-      // its own and falls back to the clause range.
+      // Each case/default clause is an arm. Switch lowers to a comparison chain.
+      // A BODY-bearing case (incl. the explicit default) carries its entered count
+      // on its body block, read later via statement-entry over the case's BODY
+      // span — so its path range starts at the first statement, excluding the
+      // `case X:` label whose position otherwise holds the comparison block's
+      // (wrong) count. An EMPTY fall-through case (zero statements) has no body;
+      // its entered count lives on a post-anchored block surfaced in emptyCaseHits
+      // (keyed by the case-label position), so its path range is the clause range
+      // (the `case X:` span) and its index is recorded in emptyCasePathIndices for
+      // the matcher to read from emptyCaseHits instead of statement-entry.
       for (const switchCase of sw.cases) {
         const statements = switchCase.statements;
-        const caseRange = statements.length > 0
-          ? this.buildRange(statements[statements.length - 1]!, statements[0]!)
-          : this.buildRange(switchCase, null);
-        paths.push(caseRange);
+        if (statements.length > 0) {
+          paths.push(this.buildRange(statements[statements.length - 1]!, statements[0]!));
+        } else {
+          paths.push(this.buildRange(switchCase, null));
+          emptyCasePathIndices.push(paths.length - 1);
+        }
         if (!switchCase.label) {
           hasDefault = true; // the default clause has no case label
         }
@@ -296,6 +305,7 @@ class FunctionExtractorVisitor extends ASTVisitor {
         conditionRange: this.buildRange(sw.condition, null),
         paths,
         implicitPathIndices,
+        emptyCasePathIndices,
       });
     }
   }

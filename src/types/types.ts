@@ -371,6 +371,8 @@ export interface AssemblyScriptCoveragePayload {
   expressionHits: CoverageData;
   /** Branch-level hits (per decision: decisionHits + per-arm target hits). */
   branchHits: BranchHits;
+  /** Empty fall-through switch-case entered counts (keyed by case-label position). */
+  emptyCaseHits: CoverageData;
   suiteLogLabel: string;
 }
 
@@ -631,6 +633,13 @@ export interface ParsedSourceBranchInfo {
   paths: SourceRange[];
   /** Indices into paths[] for arms with no source body (hits derived, not directly counted) */
   implicitPathIndices: number[];
+  /**
+   * Indices into paths[] for empty fall-through switch cases (a `case X:` with no
+   * statements of its own). Their entered counts live on post-anchored blocks
+   * surfaced in emptyCaseHits — read there during matching, not via the body-range
+   * statement-entry used for body-bearing cases. Always empty for non-switch branches.
+   */
+  emptyCasePathIndices: number[];
 }
 
 // ============================================================================
@@ -674,6 +683,12 @@ export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
    * timeout-resume thread boundary as a plain object.
    */
   branchHits?: BranchHits;
+  /**
+   * Empty fall-through switch-case entered counts, keyed by case-label position.
+   * Same CoverageData shape as expressionHits, so it merges up the suite tree via
+   * mergeCoverageData and survives the timeout-resume thread boundary.
+   */
+  emptyCaseHits?: CoverageData;
 }
 
 export interface AssemblyScriptTestTaskMeta extends TaskMeta {
@@ -690,6 +705,8 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   expressionHits?: CoverageData;
   /** Branch-level coverage (per-decision arm hits + decisionHits). See AssemblyScriptSuiteTaskMeta. */
   branchHits?: BranchHits;
+  /** Empty fall-through switch-case entered counts (keyed by case-label position). See AssemblyScriptSuiteTaskMeta. */
+  emptyCaseHits?: CoverageData;
   lastError?: AssemblyScriptTestError;
   lastErrorValuesProvided?: boolean;
   lastErrorRawCallStack?: NodeJS.CallSite[];

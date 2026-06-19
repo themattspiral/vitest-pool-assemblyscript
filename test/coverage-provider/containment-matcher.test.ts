@@ -81,8 +81,9 @@ function branch(
   conditionRange: SourceRange,
   paths: SourceRange[],
   implicitPathIndices: number[] = [],
+  emptyCasePathIndices: number[] = [],
 ): ParsedSourceBranchInfo {
-  return { range: whole, branchType, conditionRange, paths, implicitPathIndices };
+  return { range: whole, branchType, conditionRange, paths, implicitPathIndices, emptyCasePathIndices };
 }
 
 describe('buildArmsByLine', () => {
@@ -125,12 +126,13 @@ describe('findArmAtRangeEntry', () => {
 
 describe('computeBranchPathHits', () => {
   const noExprHits = buildHitsByLine({});
+  const noCaseHits = buildHitsByLine({});
 
   test('if/else: each path = its matched arm hits', () => {
     const armsByLine = buildArmsByLine({ '2:5|4:5': decision(5, [[2, 5, 3], [4, 5, 2]]) });
     const b = branch('if', range(1, 1, 5, 2), range(1, 5, 1, 7),
       [range(1, 8, 3, 2), range(3, 9, 5, 2)]);
-    expect(computeBranchPathHits(b, armsByLine, noExprHits)).toEqual([3, 2]);
+    expect(computeBranchPathHits(b, armsByLine, noExprHits, noCaseHits)).toEqual([3, 2]);
   });
 
   test('if without else: implicit else = decisionHits - matched then (counted decision)', () => {
@@ -138,7 +140,7 @@ describe('computeBranchPathHits', () => {
     const b = branch('if', range(1, 1, 3, 2), range(1, 5, 1, 7),
       [range(1, 8, 3, 2), range(1, 1, 3, 2)], [1]);
     // then = 3; implicit else = 5 - 3 = 2
-    expect(computeBranchPathHits(b, armsByLine, noExprHits)).toEqual([3, 2]);
+    expect(computeBranchPathHits(b, armsByLine, noExprHits, noCaseHits)).toEqual([3, 2]);
   });
 
   test('fused-logical if without else: decisionHits derived from condition entry (null decision)', () => {
@@ -148,21 +150,21 @@ describe('computeBranchPathHits', () => {
     const exprHits = buildHitsByLine({ '1:5': 5 });
     const b = branch('if', range(1, 1, 3, 2), range(1, 5, 1, 10),
       [range(1, 12, 3, 2), range(1, 1, 3, 2)], [1]);
-    expect(computeBranchPathHits(b, armsByLine, exprHits)).toEqual([3, 2]);
+    expect(computeBranchPathHits(b, armsByLine, exprHits, noCaseHits)).toEqual([3, 2]);
   });
 
   test('implicit derivation clamps at zero', () => {
     const armsByLine = buildArmsByLine({ '2:5': decision(5, [[2, 5, 7]]) }); // then > decision
     const b = branch('if', range(1, 1, 3, 2), range(1, 5, 1, 7),
       [range(1, 8, 3, 2), range(1, 1, 3, 2)], [1]);
-    expect(computeBranchPathHits(b, armsByLine, noExprHits)).toEqual([7, 0]);
+    expect(computeBranchPathHits(b, armsByLine, noExprHits, noCaseHits)).toEqual([7, 0]);
   });
 
   test('ternary (cond-expr): both arms matched, no implicit', () => {
     const armsByLine = buildArmsByLine({ '1:9|1:15': decision(5, [[1, 9, 4], [1, 15, 1]]) });
     const b = branch('cond-expr', range(1, 5, 1, 20), range(1, 5, 1, 6),
       [range(1, 9, 1, 12), range(1, 15, 1, 18)]);
-    expect(computeBranchPathHits(b, armsByLine, noExprHits)).toEqual([4, 1]);
+    expect(computeBranchPathHits(b, armsByLine, noExprHits, noCaseHits)).toEqual([4, 1]);
   });
 
   test('switch with explicit default: each arm = its body statement-entry count', () => {
@@ -171,7 +173,7 @@ describe('computeBranchPathHits', () => {
     const exprHits = buildHitsByLine({ '1:9': 4, '2:5': 1, '3:5': 1, '4:5': 1, '5:5': 1 });
     const b = branch('switch', range(1, 1, 6, 2), range(1, 9, 1, 10),
       [range(2, 5, 2, 20), range(3, 5, 3, 20), range(4, 5, 4, 20), range(5, 5, 5, 20)]);
-    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits)).toEqual([1, 1, 1, 1]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits)).toEqual([1, 1, 1, 1]);
   });
 
   test('switch without default: implicit default = switch-reached - sum(case bodies)', () => {
@@ -180,7 +182,39 @@ describe('computeBranchPathHits', () => {
     const b = branch('switch', range(1, 1, 6, 2), range(1, 9, 1, 10),
       [range(2, 5, 2, 20), range(3, 5, 3, 20), range(1, 1, 6, 2)], [2]);
     // cases 2, 3; implicit default = 10 - (2 + 3) = 5
-    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits)).toEqual([2, 3, 5]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits)).toEqual([2, 3, 5]);
+  });
+
+  test('switch empty fall-through case: empty read from caseHits, body from exprHits', () => {
+    // case 0 (empty, clause line 2) entered 1× — surfaced in caseHits at the case-label
+    // 2:9 (NOT in exprHits). case 6 (body line 4) entered 2× via exprHits at body 4:7.
+    const exprHits = buildHitsByLine({ '1:9': 4, '4:7': 2 });
+    const caseHits = buildHitsByLine({ '2:9': 1 });
+    const b = branch('switch', range(1, 1, 6, 2), range(1, 9, 1, 10),
+      [range(2, 5, 2, 11), range(4, 7, 5, 12)], [], [0]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, caseHits)).toEqual([1, 2]);
+  });
+
+  test('switch untested empty case reads 0 — no leak from an adjacent body hit (the bug)', () => {
+    // The empty case (path 0) was never entered, so it is absent from caseHits → 0.
+    // A hot adjacent body hit (4:7 = 3) must NOT leak into the empty case's count;
+    // reading the dedicated caseHits channel (not expressionHits over the clause) is
+    // what prevents the false-covered data this fix targets.
+    const exprHits = buildHitsByLine({ '1:9': 4, '4:7': 3 });
+    const caseHits = buildHitsByLine({});
+    const b = branch('switch', range(1, 1, 6, 2), range(1, 9, 1, 10),
+      [range(2, 5, 2, 11), range(4, 7, 5, 12)], [], [0]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, caseHits)).toEqual([0, 3]);
+  });
+
+  test('switch empty case + implicit default: implicit = reached - sum(empty + body)', () => {
+    // discriminant reached 5×; empty case 0 = 1 (caseHits at 2:9), body case 1 = 1
+    // (exprHits at 4:7); implicit default = 5 - (1 + 1) = 3.
+    const exprHits = buildHitsByLine({ '1:9': 5, '4:7': 1 });
+    const caseHits = buildHitsByLine({ '2:9': 1 });
+    const b = branch('switch', range(1, 1, 6, 2), range(1, 9, 1, 10),
+      [range(2, 5, 2, 11), range(4, 7, 5, 12), range(1, 1, 6, 2)], [2], [0]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, caseHits)).toEqual([1, 1, 3]);
   });
 
   test('binary-expr &&: left = condition-entry count, right = short-circuit arm', () => {
@@ -189,19 +223,19 @@ describe('computeBranchPathHits', () => {
     const exprHits = buildHitsByLine({ '1:5': 5 });
     const b = branch('binary-expr', range(1, 5, 1, 11), range(1, 5, 1, 6),
       [range(1, 5, 1, 6), range(1, 10, 1, 11)]);
-    expect(computeBranchPathHits(b, armsByLine, exprHits)).toEqual([5, 3]);
+    expect(computeBranchPathHits(b, armsByLine, exprHits, noCaseHits)).toEqual([5, 3]);
   });
 
   test('binary-expr: right arm unmatched yields 0 (left still from condition entry)', () => {
     const exprHits = buildHitsByLine({ '1:5': 5 });
     const b = branch('binary-expr', range(1, 5, 1, 11), range(1, 5, 1, 6),
       [range(1, 5, 1, 6), range(1, 10, 1, 11)]);
-    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits)).toEqual([5, 0]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits)).toEqual([5, 0]);
   });
 
   test('never-executed branch: derives 0, all paths uncovered', () => {
     const b = branch('if', range(1, 1, 3, 2), range(1, 5, 1, 7),
       [range(1, 8, 3, 2), range(1, 1, 3, 2)], [1]);
-    expect(computeBranchPathHits(b, buildArmsByLine({}), noExprHits)).toEqual([0, 0]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), noExprHits, noCaseHits)).toEqual([0, 0]);
   });
 });

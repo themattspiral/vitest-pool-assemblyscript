@@ -240,40 +240,56 @@ export function findArmAtRangeEntry(
  *   reached, so its count is the decision's own evaluation count — read at the
  *   condition's entry (the leftmost atom). The right operand is the short-circuit
  *   arm, matched in the right-operand range.
- * - **if / cond-expr / switch**: each explicit path matches an arm block by its
- *   entry location; implicit arms (if-without-else, switch-without-default) are
- *   derived as `decisionHits − Σ(matched explicit arm hits)`, clamped ≥ 0. The
- *   decision count is the matched decision's counter, or — when that decision
- *   block is uncounted (fused-logical condition) or no arm matched — derived from
- *   the condition's entry (leftmost-atom) hit count.
+ * - **if / cond-expr**: each explicit path matches an arm block by its entry
+ *   location; the implicit arm (if-without-else) is derived as `decisionHits −
+ *   Σ(matched explicit arm hits)`, clamped ≥ 0. The decision count is the matched
+ *   decision's counter, or — when that decision block is uncounted (fused-logical
+ *   condition) or no arm matched — derived from the condition's entry (leftmost-
+ *   atom) hit count.
+ * - **switch**: has its own mechanism (not arm-driven — the comparison chain's
+ *   false-edge arms collide at case-label positions). Each case's entered count is
+ *   read at its clause: a body-bearing case (and an explicit default) via
+ *   statement-entry over its body range; an EMPTY fall-through case via the
+ *   dedicated `caseHitsByLine` channel (its post-anchored counter, keyed by
+ *   case-label position); an implicit default via `switchReached − Σ(explicit)`.
  *
  * @param branch - the source branch construct
  * @param armsByLine - file branch arm locations bucketed by line
  * @param expressionHitsByLine - file statement/expression hits bucketed by line (for condition-entry derivation)
+ * @param caseHitsByLine - file empty fall-through switch-case hits bucketed by line (case-label positions)
  * @returns per-path hit counts aligned with branch.paths
  */
 export function computeBranchPathHits(
   branch: ParsedSourceBranchInfo,
   armsByLine: Map<number, ArmHit[]>,
-  expressionHitsByLine: Map<number, LineHit[]>
+  expressionHitsByLine: Map<number, LineHit[]>,
+  caseHitsByLine: Map<number, LineHit[]>
 ): number[] {
-  const { branchType, paths, conditionRange, implicitPathIndices } = branch;
+  const { branchType, paths, conditionRange, implicitPathIndices, emptyCasePathIndices } = branch;
 
   if (branchType === 'switch') {
-    // Switch lowers to a comparison chain whose case BODIES carry the per-case
-    // counts. Arm-matching can't be used: an explicit `default` body is not an
-    // out-edge target of any decision block, and the chain's comparison blocks
-    // sit at the case-label positions and would mis-match. Instead, read each
-    // case body's hits via statement-entry over its body range (paths[i] excludes
-    // the `case X:` label); the switch-reached count (for an implicit default) is
-    // the discriminant's entry hit count.
+    // Switch lowers to a comparison chain. Arm-matching can't be used: the chain's
+    // false-edge arms land at case-label positions (and an explicit `default` body
+    // is not an out-edge target of any decision), so both collide. Instead read
+    // each case at its clause:
+    //   - body-bearing case / explicit default: statement-entry over its body range
+    //     (paths[i] excludes the `case X:` label, whose position holds the wrong
+    //     comparison count);
+    //   - empty fall-through case: the dedicated caseHitsByLine channel (its
+    //     post-anchored counter, keyed by the case-label position), read via the
+    //     same entry-position lookup over the clause range.
+    // The switch-reached count (for an implicit default) is the discriminant's
+    // entry hit count.
     const switchImplicit = new Set(implicitPathIndices);
+    const switchEmptyCases = new Set(emptyCasePathIndices);
     let explicitSum = 0;
     const switchHits = paths.map((path, index) => {
       if (switchImplicit.has(index)) {
         return 0; // implicit default — filled below
       }
-      const caseHits = findStatementEntryHitCount(expressionHitsByLine, path);
+      const caseHits = switchEmptyCases.has(index)
+        ? findStatementEntryHitCount(caseHitsByLine, path)
+        : findStatementEntryHitCount(expressionHitsByLine, path);
       explicitSum += caseHits;
       return caseHits;
     });
