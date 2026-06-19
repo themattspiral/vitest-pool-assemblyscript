@@ -308,6 +308,60 @@ describe('buildBranchHits', () => {
     expect(branchesOf(buildBranchHits(di, counters))).toEqual({});
   });
 
+  test('arm location prefers the home-file expression over a foreign inlined one', () => {
+    // then-arm (block 1) leads with a FOREIGN inlined expr (e.g. a default-param
+    // Const inlined from another file's constructor) before its home-file expr.
+    // The arm must be located by the HOME-file expr (10:3), so the decision files
+    // under the home file and the arm lands inside its source range — not mis-filed
+    // under the foreign file (which would make the arm never match → read 0).
+    const FOREIGN = '/proj/assembly/other.ts';
+    const foreignExpr: ExpressionDebugInfo = { type: 'Const', isBranch: false, location: { filePath: FOREIGN, line: 99, column: 5 } };
+    const di = debugInfoFor([
+      func(
+        [foreignExpr, expr(10, 3), expr(12, 5)], // [0] foreign, [1] home then, [2] home else
+        [decisionBlock(0, 3, [], [1, 2]), block(1, 4, [0, 1]), block(2, 5, [2])],
+      ),
+    ]);
+    const counters = new Array(32).fill(0);
+    counters[3] = 5; counters[4] = 2; counters[5] = 3;
+
+    // filed under the home file (FILE), keyed by home-file arm positions
+    expect(branchesOf(buildBranchHits(di, counters))).toEqual({
+      '10:3|12:5': {
+        decisionHits: 5,
+        targets: [
+          { hits: 2, location: loc(10, 3) },
+          { hits: 3, location: loc(12, 5) },
+        ],
+      },
+    });
+  });
+
+  test('arm with only foreign locations falls back to the foreign one (no home-file anchor)', () => {
+    // then-arm (block 1) is purely inlined-foreign — no home-file expression to use.
+    // Rather than drop the arm, fall back to the foreign location (no worse than
+    // before); the decision then files under the foreign file. Documents the edge.
+    const FOREIGN = '/proj/assembly/other.ts';
+    const foreignThen: ExpressionDebugInfo = { type: 'Const', isBranch: false, location: { filePath: FOREIGN, line: 99, column: 5 } };
+    const di = debugInfoFor([
+      func(
+        [foreignThen, expr(12, 5)], // [0] foreign-only then, [1] home else
+        [decisionBlock(0, 3, [], [1, 2]), block(1, 4, [0]), block(2, 5, [1])],
+      ),
+    ]);
+    const counters = new Array(32).fill(0);
+    counters[3] = 5; counters[4] = 2; counters[5] = 3;
+
+    const result = buildBranchHits(di, counters);
+    expect(result.hitsByFileAndDecision[FOREIGN]?.['12:5|99:5']).toEqual({
+      decisionHits: 5,
+      targets: [
+        { hits: 2, location: { filePath: FOREIGN, line: 99, column: 5 } },
+        { hits: 3, location: loc(12, 5) },
+      ],
+    });
+  });
+
   test('returns empty map when there are no instrumented functions', () => {
     const di: BinaryDebugInfo = {
       debugSourceFiles: [],

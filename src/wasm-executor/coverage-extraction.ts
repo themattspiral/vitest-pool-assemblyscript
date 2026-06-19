@@ -80,23 +80,43 @@ export function buildExpressionHits(
 }
 
 /**
- * The first located expression in a block, in expression order (≈ execution
- * order). Used as a branch arm's representative entry position — guaranteed to
- * fall inside the arm's source range, so it containment-matches to the source
- * arm during conversion. Returns undefined for an unlocated block (an implicit
- * arm, whose hits are derived provider-side, not counted here).
+ * A branch arm's representative entry position: the first located expression in
+ * the block that lies in the function's OWN (home) file, in expression order
+ * (≈ execution order).
+ *
+ * The home-file preference matters because a block can contain cross-file inlined
+ * expressions — most commonly a default-param `Const` inlined from another file's
+ * constructor (e.g. `new Counter()` applying the default), located at the
+ * constructor's definition site. That foreign location is NOT where this arm lives
+ * in source; using it would file the whole decision under the foreign file and put
+ * the arm outside its source range, so the arm would never containment-match and
+ * would read 0. We skip foreign locations and use the first home-file one, falling
+ * back to the first foreign location only when an arm has no home-file expression
+ * at all (a purely-inlined arm — no worse than before). Returns undefined for a
+ * block with no located expression (an implicit arm, derived provider-side).
+ *
+ * The home file comes from `representativeLocation`, which is guaranteed local to
+ * the function (see coverage-architecture.md → Representative Location).
  */
 function firstLocatedExpressionLocation(
   funcInfo: FunctionDebugInfo,
   block: BasicBlockDebugInfo,
 ): SourceLocation | undefined {
+  const homeFile = funcInfo.representativeLocation.filePath;
+  let firstForeign: SourceLocation | undefined;
   for (const exprIndex of block.expressionIndices) {
     const location = funcInfo.expressions[exprIndex]?.location;
-    if (location) {
+    if (!location) {
+      continue;
+    }
+    if (location.filePath === homeFile) {
       return location;
     }
+    if (!firstForeign) {
+      firstForeign = location;
+    }
   }
-  return undefined;
+  return firstForeign;
 }
 
 /**
