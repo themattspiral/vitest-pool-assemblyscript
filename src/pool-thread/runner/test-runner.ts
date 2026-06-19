@@ -46,7 +46,7 @@ import {
   updateTestResultAfterRun,
   isSuiteOwnFile
 } from '../../util/vitest-tasks.js';
-import { mergeCoverageData, mergeBranchHits } from '../../coverage-provider/coverage-merge.js';
+import { mergeCoverageData, mergeBranchHits, mergeDecisionPositions } from '../../coverage-provider/coverage-merge.js';
 import { failFile } from '../../util/vitest-file-tasks.js';
 import { buildEnhancedFileError } from '../../util/pool-errors.js';
 
@@ -263,6 +263,7 @@ export async function runSuite(
     suiteMeta.expressionHits = { hitCountsByFileAndPosition: {} };
     suiteMeta.branchHits = { hitsByFileAndDecision: {} };
     suiteMeta.emptyCaseHits = { hitCountsByFileAndPosition: {} };
+    suiteMeta.decisionPositions = { positionsByFile: {} };
     debug(`${suiteLogPrefix} - Initialized empty suite coverage data`);
 
     let tasksToRun: Task[] = getRunnableTasks(suite);
@@ -289,6 +290,9 @@ export async function runSuite(
         }
         if (suiteMeta.emptyCaseHits && suiteTaskMeta.emptyCaseHits) {
           mergeCoverageData(suiteMeta.emptyCaseHits, suiteTaskMeta.emptyCaseHits);
+        }
+        if (suiteMeta.decisionPositions && suiteTaskMeta.decisionPositions) {
+          mergeDecisionPositions(suiteMeta.decisionPositions, suiteTaskMeta.decisionPositions);
         }
 
       } else {
@@ -365,6 +369,9 @@ export async function runSuite(
         }
         if (suiteMeta.emptyCaseHits && testTaskMeta.emptyCaseHits) {
           mergeCoverageData(suiteMeta.emptyCaseHits, testTaskMeta.emptyCaseHits);
+        }
+        if (suiteMeta.decisionPositions && testTaskMeta.decisionPositions) {
+          mergeDecisionPositions(suiteMeta.decisionPositions, testTaskMeta.decisionPositions);
         }
       }
     }

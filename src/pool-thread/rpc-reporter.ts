@@ -138,6 +138,7 @@ export async function reportSuiteFinished(
       expressionHits: meta.expressionHits ?? { hitCountsByFileAndPosition: {} },
       branchHits: meta.branchHits ?? { hitsByFileAndDecision: {} },
       emptyCaseHits: meta.emptyCaseHits ?? { hitCountsByFileAndPosition: {} },
+      decisionPositions: meta.decisionPositions ?? { positionsByFile: {} },
       suiteLogLabel: suiteLabel
     };
     

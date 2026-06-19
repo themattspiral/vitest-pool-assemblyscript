@@ -359,6 +359,23 @@ export interface BranchHits {
 }
 
 /**
+ * Source positions of binary decision blocks, per file (each `"line:column"`).
+ *
+ * Used to detect compiler-folded branches: a source `if`/`cond-expr`/`binary-expr`
+ * whose condition range contains NO decision position was constant-folded (its
+ * condition is a compile-time constant) and produced no decision block. This is
+ * the robust folded signal — unlike "no arm matched", it can't be confused with a
+ * real branch whose arms are empty/unlocated (whose decision is dropped from
+ * branchHits).
+ *
+ * Purely structural — a decision block exists regardless of execution — so this is
+ * accumulated by UNION across tests/files, not summed.
+ */
+export interface DecisionPositions {
+  positionsByFile: Record<string, string[]>;
+}
+
+/**
  * Coverage payload sent via RPC from worker to hybrid coverage provider
  *
  * The __format marker distinguishes AS coverage from JS coverage in onAfterSuiteRun.
@@ -373,6 +390,8 @@ export interface AssemblyScriptCoveragePayload {
   branchHits: BranchHits;
   /** Empty fall-through switch-case entered counts (keyed by case-label position). */
   emptyCaseHits: CoverageData;
+  /** Source positions of binary decision blocks (for folded-branch detection). */
+  decisionPositions: DecisionPositions;
   suiteLogLabel: string;
 }
 
@@ -689,6 +708,11 @@ export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
    * mergeCoverageData and survives the timeout-resume thread boundary.
    */
   emptyCaseHits?: CoverageData;
+  /**
+   * Source positions of binary decision blocks (for folded-branch detection).
+   * Structural — accumulated by UNION up the suite tree (mergeDecisionPositions).
+   */
+  decisionPositions?: DecisionPositions;
 }
 
 export interface AssemblyScriptTestTaskMeta extends TaskMeta {
@@ -707,6 +731,8 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   branchHits?: BranchHits;
   /** Empty fall-through switch-case entered counts (keyed by case-label position). See AssemblyScriptSuiteTaskMeta. */
   emptyCaseHits?: CoverageData;
+  /** Source positions of binary decision blocks (for folded-branch detection). See AssemblyScriptSuiteTaskMeta. */
+  decisionPositions?: DecisionPositions;
   lastError?: AssemblyScriptTestError;
   lastErrorValuesProvided?: boolean;
   lastErrorRawCallStack?: NodeJS.CallSite[];

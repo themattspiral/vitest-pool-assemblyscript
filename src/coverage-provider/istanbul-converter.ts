@@ -22,6 +22,7 @@ import {
   buildHitsByLine,
   findStatementEntryHitCount,
   buildArmsByLine,
+  buildDecisionPositionsByLine,
   computeBranchPathHits,
 } from './containment-matcher.js';
 import { debugOverride, debug } from '../util/debug.js';
@@ -57,6 +58,7 @@ function toIstanbulRange(range: SourceRange): Range {
  * @param fileExpressionHits - Statement/expression-level hit counts, keyed by position "line:column"
  * @param fileBranchHits - Branch hits keyed by decision key (located arm-target positions)
  * @param fileEmptyCaseHits - Empty fall-through switch-case hits, keyed by case-label position "line:column"
+ * @param fileDecisionPositions - Source positions of binary decision blocks ("line:column"), for folded-branch detection
  * @param absoluteFilePath - Absolute path to the source file (for Istanbul output)
  * @param istanbulDebugEnabled - Enable verbose conversion logging
  * @returns Istanbul FileCoverage object
@@ -67,6 +69,7 @@ export async function convertToIstanbulFormat(
   fileExpressionHits: Record<string, number>,
   fileBranchHits: Record<string, BranchPathHits>,
   fileEmptyCaseHits: Record<string, number>,
+  fileDecisionPositions: string[],
   absoluteFilePath: string,
   istanbulDebugEnabled: boolean
 ): Promise<FileCoverageData> {
@@ -197,6 +200,7 @@ export async function convertToIstanbulFormat(
   // keyspace, independent of fnMap / statementMap.
   const armsByLine = buildArmsByLine(fileBranchHits);
   const caseHitsByLine = buildHitsByLine(fileEmptyCaseHits);
+  const decisionPositionsByLine = buildDecisionPositionsByLine(fileDecisionPositions);
   let branchIdx = 0;
   for (const branch of fileFunctions.branches) {
     // Defensive: skip branches with invalid metadata
@@ -204,7 +208,7 @@ export async function convertToIstanbulFormat(
       continue;
     }
 
-    const pathHits = computeBranchPathHits(branch, armsByLine, expressionHitsByLine, caseHitsByLine);
+    const pathHits = computeBranchPathHits(branch, armsByLine, expressionHitsByLine, caseHitsByLine, decisionPositionsByLine);
 
     const branchIdxStr = branchIdx.toString();
     branchMap[branchIdxStr] = {

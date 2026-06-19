@@ -52,4 +52,42 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — branch coverage', () =
       expect(ternary).toEqual([1, 0]);
     });
   });
+
+  // Compile-time-constant conditions are folded away by AS (no decision block), but
+  // v8 still reports the branch with constant-determined coverage. Expected values
+  // are v8's: live arm covered, eliminated arm 0; logical left always covered, right
+  // covered iff the constant left evaluates it.
+  describe('folded (constant-condition) branches', () => {
+    test('foldedIf (if(true)): then covered, eliminated else 0', () => {
+      // 'if' branches by line: clampLow (real), then foldedIf.
+      const ifs = branchHitsByType(entry, 'if');
+      expect(ifs[1]).toEqual([1, 0]);
+    });
+
+    test('foldedTernary (true ? 10 : 20): const/const arms collapse → accepted [0,0] gap', () => {
+      // KNOWN, ACCEPTED LIMITATION: a folded ternary whose BOTH arms are
+      // compile-time constants (`cond ? const : const`) collapses to a single
+      // result Const at the construct start, so neither arm range catches a hit —
+      // it reads [0,0] instead of v8's [1,0]. A folded ternary with ANY
+      // non-constant arm (`cond ? x+1 : x+2`, calls, …) works: the live arm's code
+      // survives at its own source position. This degenerate const/const case is
+      // documented and accepted (the compiler erases it — the CFG/compiled-output
+      // model is inherently blind to it), not fixed. 'cond-expr' branches by line:
+      // pickFirst (real) is conds[0], foldedTernary is conds[1].
+      const conds = branchHitsByType(entry, 'cond-expr');
+      expect(conds[1]).toEqual([0, 0]);
+    });
+
+    test('foldedAndEval (true && x>0): left + evaluated right both covered', () => {
+      // left constant-true → right (x>0) evaluated → [1,1] (v8 parity).
+      const [andEval] = branchHitsByType(entry, 'binary-expr');
+      expect(andEval).toEqual([1, 1]);
+    });
+
+    test('foldedAndShort (false && x>0): right short-circuited → 0', () => {
+      // left constant-false → right not evaluated → [1,0].
+      const bins = branchHitsByType(entry, 'binary-expr');
+      expect(bins[1]).toEqual([1, 0]);
+    });
+  });
 });

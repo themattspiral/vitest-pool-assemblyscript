@@ -5,6 +5,8 @@ import {
   findStatementEntryHitCount,
   buildArmsByLine,
   findArmAtRangeEntry,
+  buildDecisionPositionsByLine,
+  conditionRangeContainsDecision,
   computeBranchPathHits,
 } from '../../src/coverage-provider/containment-matcher.js';
 import type { BranchPathHits, ParsedSourceBranchInfo, SourceRange } from '../../src/types/types.js';
@@ -127,12 +129,17 @@ describe('findArmAtRangeEntry', () => {
 describe('computeBranchPathHits', () => {
   const noExprHits = buildHitsByLine({});
   const noCaseHits = buildHitsByLine({});
+  // No decision positions ⇒ every branch is detected as folded.
+  const noDecisions = buildDecisionPositionsByLine([]);
+  // A decision at a branch's condition entry ⇒ NOT folded (the normal path).
+  const decided = (b: ParsedSourceBranchInfo) =>
+    buildDecisionPositionsByLine([`${b.conditionRange.startLine}:${b.conditionRange.startColumn}`]);
 
   test('if/else: each path = its matched arm hits', () => {
     const armsByLine = buildArmsByLine({ '2:5|4:5': decision(5, [[2, 5, 3], [4, 5, 2]]) });
     const b = branch('if', range(1, 1, 5, 2), range(1, 5, 1, 7),
       [range(1, 8, 3, 2), range(3, 9, 5, 2)]);
-    expect(computeBranchPathHits(b, armsByLine, noExprHits, noCaseHits)).toEqual([3, 2]);
+    expect(computeBranchPathHits(b, armsByLine, noExprHits, noCaseHits, decided(b))).toEqual([3, 2]);
   });
 
   test('if without else: implicit else = decisionHits - matched then (counted decision)', () => {
@@ -140,7 +147,7 @@ describe('computeBranchPathHits', () => {
     const b = branch('if', range(1, 1, 3, 2), range(1, 5, 1, 7),
       [range(1, 8, 3, 2), range(1, 1, 3, 2)], [1]);
     // then = 3; implicit else = 5 - 3 = 2
-    expect(computeBranchPathHits(b, armsByLine, noExprHits, noCaseHits)).toEqual([3, 2]);
+    expect(computeBranchPathHits(b, armsByLine, noExprHits, noCaseHits, decided(b))).toEqual([3, 2]);
   });
 
   test('fused-logical if without else: decisionHits derived from condition entry (null decision)', () => {
@@ -150,21 +157,21 @@ describe('computeBranchPathHits', () => {
     const exprHits = buildHitsByLine({ '1:5': 5 });
     const b = branch('if', range(1, 1, 3, 2), range(1, 5, 1, 10),
       [range(1, 12, 3, 2), range(1, 1, 3, 2)], [1]);
-    expect(computeBranchPathHits(b, armsByLine, exprHits, noCaseHits)).toEqual([3, 2]);
+    expect(computeBranchPathHits(b, armsByLine, exprHits, noCaseHits, decided(b))).toEqual([3, 2]);
   });
 
   test('implicit derivation clamps at zero', () => {
     const armsByLine = buildArmsByLine({ '2:5': decision(5, [[2, 5, 7]]) }); // then > decision
     const b = branch('if', range(1, 1, 3, 2), range(1, 5, 1, 7),
       [range(1, 8, 3, 2), range(1, 1, 3, 2)], [1]);
-    expect(computeBranchPathHits(b, armsByLine, noExprHits, noCaseHits)).toEqual([7, 0]);
+    expect(computeBranchPathHits(b, armsByLine, noExprHits, noCaseHits, decided(b))).toEqual([7, 0]);
   });
 
   test('ternary (cond-expr): both arms matched, no implicit', () => {
     const armsByLine = buildArmsByLine({ '1:9|1:15': decision(5, [[1, 9, 4], [1, 15, 1]]) });
     const b = branch('cond-expr', range(1, 5, 1, 20), range(1, 5, 1, 6),
       [range(1, 9, 1, 12), range(1, 15, 1, 18)]);
-    expect(computeBranchPathHits(b, armsByLine, noExprHits, noCaseHits)).toEqual([4, 1]);
+    expect(computeBranchPathHits(b, armsByLine, noExprHits, noCaseHits, decided(b))).toEqual([4, 1]);
   });
 
   test('switch with explicit default: each arm = its body statement-entry count', () => {
@@ -173,7 +180,7 @@ describe('computeBranchPathHits', () => {
     const exprHits = buildHitsByLine({ '1:9': 4, '2:5': 1, '3:5': 1, '4:5': 1, '5:5': 1 });
     const b = branch('switch', range(1, 1, 6, 2), range(1, 9, 1, 10),
       [range(2, 5, 2, 20), range(3, 5, 3, 20), range(4, 5, 4, 20), range(5, 5, 5, 20)]);
-    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits)).toEqual([1, 1, 1, 1]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits, decided(b))).toEqual([1, 1, 1, 1]);
   });
 
   test('switch without default: implicit default = switch-reached - sum(case bodies)', () => {
@@ -182,7 +189,7 @@ describe('computeBranchPathHits', () => {
     const b = branch('switch', range(1, 1, 6, 2), range(1, 9, 1, 10),
       [range(2, 5, 2, 20), range(3, 5, 3, 20), range(1, 1, 6, 2)], [2]);
     // cases 2, 3; implicit default = 10 - (2 + 3) = 5
-    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits)).toEqual([2, 3, 5]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits, decided(b))).toEqual([2, 3, 5]);
   });
 
   test('switch empty fall-through case: empty read from caseHits, body from exprHits', () => {
@@ -192,7 +199,7 @@ describe('computeBranchPathHits', () => {
     const caseHits = buildHitsByLine({ '2:9': 1 });
     const b = branch('switch', range(1, 1, 6, 2), range(1, 9, 1, 10),
       [range(2, 5, 2, 11), range(4, 7, 5, 12)], [], [0]);
-    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, caseHits)).toEqual([1, 2]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, caseHits, decided(b))).toEqual([1, 2]);
   });
 
   test('switch untested empty case reads 0 — no leak from an adjacent body hit (the bug)', () => {
@@ -204,7 +211,7 @@ describe('computeBranchPathHits', () => {
     const caseHits = buildHitsByLine({});
     const b = branch('switch', range(1, 1, 6, 2), range(1, 9, 1, 10),
       [range(2, 5, 2, 11), range(4, 7, 5, 12)], [], [0]);
-    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, caseHits)).toEqual([0, 3]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, caseHits, decided(b))).toEqual([0, 3]);
   });
 
   test('switch empty case + implicit default: implicit = reached - sum(empty + body)', () => {
@@ -214,7 +221,7 @@ describe('computeBranchPathHits', () => {
     const caseHits = buildHitsByLine({ '2:9': 1 });
     const b = branch('switch', range(1, 1, 6, 2), range(1, 9, 1, 10),
       [range(2, 5, 2, 11), range(4, 7, 5, 12), range(1, 1, 6, 2)], [2], [0]);
-    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, caseHits)).toEqual([1, 1, 3]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, caseHits, decided(b))).toEqual([1, 1, 3]);
   });
 
   test('binary-expr &&: left = condition-entry count, right = short-circuit arm', () => {
@@ -223,19 +230,87 @@ describe('computeBranchPathHits', () => {
     const exprHits = buildHitsByLine({ '1:5': 5 });
     const b = branch('binary-expr', range(1, 5, 1, 11), range(1, 5, 1, 6),
       [range(1, 5, 1, 6), range(1, 10, 1, 11)]);
-    expect(computeBranchPathHits(b, armsByLine, exprHits, noCaseHits)).toEqual([5, 3]);
+    expect(computeBranchPathHits(b, armsByLine, exprHits, noCaseHits, decided(b))).toEqual([5, 3]);
   });
 
   test('binary-expr: right arm unmatched yields 0 (left still from condition entry)', () => {
     const exprHits = buildHitsByLine({ '1:5': 5 });
     const b = branch('binary-expr', range(1, 5, 1, 11), range(1, 5, 1, 6),
       [range(1, 5, 1, 6), range(1, 10, 1, 11)]);
-    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits)).toEqual([5, 0]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits, decided(b))).toEqual([5, 0]);
   });
 
   test('never-executed branch: derives 0, all paths uncovered', () => {
     const b = branch('if', range(1, 1, 3, 2), range(1, 5, 1, 7),
       [range(1, 8, 3, 2), range(1, 1, 3, 2)], [1]);
-    expect(computeBranchPathHits(b, buildArmsByLine({}), noExprHits, noCaseHits)).toEqual([0, 0]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), noExprHits, noCaseHits, decided(b))).toEqual([0, 0]);
+  });
+
+  // ── Folded (compile-time-constant) branches: condition range has NO decision ──
+
+  test('folded if/else (true-fold): live then body covered, eliminated else reads 0', () => {
+    // if(true){A}else{B}: A executed (2:5), B eliminated from the binary (absent).
+    const exprHits = buildHitsByLine({ '2:5': 1 });
+    const b = branch('if', range(1, 1, 5, 2), range(1, 5, 1, 9),
+      [range(2, 5, 2, 10), range(4, 5, 4, 10)]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits, noDecisions)).toEqual([1, 0]);
+  });
+
+  test('folded if/else (false-fold): eliminated then reads 0, live else body covered', () => {
+    const exprHits = buildHitsByLine({ '4:5': 1 });
+    const b = branch('if', range(1, 1, 5, 2), range(1, 5, 1, 9),
+      [range(2, 5, 2, 10), range(4, 5, 4, 10)]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits, noDecisions)).toEqual([0, 1]);
+  });
+
+  test('folded if without else (true-fold): then covered, implicit else 0', () => {
+    const exprHits = buildHitsByLine({ '2:5': 1 });
+    const b = branch('if', range(1, 1, 4, 2), range(1, 5, 1, 9),
+      [range(2, 5, 2, 10), range(1, 1, 4, 2)], [1]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits, noDecisions)).toEqual([1, 0]);
+  });
+
+  test('folded cond-expr (true-fold): live then arm covered, eliminated else 0', () => {
+    const exprHits = buildHitsByLine({ '1:12': 1 });
+    const b = branch('cond-expr', range(1, 5, 1, 20), range(1, 5, 1, 9),
+      [range(1, 12, 1, 14), range(1, 17, 1, 19)]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits, noDecisions)).toEqual([1, 0]);
+  });
+
+  test('folded binary-expr (left true → right evaluated): [reached, rightEvaluated]', () => {
+    // true && (x>0): right operand survives → evaluated. reached=1, right=1.
+    const exprHits = buildHitsByLine({ '1:12': 1 });
+    const b = branch('binary-expr', range(1, 5, 1, 15), range(1, 5, 1, 9),
+      [range(1, 5, 1, 9), range(1, 12, 1, 15)]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits, noDecisions)).toEqual([1, 1]);
+  });
+
+  test('folded binary-expr (left false → right short-circuited): right reads 0', () => {
+    // false && (x>0): right eliminated; only the result const survives at the left (1:5).
+    const exprHits = buildHitsByLine({ '1:5': 1 });
+    const b = branch('binary-expr', range(1, 5, 1, 15), range(1, 5, 1, 9),
+      [range(1, 5, 1, 9), range(1, 12, 1, 15)]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits, noDecisions)).toEqual([1, 0]);
+  });
+});
+
+describe('conditionRangeContainsDecision', () => {
+  test('true when a decision position falls within the range', () => {
+    const m = buildDecisionPositionsByLine(['3:7']);
+    expect(conditionRangeContainsDecision(m, range(3, 1, 3, 20))).toBe(true);
+  });
+
+  test('false when no decision position is within the range (folded)', () => {
+    const m = buildDecisionPositionsByLine(['3:7']);
+    expect(conditionRangeContainsDecision(m, range(5, 1, 5, 20))).toBe(false);
+  });
+
+  test('empty map ⇒ always false (everything reads as folded)', () => {
+    expect(conditionRangeContainsDecision(buildDecisionPositionsByLine([]), range(1, 1, 1, 10))).toBe(false);
+  });
+
+  test('respects column bounds on the start line', () => {
+    const m = buildDecisionPositionsByLine(['1:3']);
+    expect(conditionRangeContainsDecision(m, range(1, 5, 1, 20))).toBe(false); // col 3 < start col 5
   });
 });

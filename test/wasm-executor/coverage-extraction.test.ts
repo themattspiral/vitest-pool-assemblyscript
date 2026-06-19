@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 
-import { buildExpressionHits, buildBranchHits, buildCaseHits } from '../../src/wasm-executor/coverage-extraction.js';
+import { buildExpressionHits, buildBranchHits, buildCaseHits, buildDecisionPositions } from '../../src/wasm-executor/coverage-extraction.js';
 import type {
   BinaryDebugInfo,
   BranchHits,
@@ -451,5 +451,38 @@ describe('buildCaseHits', () => {
       totalInstrumentationCounters: 0,
     };
     expect(buildCaseHits(di, []).hitCountsByFileAndPosition).toEqual({});
+  });
+});
+
+describe('buildDecisionPositions', () => {
+  test('emits each decision block\'s located position, per file', () => {
+    // block 0 is a decision located at its condition 5:3; arms 1,2 are non-decision.
+    const di = debugInfoFor([
+      func(
+        [expr(5, 3), expr(6, 1), expr(8, 1)],
+        [decisionBlock(0, 3, [0], [1, 2]), block(1, 4, [1]), block(2, 5, [2])],
+      ),
+    ]);
+    expect(buildDecisionPositions(di).positionsByFile[FILE]).toEqual(['5:3']);
+  });
+
+  test('skips a decision block with no located expression (fused-logical)', () => {
+    const di = debugInfoFor([
+      func([expr(6, 1), expr(8, 1)],
+        [decisionBlock(0, undefined, [], [1, 2]), block(1, 4, [0]), block(2, 5, [1])]),
+    ]);
+    expect(buildDecisionPositions(di).positionsByFile).toEqual({});
+  });
+
+  test('ignores non-decision blocks', () => {
+    const di = debugInfoFor([func([expr(5, 3)], [block(0, 4, [0])])]);
+    expect(buildDecisionPositions(di).positionsByFile).toEqual({});
+  });
+
+  test('dedups the same decision position across monomorphizations', () => {
+    const a = func([expr(5, 3), expr(6, 1)], [decisionBlock(0, 3, [0], [1]), block(1, 4, [1])], 'f<i32>');
+    const b = func([expr(5, 3), expr(6, 1)], [decisionBlock(0, 5, [0], [1]), block(1, 6, [1])], 'f<f64>');
+    const di = debugInfoFor([a, b], '20:1');
+    expect(buildDecisionPositions(di).positionsByFile[FILE]).toEqual(['5:3']);
   });
 });

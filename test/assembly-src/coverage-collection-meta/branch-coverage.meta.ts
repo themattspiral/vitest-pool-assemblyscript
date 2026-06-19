@@ -50,3 +50,29 @@ export function clampLow(n: i32): i32 {
 export function pickFirst(flag: bool): i32 {
   return flag ? 1 : 2;
 }
+
+// Folded (compile-time-constant) conditions: the compiler removes the branch, so
+// there is no decision block. Coverage must still match v8 — the live arm covered,
+// the eliminated dead arm 0.
+export function foldedIf(x: i32): i32 {
+  if (true) {
+    return 1;
+  } else {
+    return 2;
+  }
+}
+
+export function foldedTernary(x: i32): i32 {
+  return true ? 10 : 20;
+}
+
+// Folded logical with a REAL right operand (the `FLAG && check()` shape). A constant
+// left folds the short-circuit decision; the right is evaluated iff the left's value
+// allows it (`&&` left-true).
+export function foldedAndEval(x: i32): bool {
+  return true && x > 0;   // left true → right (x>0) evaluated
+}
+
+export function foldedAndShort(x: i32): bool {
+  return false && x > 0;  // left false → right short-circuited away
+}

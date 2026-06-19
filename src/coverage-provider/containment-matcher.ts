@@ -233,6 +233,54 @@ export function findArmAtRangeEntry(
 }
 
 /**
+ * Bucket a file's binary decision-block source positions by line, for fast
+ * condition-range containment checks. Built once per file (transient).
+ */
+export function buildDecisionPositionsByLine(positions: string[]): Map<number, number[]> {
+  const byLine = new Map<number, number[]>();
+
+  for (const positionKey of positions) {
+    const colonIndex = positionKey.indexOf(':');
+    if (colonIndex < 0) continue;
+
+    const line = parseInt(positionKey.slice(0, colonIndex), 10);
+    const column = parseInt(positionKey.slice(colonIndex + 1), 10);
+    if (Number.isNaN(line) || Number.isNaN(column)) continue;
+
+    const bucket = byLine.get(line);
+    if (bucket) {
+      bucket.push(column);
+    } else {
+      byLine.set(line, [column]);
+    }
+  }
+
+  return byLine;
+}
+
+/**
+ * Whether a range contains any binary decision position — the signal that a source
+ * branch was NOT compiler-folded. A real branch always emits a decision block
+ * (even never-executed); a constant-folded one emits none. So a branch whose
+ * condition range contains no decision position was folded.
+ */
+export function conditionRangeContainsDecision(
+  decisionPositionsByLine: Map<number, number[]>,
+  range: SourceRange
+): boolean {
+  for (let line = range.startLine; line <= range.endLine; line++) {
+    const columns = decisionPositionsByLine.get(line);
+    if (!columns) continue;
+    for (const column of columns) {
+      if (isPositionInRange(line, column, range)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Compute Istanbul per-path hit counts for one source branch (D4 + D9).
  *
  * - **binary-expr** (logical `&&`/`||`): Istanbul reports `[leftEvaluated,
@@ -253,19 +301,29 @@ export function findArmAtRangeEntry(
  *   dedicated `caseHitsByLine` channel (its post-anchored counter, keyed by
  *   case-label position); an implicit default via `switchReached − Σ(explicit)`.
  *
+ * **Folded branches** (`if`/`cond-expr`/`binary-expr` with a compile-time-constant
+ * condition): the compiler emits no decision block, so the condition range contains
+ * no decision position. These can't be arm-matched. They are read from executed
+ * code instead, matching v8: `if`/`cond-expr` → each explicit arm by statement-entry
+ * over its body (the live arm has hits, the dead arm was eliminated → 0), implicit
+ * arm → 0; `binary-expr` → left always reached (1), right = whether the right operand
+ * survived (was evaluated) per short-circuit.
+ *
  * @param branch - the source branch construct
  * @param armsByLine - file branch arm locations bucketed by line
  * @param expressionHitsByLine - file statement/expression hits bucketed by line (for condition-entry derivation)
  * @param caseHitsByLine - file empty fall-through switch-case hits bucketed by line (case-label positions)
+ * @param decisionPositionsByLine - file binary decision positions bucketed by line (for folded-branch detection)
  * @returns per-path hit counts aligned with branch.paths
  */
 export function computeBranchPathHits(
   branch: ParsedSourceBranchInfo,
   armsByLine: Map<number, ArmHit[]>,
   expressionHitsByLine: Map<number, LineHit[]>,
-  caseHitsByLine: Map<number, LineHit[]>
+  caseHitsByLine: Map<number, LineHit[]>,
+  decisionPositionsByLine: Map<number, number[]>
 ): number[] {
-  const { branchType, paths, conditionRange, implicitPathIndices, emptyCasePathIndices } = branch;
+  const { branchType, range, paths, conditionRange, implicitPathIndices, emptyCasePathIndices } = branch;
 
   if (branchType === 'switch') {
     // Switch lowers to a comparison chain. Arm-matching can't be used: the chain's
@@ -305,11 +363,46 @@ export function computeBranchPathHits(
     return switchHits;
   }
 
+  // A branch whose condition range contains no binary decision was compiler-folded
+  // (constant condition → no decision block). Folded branches can't be arm-matched;
+  // they are read from the executed code instead, matching v8.
+  const isFolded = !conditionRangeContainsDecision(decisionPositionsByLine, conditionRange);
+
   if (branchType === 'binary-expr') {
+    if (isFolded) {
+      // Constant LEFT operand: the short-circuit decision folded away. The left is
+      // always reached (count = statement-entry over the whole construct); the
+      // right is evaluated iff the left's value triggers it (`&&` left-true,
+      // `||` left-false), recoverable as whether the right operand survived in the
+      // binary (statement-entry over its range — eliminated when short-circuited).
+      const reached = findStatementEntryHitCount(expressionHitsByLine, range);
+      const rightEvaluated = paths[1] ? findStatementEntryHitCount(expressionHitsByLine, paths[1]) : 0;
+      return [reached, rightEvaluated];
+    }
     // left = condition-entry (leftmost-atom) count; right = short-circuit arm.
     const leftEvaluated = findStatementEntryHitCount(expressionHitsByLine, conditionRange);
     const rightArm = paths[1] ? findArmAtRangeEntry(armsByLine, paths[1]) : undefined;
     return [leftEvaluated, rightArm?.armHits ?? 0];
+  }
+
+  // if / cond-expr
+  if (isFolded) {
+    // Constant condition: no decision block. Each explicit arm is read by
+    // statement-entry over its body — the live arm has hits, the dead arm was
+    // eliminated by the compiler → 0. An implicit arm (if-without-else) has no
+    // body, so it is 0.
+    //
+    // KNOWN, ACCEPTED LIMITATION (cond-expr only): when BOTH ternary arms are
+    // compile-time constants (`cond ? 10 : 20`), the whole expression folds to a
+    // single result Const at the construct start — neither arm range catches it,
+    // so both read 0 (v8 would report the live arm covered). A folded ternary with
+    // any non-constant arm works, because the live arm's code survives at its own
+    // position. The const/const case is inherent to CFG/compiled-output coverage
+    // (the compiler erased the distinction); documented, not fixed.
+    const foldedImplicit = new Set(implicitPathIndices);
+    return paths.map((path, index) =>
+      foldedImplicit.has(index) ? 0 : findStatementEntryHitCount(expressionHitsByLine, path)
+    );
   }
 
   const implicitIndices = new Set(implicitPathIndices);

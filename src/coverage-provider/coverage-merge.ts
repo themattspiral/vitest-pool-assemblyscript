@@ -4,7 +4,7 @@
  * Functions for merging CoverageData and BranchHits objects
  */
 
-import type { BranchHits, BranchPathHits, CoverageData } from '../types/types.js';
+import type { BranchHits, BranchPathHits, CoverageData, DecisionPositions } from '../types/types.js';
 
 /**
  * Merge incoming CoverageData into accumulated CoverageData
@@ -110,6 +110,30 @@ export function mergeBranchHits(
           decisionHits: pathHits.decisionHits,
           targets: pathHits.targets.map(t => ({ hits: t.hits, location: t.location })),
         };
+      }
+    }
+  }
+}
+
+/**
+ * Merge incoming DecisionPositions into accumulated, by UNION per file (dedup).
+ *
+ * Decision positions are structural — a decision block exists regardless of
+ * execution and is identical across a file's tests — so the merge is a set union,
+ * not a sum. Used both up the suite tree and across files in the provider. Mutates
+ * `accumulated` in place.
+ */
+export function mergeDecisionPositions(
+  accumulated: DecisionPositions,
+  incoming: DecisionPositions
+): void {
+  for (const [filePath, positions] of Object.entries(incoming.positionsByFile)) {
+    const existing = (accumulated.positionsByFile[filePath] ??= []);
+    const seen = new Set(existing);
+    for (const position of positions) {
+      if (!seen.has(position)) {
+        seen.add(position);
+        existing.push(position);
       }
     }
   }

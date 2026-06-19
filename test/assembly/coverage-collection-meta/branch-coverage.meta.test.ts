@@ -1,5 +1,8 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { dayType, category, clampLow, pickFirst } from "../../assembly-src/coverage-collection-meta/branch-coverage.meta";
+import {
+  dayType, category, clampLow, pickFirst,
+  foldedIf, foldedTernary, foldedAndEval, foldedAndShort,
+} from "../../assembly-src/coverage-collection-meta/branch-coverage.meta";
 
 // Exercises the branch-coverage fixtures with KNOWN inputs so each construct's
 // per-arm branch coverage is exactly hand-derivable. The assertions on the
@@ -28,5 +31,14 @@ describe("branch coverage fixtures", () => {
   // ternary: then arm taken; else arm never (reads 0).
   test("pickFirst: ternary", () => {
     expect(pickFirst(true)).toBe(1);  // then arm
+  });
+
+  // Folded constant-condition branches. The compiler removes the branch; coverage
+  // must still report the live arm covered and the eliminated arm 0 (v8 parity).
+  test("folded constant-condition branches", () => {
+    expect(foldedIf(0)).toBe(1);          // if(true) → then always taken
+    expect(foldedTernary(0)).toBe(10);    // true ? 10 : 20 → then
+    expect(foldedAndEval(5)).toBe(true);  // true && (5 > 0) → right evaluated
+    expect(foldedAndShort(5)).toBe(false);// false && _ → right short-circuited
   });
 });

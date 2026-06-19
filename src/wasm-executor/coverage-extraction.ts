@@ -11,6 +11,7 @@ import type {
   BranchHits,
   BranchTargetHits,
   CoverageData,
+  DecisionPositions,
   FunctionDebugInfo,
   SourceLocation,
 } from '../types/types.js';
@@ -327,4 +328,49 @@ export function buildCaseHits(
   }
 
   return caseHits;
+}
+
+/**
+ * Build the set of binary decision-block source positions, per file — the robust
+ * signal for detecting compiler-folded branches.
+ *
+ * For every decision block (CFG out-degree ≥ 2), record its representative source
+ * position (the home-file-aware first located expression — the condition, or for a
+ * fused-logical `&&`/`||` the located short-circuit operand). A source branch whose
+ * condition range contains NONE of these positions was folded: a constant condition
+ * is evaluated at compile time and emits no decision block. Unlike "no arm matched",
+ * this can't be confused with a real branch whose empty/unlocated arms got its
+ * decision dropped from branchHits.
+ *
+ * Purely structural — independent of execution (no counters). Deduplicated per file;
+ * accumulated by UNION across tests and files (mergeDecisionPositions).
+ *
+ * @param debugInfo - processed binary debug info
+ * @returns decision positions keyed by file ("line:column")
+ */
+export function buildDecisionPositions(debugInfo: BinaryDebugInfo): DecisionPositions {
+  const sets: Record<string, Set<string>> = {};
+
+  for (const debugFunctions of Object.values(debugInfo.functionsByFileAndPosition)) {
+    for (const funcInfos of Object.values(debugFunctions)) {
+      for (const funcInfo of funcInfos) {
+        for (const block of funcInfo.basicBlocks) {
+          if (!block.isDecision) {
+            continue;
+          }
+          const location = firstLocatedExpressionLocation(funcInfo, block);
+          if (!location) {
+            continue;
+          }
+          (sets[location.filePath] ??= new Set()).add(`${location.line}:${location.column}`);
+        }
+      }
+    }
+  }
+
+  const positionsByFile: Record<string, string[]> = {};
+  for (const [filePath, set] of Object.entries(sets)) {
+    positionsByFile[filePath] = [...set];
+  }
+  return { positionsByFile };
 }

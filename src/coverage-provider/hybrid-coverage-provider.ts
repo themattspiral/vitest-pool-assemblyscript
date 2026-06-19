@@ -23,13 +23,14 @@ const { createCoverageMap } = istanbulCoverage;
 import { convertToIstanbulFormat } from './istanbul-converter.js';
 import { parseFunctionsFromFile } from './ast-parser.js';
 import { globFiles } from './glob-utils.js';
-import { mergeCoverageData, mergeBranchHits } from './coverage-merge.js';
+import { mergeCoverageData, mergeBranchHits, mergeDecisionPositions } from './coverage-merge.js';
 import { debug } from '../util/debug.js';
 import { createPoolError } from '../util/pool-errors.js';
 import type {
   AssemblyScriptCoveragePayload,
   BranchHits,
   CoverageData,
+  DecisionPositions,
   GlobResult,
   ResolvedHybridProviderOptions,
 } from '../types/types.js';
@@ -47,6 +48,7 @@ export class HybridCoverageProvider implements CoverageProvider {
   private accumulatedExpressionHits: CoverageData = { hitCountsByFileAndPosition: {} };
   private accumulatedBranchHits: BranchHits = { hitsByFileAndDecision: {} };
   private accumulatedEmptyCaseHits: CoverageData = { hitCountsByFileAndPosition: {} };
+  private accumulatedDecisionPositions: DecisionPositions = { positionsByFile: {} };
   private projectRoot: string = '';
   private definedCoverageOptions: ResolvedCoverageOptions = {} as ResolvedCoverageOptions;
   private resolvedProviderOptions: ResolvedHybridProviderOptions = {} as ResolvedHybridProviderOptions;
@@ -89,7 +91,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     // Check for AssemblyScript format marker
     if (format === COVERAGE_PAYLOAD_FORMATS.AssemblyScript) {
       const payload = meta.coverage as AssemblyScriptCoveragePayload;
-      const { functionHits, expressionHits, branchHits, emptyCaseHits, suiteLogLabel: label } = payload;
+      const { functionHits, expressionHits, branchHits, emptyCaseHits, decisionPositions, suiteLogLabel: label } = payload;
       suiteLogLabel = label;
 
       debug(() => {
@@ -104,6 +106,7 @@ export class HybridCoverageProvider implements CoverageProvider {
       mergeCoverageData(this.accumulatedExpressionHits, expressionHits);
       mergeBranchHits(this.accumulatedBranchHits, branchHits);
       mergeCoverageData(this.accumulatedEmptyCaseHits, emptyCaseHits);
+      mergeDecisionPositions(this.accumulatedDecisionPositions, decisionPositions);
 
       debug(() => {
         const positionCount = Object.values(this.accumulatedExpressionHits.hitCountsByFileAndPosition)
@@ -188,10 +191,11 @@ export class HybridCoverageProvider implements CoverageProvider {
         const fileExpressionHits = this.accumulatedExpressionHits.hitCountsByFileAndPosition[include.absolute] ?? {};
         const fileBranchHits = this.accumulatedBranchHits.hitsByFileAndDecision[include.absolute] ?? {};
         const fileEmptyCaseHits = this.accumulatedEmptyCaseHits.hitCountsByFileAndPosition[include.absolute] ?? {};
+        const fileDecisionPositions = this.accumulatedDecisionPositions.positionsByFile[include.absolute] ?? [];
         debug(`[HybridCoverageProvider] Accumulated AS coverage has ${Object.keys(fileFunctionHits).length} function + ${Object.keys(fileExpressionHits).length} statement positions + ${Object.keys(fileBranchHits).length} branch decisions for "${include.absolute}"`);
 
         // Containment matching (binary hit position → source) is performed during istanbul conversion
-        return convertToIstanbulFormat(parsedFunctions, fileFunctionHits, fileExpressionHits, fileBranchHits, fileEmptyCaseHits, include.absolute, this.resolvedProviderOptions.debugIstanbul);
+        return convertToIstanbulFormat(parsedFunctions, fileFunctionHits, fileExpressionHits, fileBranchHits, fileEmptyCaseHits, fileDecisionPositions, include.absolute, this.resolvedProviderOptions.debugIstanbul);
       });
 
       // Wait for all files to complete
@@ -314,6 +318,7 @@ export class HybridCoverageProvider implements CoverageProvider {
       this.accumulatedExpressionHits = { hitCountsByFileAndPosition: {} };
       this.accumulatedBranchHits = { hitsByFileAndDecision: {} };
       this.accumulatedEmptyCaseHits = { hitCountsByFileAndPosition: {} };
+      this.accumulatedDecisionPositions = { positionsByFile: {} };
       debug('[HybridCoverageProvider] Cleaned all internal coverage data');
     }
 
