@@ -622,14 +622,25 @@ export function functionInfo(entry: FileCoverage, funcName: string): FunctionInf
 
 /**
  * Per-arm branch hit-count arrays for all branches of a given Istanbul branch
- * type ('if', 'cond-expr', 'switch', 'binary-expr'), ordered by source line.
+ * type ('if', 'cond-expr', 'switch', 'binary-expr'), ordered by source position.
  * Each element is that branch's `b` array (one count per arm, in source order),
  * so multiple branches of the same type are distinguished by their position in
  * the returned list.
+ *
+ * Ordering is a deterministic total order on the branch's whole-construct loc:
+ * start line, then start column, then end line, then end column. The start-column
+ * and end tiebreaks matter only for multiple same-type branches that share a start
+ * line — notably nested logicals like `a && b && c`, where the inner `a && b`
+ * (smaller range) sorts before the outer `(a && b) && c` (larger range).
  */
 export function branchHitsByType(entry: FileCoverage, type: string): number[][] {
   return Object.entries(entry.branchMap)
     .filter(([, info]) => info.type === type)
-    .sort(([, a], [, b]) => a.loc.start.line - b.loc.start.line)
+    .sort(([, a], [, b]) =>
+      a.loc.start.line - b.loc.start.line ||
+      a.loc.start.column - b.loc.start.column ||
+      a.loc.end.line - b.loc.end.line ||
+      a.loc.end.column - b.loc.end.column
+    )
     .map(([id]) => entry.b[id] ?? []);
 }
