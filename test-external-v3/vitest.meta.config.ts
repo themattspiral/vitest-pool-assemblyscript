@@ -149,6 +149,24 @@ export default defineConfig({
         }
       }),
 
+      // AS Meta Alt Config - no strip-inline (honor @inline). Verifies that a branch
+      // inside an @inline function (inlined into a caller in another file) is still
+      // covered and attributed back to the @inline source.
+      defineAssemblyScriptProject({
+        test: {
+          name: { label: 'as-pool-meta-no-strip-inline', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-no-strip-inline.test.ts'
+          ],
+          pool: 'vitest-pool-assemblyscript/v3',
+          poolOptions: {
+            assemblyScript: {
+              stripInline: false,
+            }
+          },
+        }
+      }),
+
       // AS Meta Alt Config - non-isolated single worker (batched file dispatch)
       //
       // NOTE: This project exists here for verification parity only — the meta-verify

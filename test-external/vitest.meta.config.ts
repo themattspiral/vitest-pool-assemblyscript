@@ -131,6 +131,21 @@ export default defineConfig({
         }
       }),
 
+      // AS Meta Alt Config - no strip-inline (honor @inline). Verifies that a branch
+      // inside an @inline function (inlined into a caller in another file) is still
+      // covered and attributed back to the @inline source.
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-no-strip-inline', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-no-strip-inline.test.ts'
+          ],
+          pool: createAssemblyScriptPool({
+            stripInline: false,
+          }),
+        }
+      }),
+
       // AS Meta Alt Config - non-isolated single worker (batched file dispatch)
       // With isolate: false and maxWorkers: 1, vitest sends ALL matching files to a
       // single PoolWorker in ONE 'run' message (instead of the usual one file per
