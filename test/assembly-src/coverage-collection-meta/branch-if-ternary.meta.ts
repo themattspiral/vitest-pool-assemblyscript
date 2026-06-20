@@ -67,3 +67,22 @@ export function orDefault(n: i32, fallback: i32): i32 {
 export function sign(n: i32): i32 {
   return n > 0 ? 1 : (n < 0 ? -1 : 0);
 }
+
+// if/else exercised on the THEN arm ONLY: the explicit else is genuinely untested
+// and reads 0 — the canonical uncovered-branch (red arm) users care about.
+export function gateThenOnly(n: i32): i32 {
+  if (n > 0) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+// if WITHOUT else exercised on the IMPLICIT-ELSE path ONLY: the then arm is
+// untested (reads 0) and the implicit else is derived.
+export function guardElseOnly(n: i32): i32 {
+  if (n < 0) {
+    return -1;
+  }
+  return n;
+}

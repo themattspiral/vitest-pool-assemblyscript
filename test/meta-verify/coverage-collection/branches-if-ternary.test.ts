@@ -20,7 +20,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — if / ternary branches'
 
   // 'if' branches by source position:
   //   [0] absVal  [1] clampLow  [2] classify-outer  [3] classify-inner
-  //   [4] clampRange-outer  [5] clampRange-inner
+  //   [4] clampRange-outer  [5] clampRange-inner  [6] gateThenOnly  [7] guardElseOnly
   describe('if / else / else-if', () => {
     test('absVal if/else: then 2, else 1', () => {
       expect(branchHitsByType(entry, 'if')[0]).toEqual([2, 1]);
@@ -40,6 +40,14 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — if / ternary branches'
       const ifs = branchHitsByType(entry, 'if');
       expect(ifs[4]).toEqual([2, 1]); // outer (n>0 / implicit else)
       expect(ifs[5]).toEqual([1, 1]); // inner (n>100 / implicit else)
+    });
+
+    test('gateThenOnly: untested explicit else reads 0 -> [2,0]', () => {
+      expect(branchHitsByType(entry, 'if')[6]).toEqual([2, 0]);
+    });
+
+    test('guardElseOnly: untested then, derived implicit else -> [0,2]', () => {
+      expect(branchHitsByType(entry, 'if')[7]).toEqual([0, 2]);
     });
   });
 

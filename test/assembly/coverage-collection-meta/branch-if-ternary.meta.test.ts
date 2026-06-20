@@ -1,6 +1,7 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
 import {
   absVal, clampLow, classify, clampRange, pickFirst, orDefault, sign,
+  gateThenOnly, guardElseOnly,
 } from "../../assembly-src/coverage-collection-meta/branch-if-ternary.meta";
 
 // Exercises the if/ternary branch fixtures with KNOWN inputs so each arm's hit
@@ -60,5 +61,19 @@ describe("if / ternary branch fixtures", () => {
     expect(sign(-3)).toBe(-1);  // outer else → inner then
     expect(sign(0)).toBe(0);    // outer else → inner else
     // outer cond-expr [then, else] = [1, 2] ; inner cond-expr [then, else] = [1, 1]
+  });
+
+  // if/else, then arm only: else untested (reads 0).
+  test("gateThenOnly: untested explicit else", () => {
+    expect(gateThenOnly(5)).toBe(1);  // then
+    expect(gateThenOnly(3)).toBe(1);  // then
+    // if arms [then, else] = [2, 0]
+  });
+
+  // if without else, implicit-else path only: then untested (reads 0).
+  test("guardElseOnly: untested then, derived implicit else", () => {
+    expect(guardElseOnly(5)).toBe(5);  // implicit else
+    expect(guardElseOnly(3)).toBe(3);  // implicit else
+    // if arms [then, implicit-else] = [0, 2]
   });
 });
