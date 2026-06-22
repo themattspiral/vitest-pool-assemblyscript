@@ -9,8 +9,11 @@ import type { BranchHits, BranchPathHits, CoverageData, DecisionPositions } from
 /**
  * Merge incoming CoverageData into accumulated CoverageData
  *
- * Combines by filepath + position, summing hit counts.
- * Mutates the accumulated object in place.
+ * Combines by filepath + position, summing hit counts. This is PER-POSITION
+ * aggregation — it sums the same source position across tests (up the suite tree)
+ * and across binaries (in the provider). The separate PER-FUNCTION roll-up (combining
+ * the positions that map into one source function) happens later, at Istanbul
+ * conversion — see convertToIstanbulFormat. Mutates the accumulated object in place.
  *
  * @param accumulated - Accumulated coverage data (mutated)
  * @param incoming - New coverage data to merge in

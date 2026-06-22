@@ -216,8 +216,10 @@ After containment matching, coverage data is converted to Istanbul's `FileCovera
 
 ### Current Conversion (Function-Level)
 
+Hit data is aggregated at two distinct levels. **Per-position** totals are summed first — across monomorphizations (in the executor) and across tests and binaries (via `mergeCoverageData`, up the suite tree and in the provider) — so each entry in the accumulated position map is the complete hit total for one source position. **Per-function** totals are then rolled up here, at conversion: each source function's count is the combined total of the position(s) that fall in its range, normally just its single `representativeLocation`.
+
 For each source file:
-1. **Match**: For each binary hit position, use containment matching to find the containing source function and record its hit count
+1. **Match**: For each binary hit position (already a per-position total), use containment matching to find the containing source function, and roll the position(s) up into that function's hit count
 2. **Convert**: For each source function (from AST parser), create:
    - A function mapping (`fnMap`) with the function's source range
    - A corresponding statement mapping (`statementMap`) with the same range — at function-level granularity, each function is treated as one "statement"

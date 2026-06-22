@@ -40,9 +40,13 @@ function toIstanbulRange(range: SourceRange): Range {
 /**
  * Convert AssemblyScript coverage data to Istanbul format for a single file.
  *
- * Function coverage (fnMap / f): for each binary hit position in fileFunctionHits,
- * containment-match it to the source function whose range contains it; each
- * source function then gets its matched hit count (or 0 when never hit).
+ * Function coverage (fnMap / f): hit data is aggregated at two levels. Per-POSITION
+ * totals arrive already summed upstream (across monomorphizations in the executor,
+ * and across tests/binaries in mergeCoverageData). Here each source function is
+ * rolled up PER-FUNCTION: containment-match every position in fileFunctionHits to
+ * the source function whose range contains it, and the function takes the combined
+ * count of its position(s) — normally just its single representative location (or 0
+ * when never hit).
  *
  * Statement coverage (statementMap / s): each source statement's count is read at
  * its entry position — the smallest-position hit within its range, from
@@ -111,14 +115,22 @@ export async function convertToIstanbulFormat(
       if (containingFunction) {
         istanbulDebug(`[IstanbulConverter]     Hit Position ${hitPositionKey} → function "${containingFunction.shortName}" in ${(performance.now() - containStart).toFixed(2)}ms`);
         
-        // Accumulate hits (in case multiple positions map to same function)
+        // Per-FUNCTION roll-up: a source function's count is the SUM of the
+        // position(s) that fall inside its range. Each `fileFunctionHits` entry is
+        // already the fully summed total for ONE source position (summed upstream
+        // across monomorphizations in the executor and across tests/binaries in
+        // mergeCoverageData). Normally a function maps to a single position, so this
+        // sets its count once. When more than one position maps to a function — e.g.
+        // its representative location differs between binaries (different `--runtime`
+        // lowerings, or ungrouped monomorphizations) — those positions are always
+        // distinct executions, so summing is correct and never double-counts; max
+        // would under-count by reporting only the largest.
         const existingHits = functionHitCounts.get(containingFunction.id);
-        const existingHitsCount = existingHits ?? 0;
-        const max = Math.max(existingHitsCount, hitCount);
-        functionHitCounts.set(containingFunction.id, max); // <-- TODO: Explain this max logic
+        const combined = (existingHits ?? 0) + hitCount;
+        functionHitCounts.set(containingFunction.id, combined);
 
         if (existingHits !== undefined) {
-          istanbulDebug(`[IstanbulConverter]     Hit Position ${hitPositionKey} → function "${containingFunction.shortName}" EXISTING HITS: ${existingHits} NEW COUNT: ${max}`);
+          istanbulDebug(`[IstanbulConverter]     Hit Position ${hitPositionKey} → function "${containingFunction.shortName}" EXISTING HITS: ${existingHits} NEW COUNT: ${combined}`);
         } else {
           istanbulDebug(`[IstanbulConverter]     Hit Position ${hitPositionKey} → function "${containingFunction.shortName}" (hits: ${hitCount})`);
         }
