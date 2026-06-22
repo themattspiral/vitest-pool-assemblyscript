@@ -19,7 +19,7 @@ export default defineConfig({
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       
       include: [
-        '../vitest-pool-assemblyscript/test/js-example-meta-src'
+        '../vitest-pool-assemblyscript/test/js-coverage-parity-src'
       ],
 
       assemblyScriptInclude: [
@@ -43,9 +43,9 @@ export default defineConfig({
     // TS Meta examples (to combine with AS coverage results)
       defineProject({
         test: {
-          name: { label: 'ts-pool-meta-example', color: 'blue' },
+          name: { label: 'js-coverage-parity', color: 'blue' },
           include: [
-            '../vitest-pool-assemblyscript/test/js-example-meta/*.test.ts',
+            '../vitest-pool-assemblyscript/test/js-coverage-parity/**/*.test.ts',
           ],
           exclude: [],
         }

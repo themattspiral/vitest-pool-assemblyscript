@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest';
-import { capitalize, reverse, truncate, countWords, isPalindrome } from '../js-example-meta-src/string-utils.js';
+import { capitalize, reverse, truncate, countWords, isPalindrome } from '../js-coverage-parity-src/string-utils.js';
 
 // Exercises ~50-60% of string-utils functions
 // slugify, camelToKebab, kebabToCamel are intentionally untested

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest';
-import { isEmail, isHexColor } from '../js-example-meta-src/validators.js';
+import { isEmail, isHexColor } from '../js-coverage-parity-src/validators.js';
 
 // Exercises ~30-40% of validators functions
 // isEmpty, isInRange, isUrl, isNumericString, isStrongPassword are intentionally untested

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest';
-import { celsiusToFahrenheit } from '../js-example-meta-src/converters.js';
+import { celsiusToFahrenheit } from '../js-coverage-parity-src/converters.js';
 
 // Exercises only celsiusToFahrenheit — most converter functions are intentionally untested
 

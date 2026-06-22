@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest';
-import { unique, chunk, last, compact, range } from '../js-example-meta-src/array-utils.js';
+import { unique, chunk, last, compact, range } from '../js-coverage-parity-src/array-utils.js';
 
 // Exercises ~75-80% of array-utils functions
 // zip is intentionally untested
