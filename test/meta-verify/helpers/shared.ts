@@ -657,3 +657,33 @@ export function statementHitsByLine(entry: FileCoverage, line: number): number[]
     .sort(([, a], [, b]) => (a as StatementRange).start.column - (b as StatementRange).start.column)
     .map(([id]) => entry.s[id] ?? 0);
 }
+
+/**
+ * Istanbul line coverage for a single line: the MAX hit count among statements whose
+ * range *starts* on that line (matching FileCoverage.getLineCoverage). Returns
+ * undefined when no statement starts on the line.
+ */
+export function lineHits(entry: FileCoverage, line: number): number | undefined {
+  const counts = statementHitsByLine(entry, line);
+  return counts.length === 0 ? undefined : Math.max(...counts);
+}
+
+/**
+ * Source lines that carry at least one statement but whose line coverage is 0
+ * (uncovered), sorted ascending — how Istanbul reporters derive uncovered lines from
+ * statement coverage (max hit count per start line).
+ */
+export function uncoveredLineNumbers(entry: FileCoverage): number[] {
+  type StatementRange = { start: { line: number; column: number } };
+  const maxByLine = new Map<number, number>();
+  for (const [id, range] of Object.entries(entry.statementMap)) {
+    const line = (range as StatementRange).start.line;
+    const count = entry.s[id] ?? 0;
+    const prev = maxByLine.get(line);
+    if (prev === undefined || prev < count) maxByLine.set(line, count);
+  }
+  return [...maxByLine.entries()]
+    .filter(([, c]) => c === 0)
+    .map(([l]) => l)
+    .sort((a, b) => a - b);
+}
