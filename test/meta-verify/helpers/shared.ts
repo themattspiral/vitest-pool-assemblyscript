@@ -644,3 +644,16 @@ export function branchHitsByType(entry: FileCoverage, type: string): number[][] 
     )
     .map(([id]) => entry.b[id] ?? []);
 }
+
+/**
+ * Hit counts of all statements whose START line === `line`, ordered by start column.
+ * Used to assert per-line statement coverage — e.g. that an inlined default-parameter
+ * `Const` (which lands on the signature line) did not pollute a body statement's count.
+ */
+export function statementHitsByLine(entry: FileCoverage, line: number): number[] {
+  type StatementRange = { start: { line: number; column: number } };
+  return Object.entries(entry.statementMap)
+    .filter(([, range]) => (range as StatementRange).start.line === line)
+    .sort(([, a], [, b]) => (a as StatementRange).start.column - (b as StatementRange).start.column)
+    .map(([id]) => entry.s[id] ?? 0);
+}
