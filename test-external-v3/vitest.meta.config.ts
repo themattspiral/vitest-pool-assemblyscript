@@ -167,6 +167,26 @@ export default defineConfig({
         }
       }),
 
+      // AS Meta Alt Config - incremental runtime. Runs *.meta-incremental.test.ts under
+      // --runtime incremental, so that source's coverage accumulates with the default
+      // (stub) runtime run across two binaries -- the only way the runtime-dependent
+      // skip/drift coverage behavior manifests. Guards the breadth-first representative-
+      // location search and the per-function SUM combiner.
+      defineAssemblyScriptProject({
+        test: {
+          name: { label: 'as-pool-meta-incremental', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-incremental.test.ts'
+          ],
+          pool: 'vitest-pool-assemblyscript/v3',
+          poolOptions: {
+            assemblyScript: {
+              extraCompilerFlags: ['--enable', 'simd', '--runtime', 'incremental'],
+            }
+          },
+        }
+      }),
+
       // AS Meta Alt Config - non-isolated single worker (batched file dispatch)
       //
       // NOTE: This project exists here for verification parity only — the meta-verify
