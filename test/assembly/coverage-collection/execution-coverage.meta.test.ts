@@ -1,7 +1,7 @@
 import { test, describe, expect, TestOptions } from "vitest-pool-assemblyscript/assembly";
-import { retryTarget, retryHelper } from "../../assembly-src/coverage-collection-meta/retry-coverage.meta";
-import { failsTarget } from "../../assembly-src/coverage-collection-meta/fails-coverage.meta";
-import { coveredByNonSkip, onlyInSkipped } from "../../assembly-src/coverage-collection-meta/skip-coverage.meta";
+import { retryTarget, retryHelper } from "../../assembly-src/coverage-collection/retry-coverage.meta";
+import { failsTarget } from "../../assembly-src/coverage-collection/fails-coverage.meta";
+import { coveredByNonSkip, onlyInSkipped } from "../../assembly-src/coverage-collection/skip-coverage.meta";
 
 // Exercises retry, fails, and skip coverage scenarios in a single test file.
 // Each scenario uses its own source file so coverage is independently verifiable.

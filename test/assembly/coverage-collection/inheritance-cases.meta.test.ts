@@ -1,6 +1,6 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { Animal, Dog, Cat } from "../../assembly-src/coverage-collection-meta/class-inheritance.meta";
-import { Vec2 } from "../../assembly-src/coverage-collection-meta/operator-overload.meta";
+import { Animal, Dog, Cat } from "../../assembly-src/coverage-collection/class-inheritance.meta";
+import { Vec2 } from "../../assembly-src/coverage-collection/operator-overload.meta";
 
 describe("class inheritance coverage", () => {
   test("call inherited method via subclass (Dog.speak from Animal)", () => {

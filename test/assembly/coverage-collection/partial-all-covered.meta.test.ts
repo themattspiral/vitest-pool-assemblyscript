@@ -1,5 +1,5 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { addOne, subtractOne, doubleValue, isNonNegative, sumThree } from "../../assembly-src/coverage-collection-meta/partial-all-covered.meta";
+import { addOne, subtractOne, doubleValue, isNonNegative, sumThree } from "../../assembly-src/coverage-collection/partial-all-covered.meta";
 
 // Exercises all 5 functions — 100% coverage
 

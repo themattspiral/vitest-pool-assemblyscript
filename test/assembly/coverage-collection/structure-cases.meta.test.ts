@@ -1,9 +1,9 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { inlinedAdd, normalAdd, callsInlined } from "../../assembly-src/coverage-collection-meta/inline-functions.meta";
-import { identity, isNull, nonGeneric } from "../../assembly-src/coverage-collection-meta/generic-functions.meta";
-import { Dog, Cat } from "../../assembly-src/coverage-collection-meta/multiple-classes.meta";
-import { emptyVoid, returnsZero, nonEmpty } from "../../assembly-src/coverage-collection-meta/empty-functions.meta";
-import { calledBeforeTrap, willTrap } from "../../assembly-src/coverage-collection-meta/trap-coverage.meta";
+import { inlinedAdd, normalAdd, callsInlined } from "../../assembly-src/coverage-collection/inline-functions.meta";
+import { identity, isNull, nonGeneric } from "../../assembly-src/coverage-collection/generic-functions.meta";
+import { Dog, Cat } from "../../assembly-src/coverage-collection/multiple-classes.meta";
+import { emptyVoid, returnsZero, nonEmpty } from "../../assembly-src/coverage-collection/empty-functions.meta";
+import { calledBeforeTrap, willTrap } from "../../assembly-src/coverage-collection/trap-coverage.meta";
 
 describe("inline function coverage", () => {
   test("direct call to inlined function", () => {

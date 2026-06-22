@@ -1,7 +1,7 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { add, subtract, multiply } from "../../assembly-src/coverage-collection-meta/math-helpers.meta";
-import { MixedCounter } from "../../assembly-src/coverage-collection-meta/class-with-mixed-usage.meta";
-import { calledOnce, calledThrice, calledFiveTimes } from "../../assembly-src/coverage-collection-meta/call-counting.meta";
+import { add, subtract, multiply } from "../../assembly-src/coverage-collection/math-helpers.meta";
+import { MixedCounter } from "../../assembly-src/coverage-collection/class-with-mixed-usage.meta";
+import { calledOnce, calledThrice, calledFiveTimes } from "../../assembly-src/coverage-collection/call-counting.meta";
 
 describe("partial function coverage", () => {
   test("add called 3 times", () => {

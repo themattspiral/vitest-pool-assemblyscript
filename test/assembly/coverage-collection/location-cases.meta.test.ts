@@ -1,6 +1,6 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { atLineThree, Located } from "../../assembly-src/coverage-collection-meta/function-locations.meta";
-import { firstLine, middleFunction, lastLine } from "../../assembly-src/coverage-collection-meta/file-boundary.meta";
+import { atLineThree, Located } from "../../assembly-src/coverage-collection/function-locations.meta";
+import { firstLine, middleFunction, lastLine } from "../../assembly-src/coverage-collection/file-boundary.meta";
 
 describe("function location accuracy", () => {
   test("call atLineThree", () => {

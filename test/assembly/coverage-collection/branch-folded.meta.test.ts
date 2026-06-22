@@ -3,7 +3,7 @@ import {
   foldedIfTrue, foldedIfFalse, foldedNested, foldedNamedConst, foldedCompare,
   foldedFusedAndConst, foldedTernaryConst, foldedTernaryLive,
   foldedAndEval, foldedAndShort, foldedOrShort, foldedOrEval,
-} from "../../assembly-src/coverage-collection-meta/branch-folded.meta";
+} from "../../assembly-src/coverage-collection/branch-folded.meta";
 
 // Exercises each folded-branch fixture ONCE. The compiler removes the branch, so
 // coverage must still report the live arm covered and the eliminated arm 0. The

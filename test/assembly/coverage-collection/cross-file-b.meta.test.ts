@@ -1,5 +1,5 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { sharedFunc, fileBOnly } from "../../assembly-src/coverage-collection-meta/cross-file-coverage.meta";
+import { sharedFunc, fileBOnly } from "../../assembly-src/coverage-collection/cross-file-coverage.meta";
 
 // Cross-file coverage merging: file B of 2.
 // Calls sharedFunc 3 times and fileBOnly 1 time.

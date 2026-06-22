@@ -1,7 +1,7 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
 import {
   andCheck, orCheck, ifAnd, ifOr, andChain,
-} from "../../assembly-src/coverage-collection-meta/branch-logical.meta";
+} from "../../assembly-src/coverage-collection/branch-logical.meta";
 
 // Exercises the logical-branch fixtures with KNOWN inputs so each operand arm's
 // per-evaluation hit count is hand-derivable. The assertions on the resulting

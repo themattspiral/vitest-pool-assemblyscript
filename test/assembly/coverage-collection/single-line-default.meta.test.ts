@@ -1,5 +1,5 @@
 import { test, expect } from "vitest-pool-assemblyscript/assembly";
-import { slAdd, SLThing } from "../../assembly-src/coverage-collection-meta/single-line-default.meta";
+import { slAdd, SLThing } from "../../assembly-src/coverage-collection/single-line-default.meta";
 
 // slAdd's body and SLThing's constructor body each run 3x, while the test block
 // (which inlines the default Const 3x at each definition's `= N` site) runs once.

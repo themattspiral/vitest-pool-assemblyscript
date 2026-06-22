@@ -3,7 +3,7 @@ import {
   completedSiblingFunc, nestedBeforeFunc,
   beforeTimeout, duringTimeout, afterTimeout,
   nestedAfterFunc
-} from "../../assembly-src/coverage-collection-meta/timeout-coverage.meta";
+} from "../../assembly-src/coverage-collection/timeout-coverage.meta";
 
 // Timeout coverage preservation with nested suite structure.
 // Tests run sequentially within a file, so ordering is deterministic.

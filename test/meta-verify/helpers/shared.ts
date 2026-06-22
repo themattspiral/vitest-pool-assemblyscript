@@ -91,10 +91,10 @@ export interface CoverageResults {
   coverageMap: CoverageMap;
 }
 
-export const COV_DIR = 'coverage-collection-meta';
+export const COV_DIR = 'coverage-collection';
 
 export interface CoverageTableRow {
-  /** Directory-qualified path (e.g. 'assembly-src/coverage-collection-meta/math-helpers.meta.ts') */
+  /** Directory-qualified path (e.g. 'assembly-src/coverage-collection/math-helpers.meta.ts') */
   filename: string;
   stmts: number;
   branch: number;
@@ -410,7 +410,7 @@ export function requireErrorBlock(parsed: ParsedCliOutput, fullTestPath: string)
 /**
  * Look up a coverage table row by path suffix with uniqueness validation.
  *
- * Searches directory-qualified keys (e.g. 'assembly-src/coverage-collection-meta/file.ts')
+ * Searches directory-qualified keys (e.g. 'assembly-src/coverage-collection/file.ts')
  * by suffix matching. Callers can pass just a filename for unique entries or
  * include directory context to disambiguate (e.g. 'edge/math-helpers.meta.ts').
  *
@@ -569,7 +569,7 @@ export function requireEntry(map: CoverageMap, pathSuffix: string): FileCoverage
       .join('\n');
     throw new Error(
       `No coverage entry found ending with "${pathSuffix}".\n` +
-      `Available coverage-collection-meta entries:\n${available}`
+      `Available coverage-collection entries:\n${available}`
     );
   }
   return entry;

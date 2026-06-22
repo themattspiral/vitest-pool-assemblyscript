@@ -1,5 +1,5 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { increment, decrement } from "../../assembly-src/coverage-collection-meta/partial-two-of-eleven.meta";
+import { increment, decrement } from "../../assembly-src/coverage-collection/partial-two-of-eleven.meta";
 
 // Exercises 2 of 11 functions (~18.18%) — most functions are untested
 

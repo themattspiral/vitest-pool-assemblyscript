@@ -1,5 +1,5 @@
 import { test, expect } from "vitest-pool-assemblyscript/assembly";
-import { skipUnderIncremental, driftAcrossRuntimes } from "../../assembly-src/coverage-collection-meta/runtime-coverage.meta";
+import { skipUnderIncremental, driftAcrossRuntimes } from "../../assembly-src/coverage-collection/runtime-coverage.meta";
 
 // Incremental-runtime half of the runtime-coverage guard. Runs ONLY in the
 // as-pool-meta-incremental project (--runtime incremental); the `.meta-incremental`

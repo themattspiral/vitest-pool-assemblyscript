@@ -1,7 +1,7 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
 import {
   useDefaultCtorIf, useExplicitCtorIf, pickDefaultCtor,
-} from "../../assembly-src/coverage-collection-meta/branch-filing.meta";
+} from "../../assembly-src/coverage-collection/branch-filing.meta";
 
 // Exercises the branch-filing fixtures with KNOWN inputs. Each branch is taken on
 // both arms, so a correctly-filed decision reads [1,1]; the filing bug read [0,0]

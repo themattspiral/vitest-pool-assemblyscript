@@ -1,5 +1,5 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { originalFunc, barrelOwn } from "../../assembly-src/coverage-collection-meta/reexport-barrel.meta";
+import { originalFunc, barrelOwn } from "../../assembly-src/coverage-collection/reexport-barrel.meta";
 
 describe("re-export coverage", () => {
   test("call re-exported function via barrel", () => {
