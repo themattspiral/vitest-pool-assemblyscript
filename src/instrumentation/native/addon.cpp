@@ -11,6 +11,7 @@
 #include <map>
 #include <unordered_set>
 #include <sstream>
+#include <queue>
 
 // Binaryen C++ API headers
 #include "wasm-binary.h"
@@ -18,6 +19,7 @@
 #include "wasm-builder.h"
 #include "ir/module-utils.h"
 #include "ir/names.h"
+#include "ir/iteration.h"
 #include "cfg/cfg-traversal.h"
 #include "support/name.h"
 #include "pass.h"
@@ -320,46 +322,58 @@ bool shouldInstrumentFunction(
 }
 
 /**
- * Find a representative source location within a function's Block-type body by
- * scanning the block's direct child expressions in order and returning the
- * location of the first one that carries a debug location. Returns a
- * non-existent location if none of the body's expressions have one.
+ * Find a representative source location for a function by breadth-first search
+ * over its body expression tree, returning the location of the SHALLOWEST
+ * expression that carries a debug location. Returns a non-existent location if
+ * no expression in the body has one.
+ *
+ * Breadth-first (rather than only the body block's direct children) is required
+ * because some runtimes restructure a function's body: the incremental GC runtime
+ * injects unlocated allocation/barrier bookkeeping at the body's top level and
+ * nests the user's statements deeper, leaving every direct child unlocated. A
+ * direct-children-only scan would then find nothing and skip the function from
+ * instrumentation entirely (reading 0% coverage despite executing). Descending
+ * finds the user's real statement instead. Shallowest-first keeps the choice on a
+ * top-level statement and prefers it over a deeply-nested foreign location — e.g.
+ * an inlined default-parameter `Const` buried in a call's arguments, which points
+ * back to the parameter's definition in another file.
+ *
+ * The representative location only needs to fall inside the function's own source
+ * range so the coverage provider's containment matching attributes the function's
+ * entry counter correctly; it need not be perfectly identical across runtimes,
+ * because cross-binary hit counts are summed by position downstream.
  */
-SourceDebugLocation getRepresentativeLocationInBlockBody(
-  Block* blockBody,
-  const std::unordered_map<wasm::Expression*, std::optional<wasm::Function::DebugLocation>> debugLocations
+SourceDebugLocation findFirstLocatedExpression(
+  Expression* root,
+  const std::unordered_map<wasm::Expression*, std::optional<wasm::Function::DebugLocation>>& debugLocations
 ) {
   SourceDebugLocation repLoc;
-
-  if (DEBUG) {
-    std::cout << LOG_PREFIX << " -     Checking func Block body: " << blockBody->list.size() << " body expressions" << std::endl;
+  if (!root) {
+    return repLoc;
   }
-  
-  for (size_t i = 0; i < blockBody->list.size(); i++) {
-    Expression* exprInBlockBody = blockBody->list[i];
 
-    if (exprInBlockBody) {
-      auto it = debugLocations.find(exprInBlockBody);
-      if (it != debugLocations.end() && it->second.has_value()) {
-        const auto& loc = it->second.value();
+  std::queue<Expression*> toVisit;
+  toVisit.push(root);
 
-        repLoc.exists = true;
-        repLoc.fileIndex = loc.fileIndex;
-        repLoc.lineNumber = loc.lineNumber;
-        repLoc.columnNumber = loc.columnNumber;
+  while (!toVisit.empty()) {
+    Expression* expr = toVisit.front();
+    toVisit.pop();
+    if (!expr) {
+      continue;
+    }
 
-        if (DEBUG) {
-          std::cout << LOG_PREFIX << " -     Block body expr [" << i << "] (" << getExpressionName(exprInBlockBody) << ")="
-                    << loc.fileIndex << ":" << loc.lineNumber << ":" << loc.columnNumber << " - break" << std::endl;
-        }
+    auto it = debugLocations.find(expr);
+    if (it != debugLocations.end() && it->second.has_value()) {
+      const auto& loc = it->second.value();
+      repLoc.exists = true;
+      repLoc.fileIndex = loc.fileIndex;
+      repLoc.lineNumber = loc.lineNumber;
+      repLoc.columnNumber = loc.columnNumber;
+      return repLoc;
+    }
 
-        break;
-        
-      } else if (DEBUG) {
-        std::cout << LOG_PREFIX << " -     Block body expr [" << i << "] (" << getExpressionName(exprInBlockBody) << ") - No location" << std::endl;
-      }
-    } else if (DEBUG) {
-      std::cout << LOG_PREFIX << " -     WARNING: Block body expr [" << i << "] - EMPTY" << std::endl;
+    for (auto* child : ChildIterator(expr)) {
+      toVisit.push(child);
     }
   }
 
@@ -369,9 +383,7 @@ SourceDebugLocation getRepresentativeLocationInBlockBody(
 SourceDebugLocation getRepresentativeLocation(Function* func) {
   SourceDebugLocation repLoc;
 
-  // Get body expression debug location
   Expression* body = func->body;
-
   if (!body) {
     if (DEBUG) {
       std::cout << LOG_PREFIX << " -   Function has no body expression - No debug locations available to check" << std::endl;
@@ -379,48 +391,26 @@ SourceDebugLocation getRepresentativeLocation(Function* func) {
     return repLoc;
   }
 
-  const std::string bodyType = getExpressionName(body);
-
+  // Load/Store body: compiler-generated class member accessors (field value
+  // getters / setters) whose expressions carry no source locations. Skip them
+  // explicitly so they are not instrumented.
   if (body->is<Load>() || body->is<Store>()) {
-    // Load/Store body:
-    //   - Compiler-generated functions with no expressions with locations
-    //   - LOAD: Compiler-generated class member getters (field value getters, function member getters)
-    //   - STORE: Compiler-generated class member value setters (field value setters)
-    // 
-    // Note: compiler-generated class member function setters use a Block body also,
-    // but their expressions (Store+Call) have no locations
     if (DEBUG) {
-      std::cout << LOG_PREFIX << " -   Compiler-generated accessor function (body=" << bodyType << ") - No location" << std::endl;
+      std::cout << LOG_PREFIX << " -   Compiler-generated accessor function (body=" << getExpressionName(body) << ") - No location" << std::endl;
     }
     return repLoc;
-  } else if (body->is<Block>()) {
-    // Block body:
-    //   - Block expressions are only containers and have no source locations of their own
-    //   - Examine expressions within the block body to find location, if one exists
-    if (DEBUG) {
-      std::cout << LOG_PREFIX << " -   Checking function Block body expression list" << std::endl;
-    }
-
-    repLoc = getRepresentativeLocationInBlockBody(body->cast<Block>(), func->debugLocations);
   }
 
-  // use body expression's debug location if available
-  auto it = func->debugLocations.find(body);
-  if (it != func->debugLocations.end() && it->second.has_value()) {
-    const auto& loc = it->second.value();
-    repLoc.exists = true;
-    repLoc.fileIndex = loc.fileIndex;
-    repLoc.lineNumber = loc.lineNumber;
-    repLoc.columnNumber = loc.columnNumber;
-    
-    if (DEBUG) {
-      std::cout << LOG_PREFIX << " -   Using function body (" << bodyType << ")="
-                << repLoc.fileIndex << ":" << repLoc.lineNumber << ":" << repLoc.columnNumber << std::endl;
-    }
-  }
+  // Breadth-first search the body for the shallowest located expression.
+  repLoc = findFirstLocatedExpression(body, func->debugLocations);
 
-  if (!repLoc.exists && DEBUG) {
-    std::cout << LOG_PREFIX << " -     Warning: Location expected on function body (" << bodyType << ") - No location found" << std::endl;
+  if (DEBUG) {
+    if (repLoc.exists) {
+      std::cout << LOG_PREFIX << " -   Representative location=" << repLoc.fileIndex << ":"
+                << repLoc.lineNumber << ":" << repLoc.columnNumber << std::endl;
+    } else {
+      std::cout << LOG_PREFIX << " -     Warning: no located expression found in body (" << getExpressionName(body) << ")" << std::endl;
+    }
   }
 
   return repLoc;
