@@ -2,11 +2,11 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry, branchHitsByType,
-} from '../helpers/shared.js';
+} from '../../helpers/shared.js';
 
-const SHARED = `${COV_DIR}/branch-shared.meta.ts`;
+const SHARED = `${COV_DIR}/branch/shared.meta.ts`;
 
-// branch-shared.meta.ts is imported by two test files (a + b), so it is compiled
+// branch/shared.meta.ts is imported by two test files (a + b), so it is compiled
 // into two separate binaries. File A exercises only the THEN arm (twice), file B
 // only the ELSE arm (once). The accumulated [2,1] is the D7 stability invariant: it
 // is only correct if branch hits sum across both binaries by the source-derived

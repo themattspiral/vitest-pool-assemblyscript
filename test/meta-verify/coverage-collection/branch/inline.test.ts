@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry, branchHitsByType, hitCount,
-} from '../helpers/shared.js';
+} from '../../helpers/shared.js';
 
 // The branch lives in an @inline helper. Compiled with stripInline:false the
 // @inline decorator is HONORED, so inlineGate is INLINED into useInlineGate (another
@@ -12,7 +12,7 @@ import {
 // established by that 0, the inlined if-branch still reads [1,1], attributed back to
 // the @inline source from the inlined copy's execution (foreign @inline locations
 // kept). Expecteds derived from the inputs, NOT observed output.
-const INLINE_HELPER = `${COV_DIR}/branch-inline-helper.meta.ts`;
+const INLINE_HELPER = `${COV_DIR}/branch/inline-helper.meta.ts`;
 
 describe.runIf(COVERAGE_ENABLED)('coverage collection — inlined branch (@inline, stripInline:false)', () => {
   let entry: FileCoverage;

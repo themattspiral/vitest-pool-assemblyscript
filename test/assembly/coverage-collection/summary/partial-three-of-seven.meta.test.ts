@@ -1,5 +1,5 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { toUpperBound, sign, isPositive } from "../../assembly-src/coverage-collection/partial-three-of-seven.meta";
+import { toUpperBound, sign, isPositive } from "../../../assembly-src/coverage-collection/summary/partial-three-of-seven.meta";
 
 // Exercises 3 of 7 functions (~42.86%) with non-contiguous gaps
 // Untested: toLowerBound, absoluteValue, isEven, isZero (interleaved with tested functions)

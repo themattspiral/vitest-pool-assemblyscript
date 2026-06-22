@@ -1,5 +1,5 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { sharedBranch } from "../../assembly-src/coverage-collection/branch-shared.meta";
+import { sharedBranch } from "../../../assembly-src/coverage-collection/branch/shared.meta";
 
 // File B of the shared-source pair: exercises only the ELSE arm of sharedBranch.
 // File A exercises the THEN arm. The accumulated branch coverage of

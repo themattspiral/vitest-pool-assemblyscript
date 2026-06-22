@@ -13,7 +13,7 @@
  * Each function is exercised in branch-filing.meta.test.ts; assertions live in
  * test/meta-verify/coverage-collection/branches-filing.test.ts.
  */
-import { Box } from "./branch-filing-class.meta";
+import { Box } from "./filing-class.meta";
 
 // if-arm with a foreign-inlined-default then-arm (`new Box()`): the known repro of
 // the filing bug. The fix files this decision under the home file → [1,1].

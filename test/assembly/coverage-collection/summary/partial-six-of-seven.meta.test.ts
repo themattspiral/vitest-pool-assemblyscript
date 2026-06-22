@@ -1,5 +1,5 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { factorial, fibonacci, power, sumRange, gcd, lcm } from "../../assembly-src/coverage-collection/partial-six-of-seven.meta";
+import { factorial, fibonacci, power, sumRange, gcd, lcm } from "../../../assembly-src/coverage-collection/summary/partial-six-of-seven.meta";
 
 // Exercises 6 of 7 functions (~85.71%) — triangleNumber is untested
 

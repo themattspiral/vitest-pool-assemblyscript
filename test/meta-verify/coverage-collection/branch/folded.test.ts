@@ -2,11 +2,11 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry, branchHitsByType,
-} from '../helpers/shared.js';
+} from '../../helpers/shared.js';
 
-const FOLDED = `${COV_DIR}/branch-folded.meta.ts`;
+const FOLDED = `${COV_DIR}/branch/folded.meta.ts`;
 
-// Per-arm branch hit counts for branch-folded.meta.ts. Compile-time-constant
+// Per-arm branch hit counts for branch/folded.meta.ts. Compile-time-constant
 // conditions are folded away (no decision block), but v8 still reports the branch
 // with constant-determined coverage: the live arm covered, the eliminated arm 0;
 // for folded logicals, the left always covered and the right covered iff the

@@ -2,12 +2,12 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry, branchHitsByType,
-} from '../helpers/shared.js';
+} from '../../helpers/shared.js';
 
-const LOGICAL = `${COV_DIR}/branch-logical.meta.ts`;
+const LOGICAL = `${COV_DIR}/branch/logical.meta.ts`;
 
-// Per-arm branch hit counts for branch-logical.meta.ts, derived from the inputs in
-// branch-logical.meta.test.ts and v8's per-evaluation logical semantics (the left
+// Per-arm branch hit counts for branch/logical.meta.ts, derived from the inputs in
+// branch/logical.meta.test.ts and v8's per-evaluation logical semantics (the left
 // operand is counted every evaluation; the right only when the left's value forces
 // it — `&&` left-true, `||` left-false) — NOT from observed output.
 describe.runIf(COVERAGE_ENABLED)('coverage collection — logical branches', () => {

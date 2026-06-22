@@ -2,12 +2,12 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry, branchHitsByType,
-} from '../helpers/shared.js';
+} from '../../helpers/shared.js';
 
-const IF_TERNARY = `${COV_DIR}/branch-if-ternary.meta.ts`;
+const IF_TERNARY = `${COV_DIR}/branch/if-ternary.meta.ts`;
 
-// Per-arm branch hit counts for branch-if-ternary.meta.ts, derived from the inputs
-// in branch-if-ternary.meta.test.ts and v8 branch semantics (located arms counted
+// Per-arm branch hit counts for branch/if-ternary.meta.ts, derived from the inputs
+// in branch/if-ternary.meta.test.ts and v8 branch semantics (located arms counted
 // directly; an if-without-else's implicit else = decisionHits − then) — NOT from
 // observed output.
 describe.runIf(COVERAGE_ENABLED)('coverage collection — if / ternary branches', () => {

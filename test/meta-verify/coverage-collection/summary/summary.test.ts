@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type CoverageTableRow, type ParsedCliOutput, COVERAGE_ENABLED,
   loadParsedCliOutput, requireCoverageTableRow,
-} from '../helpers/shared.js';
+} from '../../helpers/shared.js';
 
 /**
  * These assertions currently check the % Funcs column and the "Uncovered Line #s"

@@ -2,12 +2,12 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry, branchHitsByType,
-} from '../helpers/shared.js';
+} from '../../helpers/shared.js';
 
-const SWITCH = `${COV_DIR}/branch-switch.meta.ts`;
+const SWITCH = `${COV_DIR}/branch/switch.meta.ts`;
 
-// Per-arm switch branch hit counts for branch-switch.meta.ts, derived from the
-// inputs in branch-switch.meta.test.ts and v8's "entered" semantics (an arm counts
+// Per-arm switch branch hit counts for branch/switch.meta.ts, derived from the
+// inputs in branch/switch.meta.test.ts and v8's "entered" semantics (an arm counts
 // every time control enters it — by a matching case OR by falling through into it)
 // — NOT from observed output. Empty fall-through cases are the primary guard: an
 // untested empty case must read 0, an entered one its true count.

@@ -2,7 +2,7 @@ import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
 import {
   category, dayType, classifySign, firstOnly, emptyTrailing,
   cumulative, signBucket, colorName, grid, midDefault,
-} from "../../assembly-src/coverage-collection/branch-switch.meta";
+} from "../../../assembly-src/coverage-collection/branch/switch.meta";
 
 // Exercises the switch-branch fixtures with KNOWN inputs so each arm's "entered"
 // hit count is hand-derivable. The assertions on the resulting branch hit counts

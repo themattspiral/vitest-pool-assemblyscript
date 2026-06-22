@@ -1,7 +1,7 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
 import {
   clampGeneric, pickGeneric,
-} from "../../assembly-src/coverage-collection/branch-generics.meta";
+} from "../../../assembly-src/coverage-collection/branch/generics.meta";
 
 // Exercises each generic branch fixture at BOTH i32 and f64 so the per-arm counts
 // summed across monomorphized instances are hand-derivable. The assertions live in

@@ -7,7 +7,7 @@
  * branch-inline.meta-no-strip-inline.test.ts; assertions live in
  * test/meta-verify/coverage-collection/branches-inline.test.ts.
  */
-import { inlineGate } from "./branch-inline-helper.meta";
+import { inlineGate } from "./inline-helper.meta";
 
 export function useInlineGate(n: i32): i32 {
   return inlineGate(n);

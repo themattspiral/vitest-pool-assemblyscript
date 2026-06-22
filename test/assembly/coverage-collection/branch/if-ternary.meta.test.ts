@@ -2,7 +2,7 @@ import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
 import {
   absVal, clampLow, classify, clampRange, pickFirst, orDefault, sign,
   gateThenOnly, guardElseOnly,
-} from "../../assembly-src/coverage-collection/branch-if-ternary.meta";
+} from "../../../assembly-src/coverage-collection/branch/if-ternary.meta";
 
 // Exercises the if/ternary branch fixtures with KNOWN inputs so each arm's hit
 // count is hand-derivable. The assertions on the resulting branch hit counts live

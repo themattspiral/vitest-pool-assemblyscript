@@ -2,11 +2,11 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry, branchHitsByType,
-} from '../helpers/shared.js';
+} from '../../helpers/shared.js';
 
-const FILING = `${COV_DIR}/branch-filing.meta.ts`;
+const FILING = `${COV_DIR}/branch/filing.meta.ts`;
 
-// Per-arm branch hit counts for branch-filing.meta.ts. Each branch's then-arm has a
+// Per-arm branch hit counts for branch/filing.meta.ts. Each branch's then-arm has a
 // foreign-inlined-default first located expression (the inlined default Const of
 // `new Box()`). A correctly-filed decision (home-file arm-location fix) reads [1,1]
 // since both arms are taken; the filing bug read [0,0] (decision mis-filed under

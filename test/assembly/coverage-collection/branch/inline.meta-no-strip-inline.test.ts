@@ -1,5 +1,5 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { useInlineGate } from "../../assembly-src/coverage-collection/branch-inline.meta";
+import { useInlineGate } from "../../../assembly-src/coverage-collection/branch/inline.meta";
 
 // Exercises the inlined branch via its caller. This file's distinct
 // `.meta-no-strip-inline.test.ts` suffix routes it to the as-pool-meta-no-strip-inline

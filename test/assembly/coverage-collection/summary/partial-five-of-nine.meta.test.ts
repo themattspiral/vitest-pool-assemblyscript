@@ -1,5 +1,5 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { double, triple, square, cube, halve } from "../../assembly-src/coverage-collection/partial-five-of-nine.meta";
+import { double, triple, square, cube, halve } from "../../../assembly-src/coverage-collection/summary/partial-five-of-nine.meta";
 
 // Exercises 5 of 9 functions (~55.56%) — contiguous uncovered block at the end
 // Untested: remainder, sumOfSquares, difference, average

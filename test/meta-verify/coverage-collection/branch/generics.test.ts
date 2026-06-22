@@ -2,11 +2,11 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry, branchHitsByType,
-} from '../helpers/shared.js';
+} from '../../helpers/shared.js';
 
-const GENERICS = `${COV_DIR}/branch-generics.meta.ts`;
+const GENERICS = `${COV_DIR}/branch/generics.meta.ts`;
 
-// Per-arm branch hit counts for branch-generics.meta.ts. Each branch lives in a
+// Per-arm branch hit counts for branch/generics.meta.ts. Each branch lives in a
 // generic function compiled once per type argument; the per-arm counts must SUM
 // across the i32 and f64 instances (one source branch, source-derived key).
 // Expecteds are derived from the inputs, NOT observed output.
