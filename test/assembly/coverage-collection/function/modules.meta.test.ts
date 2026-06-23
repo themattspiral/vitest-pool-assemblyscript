@@ -1,8 +1,8 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { helper, readComputed, COMPUTED, DOUBLE_COMPUTED } from "../../assembly-src/coverage-collection/top-level-code.meta";
-import { MathUtils } from "../../assembly-src/coverage-collection/namespace-functions.meta";
-import { topLevel } from "../../assembly-src/coverage-collection/namespace-functions.meta";
-import { Animals, Robots } from "../../assembly-src/coverage-collection/namespace-classes.meta";
+import { helper, readComputed, COMPUTED, DOUBLE_COMPUTED } from "../../../assembly-src/coverage-collection/function/top-level-code.meta";
+import { MathUtils } from "../../../assembly-src/coverage-collection/function/namespace-functions.meta";
+import { topLevel } from "../../../assembly-src/coverage-collection/function/namespace-functions.meta";
+import { Animals, Robots } from "../../../assembly-src/coverage-collection/function/namespace-classes.meta";
 
 describe("top-level executable code coverage", () => {
   test("helper function called directly", () => {
