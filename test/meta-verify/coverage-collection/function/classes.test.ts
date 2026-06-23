@@ -1,12 +1,13 @@
 import { describe, test, beforeAll } from 'vitest';
 import {
   type CoverageMap, COV_DIR, COVERAGE_ENABLED,
-  loadCoverageResults, requireEntry, expectFunctionCoverage,
+  loadCoverageResults, requireEntry, expectFunctionCoverage, expectFunctionParityByLine,
 } from '../../helpers/shared.js';
 
 const CLASSES = `${COV_DIR}/function/classes.meta.ts`;
 const OPERATOR = `${COV_DIR}/function/operator-overload.meta.ts`;
 const CLASS_UNUSED = `${COV_DIR}/function/class-utils-unused.meta.ts`;
+const JS_CLASSES = 'js-coverage-parity-src/function/classes.ts';
 
 describe.runIf(COVERAGE_ENABLED)('function coverage — classes', () => {
   let coverageMap: CoverageMap;
@@ -64,6 +65,28 @@ describe.runIf(COVERAGE_ENABLED)('function coverage — classes', () => {
       'UnusedCounter.createDefault': 0,
       'UnusedCounter#tripleCount': 0,
       'UnusedCounter#getTripled': 0,
+    });
+  });
+
+  // classes.ts mirrors classes.meta.ts line-for-line with the same instantiation
+  // pattern (the @operator case is AS-only and excluded), so v8's function coverage is
+  // the oracle. Pairing is by start line because v8 names methods bare and
+  // disambiguates duplicates with _N suffixes (constructor, constructor_2, value,
+  // value_2 …) — unusable as pairing keys. Constructor/method/getter/setter counts and
+  // the super()-driven Animal#constructor=7 all match v8; two divergences are pinned:
+  describe('v8-twin parity', () => {
+    test('function coverage matches v8 except two documented divergences', () => {
+      const as = requireEntry(coverageMap, CLASSES);
+      const js = requireEntry(coverageMap, JS_CLASSES);
+      expectFunctionParityByLine(as, js, {
+        // Empty-body: Marker's empty constructor (line 84) has no source location for AS
+        // to instrument, so AS drops it; v8 keeps it (at 0).
+        jsOnlyLines: [84],
+        // Uncalled static method: Counter.make (line 32) is never called. v8 reports it
+        // as covered (1) — a never-called static still shows a hit, reproducibly — while
+        // AS counts function entries and reports the execution-accurate 0.
+        divergentHitLines: { 32: [0, 1] },
+      });
     });
   });
 });

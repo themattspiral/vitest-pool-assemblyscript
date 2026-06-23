@@ -656,6 +656,13 @@ export interface FunctionParityOptions {
   asOnlyLines?: number[];
   /** Source start-lines whose function appears only in the v8 fnMap (e.g. an empty body AS drops but v8 keeps). */
   jsOnlyLines?: number[];
+  /**
+   * Start-lines where both sides track the function but the hit counts intentionally
+   * differ, keyed by line → `[expected AS hits, expected v8 hits]`. For documented count
+   * divergences — e.g. v8 reports a never-called static method as covered (1) while AS
+   * counts function entries and reports 0.
+   */
+  divergentHitLines?: Record<number, readonly [number, number]>;
 }
 
 /**
@@ -699,10 +706,17 @@ export function expectFunctionParityByLine(
   expect(actualAsOnly, 'AS-only function lines').toEqual([...(opts.asOnlyLines ?? [])].sort(ascending));
   expect(actualJsOnly, 'v8-only function lines').toEqual([...(opts.jsOnlyLines ?? [])].sort(ascending));
 
+  const divergent = opts.divergentHitLines ?? {};
   for (const [line, as] of asByLine) {
     const js = jsByLine.get(line);
     if (!js) continue; // a declared AS-only line, already validated above
-    expect(as.hits, `hits at line ${line} (AS ${as.name} vs v8 ${js.name})`).toBe(js.hits);
+    const expectedDivergence = divergent[line];
+    if (expectedDivergence) {
+      expect(as.hits, `AS hits at divergent line ${line} (${as.name})`).toBe(expectedDivergence[0]);
+      expect(js.hits, `v8 hits at divergent line ${line} (${js.name})`).toBe(expectedDivergence[1]);
+    } else {
+      expect(as.hits, `hits at line ${line} (AS ${as.name} vs v8 ${js.name})`).toBe(js.hits);
+    }
   }
 }
 

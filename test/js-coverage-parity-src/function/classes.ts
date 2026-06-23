@@ -1,15 +1,15 @@
 /**
- * Consolidated class function-coverage fixture: every member kind on a partially
- * covered class (constructor, method, getter, a COVERED setter, static, and an
- * uncovered method), plus an inheritance trio whose subclass constructors call
- * super() — which counts toward the base constructor — with one overridden and one
- * inherited method. Twinned line-for-line by js-coverage-parity-src/function/classes.ts.
+ * Class function-coverage parity twin (v8 oracle) — mirrors the AS fixture
+ * coverage-collection/function/classes.meta.ts line-for-line, with the same
+ * instantiation pattern via function/classes.test.ts, so v8's function coverage is
+ * the oracle. Marker's empty constructor is a v8-only function (AS drops it).
+ * Compared in meta-verify/coverage-collection/function/classes.test.ts.
  */
 
 export class Counter {
-  private _value: i32;
+  private _value: number;
 
-  constructor(initial: i32) {
+  constructor(initial: number) {
     this._value = initial;
   }
 
@@ -17,11 +17,11 @@ export class Counter {
     this._value++;
   }
 
-  get value(): i32 {
+  get value(): number {
     return this._value;
   }
 
-  set value(v: i32) {
+  set value(v: number) {
     this._value = v;
   }
 
