@@ -1,24 +1,34 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { Animal, Dog, Cat } from "../../assembly-src/coverage-collection/class-inheritance.meta";
-import { Vec2 } from "../../assembly-src/coverage-collection/operator-overload.meta";
+import { Counter, Dog, Cat } from "../../../assembly-src/coverage-collection/function/classes.meta";
+import { Vec2 } from "../../../assembly-src/coverage-collection/function/operator-overload.meta";
 
-describe("class inheritance coverage", () => {
-  test("call inherited method via subclass (Dog.speak from Animal)", () => {
+describe("all member kinds on one class", () => {
+  test("constructor, method, getter, setter; reset/make left uncovered", () => {
+    const c = new Counter(5);
+    c.increment();
+    c.increment();
+    c.value = 100;            // covered setter
+    expect(c.value).toBe(100); // getter
+  });
+});
+
+describe("inheritance: super() counts toward the base constructor", () => {
+  test("inherited method via subclass (Dog.speak from Animal)", () => {
     const dog = new Dog("Rex");
     expect(dog.speak()).toBe("...");
   });
 
-  test("call overridden method (Dog.move overrides Animal.move)", () => {
+  test("overridden method (Dog.move overrides Animal.move)", () => {
     const dog = new Dog("Rex");
     expect(dog.move()).toBe("runs");
   });
 
-  test("call inherited method via different subclass (Cat.speak from Animal)", () => {
+  test("inherited method via a different subclass (Cat.speak from Animal)", () => {
     const cat = new Cat("Whiskers");
     expect(cat.speak()).toBe("...");
   });
 
-  test("call inherited method that Cat does NOT override (Cat.move from Animal)", () => {
+  test("inherited method Cat does NOT override (Cat.move from Animal)", () => {
     const cat = new Cat("Whiskers");
     expect(cat.move()).toBe("moves");
   });
@@ -39,7 +49,7 @@ describe("class inheritance coverage", () => {
   });
 });
 
-describe("operator overload coverage", () => {
+describe("operator overloads (@operator)", () => {
   test("use + operator (triggers @operator add)", () => {
     const a = new Vec2(1.0, 2.0);
     const b = new Vec2(3.0, 4.0);
