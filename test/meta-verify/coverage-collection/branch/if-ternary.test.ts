@@ -2,9 +2,11 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry, branchHitsByType,
+  hitCount, totalFunctions, allFunctionNames,
 } from '../../helpers/shared.js';
 
 const IF_TERNARY = `${COV_DIR}/branch/if-ternary.meta.ts`;
+const JS_IF_TERNARY = 'js-coverage-parity-src/branch/if-ternary.ts';
 
 // Per-arm branch hit counts for branch/if-ternary.meta.ts, derived from the inputs
 // in branch/if-ternary.meta.test.ts and v8 branch semantics (located arms counted
@@ -12,10 +14,12 @@ const IF_TERNARY = `${COV_DIR}/branch/if-ternary.meta.ts`;
 // observed output.
 describe.runIf(COVERAGE_ENABLED)('coverage collection — if / ternary branches', () => {
   let entry: FileCoverage;
+  let jsEntry: FileCoverage;
 
   beforeAll(async () => {
     const { coverageMap } = await loadCoverageResults();
     entry = requireEntry(coverageMap, IF_TERNARY);
+    jsEntry = requireEntry(coverageMap, JS_IF_TERNARY);
   });
 
   // 'if' branches by source position:
@@ -66,6 +70,27 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — if / ternary branches'
       const conds = branchHitsByType(entry, 'cond-expr');
       expect(conds[2]).toEqual([1, 2]); // outer (n>0 ? 1 : …)
       expect(conds[3]).toEqual([1, 1]); // inner (n<0 ? -1 : 0)
+    });
+  });
+
+  // v8-twin parity: js-coverage-parity-src/branch/if-ternary.ts mirrors this fixture
+  // construct-for-construct with identical inputs. if/ternary branch coverage matches
+  // v8 EXACTLY — including if-without-else, where v8 (like AS) emits the implicit-else
+  // arm (contrast switch's default-less arm, which v8 omits).
+  describe('v8-twin parity', () => {
+    test('if arms match v8 exactly', () => {
+      expect(branchHitsByType(entry, 'if')).toEqual(branchHitsByType(jsEntry, 'if'));
+    });
+
+    test('cond-expr (ternary) arms match v8 exactly', () => {
+      expect(branchHitsByType(entry, 'cond-expr')).toEqual(branchHitsByType(jsEntry, 'cond-expr'));
+    });
+
+    test('function coverage matches v8 exactly', () => {
+      expect(totalFunctions(entry)).toBe(totalFunctions(jsEntry));
+      for (const name of allFunctionNames(jsEntry)) {
+        expect(hitCount(entry, name), `fn ${name}`).toBe(hitCount(jsEntry, name));
+      }
     });
   });
 });
