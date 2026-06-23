@@ -3,6 +3,7 @@
 // meta-verify/coverage-collection/statement/kinds.test.ts. KEEP LINE-ALIGNED
 // (this header matches the AS fixture's line count — do not change the line count).
 
+// @ts-ignore
 let sink = 0;
 
 export function declarators(): number {

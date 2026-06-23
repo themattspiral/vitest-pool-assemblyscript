@@ -3,6 +3,7 @@
 // a void helper body, Continue, Break, and Throw (left uncovered). Driven in
 // kinds.meta.test.ts; assertions in .../statement/kinds.test.ts. KEEP LINE-ALIGNED.
 
+// @ts-ignore
 let sink: i32 = 0;
 
 export function declarators(): i32 {

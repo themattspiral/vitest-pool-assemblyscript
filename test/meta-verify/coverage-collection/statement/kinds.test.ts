@@ -22,33 +22,33 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — statement kinds', () =
   // coverable statement kind is matched & counted.
   describe('AS statement hits (each coverable kind matched & counted)', () => {
     test('multi-declarator Variable: each declarator counted independently', () => {
-      expect(statementHitsByLine(as, 9)).toEqual([1, 1, 1]); // let a = 1, b = 2, c = 3
-      expect(statementHitsByLine(as, 10)).toEqual([1]);      // return a + b + c
+      expect(statementHitsByLine(as, 10)).toEqual([1, 1, 1]); // let a = 1, b = 2, c = 3
+      expect(statementHitsByLine(as, 11)).toEqual([1]);      // return a + b + c
     });
 
     test('ExpressionStatement: assign / increment / call (+ void helper body)', () => {
-      expect(statementHitsByLine(as, 14)).toEqual([1]); // let x = n
-      expect(statementHitsByLine(as, 15)).toEqual([1]); // x = x + 1   (assignment)
-      expect(statementHitsByLine(as, 16)).toEqual([1]); // x++         (increment)
-      expect(statementHitsByLine(as, 17)).toEqual([1]); // touch(x)    (call)
-      expect(statementHitsByLine(as, 18)).toEqual([1]); // return x
-      expect(statementHitsByLine(as, 22)).toEqual([1]); // sink = v    (void helper body)
+      expect(statementHitsByLine(as, 15)).toEqual([1]); // let x = n
+      expect(statementHitsByLine(as, 16)).toEqual([1]); // x = x + 1   (assignment)
+      expect(statementHitsByLine(as, 17)).toEqual([1]); // x++         (increment)
+      expect(statementHitsByLine(as, 18)).toEqual([1]); // touch(x)    (call)
+      expect(statementHitsByLine(as, 19)).toEqual([1]); // return x
+      expect(statementHitsByLine(as, 23)).toEqual([1]); // sink = v    (void helper body)
     });
 
     test('Continue and Break: both extracted and counted', () => {
-      expect(statementHitsByLine(as, 26)).toEqual([1]); // let total = 0
-      expect(statementHitsByLine(as, 28)).toEqual([4]); // if (i==1) — checked each of 4 iters
-      expect(statementHitsByLine(as, 29)).toEqual([1]); // continue (i==1, once)
-      expect(statementHitsByLine(as, 31)).toEqual([3]); // if (i==3) — skipped after the continue
-      expect(statementHitsByLine(as, 32)).toEqual([1]); // break (i==3, once)
-      expect(statementHitsByLine(as, 34)).toEqual([2]); // total = total + i (i=0, i=2)
-      expect(statementHitsByLine(as, 36)).toEqual([1]); // return total
+      expect(statementHitsByLine(as, 27)).toEqual([1]); // let total = 0
+      expect(statementHitsByLine(as, 29)).toEqual([4]); // if (i==1) — checked each of 4 iters
+      expect(statementHitsByLine(as, 30)).toEqual([1]); // continue (i==1, once)
+      expect(statementHitsByLine(as, 32)).toEqual([3]); // if (i==3) — skipped after the continue
+      expect(statementHitsByLine(as, 33)).toEqual([1]); // break (i==3, once)
+      expect(statementHitsByLine(as, 35)).toEqual([2]); // total = total + i (i=0, i=2)
+      expect(statementHitsByLine(as, 37)).toEqual([1]); // return total
     });
 
     test('Throw: extracted, uncovered on the untaken path', () => {
-      expect(statementHitsByLine(as, 40)).toEqual([1]); // if (n < 0)
-      expect(statementHitsByLine(as, 41)).toEqual([0]); // throw — not taken (n=5)
-      expect(statementHitsByLine(as, 43)).toEqual([1]); // return n
+      expect(statementHitsByLine(as, 41)).toEqual([1]); // if (n < 0)
+      expect(statementHitsByLine(as, 42)).toEqual([0]); // throw — not taken (n=5)
+      expect(statementHitsByLine(as, 44)).toEqual([1]); // return n
     });
   });
 
@@ -61,14 +61,14 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — statement kinds', () =
   // this one affects covered/uncovered.
   describe('module-level const-init Variable (erased in AS)', () => {
     test('let sink = 0 (L6): AS 0 (WASM global init expr, no block), v8 1', () => {
-      expect(statementHitsByLine(as, 6)).toEqual([0]);
-      expect(statementHitsByLine(js, 6)).toEqual([1]);
+      expect(statementHitsByLine(as, 7)).toEqual([0]);
+      expect(statementHitsByLine(js, 7)).toEqual([1]);
     });
   });
 
   // Parity on every in-function statement (the L6 module global is the one divergence).
   describe('parity with v8 (line-aligned twin)', () => {
-    const ALIGNED = [9, 10, 14, 15, 16, 17, 18, 22, 26, 27, 28, 29, 31, 32, 34, 36, 40, 41, 43];
+    const ALIGNED = [10, 11, 15, 16, 17, 18, 19, 23, 27, 28, 29, 30, 32, 33, 35, 37, 41, 42, 44];
     test.each(ALIGNED)('line %i: AS statement hits == v8', (line) => {
       expect(statementHitsByLine(as, line)).toEqual(statementHitsByLine(js, line));
     });
