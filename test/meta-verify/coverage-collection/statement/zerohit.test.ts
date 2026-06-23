@@ -7,12 +7,17 @@ import {
 // zerohit.meta.ts is NOT imported by any test — it appears in coverage only because it
 // matches the include globs, and the provider parses the AST to report it all-uncovered.
 //
-// AS-only theme (no JS twin): v8 reports never-imported files too, but only IN-ROOT — it
-// finds never-loaded files by globbing `coverage.include` from cwd=root, which cannot
-// reach a file outside the project root (the external `../` case; an *imported* twin is
-// fine because it's loaded). So there is no external v8-parity for a never-imported file
-// without copying it in-root. The AS provider has no such restriction (it parses the
-// included sources directly), so the AS-side feature is what we verify here.
+// AS-only theme (no JS twin). A never-imported file would only get v8 coverage after v8's
+// uncovered-file path TRANSFORMS it (stripping TS) and then parses it. v8 transforms an
+// uncovered file through a project's vite server, which can only transform files inside its
+// own root — so externally, where this twin would live in the main repo (../, outside the
+// external project's root), the transform is never attempted: vitest's transformer skips
+// every project whose root isn't a prefix of the path, v8 falls back to the raw TypeScript
+// bytes, and its JS AST parser can't parse the `: number` annotations, so the file is
+// dropped. (`allowExternal` does not help — it only relaxes the reporting filter, never the
+// transformer.) The AS provider parses included sources with its own parser (no vite
+// transform), so it reports the never-imported source as 0% local AND external — that AS
+// feature is what we verify here.
 const AS = `${COV_DIR}/statement/zerohit.meta.ts`;
 const STATEMENT_LINES = [7, 8, 12, 13, 15];
 
