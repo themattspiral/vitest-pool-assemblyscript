@@ -35,7 +35,7 @@ export default defineAssemblyScriptConfig({
     projects: [
       defineAssemblyScriptProject({
         test: {
-          name: { label: 'as-pool-passing-incremental', color: 'green' },
+          name: { label: 'as-pool-passing', color: 'green' },
           include: [
             '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts',
             '../vitest-pool-assemblyscript/test-generated/assembly/**/*.test.ts',
@@ -57,7 +57,7 @@ export default defineAssemblyScriptConfig({
       // passing tests using the incremental runtime instead of default (stub)
       defineAssemblyScriptProject({
         test: {
-          name: { label: 'as-pool-passing', color: 'green' },
+          name: { label: 'as-pool-passing-incremental', color: 'green' },
           include: [
             '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts',
             '../vitest-pool-assemblyscript/test-generated/assembly/**/*.test.ts',

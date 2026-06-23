@@ -78,6 +78,28 @@ export default defineConfig({
           }),
         }
       }),
+
+      // passing tests using the incremental runtime instead of default (stub)
+      defineProject({
+        test: {
+          name: { label: 'as-pool-passing-incremental', color: 'green' },
+          include: [
+            'test/assembly/**/*.test.ts',
+            'test-generated/assembly/**/*.test.ts',       // generated tests
+          ],
+          exclude: [
+            'test/assembly/**/*.meta*.test.ts',
+            'test-generated/assembly/**/*.meta*.test.ts',
+          ],
+          pool: createAssemblyScriptPool({
+            wasmImportsFactory: 'test/user-imports-factory/create-user-imports.js',
+            extraCompilerFlags: [
+              '--enable', 'simd',
+              '--runtime', 'incremental'
+            ]
+          }),
+        }
+      })
     ]
   },
 });

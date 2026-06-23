@@ -55,7 +55,7 @@ export default defineConfig({
         }
       }),
       
-    // passing tests using the incremental runtime instead of default (stub)
+      // passing tests using the incremental runtime instead of default (stub)
       defineProject({
         test: {
           name: { label: 'as-pool-passing-incremental', color: 'green' },
