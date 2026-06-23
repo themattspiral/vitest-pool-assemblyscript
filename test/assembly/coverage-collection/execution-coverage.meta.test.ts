@@ -1,5 +1,5 @@
 import { test, describe, expect, TestOptions } from "vitest-pool-assemblyscript/assembly";
-import { retryTarget, retryHelper } from "../../assembly-src/coverage-collection/retry-coverage.meta";
+import { retryTarget, retryHelper, returnsTrueOnThirdExecution } from "../../assembly-src/coverage-collection/retry-coverage.meta";
 import { failsTarget } from "../../assembly-src/coverage-collection/fails-coverage.meta";
 import { coveredByNonSkip, onlyInSkipped } from "../../assembly-src/coverage-collection/skip-coverage.meta";
 
@@ -7,12 +7,18 @@ import { coveredByNonSkip, onlyInSkipped } from "../../assembly-src/coverage-col
 // Each scenario uses its own source file so coverage is independently verifiable.
 
 describe("retry coverage accumulation", () => {
-  test("retried test accumulates coverage across attempts [should fail]", TestOptions.retry(2), () => {
+  test("retried test does not accumulate coverage across failed attempts [should fail]", TestOptions.retry(2), () => {
     retryTarget();
     retryHelper();
     // Always fails — triggers retry. With retry(2), this runs 3 times total.
-    // Each attempt calls retryTarget and retryHelper once, so each should have 3 hits.
+    // Each attempt calls retryTarget and retryHelper once, and only the final hits are reported
     expect(false).toBeTruthy();
+  });
+  
+  test("retried test does not accumulate coverage across mixed fail and success attempts [should fail]", TestOptions.retry(2), () => {
+    // fails 2x then passes. With retry(2), this runs 3 times total.
+    // Each attempt calls retryTarget and retryHelper once, and only the final hits are reported
+    expect(returnsTrueOnThirdExecution()).toBeTruthy();
   });
 });
 

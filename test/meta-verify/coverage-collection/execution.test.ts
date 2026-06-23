@@ -77,15 +77,10 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — test execution scenari
     });
   });
 
-  // Current behavior: only the last retry attempt's coverage is kept.
-  // resetTestForRetry() deletes meta.functionHits before each attempt,
-  // and executeWASMTest() replaces it with the current attempt's data.
+  // Note: resetTestForRetry() resets test result state before each attempt
+  // (result state and start time), but only the last retry attempt's coverage
+  // is kept because coverage is replaced for the individual test after each retry
   // The suite-level merge happens once after all retries complete.
-  //
-  // TODO: Compare this to vitest JS pool retry coverage behavior and
-  // make sure we mimic it. If vitest accumulates coverage across retry
-  // attempts, we should do the same.
-
   describe('retry-coverage: only last attempt coverage is kept', () => {
     let entry: FileCoverage;
 
@@ -101,12 +96,13 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — test execution scenari
       expect(hitCount(entry, 'retryHelper')).toBe(1);
     });
 
-    test('has exactly 2 functions tracked', () => {
-      expect(totalFunctions(entry)).toBe(2);
+    test('returnsTrueOnThirdExecution passes with last attempt data surfaced', () => {
+      expect(hitCount(entry, 'returnsTrueOnThirdExecution')).toBe(1);
     });
-
+    
     test('all functions covered', () => {
-      expect(coveredCount(entry)).toBe(2);
+      expect(totalFunctions(entry)).toBe(3);
+      expect(coveredCount(entry)).toBe(3);
       expect(uncoveredCount(entry)).toBe(0);
     });
   });

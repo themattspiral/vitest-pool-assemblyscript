@@ -226,11 +226,11 @@ export async function executeWASMTest(
     );
   }
 
-  let testFn: (() => void) | null | undefined;
+  let testFn: ((retryCount?: number) => void) | null | undefined;
   
   if (table && typeof table.get === 'function') {
     const idx = (test.meta as AssemblyScriptTestTaskMeta).fnIndex;
-    testFn = table.get(idx) as (() => void) | null;
+    testFn = table.get(idx) as ((retryCount?: number) => void) | null;
 
     if (!testFn) {
       throw createPoolError(
@@ -250,7 +250,7 @@ export async function executeWASMTest(
   try {
     // Execute this test
     testTimings.execStart = performance.now();
-    testFn();
+    testFn(test?.result?.retryCount);
     testTimings.execEnd = performance.now();
 
     // If we reach here, test passed, i.e. No abort occurred.

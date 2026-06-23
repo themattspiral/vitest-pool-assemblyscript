@@ -718,9 +718,13 @@ export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
 export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   idxInParentTasks: number;
   fnIndex: number;
+  resultFinal: boolean;
+  
+  // assertion state
   assertionsPassedCount: number;
   assertionsFailed: FailedAssertion[];
-  resultFinal: boolean;
+
+  // coverage data
   functionHits?: CoverageData;
   /**
    * Statement/expression-level coverage (block counters attributed to source
@@ -733,11 +737,8 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   emptyCaseHits?: CoverageData;
   /** Source positions of binary decision blocks (for folded-branch detection). See AssemblyScriptSuiteTaskMeta. */
   decisionPositions?: DecisionPositions;
-  lastError?: AssemblyScriptTestError;
-  lastErrorValuesProvided?: boolean;
-  lastErrorRawCallStack?: NodeJS.CallSite[];
-  lastErrorCallStackRef?: Error;
-  lastErrorUnexpected?: boolean;
+
+  // internal logging only
   lastTimeoutTerminationTime?: number;
 };
 

@@ -415,6 +415,30 @@ test.fails("expected failure with retry", TestOptions.retry(3), () => {
 });
 ```
 
+### Retry-Aware Tests (`retryCount`)
+
+The test callback optionally receives the current **retry count**: `0` on the first attempt, incrementing by `1` for each retry (so with `TestOptions.retry(n)`, the final attempt receives `n`).
+
+This matters because of WASM isolation: each retry runs in a **fresh WASM instance with fresh memory**, so module-level and global state is re-initialized on every attempt and can't carry information across retries. `retryCount` is supplied by the runner, making it the reliable way to vary behavior per attempt.
+
+```typescript
+// Module-level state is re-initialized on every retry attempt, 
+// so this counter is ALWAYS 1 (it cannot count attempts)
+let attempts: i32 = 0;
+test("each retry gets a fresh instance - attempts count fails", TestOptions.retry(2), () => {
+  attempts++;
+  expect(attempts).toBe(1);
+});
+
+// retryCount comes from the runner, so it reflects the attempt number
+test("passes only on the final attempt", TestOptions.retry(2), (retryCount: i32) => {
+  // retryCount is 0, then 1, then 2
+  expect(retryCount).toBeGreaterThanOrEqual(2);
+});
+```
+
+>ℹ️ The parameter is optional — tests that don't need it use a plain `() => { ... }` callback, exactly as before.
+
 ### Lifecycle Hooks (Setup & Teardown)
 
 Coming Soon!
