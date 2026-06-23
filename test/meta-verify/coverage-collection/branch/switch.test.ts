@@ -2,9 +2,11 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry, branchHitsByType,
+  hitCount, totalFunctions, allFunctionNames,
 } from '../../helpers/shared.js';
 
 const SWITCH = `${COV_DIR}/branch/switch.meta.ts`;
+const JS_SWITCH = 'js-coverage-parity-src/branch/switch.ts';
 
 // Per-arm switch branch hit counts for branch/switch.meta.ts, derived from the
 // inputs in branch/switch.meta.test.ts and v8's "entered" semantics (an arm counts
@@ -13,10 +15,12 @@ const SWITCH = `${COV_DIR}/branch/switch.meta.ts`;
 // untested empty case must read 0, an entered one its true count.
 describe.runIf(COVERAGE_ENABLED)('coverage collection — switch branches', () => {
   let entry: FileCoverage;
+  let jsEntry: FileCoverage;
 
   beforeAll(async () => {
     const { coverageMap } = await loadCoverageResults();
     entry = requireEntry(coverageMap, SWITCH);
+    jsEntry = requireEntry(coverageMap, JS_SWITCH);
   });
 
   // switch branches by source position:
@@ -72,5 +76,38 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — switch branches', () =
   test('midDefault default-in-middle: arms reported in source order', () => {
     // [case1, default, case2]
     expect(switches(entry)[10]).toEqual([1, 1, 0]);
+  });
+
+  // v8-twin parity: js-coverage-parity-src/branch/switch.ts mirrors this fixture
+  // construct-for-construct with identical inputs, so v8's switch coverage (delegated
+  // to the same merged report) is the cross-check oracle. Arm hits match v8 for every
+  // shape EXCEPT a default-less switch (classifySign) — documented below.
+  describe('v8-twin parity', () => {
+    const js = (): number[][] => switches(jsEntry);
+
+    test('switch arms match v8 for every shape except the default-less switch', () => {
+      expect(switches(entry)).toHaveLength(11);
+      expect(js()).toHaveLength(11);
+      for (let i = 0; i < 11; i++) {
+        if (i === 2) continue; // classifySign — documented divergence below
+        expect(switches(entry)[i], `switch #${i}`).toEqual(js()[i]);
+      }
+    });
+
+    test('default-less switch (classifySign): AS adds the implicit-default arm, v8 omits it', () => {
+      // AS [case0, case1, implicit-default] = [1,0,1] — the "no case matched" path is a
+      // derived arm, matching istanbul-lib-instrument's source-instrumentation convention.
+      // v8's block-coverage→istanbul conversion does NOT emit that arm → [1,0]. The real
+      // cases agree in both: case0 covered, case1 uncovered.
+      expect(switches(entry)[2]).toEqual([1, 0, 1]);
+      expect(js()[2]).toEqual([1, 0]);
+    });
+
+    test('function coverage matches v8 exactly', () => {
+      expect(totalFunctions(entry)).toBe(totalFunctions(jsEntry));
+      for (const name of allFunctionNames(jsEntry)) {
+        expect(hitCount(entry, name), `fn ${name}`).toBe(hitCount(jsEntry, name));
+      }
+    });
   });
 });
