@@ -1,6 +1,6 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
-import { addBase } from "../../assembly-src/coverage-collection/default-param-helper.meta";
-import { useAddBase, makeThingFolded } from "../../assembly-src/coverage-collection/default-param-consumer.meta";
+import { addBase } from "../../../assembly-src/coverage-collection/statement/default-param-helper.meta";
+import { useAddBase, makeThingFolded } from "../../../assembly-src/coverage-collection/statement/default-param-consumer.meta";
 
 // useAddBase calls addBase with the default arg omitted (twice), inlining the
 // default Const; addBase is also called once with an explicit arg (control).

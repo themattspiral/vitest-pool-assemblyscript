@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry, hitCount, statementHitsByLine,
-} from '../helpers/shared.js';
+} from '../../helpers/shared.js';
 
 // Regression guard: an inlined default-parameter `Const` must not pollute statement
 // coverage. When a caller omits a defaulted argument (`addBase(n)`, `new Thing()`),
@@ -14,9 +14,9 @@ import {
 // (Counts are single-binary, as the meta-verify suite runs one runtime. The cross-
 // runtime skip/drift behavior these fixtures also exercise is covered elsewhere.)
 
-const HELPER = `${COV_DIR}/default-param-helper.meta.ts`;
-const CONSUMER = `${COV_DIR}/default-param-consumer.meta.ts`;
-const SINGLE_LINE = `${COV_DIR}/single-line-default.meta.ts`;
+const HELPER = `${COV_DIR}/statement/default-param-helper.meta.ts`;
+const CONSUMER = `${COV_DIR}/statement/default-param-consumer.meta.ts`;
+const SINGLE_LINE = `${COV_DIR}/statement/single-line-default.meta.ts`;
 
 describe.runIf(COVERAGE_ENABLED)('coverage collection — inlined default-param Const does not pollute statements', () => {
   let map: CoverageMap;
