@@ -8,6 +8,7 @@ const INLINE_FUNCTIONS = `${COV_DIR}/function/inline-functions.meta.ts`;
 const GENERIC_FUNCTIONS = `${COV_DIR}/function/generic-functions.meta.ts`;
 const EMPTY_FUNCTIONS = `${COV_DIR}/function/empty-functions.meta.ts`;
 const TRAP_COVERAGE = `${COV_DIR}/function/trap-coverage.meta.ts`;
+const NESTED_ARROW = `${COV_DIR}/function/nested-arrow.meta.ts`;
 
 describe.runIf(COVERAGE_ENABLED)('function coverage — special forms', () => {
   let coverageMap: CoverageMap;
@@ -52,6 +53,18 @@ describe.runIf(COVERAGE_ENABLED)('function coverage — special forms', () => {
     expectFunctionCoverage(requireEntry(coverageMap, TRAP_COVERAGE), {
       calledBeforeTrap: 1,
       willTrap: 1,
+    });
+  });
+
+  // Both non-top-level forms are discovered and counted: the module-level arrow is
+  // tracked under its binding name (triple), the nested function under its declared
+  // name (increment). useTriple(4) → triple once; withNested(5) → increment once.
+  test('nested function declaration and module-level arrow are tracked', () => {
+    expectFunctionCoverage(requireEntry(coverageMap, NESTED_ARROW), {
+      triple: 1,
+      useTriple: 1,
+      withNested: 1,
+      increment: 1,
     });
   });
 });

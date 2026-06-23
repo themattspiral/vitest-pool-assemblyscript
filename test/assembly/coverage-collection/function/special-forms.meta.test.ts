@@ -3,6 +3,7 @@ import { inlinedAdd, normalAdd, callsInlined } from "../../../assembly-src/cover
 import { identity, isNull, nonGeneric } from "../../../assembly-src/coverage-collection/function/generic-functions.meta";
 import { emptyVoid, returnsZero, nonEmpty } from "../../../assembly-src/coverage-collection/function/empty-functions.meta";
 import { calledBeforeTrap, willTrap } from "../../../assembly-src/coverage-collection/function/trap-coverage.meta";
+import { useTriple, withNested } from "../../../assembly-src/coverage-collection/function/nested-arrow.meta";
 
 describe("inline function coverage", () => {
   test("direct call to inlined function", () => {
@@ -69,5 +70,15 @@ describe("trap coverage (entry counting)", () => {
     expect(() => {
       willTrap();
     }).toThrowError();
+  });
+});
+
+describe("nested and arrow functions", () => {
+  test("module-level arrow function via wrapper", () => {
+    expect(useTriple(4)).toBe(12);
+  });
+
+  test("nested function declaration", () => {
+    expect(withNested(5)).toBe(12);
   });
 });
