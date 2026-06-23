@@ -1,4 +1,4 @@
-// Loop statement-coverage fixtures — exercise the D11 entry-position rule (a loop
+// Loop statement-coverage fixtures — exercise the entry-position rule (a loop
 // is *reached* once; its body runs N times). Driven with known iteration counts in
 // loops.meta.test.ts; assertions in meta-verify/coverage-collection/statement/
 // loops.test.ts. KEEP LINE-ALIGNED with the twin js-coverage-parity-src/statement/loops.ts.

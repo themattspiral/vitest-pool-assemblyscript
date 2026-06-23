@@ -209,10 +209,10 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
         info.columnNumber = loc.columnNumber;
         info.hasDebugLocation = true;
 
-        // Legacy per-expression branch flag. Phase 0 established this is dead at
-        // -O0 (CFGWalker never visits If; only an unconditional Break ever sets
-        // it) — branch identification now uses per-block isDecision. Kept until
-        // the disabled debug-info validators that reference it are dispositioned.
+        // Legacy per-expression branch flag, dead at -O0: Binaryen's CFGWalker
+        // never visits If, so only an unconditional Break ever sets it — branch
+        // identification now uses per-block isDecision. Kept until the disabled
+        // debug-info validators that reference it are dispositioned.
         info.isBranch = false;
         info.branchPaths = 0;
         if (curr->is<If>()) {

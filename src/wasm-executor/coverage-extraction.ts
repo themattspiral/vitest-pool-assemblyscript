@@ -21,7 +21,7 @@ import { mergeBranchPathHits } from '../coverage-provider/coverage-merge.js';
  * Build statement/expression-level coverage from block counters.
  *
  * Attributes each instrumented block's hit count to the source positions of the
- * located expressions it contains, applying D5 aggregation:
+ * located expressions it contains, applying this aggregation:
  *   - within one function instance: a source position's hit count is the MAX
  *     over the blocks at that position. One source position can land in two
  *     blocks of a single instance (compiler-split blocks, or a dead trailing

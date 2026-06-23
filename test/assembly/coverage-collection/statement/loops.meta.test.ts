@@ -4,7 +4,7 @@ import {
 } from "../../../assembly-src/coverage-collection/statement/loops.meta";
 
 // Exercises the loop fixtures with KNOWN iteration counts so each statement's hit
-// count is hand-derivable (D11: the loop header is reached once per call; the body
+// count is hand-derivable (the loop header is reached once per call; the body
 // runs N times). Assertions live in
 // meta-verify/coverage-collection/statement/loops.test.ts.
 describe("loop statement fixtures", () => {

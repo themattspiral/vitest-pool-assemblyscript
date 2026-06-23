@@ -21,7 +21,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — reachability statement
   // AS statement hits, derived from the inputs in reachability.meta.test.ts — NOT
   // from observed output.
   describe('AS statement hits', () => {
-    test('classify: both arms covered; trailing Unreachable does not clobber the else (D5 MAX)', () => {
+    test('classify: both arms covered; trailing Unreachable does not clobber the else', () => {
       expect(statementHitsByLine(as, 8)).toEqual([2]);  // if reached 2x (both calls)
       expect(statementHitsByLine(as, 9)).toEqual([1]);  // then: return 1 (classify(5))
       expect(statementHitsByLine(as, 11)).toEqual([1]); // else: return -1 (classify(-5))

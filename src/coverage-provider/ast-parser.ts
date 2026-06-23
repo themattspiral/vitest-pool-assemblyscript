@@ -192,7 +192,7 @@ class FunctionExtractorVisitor extends ASTVisitor {
    * Extract coverable statements (Istanbul statement granularity). Variable
    * statements are recorded per declarator that has an initializer; every other
    * statement kind is recorded by its full range. The entry-position (the spot a
-   * statement's hit count is read at, D11) is determined later during matching,
+   * statement's hit count is read at) is determined later during matching,
    * where it can be pinned against the real instrumented hit positions.
    */
   protected onStatement(node: Node): void {

@@ -36,7 +36,7 @@ describe('findStatementEntryHitCount', () => {
     expect(findStatementEntryHitCount(hits, range(10, 1, 10, 20))).toBe(5);
   });
 
-  test('compound statement: entry (header) count, NOT the hotter body (D11)', () => {
+  test('compound statement: entry (header) count, NOT the hotter body', () => {
     // `if` condition on line 3 (col 7) reached 4 times; body on line 4 (col 5) runs 9 times.
     // The statement count must be the entry (4), never the body (9).
     const hits = buildHitsByLine({ '3:7': 4, '4:5': 9 });

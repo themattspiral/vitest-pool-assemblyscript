@@ -28,8 +28,8 @@ export function foldedIfFalse(x: i32): i32 {
   }
 }
 
-// Nested if(true){ if(true){…} } — both fold. Mirrors the class-consumer shape
-// (the incidental R8 example). Implicit elses of folded ifs read 0.
+// Nested if(true){ if(true){…} } — both fold. Mirrors the class-consumer shape.
+// Implicit elses of folded ifs read 0.
 export function foldedNested(x: i32): i32 {
   if (true) {
     if (true) {

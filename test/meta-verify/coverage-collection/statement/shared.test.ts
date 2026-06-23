@@ -5,12 +5,12 @@ import {
 } from '../../helpers/shared.js';
 
 // shared.meta.ts is imported by shared-a (pick(true)) and shared-b (pick(false)),
-// compiled into two binaries; statement hits accumulate by file+position (D7). The
+// compiled into two binaries; statement hits accumulate by file+position. The
 // v8 twin accumulates the same way across the two importing JS files.
 const AS = `${COV_DIR}/statement/shared.meta.ts`;
 const JS = 'js-coverage-parity-src/statement/shared.ts';
 
-describe.runIf(COVERAGE_ENABLED)('coverage collection — cross-file shared statements (D7)', () => {
+describe.runIf(COVERAGE_ENABLED)('coverage collection — cross-file shared statements', () => {
   let as: FileCoverage;
   let js: FileCoverage;
 

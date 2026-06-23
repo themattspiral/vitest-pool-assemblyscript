@@ -8,9 +8,10 @@ const SHARED = `${COV_DIR}/branch/shared.meta.ts`;
 
 // branch/shared.meta.ts is imported by two test files (a + b), so it is compiled
 // into two separate binaries. File A exercises only the THEN arm (twice), file B
-// only the ELSE arm (once). The accumulated [2,1] is the D7 stability invariant: it
-// is only correct if branch hits sum across both binaries by the source-derived
-// decision key. A=only would read [2,0], B=only [0,1]. Derived from the inputs.
+// only the ELSE arm (once). The accumulated [2,1] is only correct if branch hits
+// sum across both binaries by the source-derived decision key (the same source
+// position yields the same key across binaries). A=only would read [2,0], B=only
+// [0,1]. Derived from the inputs.
 describe.runIf(COVERAGE_ENABLED)('coverage collection — cross-file shared branch', () => {
   let entry: FileCoverage;
 

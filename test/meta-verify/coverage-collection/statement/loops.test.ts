@@ -9,7 +9,7 @@ import {
 const AS = `${COV_DIR}/statement/loops.meta.ts`;
 const JS = 'js-coverage-parity-src/statement/loops.ts';
 
-describe.runIf(COVERAGE_ENABLED)('coverage collection — loop statements (D11 entry-position)', () => {
+describe.runIf(COVERAGE_ENABLED)('coverage collection — loop statements (entry-position)', () => {
   let as: FileCoverage;
   let js: FileCoverage;
 
@@ -20,7 +20,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — loop statements (D11 e
   });
 
   // AS statement hit counts, derived from the known inputs in loops.meta.test.ts —
-  // D11: a loop is *reached* once; its body runs N times. Read at the statement's
+  // a loop is *reached* once; its body runs N times. Read at the statement's
   // entry position, never max-over-range — NOT from observed output.
   describe('AS statement hits (entry-position, not max-over-range)', () => {
     test('forSum(4): init reached once, body 4x, return once', () => {
@@ -69,7 +69,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — loop statements (D11 e
       expect(statementHitsByLine(as, line)).toEqual(statementHitsByLine(js, line));
     });
 
-    // DOCUMENTED DIVERGENCE (fidelity contract — exact counts are best-effort where
+    // DOCUMENTED DIVERGENCE (exact counts are best-effort where
     // CFG lowering diverges from source structure). `while (n > 0)`: we are a CFG /
     // compiled-output tool, so the while's entry position is its CONDITION block,
     // re-evaluated N+1 times (4 for n=3). v8 instruments source and counts the

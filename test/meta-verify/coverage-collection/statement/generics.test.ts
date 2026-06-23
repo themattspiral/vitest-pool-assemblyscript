@@ -19,8 +19,8 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — generic (monomorphized
   });
 
   // clamp<T> is compiled as two functions (i32, f64) but attributed to clamp's single
-  // source, so each statement's hits SUM across instances (D5) — derived from inputs.
-  describe('AS statement hits SUM across monomorphizations (D5)', () => {
+  // source, so each statement's hits SUM across instances — derived from inputs.
+  describe('AS statement hits SUM across monomorphizations', () => {
     test('clamp body: each instance runs once, summed at the single source', () => {
       expect(statementHitsByLine(as, 7)).toEqual([2]);  // if (v < lo): i32 + f64
       expect(statementHitsByLine(as, 8)).toEqual([0]);  // return lo: neither < lo

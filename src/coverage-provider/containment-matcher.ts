@@ -125,7 +125,7 @@ export function buildHitsByLine(fileHitsByPosition: Record<string, number>): Map
 
 /**
  * A statement's hit count = the count at its ENTRY: the smallest-position hit
- * within the statement's range (D11). The entry expression sits at the
+ * within the statement's range. The entry expression sits at the
  * statement's start, so the first line of the range that carries an in-range hit
  * holds the entry (its smallest-column in-range hit). For a compound statement
  * (if/loop), the body's hits sit at larger positions on later lines, so this
@@ -281,7 +281,7 @@ export function conditionRangeContainsDecision(
 }
 
 /**
- * Compute Istanbul per-path hit counts for one source branch (D4 + D9).
+ * Compute Istanbul per-path hit counts for one source branch.
  *
  * - **binary-expr** (logical `&&`/`||`): Istanbul reports `[leftEvaluated,
  *   rightEvaluated]`. The left operand is evaluated whenever the operator is

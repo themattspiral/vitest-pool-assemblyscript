@@ -320,7 +320,7 @@ export interface CoverageData {
  * source location of that arm's entry expression.
  *
  * The location is the containment-match target that maps this binary arm to a
- * source branch arm (D9). Only LOCATED arm targets are emitted — an arm with
+ * source branch arm. Only LOCATED arm targets are emitted — an arm with
  * source code has a located entry block; an arm with no source body (implicit
  * else / implicit default) has no located block and is derived provider-side.
  */
@@ -602,7 +602,7 @@ export interface ParsedSourceFunctions {
    */
   statements: ParsedSourceStatementInfo[];
   /**
-   * Branch constructs in the file (D6 set: if, cond-expr, switch, binary-expr),
+   * Branch constructs in the file (if, cond-expr, switch, binary-expr),
    * in source order. Iterated source-side during arm-driven branch matching.
    */
   branches: ParsedSourceBranchInfo[];
@@ -646,7 +646,7 @@ export interface ParsedSourceBranchInfo {
   range: SourceRange;
   /** Branch construct type (Istanbul naming) */
   branchType: 'if' | 'cond-expr' | 'switch' | 'binary-expr';
-  /** Condition range — the containment target for matching the decision (D9) */
+  /** Condition range — the containment target for matching the decision */
   conditionRange: SourceRange;
   /** Per-arm ranges; an implicit else/default arm uses the construct range (Istanbul convention) */
   paths: SourceRange[];
@@ -691,7 +691,7 @@ export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
   /**
    * Statement/expression-level coverage: block counters attributed to source
    * positions (per-instance MAX across a function instance's same-position
-   * blocks, then SUM across monomorphizations — D5). Same shape as functionHits,
+   * blocks, then SUM across monomorphizations). Same shape as functionHits,
    * so it merges up the suite tree via mergeCoverageData and survives the
    * timeout-resume thread boundary as a plain object.
    */
