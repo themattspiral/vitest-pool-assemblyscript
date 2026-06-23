@@ -2,77 +2,19 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
   loadCoverageResults, requireEntry,
-  hitCount, allFunctionNames, coveredCount, uncoveredCount, totalFunctions,
+  hitCount, coveredCount, uncoveredCount, totalFunctions,
 } from '../helpers/shared.js';
 
-const INLINE_FUNCTIONS = `${COV_DIR}/inline-functions.meta.ts`;
-const GENERIC_FUNCTIONS = `${COV_DIR}/generic-functions.meta.ts`;
 const MULTIPLE_CLASSES = `${COV_DIR}/multiple-classes.meta.ts`;
-const EMPTY_FUNCTIONS = `${COV_DIR}/empty-functions.meta.ts`;
-const TRAP_COVERAGE = `${COV_DIR}/trap-coverage.meta.ts`;
 
+// Remaining structure case pending consolidation into the function/classes theme;
+// the inline/generic/empty/trap cases moved to function/special-forms.test.ts.
 describe.runIf(COVERAGE_ENABLED)('coverage collection — structure cases', () => {
   let coverageMap: CoverageMap;
 
   beforeAll(async () => {
     const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
-  });
-
-  describe('inline-functions: @inline function coverage', () => {
-    let entry: FileCoverage;
-
-    beforeAll(() => {
-      entry = requireEntry(coverageMap, INLINE_FUNCTIONS);
-    });
-
-    test('inlinedAdd has hits (direct call + inlined call)', () => {
-      expect(hitCount(entry, 'inlinedAdd')).toBe(2);
-    });
-
-    test('normalAdd called 1 time', () => {
-      expect(hitCount(entry, 'normalAdd')).toBe(1);
-    });
-
-    test('callsInlined called 1 time', () => {
-      expect(hitCount(entry, 'callsInlined')).toBe(1);
-    });
-
-    test('has exactly 3 functions tracked', () => {
-      expect(totalFunctions(entry)).toBe(3);
-    });
-
-    test('all 3 covered', () => {
-      expect(coveredCount(entry)).toBe(3);
-    });
-  });
-
-  describe('generic-functions: monomorphized variant summing', () => {
-    let entry: FileCoverage;
-
-    beforeAll(() => {
-      entry = requireEntry(coverageMap, GENERIC_FUNCTIONS);
-    });
-
-    test('identity called 3 times (i32 + f64 + string monomorphizations summed)', () => {
-      expect(hitCount(entry, 'identity')).toBe(3);
-    });
-
-    test('isNull called 2 times (non-null + null)', () => {
-      expect(hitCount(entry, 'isNull')).toBe(2);
-    });
-
-    test('nonGeneric called 1 time', () => {
-      expect(hitCount(entry, 'nonGeneric')).toBe(1);
-    });
-
-    test('has exactly 3 functions tracked', () => {
-      expect(totalFunctions(entry)).toBe(3);
-    });
-
-    test('all 3 covered', () => {
-      expect(coveredCount(entry)).toBe(3);
-    });
   });
 
   describe('multiple-classes: independent tracking per class', () => {
@@ -121,64 +63,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — structure cases', () =
     test('6 covered, 2 uncovered', () => {
       expect(coveredCount(entry)).toBe(6);
       expect(uncoveredCount(entry)).toBe(2);
-    });
-  });
-
-  describe('empty-functions: empty and minimal bodies tracked', () => {
-    let entry: FileCoverage;
-
-    beforeAll(() => {
-      entry = requireEntry(coverageMap, EMPTY_FUNCTIONS);
-    });
-
-    // emptyVoid() has no function body — compiles to a Nop with no source location.
-    // The native instrumentation skips it because there is no representative location
-    // to map back to source. This is expected: there is no executable source content.
-    test('emptyVoid is not tracked (no source location for empty body)', () => {
-      expect(hitCount(entry, 'emptyVoid')).toBeUndefined();
-    });
-
-    test('returnsZero called 1 time', () => {
-      expect(hitCount(entry, 'returnsZero')).toBe(1);
-    });
-
-    test('nonEmpty called 1 time', () => {
-      expect(hitCount(entry, 'nonEmpty')).toBe(1);
-    });
-
-    test('has exactly 2 functions tracked (emptyVoid excluded)', () => {
-      expect(totalFunctions(entry)).toBe(2);
-      const names = allFunctionNames(entry);
-      expect(names).toContain('returnsZero');
-      expect(names).toContain('nonEmpty');
-    });
-
-    test('both tracked functions covered', () => {
-      expect(coveredCount(entry)).toBe(2);
-    });
-  });
-
-  describe('trap-coverage: functions that trap still counted', () => {
-    let entry: FileCoverage;
-
-    beforeAll(() => {
-      entry = requireEntry(coverageMap, TRAP_COVERAGE);
-    });
-
-    test('calledBeforeTrap called 1 time', () => {
-      expect(hitCount(entry, 'calledBeforeTrap')).toBe(1);
-    });
-
-    test('willTrap has hits despite aborting (entry counting)', () => {
-      expect(hitCount(entry, 'willTrap')).toBe(1);
-    });
-
-    test('has exactly 2 functions tracked', () => {
-      expect(totalFunctions(entry)).toBe(2);
-    });
-
-    test('both covered', () => {
-      expect(coveredCount(entry)).toBe(2);
     });
   });
 });
