@@ -95,7 +95,7 @@ export interface CoverageResults {
 export const COV_DIR = 'coverage-collection';
 
 export interface CoverageTableRow {
-  /** Directory-qualified path (e.g. 'assembly-src/coverage-collection/math-helpers.meta.ts') */
+  /** Directory-qualified path (e.g. 'assembly-src/coverage-collection/function/counting.meta.ts') */
   filename: string;
   stmts: number;
   branch: number;
@@ -413,7 +413,7 @@ export function requireErrorBlock(parsed: ParsedCliOutput, fullTestPath: string)
  *
  * Searches directory-qualified keys (e.g. 'assembly-src/coverage-collection/file.ts')
  * by suffix matching. Callers can pass just a filename for unique entries or
- * include directory context to disambiguate (e.g. 'edge/math-helpers.meta.ts').
+ * include directory context to disambiguate (e.g. 'function/edge/math-helpers.meta.ts').
  *
  * Throws on zero matches (not found) or multiple matches (ambiguous suffix).
  */
@@ -648,6 +648,62 @@ export function expectFunctionCoverage(entry: FileCoverage, expected: Record<str
   expect(totalFunctions(entry), 'total functions').toBe(expectedNames.length);
   expect(coveredCount(entry), 'covered functions').toBe(expectedCounts.filter(c => c > 0).length);
   expect(uncoveredCount(entry), 'uncovered functions').toBe(expectedCounts.filter(c => c === 0).length);
+}
+
+/** Options for {@link expectFunctionParityByLine} divergences. */
+export interface FunctionParityOptions {
+  /** Source start-lines whose function appears only in the AS fnMap (e.g. `@operator` overloads — no JS equivalent). */
+  asOnlyLines?: number[];
+  /** Source start-lines whose function appears only in the v8 fnMap (e.g. an empty body AS drops but v8 keeps). */
+  jsOnlyLines?: number[];
+}
+
+/**
+ * Index an entry's functions by their fnMap start line. Pairing the twins by line
+ * (rather than by name) is robust to v8 method names that may be unqualified or differ
+ * from AS's `ClassName#method` form. Throws if two functions share a start line, since
+ * that makes the line an ambiguous pairing key — line-aligned twin fixtures must keep
+ * one function declaration per line.
+ */
+function functionsByStartLine(entry: FileCoverage): Map<number, { name: string; hits: number }> {
+  const byLine = new Map<number, { name: string; hits: number }>();
+  for (const [id, fn] of Object.entries(entry.fnMap)) {
+    const existing = byLine.get(fn.line);
+    if (existing) {
+      throw new Error(
+        `Two functions share start line ${fn.line} (${existing.name}, ${fn.name}); ` +
+        `line pairing requires one function declaration per line in twinned fixtures.`,
+      );
+    }
+    byLine.set(fn.line, { name: fn.name, hits: entry.f[id] ?? 0 });
+  }
+  return byLine;
+}
+
+/**
+ * Assert function-coverage parity between a line-aligned AS fixture and its v8 (JS)
+ * twin by pairing functions on their START LINE. For every line present on both sides
+ * the hit counts must match; lines present on only one side must be exactly the
+ * declared divergence sets — so an unexpected one-sided function fails rather than
+ * being silently tolerated.
+ */
+export function expectFunctionParityByLine(
+  asEntry: FileCoverage, jsEntry: FileCoverage, opts: FunctionParityOptions = {},
+): void {
+  const asByLine = functionsByStartLine(asEntry);
+  const jsByLine = functionsByStartLine(jsEntry);
+  const ascending = (a: number, b: number): number => a - b;
+
+  const actualAsOnly = [...asByLine.keys()].filter(l => !jsByLine.has(l)).sort(ascending);
+  const actualJsOnly = [...jsByLine.keys()].filter(l => !asByLine.has(l)).sort(ascending);
+  expect(actualAsOnly, 'AS-only function lines').toEqual([...(opts.asOnlyLines ?? [])].sort(ascending));
+  expect(actualJsOnly, 'v8-only function lines').toEqual([...(opts.jsOnlyLines ?? [])].sort(ascending));
+
+  for (const [line, as] of asByLine) {
+    const js = jsByLine.get(line);
+    if (!js) continue; // a declared AS-only line, already validated above
+    expect(as.hits, `hits at line ${line} (AS ${as.name} vs v8 ${js.name})`).toBe(js.hits);
+  }
 }
 
 /**

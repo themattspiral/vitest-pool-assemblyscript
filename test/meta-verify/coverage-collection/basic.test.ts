@@ -5,58 +5,18 @@ import {
   hitCount, allFunctionNames, coveredCount, uncoveredCount, totalFunctions,
 } from '../helpers/shared.js';
 
-const MATH_HELPERS = `${COV_DIR}/math-helpers.meta.ts`;
 const CLASS_MIXED = `${COV_DIR}/class-with-mixed-usage.meta.ts`;
-const CALL_COUNTING = `${COV_DIR}/call-counting.meta.ts`;
-const STANDALONE_UNUSED = `${COV_DIR}/standalone-unused.meta.ts`;
 const CLASS_UNUSED = `${COV_DIR}/class-utils-unused.meta.ts`;
 
+// Remaining class cases pending consolidation into the function/classes theme; the
+// math-helpers / call-counting / standalone-unused cases moved to
+// function/counting.test.ts.
 describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () => {
   let coverageMap: CoverageMap;
 
   beforeAll(async () => {
     const results = await loadCoverageResults();
     coverageMap = results.coverageMap;
-  });
-
-  describe('math-helpers: partial function coverage', () => {
-    let entry: FileCoverage;
-
-    beforeAll(() => {
-      entry = requireEntry(coverageMap, MATH_HELPERS);
-    });
-
-    test('add called 3 times', () => {
-      expect(hitCount(entry, 'add')).toBe(3);
-    });
-
-    test('subtract called 1 time', () => {
-      expect(hitCount(entry, 'subtract')).toBe(1);
-    });
-
-    test('multiply called 2 times', () => {
-      expect(hitCount(entry, 'multiply')).toBe(2);
-    });
-
-    test('divide is uncovered (0 hits)', () => {
-      expect(hitCount(entry, 'divide')).toBe(0);
-    });
-
-    test('negate is uncovered (0 hits)', () => {
-      expect(hitCount(entry, 'negate')).toBe(0);
-    });
-
-    test('exactly these 5 functions tracked', () => {
-      expect(totalFunctions(entry)).toBe(5);
-      expect(allFunctionNames(entry)).toEqual(
-        expect.arrayContaining(['add', 'subtract', 'multiply', 'divide', 'negate']),
-      );
-    });
-
-    test('3 covered, 2 uncovered', () => {
-      expect(coveredCount(entry)).toBe(3);
-      expect(uncoveredCount(entry)).toBe(2);
-    });
   });
 
   describe('class-with-mixed-usage: class partial coverage', () => {
@@ -102,68 +62,6 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — basic scenarios', () =
 
     test('3 covered, 3 uncovered', () => {
       expect(coveredCount(entry)).toBe(3);
-      expect(uncoveredCount(entry)).toBe(3);
-    });
-  });
-
-  describe('call-counting: precise hit counts', () => {
-    let entry: FileCoverage;
-
-    beforeAll(() => {
-      entry = requireEntry(coverageMap, CALL_COUNTING);
-    });
-
-    test('calledOnce has exactly 1 hit', () => {
-      expect(hitCount(entry, 'calledOnce')).toBe(1);
-    });
-
-    test('calledThrice has exactly 3 hits', () => {
-      expect(hitCount(entry, 'calledThrice')).toBe(3);
-    });
-
-    test('calledFiveTimes has exactly 5 hits', () => {
-      expect(hitCount(entry, 'calledFiveTimes')).toBe(5);
-    });
-
-    test('neverCalled is uncovered (0 hits)', () => {
-      expect(hitCount(entry, 'neverCalled')).toBe(0);
-    });
-
-    test('exactly these 4 functions tracked', () => {
-      expect(totalFunctions(entry)).toBe(4);
-      expect(allFunctionNames(entry)).toEqual(
-        expect.arrayContaining(['calledOnce', 'calledThrice', 'calledFiveTimes', 'neverCalled']),
-      );
-    });
-
-    test('3 covered, 1 uncovered', () => {
-      expect(coveredCount(entry)).toBe(3);
-      expect(uncoveredCount(entry)).toBe(1);
-    });
-  });
-
-  describe('standalone-unused: completely unused file', () => {
-    let entry: FileCoverage;
-
-    beforeAll(() => {
-      entry = requireEntry(coverageMap, STANDALONE_UNUSED);
-    });
-
-    test('all functions have 0 hits', () => {
-      expect(hitCount(entry, 'unusedHelperA')).toBe(0);
-      expect(hitCount(entry, 'unusedHelperB')).toBe(0);
-      expect(hitCount(entry, 'unusedHelperC')).toBe(0);
-    });
-
-    test('exactly these 3 functions tracked', () => {
-      expect(totalFunctions(entry)).toBe(3);
-      expect(allFunctionNames(entry)).toEqual(
-        expect.arrayContaining(['unusedHelperA', 'unusedHelperB', 'unusedHelperC']),
-      );
-    });
-
-    test('0 covered, 3 uncovered', () => {
-      expect(coveredCount(entry)).toBe(0);
       expect(uncoveredCount(entry)).toBe(3);
     });
   });
