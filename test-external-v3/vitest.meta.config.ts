@@ -18,6 +18,7 @@ export default defineConfig({
       reportsDirectory: 'coverage/meta/',
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
+      experimentalAstAwareRemapping: true,
       
       include: [
         '**/js-coverage-parity-src/**/*.ts'

@@ -11,6 +11,7 @@ export default defineAssemblyScriptConfig({
       reportsDirectory: 'coverage/',
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
+      experimentalAstAwareRemapping: true,
       
       include: [ '!*' ],
       assemblyScriptInclude: [
