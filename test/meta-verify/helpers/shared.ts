@@ -1,3 +1,4 @@
+import { expect } from 'vitest';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
@@ -618,6 +619,35 @@ export function totalFunctions(entry: FileCoverage): number {
  */
 export function functionInfo(entry: FileCoverage, funcName: string): FunctionInfo | undefined {
   return Object.values(entry.fnMap).find(fn => fn.name === funcName);
+}
+
+/**
+ * Assert a coverage entry's complete function-coverage picture against an expected
+ * map of `functionName → hitCount`. One call replaces the per-function `hitCount`
+ * boilerplate and enforces uniform rigor everywhere it's used:
+ *
+ *  - the tracked function-name SET matches exactly (no extra or missing functions);
+ *  - every function's hit count matches;
+ *  - the covered / uncovered / total tallies (derived from the expected map) match.
+ *
+ * The name-set check is intentionally exact (stronger than `arrayContaining`): a
+ * function that appears in coverage but isn't in `expected` — or vice versa — is a
+ * real discrepancy worth failing on. Functions AS does not track (e.g. an empty body
+ * with no source location) must simply be omitted from `expected`.
+ */
+export function expectFunctionCoverage(entry: FileCoverage, expected: Record<string, number>): void {
+  const actualNames = allFunctionNames(entry).slice().sort();
+  const expectedNames = Object.keys(expected).sort();
+  expect(actualNames, 'tracked function name set').toEqual(expectedNames);
+
+  for (const [name, count] of Object.entries(expected)) {
+    expect(hitCount(entry, name), `hit count for ${name}`).toBe(count);
+  }
+
+  const expectedCounts = Object.values(expected);
+  expect(totalFunctions(entry), 'total functions').toBe(expectedNames.length);
+  expect(coveredCount(entry), 'covered functions').toBe(expectedCounts.filter(c => c > 0).length);
+  expect(uncoveredCount(entry), 'uncovered functions').toBe(expectedCounts.filter(c => c === 0).length);
 }
 
 /**
