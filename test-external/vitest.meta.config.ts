@@ -13,13 +13,14 @@ export default defineConfig({
 
     coverage: {
       enabled: true,
+      allowExternal: true, // JS parity twins live in the main repo (../), outside this external root
       reportOnFailure: true,
       reportsDirectory: 'coverage/meta/',
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       
       include: [
-        '../vitest-pool-assemblyscript/test/js-coverage-parity-src'
+        '**/js-coverage-parity-src/**/*.ts'
       ],
 
       assemblyScriptInclude: [
