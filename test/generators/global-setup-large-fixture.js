@@ -54,7 +54,11 @@ const GENERATED_HEADER =
  */
 function buildSource() {
   const lines = [GENERATED_HEADER];
-  lines.push(`export const FIXTURE_FUNCTION_COUNT: i32 = ${FIXTURE_FUNCTION_COUNT};`);
+  // A function rather than a module-level `const = <literal>`: an AS module-level
+  // const with a literal initializer lowers to a WASM global constant init with no
+  // runtime block, so that statement can never be covered. A function body can — which
+  // keeps the fixture at 100% statement/line coverage for the passing threshold.
+  lines.push(`export function fixtureFunctionCount(): i32 { return ${FIXTURE_FUNCTION_COUNT}; }`);
   lines.push('');
 
   for (let i = 0; i < FIXTURE_FUNCTION_COUNT; i++) {
@@ -80,13 +84,13 @@ function buildSource() {
 function buildPassTest() {
   return `${GENERATED_HEADER}
 import { test, expect } from "vitest-pool-assemblyscript/assembly";
-import { callAllFixtureFns, FIXTURE_FUNCTION_COUNT } from "../assembly-src/large-fixture";
+import { callAllFixtureFns, fixtureFunctionCount } from "../assembly-src/large-fixture";
 
 // Executes every instrumented function, including those whose coverage counters
 // live in page >=2. With the default (auto-sized) coverage memory this must
 // store without trapping.
 test("large fixture: all instrumented functions execute without trapping", () => {
-  expect(callAllFixtureFns()).toBe(FIXTURE_FUNCTION_COUNT);
+  expect(callAllFixtureFns()).toBe(fixtureFunctionCount());
 });
 `;
 }
