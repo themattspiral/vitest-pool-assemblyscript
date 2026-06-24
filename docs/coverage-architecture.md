@@ -6,6 +6,7 @@ This document describes the coverage system of `vitest-pool-assemblyscript`: how
 
 **Table of Contents**
 - [Overview](#overview)
+- [Coverage Types](#coverage-types)
 - [Instrumentation](#instrumentation)
 - [Coverage Data Collection & Aggregation](#coverage-data-collection--aggregation)
 - [Hybrid Coverage Provider](#hybrid-coverage-provider)
@@ -14,24 +15,25 @@ This document describes the coverage system of `vitest-pool-assemblyscript`: how
 - [Istanbul Conversion & Report Generation](#istanbul-conversion--report-generation)
 - [Coverage Configuration](#coverage-configuration)
 - [Key Architectural Decisions](#key-architectural-decisions)
-- [Planned: Block-Level Coverage](#planned-block-level-coverage)
+- [Fidelity & Known Divergences](#fidelity--known-divergences)
+- [Verification & Parity Oracle](#verification--parity-oracle)
 
 ---
 
 ## Overview
 
-Coverage works by instrumenting compiled WASM binaries to count function entries, then matching those binary hit positions back to source code via containment matching. The system produces standard Istanbul coverage data that integrates with vitest's reporters.
+Coverage works by instrumenting compiled WASM binaries to count function and basic-block entries, then matching those binary hit positions back to source code. The system produces all four standard Istanbul coverage types — function, branch, statement, and line — which integrate with vitest's reporters.
 
 ```
     Compile Thread                Test Thread               Coverage Provider
     (per test file)        (per test file + resume)      (once per overall run)
 ┌─────────────────────┐     ┌────────────────────┐     ┌────────────────────────┐
 │ AS → WASM           │     │ Per-test execution │     │ Parse AS source        │
-│ Native addon:       │     │ in fresh instance  │     │   AST → func ranges    │
+│ Native addon:       │     │ in fresh instance  │     │   AST → fn/stmt/branch │
 │  - extract          │ ──> │                    │ ──> │                        │
-│  - instrument       │     │ Read hit counters  │     │ Containment match      │
-│  - regen source map │     │ from coverage mem  │     │   Binary hit loc → src │
-│                     │     │                    │     │     function range     │
+│  - instrument       │     │ Read hit counters  │     │ Match hit positions    │
+│  - regen source map │     │ from coverage mem  │     │   to source ranges:    │
+│                     │     │                    │     │   fn / stmt / branch   │
 │ → WASMCompilation   │     │ Merge per-suite    │     │ → Istanbul format      │
 │                     │     │ → onAfterSuiteRun  │     │ → Merge with v8 JS     │
 └─────────────────────┘     └────────────────────┘     │ → Unified reports      │
@@ -52,19 +54,34 @@ The separation of concerns is intentional: the execution pipeline collects raw h
 
 ---
 
+## Coverage Types
+
+All four Istanbul coverage types are produced from the WASM hit counters and the parsed source structure:
+
+| Type | How it's produced |
+|------|--------------------|
+| **Function** | Per-function entry counters, matched to source functions by containment ([function matching](#function-matching)) |
+| **Branch** | Decision/arm block counters, attributed per construct ([branch matching](#branch-matching)); loops are not reported as branches |
+| **Statement** | Block (`expressionHits`) counters, attributed to each source statement by its [entry position](#statement-matching) |
+| **Line** | Derived from statement coverage (Istanbul's max-hit-per-start-line) |
+
+---
+
 ## Instrumentation
 
 The native C++ addon ([`addon.cpp`](../src/instrumentation/native/addon.cpp)) runs on each compiled WASM binary during the compile phase. It performs three operations:
 
-1. **Debug extraction**: Walk WASM functions with source map data to extract function metadata — names, source positions, and a representative source location for each function
-2. **Function-entry instrumentation**: Inject `i32.load`/`i32.store` counter-increment operations at each function entry point, writing to a dedicated coverage memory
+1. **Debug extraction**: Walk WASM functions with source map data to extract function metadata (names, source positions, a representative source location per function) and basic-block metadata (each block's located expressions, whether it is a *decision* block, and its entry anchor)
+2. **Function and block instrumentation**: Inject `i32.load`/`i32.store` counter-increment operations at each function entry and also at each instrumented basic block, writing to a dedicated coverage memory. Counters use a **two-region layout**: function-entry counters occupy contiguous indices `0..F-1`, block counters follow at `F..F+B-1`
 3. **Source map regeneration**: Rebuild the source map with correct offsets, since byte offsets change when instructions are injected
 
 ### Coverage Memory (Multi-Memory)
 
 Coverage counters are stored in a separate `WebAssembly.Memory` instance (`__coverage_memory` import), isolated from the user's test memory. This uses the [WebAssembly multi-memory proposal](https://github.com/WebAssembly/multi-memory) (V8 12.0+ / Node 22+).
 
-Each instrumented function is assigned a `coverageMemoryIndex` — an offset into coverage memory where its hit counter lives. Counter increments use native WASM `i32.load`/`i32.store` operations with no JS boundary crossing during test execution.
+Each instrumented function and basic block is assigned a `coverageMemoryIndex` — an offset into coverage memory where its hit counter lives. Counter increments use native WASM `i32.load`/`i32.store` operations to avoid JS boundary crossing during test execution (coverage memory is read after execution finishes).
+
+Block counters are **entry-anchored**: the increment is injected on the first expression executed when the block is entered, so each counter reflects how many times that block ran. Empty fall-through `switch` cases have no expression to anchor on, so they instead receive a *post-anchored* counter on the named block they fall out of — which yields exact per-case entered counts without edge-splitting.
 
 Coverage memory is sized automatically based on the number of instrumentation counters required.
 
@@ -98,29 +115,49 @@ The TypeScript interface layer ([`addon-interface.ts`](../src/instrumentation/ad
 
 ### Per-Test Collection
 
-After each test executes in a fresh WASM instance, the test runner reads hit counters from coverage memory. Each function's `coverageMemoryIndex` (from `BinaryDebugInfo`) maps to an offset in coverage memory where the counter value lives. The result is a `CoverageData` object:
+After each test executes (in a dedicated WASM instance), the test runner reads the **full hit-counter array** from coverage memory and derives five structures from it (in [`coverage-extraction.ts`](../src/wasm-executor/coverage-extraction.ts)):
+
+- **`functionHits`** — per-function entry counts, keyed by each function's `representativeLocation`.
+- **`expressionHits`** — per-position hit counts for the located expressions in each instrumented block; the basis for statement and line coverage.
+- **`branchHits`** — per-decision-block arm counts (plus a per-decision total), the basis for branch coverage.
+- **`emptyCaseHits`** — entered counts for empty fall-through `switch` cases, in a dedicated collision-free map (see [Empty-Case & Decision-Position Channels](#empty-case--decision-position-channels)).
+- **`decisionPositions`** — the source positions of binary decision blocks; a structural signal carrying no counts, used to detect compiler-folded branches (same section).
+
+`functionHits` and `expressionHits` share the `CoverageData` shape — a `file → "line:column" → count` map keyed by source position:
 
 ```typescript
 // CoverageData.hitCountsByFileAndPosition
 {
   "/absolute/path/to/source.ts": {
-    "10:3": 5,   // function at line 10, column 3 was hit 5 times
-    "25:1": 0,   // function at line 25, column 1 was not hit
+    "10:3": 5,   // source position at line 10, column 3 was hit 5 times
+    "25:1": 0,   // source position at line 25, column 1 was not hit
   }
 }
 ```
 
-Position keys use the format `"line:column"` derived from the function's `representativeLocation` in the binary debug info.
+#### Notes on Position Keys:
+- Position keys use the format `"line:column"`
+- Functions in most cases will have a *unique* `representativeLocation` source position
+- In AssemblyScript, generic functions are monomorphized when compiled to WASM, which means the *same `representativeLocation`* source position is produced by multiple WASM functions, which all map back to the same generic AssemblyScript function. e.g. `closeTo<bool>` and `closeTo<u8>` are seaprate in WASM, but map back to the same `closeTo<T>` in AS. In this case, their counts are summed to produce the correct generic function hit total
+- `branchHits` carries per-arm count arrays *keyed by decision* rather than this position map
+
+### Empty-Case & Decision-Position Channels
+
+Two of the five structures are auxiliary: they exist so branch matching stays correct for two cases the main maps cannot represent.
+
+**`emptyCaseHits`** carries the entered count of each *empty fall-through* `switch` case — a `case` label with no statements of its own that falls through to a later case's body. Such a case has no expression to anchor an entry counter on, so the addon *post-anchors* a counter on the named block it falls out of (see [Instrumentation](#instrumentation)). That count cannot live in `expressionHits` or `branchHits`, because the case-label source position is already occupied in *both* — by the comparison block's own case-label constant (`expressionHits`), and by the previous comparison's false-edge arm (`branchHits`) — each carrying the wrong comparison-chain count. So `emptyCaseHits` is a dedicated `CoverageData` map holding *only* empty-case entries (hence collision-free), keyed by the case-label position (borrowed from the in-edge comparison block's last located expression). Branch matching reads empty cases from here; body cases and explicit defaults still use statement-entry over their body range.
+
+**`decisionPositions`** is the set of source positions, per file, where the binary has a *decision block* (a CFG node with two or more out-edges). It carries no counts — it is purely structural (`{ positionsByFile: Record<file, "line:column"[]> }`). It is the robust signal for **compiler-folded branches**: a constant condition (`if (true)`, `if (1 < 2)`, `const FLAG = true; if (FLAG)`) is evaluated at compile time and emits no decision block at all, whereas a *real* branch always produces one — even when never executed, and even when its arms are mis-located. So a source branch whose condition range contains none of these positions was folded, and is reported from whether each arm's body executed rather than from arm counters (which don't exist for it). Keying on decision *presence* — rather than "no arm matched" — is what avoids confusing a folded branch with a real branch whose unlocated arms were dropped from `branchHits`.
 
 ### Per-Suite Aggregation
 
-Coverage data aggregates up the suite tree using `mergeCoverageData()`. After each test completes, its coverage data merges into the parent suite's accumulated coverage. After each nested suite completes, its accumulated data merges into the grandparent suite. This bubbles up until the file-level suite has the merged coverage for all tests in the file.
+Coverage data aggregates up the suite tree. After each test completes, its position-keyed maps (`functionHits`, `expressionHits`, `emptyCaseHits`) merge into the parent suite's accumulated coverage via `mergeCoverageData()` (summing counts), its `branchHits` merge via `mergeBranchHits()`, and its `decisionPositions` merge via `mergeDecisionPositions()` — a per-file **union**, since that data is structural rather than counted. After each nested suite completes, its accumulated data merges into the grandparent suite. This bubbles up until the file-level suite holds the merged coverage for all tests in the file.
 
-When a file's tests are complete, the runner calls `onAfterSuiteRun()` with the file-level accumulated `CoverageData` (plus a `__format: 'assemblyscript'` marker to distinguish it from JS coverage payloads). This sends the data to the hybrid coverage provider.
+When a file's tests are complete, the runner calls `onAfterSuiteRun()` with the file-level accumulated data (all five structures, plus a `__format: 'assemblyscript'` marker to distinguish it from JS coverage payloads). This sends the data to the hybrid coverage provider, which combines it across all test files — the same source position compiled into different test binaries accumulates by its stable `file:line:column` key.
 
 ### Timeout Resume
 
-When a test times out and execution resumes on a new thread, each suite initializes fresh empty coverage data. Coverage from completed tests is not lost because each completed test's individual `meta.coverageData` is preserved in the task hierarchy across the thread boundary. As `runSuite()` walks through tasks on resume, it skips completed tests' execution but still merges their preserved coverage data into the parent suite — the same merge step that happens during normal execution. This means coverage is reconstructed naturally from children rather than explicitly restored. See [Timeout Architecture](pool-architecture.md#timeout-architecture) in the pool architecture doc.
+When a test times out and execution resumes on a new thread, each suite initializes fresh empty coverage data. Coverage from completed tests is not lost because each completed test's individual coverage data (`meta.functionHits` / `meta.expressionHits` / `meta.branchHits`) is preserved in the task hierarchy across the thread boundary. As `runSuite()` walks through tasks on resume, it skips completed tests' execution but still merges their preserved coverage data into the parent suite — the same merge step that happens during normal execution. This means coverage is reconstructed naturally from children rather than explicitly restored. See [Timeout Architecture](pool-architecture.md#timeout-architecture) in the pool architecture doc for additional details.
 
 **Key source files:**
 - [`src/wasm-executor/index.ts`](../src/wasm-executor/index.ts) — `executeWASMTest()` (coverage memory read)
@@ -138,12 +175,12 @@ When a test times out and execution resumes on a new thread, each suite initiali
 1. **Initialization**: Creates a delegated v8 coverage provider for JS/TS coverage. Checks for Node version compatibility and native build status, and displays user-facing console warnings if conditions will not allow coverage to actually be collected, despite being enabled.
 
 2. **Accumulation** (`onAfterSuiteRun`): As test files complete:
-   - AS payloads (identified by `__format: 'assemblyscript'`): merge `CoverageData` into an accumulated map using `mergeCoverageData()`, summing hit counts by file and position across all test files
+   - AS payloads (identified by `__format: 'assemblyscript'`): merge `functionHits`/`expressionHits` into accumulated maps via `mergeCoverageData()` and `branchHits` via `mergeBranchHits()`, summing across all test files
    - JS payloads: delegate directly to the v8 provider
 
 3. **Report generation** (`generateCoverage`): Once all tests complete:
-   - Parse AS source files (via AST parser) to get function ranges — the source of truth for what should be covered
-   - For each source file: run containment matching (binary hit positions → source function ranges) and convert to Istanbul format
+   - Parse AS source files (via AST parser) to get function, statement, and branch ranges — the source of truth for what should be covered
+   - For each source file: match the accumulated hit positions to those source ranges and convert to Istanbul format (function, branch, statement, and line coverage)
    - Get JS/TS coverage from the delegated v8 provider
    - Merge AS Istanbul `CoverageMap` into JS `CoverageMap` → unified report
 
@@ -151,20 +188,26 @@ When a test times out and execution resumes on a new thread, each suite initiali
 
 ### Accumulation Key Stability
 
-Coverage data is keyed by source file path + position (`"line:column"`). These keys come from the binary's `BinaryDebugInfo`, where each function's `representativeLocation` points to a stable source position. The same source function compiled into different test binaries will produce the same `filePath:line:column` key, enabling correct accumulation across test files that import the same source modules.
+Accumulating across test files only works because every key is a **source position**, which is stable across binaries. The position-keyed maps (`functionHits`, `expressionHits`, `emptyCaseHits`) key on `filePath:line:column`, taken from the binary's `BinaryDebugInfo` — a function's `representativeLocation`, a block's located expression, or an empty case's label. `branchHits` keys each decision on a sorted composite of its arm *positions*, and `decisionPositions` is a per-file set of positions. Since the same source element compiled into different test binaries always maps back to the same source position, a module imported by many test files accumulates correctly regardless of which binary produced each hit — summed for the count-bearing structures, unioned for `decisionPositions`.
 
 ---
 
 ## AST Source Parsing
 
-The AST parser ([`ast-parser.ts`](../src/coverage-provider/ast-parser.ts)) runs in the coverage provider during `generateCoverage()`. It parses each source file included by `assemblyScriptInclude` patterns and extracts function metadata: qualified names, short names, and source ranges (start/end line/column).
+The AST parser ([`ast-parser.ts`](../src/coverage-provider/ast-parser.ts)) runs in the coverage provider during `generateCoverage()`. It parses each source file included by `assemblyScriptInclude` patterns and extracts the source structure that defines what *should* be covered: well-defined functions, branches, and statements (qualified names where applicable, plus source ranges).
 
 The parser uses a `FunctionExtractorVisitor` that walks the AST and extracts:
 - **Function declarations** — top-level and nested functions
 - **Method declarations** — instance methods, static methods, getters, setters (with naming conventions matching the binary: `ClassName#methodName`, `ClassName.staticMethod`, `ClassName#get:prop`)
 - **Arrow functions** — variable declarations with function expression initializers
+- **Branches** (via an `onBranch` hook) — `if`/`else` (`if`), ternary (`cond-expr`), logical `&&`/`||` (`binary-expr`), and `switch`, each with its arm ranges
+- **Statements** (via an `onStatement` hook on the shared visitor) — each coverable statement kind: variable, expression, `return`, `throw`, `break`, `continue`, and the control-flow statements (`if`, `for`, `while`, `do`, `switch`)
 
-The parser emits two structures (`ParsedSourceFunctions`): `functionsByLineSpan` indexes each function under **every** source line its range spans (`Record<number, ParsedSourceFunctionInfo[]>`) for direct per-line lookup during containment matching, and `uniqueFunctions` holds one record per function keyed by `startLine:startColumn` as the source of truth for the emitted Istanbul function set. The per-line index stores a list because multiple functions can occupy the same line (nested or overlapping definitions).
+For functions, the parser emits two structures:
+1. `functionsByLineSpan`: indexes each function under **every** source line its range spans (`Record<number, ParsedSourceFunctionInfo[]>`) for direct per-line lookup during containment matching. It stores a list because multiple functions can occupy the same line (nested or overlapping definitions)
+2. `uniqueFunctions`: holds one record per function keyed by `startLine:startColumn` as the source of truth for the emitted Istanbul function set (so span duplication above aids lookup only, never affecting the function set or hit attribution)
+
+The parsed `branches` and `statements` ride alongside in the same per-file result, consumed by branch and statement matching respectively.
 
 ### Why Source Parsing Happens in the Provider
 
@@ -188,7 +231,7 @@ Containment matching bridges the gap between binary execution data and source co
 - **Name matching**: Anonymous and nested functions have compiler-generated names (`~anonymous|N`) that can't be reliably recreated from source alone
 - **Direct position matching**: The AS compiler generates inconsistent source map positions by statement type — variable declarations point to the keyword, control flow points to the condition expression, inlined default parameters map back to the original definition site
 
-### Algorithm
+### Function Matching
 
 Functions are indexed under every source line their range spans (see [AST Source Parsing](#ast-source-parsing)), so matching a hit position is a direct lookup rather than a scan. For each binary hit position:
 1. Fetch the functions indexed under the hit position's exact line — a direct map lookup
@@ -199,14 +242,30 @@ This is implemented in `findFunctionContainingPosition()` in [`containment-match
 
 ### Performance
 
-Because functions are indexed by every line they span, each hit-position lookup is a direct map access followed by a scan of only the functions present on that one line — typically a single function, a handful where definitions nest or overlap. Total matching cost is therefore roughly linear in the number of hit positions and independent of the file's total function count.
+Because functions are indexed by every line they span, each hit-position lookup is a direct map access followed by a scan of only the functions present on that one line — typically a single function, a handful where definitions nest or overlap. Total matching cost is therefore roughly linear in the number of unique hit positions to be matched, and independent of the file's total function count.
 
 This replaced an earlier (<= [v0.13.2](https://github.com/themattspiral/vitest-pool-assemblyscript/releases/tag/v0.13.2)) start-line scan that, for every hit position, walked all functions starting at or before that line (and re-materialized the start-line index on each hit). Since hit positions scale with function count, that made file-level matching quadratic — on the order of F²/2 comparisons for F functions. It was negligible for small files (a few thousand operations at 50 functions) but degraded sharply on files with thousands of functions, such as generated or bundled sources.
 
-The tradeoff is index size: a function occupies one slot per line it spans, so `functionsByLineSpan` is proportional to the total source lines covered by functions rather than to the function count — still linear in file size, and built once per file during parsing. The separate `uniqueFunctions` map (keyed by `startLine:startColumn`) holds one record per function as the source of truth for the emitted Istanbul function set, so span duplication affects lookup only, never the function set or hit attribution.
+### Branch Matching
+
+Branches are matched per construct, because AssemblyScript lowers each kind differently:
+- **`if` / `cond-expr` (ternary)** — each arm's count comes from its decision block's out-edge target counter, matched to the source arm by the arm's entry position. A missing `else` / implicit arm is derived as `decisionHits − Σ(located arm hits)`, clamped at 0.
+- **`binary-expr` (logical `&&` / `||`)** — the left arm is the condition's reached count; the right arm is the count at the right operand's range, which survives only when short-circuit evaluation reaches it.
+- **`switch`** — each case's count is the statement-entry count over its *body* range; empty fall-through cases use their post-anchored counter (see [Instrumentation](#instrumentation)); a missing `default` is derived by subtraction.
+- **Fused-logical conditions** (`if (a && b)`) have no decision counter of their own, so `decisionHits` is read from the leftmost atom of the condition, which executes unconditionally.
+- **Compiler-folded conditions** (e.g. `if (true)`) produce no decision block at all; they are detected by the *absence* of a decision in the condition range and reported from whether each arm's body executed.
+
+Like statement and function matching, branch arms and decision positions are line-indexed (`buildArmsByLine`, `buildDecisionPositionsByLine`), so each per-construct lookup is a direct per-line scan rather than a walk of all branches — keeping total branch matching cost linear in the number of branches and independent of file size. Branch matching lives in `computeBranchPathHits()` and its helpers.
+
+### Statement Matching
+
+A source statement's hit count is the count at its **entry position** — the smallest-position `expressionHit` that falls within the statement's range. The entry expression (a statement's first-executed leaf) runs exactly once per statement execution, so this gives the statement's true execution count rather than the count of a hotter nested expression (e.g. a loop body inside the statement). Hit positions are line-indexed (`buildHitsByLine`) so each lookup is a direct per-line scan, as in function matching (`findStatementEntryHitCount()`).
+
+### Line Coverage
+Line coverage is derived from statements: a line's hit count is the maximum over the statements that start on it — exactly Istanbul's `getLineCoverage()` definition.
 
 **Key source files:**
-- [`src/coverage-provider/containment-matcher.ts`](../src/coverage-provider/containment-matcher.ts) — `findFunctionContainingPosition()`, `isPositionInRange()`
+- [`src/coverage-provider/containment-matcher.ts`](../src/coverage-provider/containment-matcher.ts) — `findFunctionContainingPosition()`, `findStatementEntryHitCount()`, `computeBranchPathHits()`, `isPositionInRange()`
 
 ---
 
@@ -214,17 +273,24 @@ The tradeoff is index size: a function occupies one slot per line it spans, so `
 
 After containment matching, coverage data is converted to Istanbul's `FileCoverageData` format by [`istanbul-converter.ts`](../src/coverage-provider/istanbul-converter.ts). This enables integration with vitest's reporting system and standard coverage tools (Codecov, Coveralls, etc.).
 
-### Current Conversion (Function-Level)
+### Building the Istanbul Maps
 
-Hit data is aggregated at two distinct levels. **Per-position** totals are summed first — across monomorphizations (in the executor) and across tests and binaries (via `mergeCoverageData`, up the suite tree and in the provider) — so each entry in the accumulated position map is the complete hit total for one source position. **Per-function** totals are then rolled up here, at conversion: each source function's count is the combined total of the position(s) that fall in its range, normally just its single `representativeLocation`.
+Hit data is aggregated at two levels:
 
-For each source file:
-1. **Match**: For each binary hit position (already a per-position total), use containment matching to find the containing source function, and roll the position(s) up into that function's hit count
-2. **Convert**: For each source function (from AST parser), create:
-   - A function mapping (`fnMap`) with the function's source range
-   - A corresponding statement mapping (`statementMap`) with the same range — at function-level granularity, each function is treated as one "statement"
-   - Hit counts in `f` and `s` arrays (statement coverage mirrors function coverage)
-3. **Empty maps**: Branch map (`branchMap`, `b`) is empty — no branch coverage yet
+1. **Per-position** totals are summed first, in multiple places:
+  - [across generic monomorphizations](#notes-on-position-keys) - in the executor hit extraction process
+  - across tests - via `mergeCoverageData` / `mergeBranchHits`, up the suite tree in the test runner
+  - across files/binaries - also via the same `mergeCoverageData` / `mergeBranchHits` logic, but in the hybrid coverage provider for each reported file suite's coverage data (sent in `onAfterSuiteRun`)
+  
+Each entry in the accumulated hit maps is the complete hit total for one source position across all tests and files.
+    
+2. **Per-element** (function, branch, statement) totals are then rolled during Istanbul format conversion, where the provider generates a map based on parsed source and fills in the correct hit counts.
+
+For each source file, the converter builds all four Istanbul structures from the parsed source ranges and the accumulated hits:
+- **Functions** (`fnMap` / `f`): each source function's count is the combined total of the position(s) in its range (normally its single `representativeLocation`), found via [function matching](#function-matching)
+- **Branches** (`branchMap` / `b`): each branch's per-arm counts come from [branch matching](#branch-matching)
+- **Statements** (`statementMap` / `s`): each source statement's count is its [entry-position](#statement-matching) hit count
+- **Lines**: Istanbul derives line coverage from the statement map (max hit per start line), so faithfully populating `statementMap` / `s` yields line coverage automatically
 
 Istanbul uses 0-based columns while our internal representation uses 1-based, so the converter adjusts column values during conversion.
 
@@ -272,23 +338,40 @@ All standard vitest v8 coverage provider options (thresholds, reporters, `includ
 
 ---
 
-## Planned: Block-Level Coverage
+## Fidelity & Known Divergences
 
-The current implementation provides function-level coverage. Block-level coverage will upgrade this to all four Istanbul coverage types: function, statement, branch, and line.
+AssemblyScript coverage is a **gcov-like, compiled-output measurement** (counts of executed WASM blocks), not source-level instrumentation. It is matched back to source ranges so it can be reported in Istanbul's format alongside JavaScript coverage, but the counts reflect what the *compiled* program actually executed. The **fidelity contract** is: covered-vs-uncovered is always correct; exact hit *counts* are best-effort where AssemblyScript's lowering diverges from source structure.
 
-### Planned Changes
+Most coverage is exact and matches what V8 reports for the equivalent JavaScript. The known divergences are all verified against V8 and pinned in the meta-verify suite. These are the following:
 
-**Instrumentation upgrade**: The native addon will additionally inject counters at basic block boundaries, and extract expression/block position debug info alongside function metadata. Function coverage is expected to keep using the existing per-function counters and matching.
+1. **`while` / `do-while` header count** — AssemblyScript counts the loop's condition block, which evaluates N+1 times for N iterations; V8 counts the statement once. Covered/uncovered agrees; only the count differs. (`for` does not diverge — its entry is the once-run init.)
+   - *Example:* a `while (i < n) { i++; }` that runs 3 times reads **4** on the `while` line in AssemblyScript (3 passes + the final false check), **1** in V8.
+2. **Module-level variable with a constant initializer** — reads **0** in AssemblyScript but **1** in V8 (this affects covered/uncovered, not just the count). AssemblyScript lowers a module-level `const`/`let` whose initializer is a compile-time constant to a **WASM global with a constant init expression** — `const TABLE_SIZE = 1024;` becomes `(global $…/TABLE_SIZE i32 (i32.const 1024))`. The value is materialized by the runtime at module *instantiation*, declaratively: there is no instruction in any function body, so no basic block and no counter exist for it, and no located expression maps to the declaration line — the statement reads 0 even though the module loaded. A *non-constant* initializer (`let x = compute()`) runs in the module's start function and is counted normally; only the constant-folded case escapes to a global init expression.
+   - *Example:* `const TABLE_SIZE = 1024;` at module scope — uncovered (`0`) in AssemblyScript, covered (`1`) in V8.
+3. **Default-less `switch`** — AssemblyScript synthesizes the implicit "no case matched" default arm (matching istanbul's source-instrumentation convention, checked against `istanbul-lib-instrument`); V8's block-coverage conversion omits it. The real cases agree. (Note the asymmetry: an `if` without `else` does *not* diverge — V8 does emit the implicit-else arm.)
+   - *Example:* `switch (x) { case 1: …; case 2: …; }` with no `default` — AssemblyScript reports **three** branch arms (the two cases + a synthesized implicit default), V8 reports the **two** real cases.
+4. **Chained logical `a && b && c`** — AssemblyScript reports two nested 2-arm branches; V8 (like `istanbul-lib-instrument`) flattens the chain into one 3-arm branch. Per-operand counts and covered/uncovered agree; only the grouping differs.
+   - *Example:* `return a && b && c;` with `a` true 3×, `b` true 2×, `c` true 1× — AssemblyScript `[3, 2]` (inner `a && b`) + `[3, 1]` (outer), V8 one `[3, 2, 1]`.
+5. **`static` method hit count** — reported **0** in AssemblyScript (entry counting — execution-accurate), but the merged V8/JS report shows a static method's count as the *class-definition* count (≈1) regardless of its real call count. The `1` is **not** from V8 execution — raw V8 reports an uncalled method as 0 — it appears to be a bug in vitest's AST-aware coverage remapper (`ast-v8-to-istanbul`, the default in v4/v5): the remapper looks up a method's hit count at the `MethodDefinition` node's start offset, which for a `static` method is the `static` keyword. V8 starts a static method's coverage range at the method *name*, so the `static` keyword sits *outside* it, and the lookup falls through to the enclosing class/module range (executed once when the class is defined). The result: an uncalled static reads 1 (should be 0) **and** a static called N times reads ~1 (should be N). Instance methods, getters, and setters are unaffected (their ranges start at/before the lookup offset). AssemblyScript's value is the execution-accurate one.
+   - *Example:* `class C { static make(): C { … } }` with `make` never called — AssemblyScript reports `C.make` as **0** (uncovered, correct); the merged report shows **1** (covered).
+6. **`cond ? const : const` ternary** — when *both* arms are compile-time constants, AssemblyScript collapses the ternary to a single result constant — nothing is left in the compiled output to count — and reports `[0, 0]`; V8 reports `[1, 0]`. This is an "erased → blind" case: the same blindness as a folded `select` or a default argument. A ternary with a non-constant arm (`ok ? compute() : 0`) is reported correctly.
+   - *Example:* `const label = ok ? "yes" : "no";` — both arms read `[0, 0]` (uncovered) in AssemblyScript, `[1, 0]` in V8.
 
-**Statement matching**: For each source statement (from AST), check if any hit position falls within its range. Hit positions will be line-indexed for O(1) per-line lookups. This "interval → points" query direction is more efficient than the reverse: for a typical file with 300 statements, ~1,800 operations vs ~90,000 for the naive approach, without needing complex data structures like interval trees.
+---
 
-**Branch matching**: Per-path hit counts are derived from counters on each branch path's target basic block (identified via CFG analysis). Binary branch decisions and paths are matched back to source branch constructs using containment matching, like function matching today. The exact set of branch constructs reported (and how closely it follows Istanbul's conventions) is still being finalized.
+## Verification & Parity Oracle
 
-### Coverage Types by Version
+Coverage correctness is verified two ways:
 
-| Type | Current | Planned |
-|------|---------|---------|
-| Function | Per-function counters, containment matching | Unchanged |
-| Statement | Derived from functions (function = one statement) | Block counters → expression positions, line-indexed range matching |
-| Branch | Not implemented (0%) | Target-block counters, containment matching |
-| Line | Derived from functions | Derived from statements |
+- **Hand-derived assertions** — the meta-verify suite ([`test/meta-verify/coverage-collection/`](../test/meta-verify/coverage-collection/)) asserts exact per-function / per-statement / per-branch counts derived independently from each fixture and the tests that exercise it, organized by coverage type (`function/`, `statement/`, `branch/`, `summary/`).
+- **JS↔AS parity twins** — for the universal constructs, each AssemblyScript fixture has a **line-aligned JavaScript twin** with identical logic and identical test inputs. Both the AssemblyScript coverage (our provider) and the JavaScript coverage (vitest's V8 provider, which the hybrid provider delegates to) land in the *same* merged `coverage-final.json`, so a parity test reads both and asserts they agree (except at the documented divergences above, each pinned explicitly). **V8 is the authoritative oracle** (it is what sits next to our coverage in a real mixed report).
+
+### Out-of-Root Source Files
+
+Our provider can report a *never-imported* AS source fully (all-uncovered, straight from the AST), but the V8 provider cannot do the same for a never-imported, out-of-root JS file — so the "zero-hit" parity case has no JS oracle to compare against and is verified AS-only. The *imported* twins are unaffected, since they rely on runtime coverage rather than the uncovered-file transform.
+
+The same caveat applies to users: in a multi-project setup whose `coverage` config points at sources outside every project root, expect those files in the AS report but not necessarily in the merged JS report.
+
+The happens because vitest's V8 provider can only *transform* (strip types from) source files *inside a project's root*, because it must be in the root to be processed by vite. A source file referenced from outside all project roots — e.g. a file imported via a `../` path from a sibling install — is reported only when it is actually imported and executed (runtime coverage); a never-imported out-of-root file cannot be transformed and is dropped from V8's report.
+
+`coverage.allowExternal: true` relaxes the *reporting* filter but not the transformer. The AssemblyScript provider is unaffected: it parses its included sources directly with the AssemblyScript parser, so uncovered AS sources are always reported regardless of their location relative to the project root.

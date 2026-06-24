@@ -373,7 +373,7 @@ When a test starts, the `execution-start` message sends the current `Test` objec
 - Continue executing remaining tests that haven't run yet
 - Re-aggregate coverage data from completed children (see below)
 
-**Coverage on resume:** Each suite initializes fresh empty coverage data on entry — there is no explicit "restore" of accumulated parent coverage. Coverage from completed tests is not lost because each completed test's individual `meta.coverageData` is preserved in the task hierarchy across the thread boundary. As `runSuite()` walks through tasks on resume, it skips completed tests' execution but still merges their preserved coverage data into the parent suite — the same merge step that happens during normal execution. Coverage is reconstructed naturally from children rather than explicitly restored. See [Coverage Architecture](coverage-architecture.md) for additional details on coverage collection.
+**Coverage on resume:** Each suite initializes fresh, empty coverage data on entry — there is no explicit "restore" of accumulated parent coverage. Coverage from already completed tests is **not lost** because each completed test's individual coverage data (`meta.functionHits` / `meta.expressionHits` / `meta.branchHits`) is preserved in the task hierarchy that gets sent to the pool's main thread before executing each test. As `runSuite()` walks through tasks on resume, it skips completed tests' execution but still merges their preserved coverage data into the parent suite — the same merge step that happens during normal execution. Coverage is reconstructed naturally from children rather than explicitly restored. See [Coverage Architecture](coverage-architecture.md) for additional details on coverage collection.
 
 **`flagTestFinalized`** marks a test as completed — prevents it from being re-run on resume. Set after each test finishes (pass or fail, all retries exhausted).
 
@@ -467,7 +467,7 @@ See [Coverage Architecture](coverage-architecture.md) for detailed coverage inte
 The native C++ addon ([`src/instrumentation/native/addon.cpp`](../src/instrumentation/native/addon.cpp)) performs three operations on each compiled WASM binary:
 
 1. **Debug extraction**: Walk the WASM binary with source map to extract function metadata (names, source positions, representative locations)
-2. **Instrumentation**: Inject function-entry hit counter operations at each function entry point, writing to a dedicated coverage memory
+2. **Instrumentation**: Inject hit-counter operations at each function entry and basic block, writing to a dedicated coverage memory (function counters drive function coverage; block counters drive branch, statement, and line coverage)
 3. **Source map regeneration**: Rebuild the source map with correct offsets after instrumentation (byte offsets change when instructions are injected)
 
 Coverage counters are stored in a separate `WebAssembly.Memory` instance (`__coverage_memory` import), isolating them from user test memory. Counters are incremented via native WASM `i32.load/store` operations — no JS boundary crossing during test execution.
