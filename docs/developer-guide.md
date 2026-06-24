@@ -144,6 +144,19 @@ npm run cmtest     # Build + Run local meta tests for debugging (shortcut)
 
 > ℹ️ **Native/C++ changes:** run `npm run build:prebuild` before any external run — external installs load the packed `prebuilds/`, not `build:native`'s `build/Release` output, so `build:native` alone leaves a stale prebuild. See [Build the native addon](#4-build-the-native-addon).
 
+#### Native Addon Build for External Install (and why CI ships prebuilds)
+
+An installed tarball obtains the coverage addon one of two ways:
+
+- **Shipped prebuild:** when the tarball contains `prebuilds/`, `npm install` just unpacks it and `node-gyp-build` loads the addon at runtime — **no install script needed.**
+- **Source build at install:** otherwise the package's `install` script ([`install-native-addon.js`](../scripts/install-native-addon.js)) compiles the addon during `npm install`, into the external `node_modules/vitest-pool-assemblyscript/build/Release`
+
+The source-build path relies on npm (or your package manager) running a dependency's install script, which is not guaranteed due to improving secure defaults:
+- npm **≥ 11.16.0** (bundled with Node 24) flags un-approved dependency install scripts — `npm warn allow-scripts ... not yet covered by allowScripts`. Today this is **warn-but-run**: the script still executes, but its output is hidden by the default `foreground-scripts=false`, so a successful build prints nothing (which makes it *look* like the script never ran even though the addon is built)
+- The `--strict-allow-scripts` option makes npm **block** the install before any script runs (a preflight throws `ESTRICTALLOWSCRIPTS`).
+- In npm **≥ 12** strict mode will become the default, and a source-build-only external install would get **no addon → coverage disabled → the 100% coverage thresholds fail**
+- The [`ci.yml`](../.github/workflows/ci.yml) workflow runs `npm ci` with `VITEST_POOL_AS_SKIP_NATIVE_BUILD=1` (skip the redundant source build), then `setup-binaryen` + `build:prebuild`, **before** the external setup. `npm pack` then ships `prebuilds/`, so the external install loads the addon by unpacking alone
+
 #### Three Parallel External Template Directories
 
 External tests run against each supported vitest major version, and **each version has its own template directory**. `setup-test-external.js` chooses one based on the `VITEST_VERSION` env var:
