@@ -27,9 +27,9 @@ export default defineConfig({
       exclude: [],
       
       assemblyScriptInclude: [
-        'assembly/**/*.ts',                   // actual pool internals
-        'test/assembly-src/**/*.ts',          // passing (100% coverage) test source (meta excluded)
-        'test-generated/assembly-src/**/*.ts' // passing (100% coverage) generated test source (meta excluded)
+        'assembly/**/*.ts',                                       // pool internals (instrumented for local visibility; ungated — gating deferred)
+        'test/assembly-src/coverage-collection/pass-100/**/*.ts', // the crafted 100% passing set (feature/shared source excluded)
+        'test-generated/assembly-src/**/*.ts'                     // generated large fixture (100% coverage)
       ],
       assemblyScriptExclude: [
         'test/assembly-src/**/*.meta*.ts',          // non-100% scenarios

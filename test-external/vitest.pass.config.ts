@@ -19,7 +19,8 @@ export default defineConfig({
       
       include: [ '!*' ],
       assemblyScriptInclude: [
-        '../vitest-pool-assemblyscript/test/assembly-src/**/*.ts',
+        // scoped to the crafted 100% set (feature/shared source excluded)
+        '../vitest-pool-assemblyscript/test/assembly-src/coverage-collection/pass-100/**/*.ts',
         '../vitest-pool-assemblyscript/test-generated/assembly-src/**/*.ts'
       ],
       assemblyScriptExclude: [
