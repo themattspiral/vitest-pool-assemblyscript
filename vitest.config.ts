@@ -37,6 +37,22 @@ export default defineConfig({
       ],
 
       debugIstanbul: false,
+
+      // Local gate on JUST the crafted pass-100 source — a fast-feedback tripwire for
+      // statement/branch/line/function regressions in the deliberate set. The framework
+      // (assembly/) and the generated fixture stay ungated locally: framework gating is
+      // a separate deferred decision, and the generated fixture is gated by the external
+      // pass configs. The glob key scopes the threshold to the pass-100 files; files not
+      // matched by any glob have no threshold.
+      thresholds: {
+        perFile: true,
+        'test/assembly-src/coverage-collection/pass-100/**': {
+          functions: 100,
+          statements: 100,
+          branches: 100,
+          lines: 100,
+        },
+      },
     },
 
     projects: [
