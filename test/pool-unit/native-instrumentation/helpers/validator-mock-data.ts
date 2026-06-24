@@ -11,7 +11,7 @@
  *   - subtractOneLiner: line 25
  */
 
-import type { BinaryDebugInfo, FunctionDebugInfo, ExpressionDebugInfo, SourceLocation } from '../../../src/types/types.js';
+import type { BinaryDebugInfo, FunctionDebugInfo, ExpressionDebugInfo, SourceLocation } from '../../../../src/types/types.js';
 
 /** Path to the math source file (relative to project root, as source maps use) */
 export const MATH_SOURCE_PATH = 'test/assembly-src/math.ts';

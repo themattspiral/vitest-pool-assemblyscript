@@ -15,13 +15,13 @@ import {
   ASSEMBLYSCRIPT_LIB_PREFIX,
   INTERNAL_FUNCTION_NAME_SUBSTRING,
   POOL_INTERNAL_PATHS,
-} from '../../../src/types/constants.js';
-import type { WASMCompilation } from '../../../src/types/types.js';
+} from '../../../../src/types/constants.js';
+import type { WASMCompilation } from '../../../../src/types/types.js';
 
 // test with compiled version because asc strip-inline transform needs transpilation
 //@ts-ignore
-import { compileAssemblyScript as casDist } from '../../../dist/index-internal.mjs';
-import { compileAssemblyScript as casSrc } from '../../../src/index-internal.js';
+import { compileAssemblyScript as casDist } from '../../../../dist/index-internal.mjs';
+import { compileAssemblyScript as casSrc } from '../../../../src/index-internal.js';
 //@ts-ignore
 const compileAssemblyScript: typeof casSrc = casDist;
 
