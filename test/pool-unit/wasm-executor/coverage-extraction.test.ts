@@ -1,13 +1,13 @@
 import { describe, test, expect } from 'vitest';
 
-import { buildExpressionHits, buildBranchHits, buildCaseHits, buildDecisionPositions } from '../../src/wasm-executor/coverage-extraction.js';
+import { buildExpressionHits, buildBranchHits, buildCaseHits, buildDecisionPositions } from '../../../src/wasm-executor/coverage-extraction.js';
 import type {
   BinaryDebugInfo,
   BranchHits,
   FunctionDebugInfo,
   ExpressionDebugInfo,
   BasicBlockDebugInfo,
-} from '../../src/types/types.js';
+} from '../../../src/types/types.js';
 
 const FILE = '/proj/assembly/math.ts';
 

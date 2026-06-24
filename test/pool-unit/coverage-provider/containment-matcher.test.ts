@@ -8,8 +8,8 @@ import {
   buildDecisionPositionsByLine,
   conditionRangeContainsDecision,
   computeBranchPathHits,
-} from '../../src/coverage-provider/containment-matcher.js';
-import type { BranchPathHits, ParsedSourceBranchInfo, SourceRange } from '../../src/types/types.js';
+} from '../../../src/coverage-provider/containment-matcher.js';
+import type { BranchPathHits, ParsedSourceBranchInfo, SourceRange } from '../../../src/types/types.js';
 
 const FILE = '/proj/assembly/x.ts';
 function range(startLine: number, startColumn: number, endLine: number, endColumn: number): SourceRange {

@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 
-import { parseSource } from '../../src/coverage-provider/ast-parser.js';
+import { parseSource } from '../../../src/coverage-provider/ast-parser.js';
 
 const ABS = '/proj/assembly/sample.ts';
 const REL = 'assembly/sample.ts';
