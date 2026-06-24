@@ -41,6 +41,10 @@
     "./coverage": {
       "types": "./dist/coverage-provider/index.d.mts",
       "default": "./dist/coverage-provider/index.mjs"
+    },
+    "./assembly": {
+      "import": "./assembly/index.ts",
+      "default": "./assembly/index.ts"
     }
   },
   "files": [
