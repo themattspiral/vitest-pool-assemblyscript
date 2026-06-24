@@ -26,9 +26,12 @@ export default defineAssemblyScriptConfig({
 
       debugIstanbul: false,
 
-      // we're reporting on our passing fixtures so these are all expected to be 100%
+      // the crafted pass-100 set + the generated fixture are 100% on all four types
       thresholds: {
         functions: 100,
+        statements: 100,
+        branches: 100,
+        lines: 100,
         perFile: true
       }
     },
