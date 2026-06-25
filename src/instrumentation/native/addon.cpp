@@ -54,8 +54,6 @@ struct ExpressionInfo {
   int32_t lineNumber;                 // Debug location line number
   int32_t columnNumber;               // Debug location column number
   bool hasDebugLocation;               // Whether debug location exists
-  bool isBranch;                       // Whether this is a branch expression
-  int32_t branchPaths;                // Number of branch paths (if isBranch)
 };
 
 /**
@@ -208,26 +206,6 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
         info.lineNumber = loc.lineNumber;
         info.columnNumber = loc.columnNumber;
         info.hasDebugLocation = true;
-
-        // Legacy per-expression branch flag, dead at -O0: Binaryen's CFGWalker
-        // never visits If, so only an unconditional Break ever sets it — branch
-        // identification now uses per-block isDecision. Kept until the disabled
-        // debug-info validators that reference it are dispositioned.
-        info.isBranch = false;
-        info.branchPaths = 0;
-        if (curr->is<If>()) {
-          info.isBranch = true;
-          info.branchPaths = curr->cast<If>()->ifFalse ? 2 : 1;
-        } else if (curr->is<Break>()) {
-          info.isBranch = true;
-          info.branchPaths = 2;
-        } else if (curr->is<Select>()) {
-          info.isBranch = true;
-          info.branchPaths = 2;
-        } else if (curr->is<Switch>()) {
-          info.isBranch = true;
-          info.branchPaths = curr->cast<Switch>()->targets.size() + 1;
-        }
 
         blockInfo.expressionIndices.push_back(expressions.size());
         expressions.push_back(info);
@@ -913,10 +891,6 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         Napi::Object exprObj = Napi::Object::New(env);
 
         exprObj.Set("type", Napi::String::New(env, expr.type));
-        exprObj.Set("isBranch", Napi::Boolean::New(env, expr.isBranch));
-        if (expr.isBranch) {
-          exprObj.Set("branchPaths", Napi::Number::New(env, expr.branchPaths));
-        }
 
         if (expr.hasDebugLocation) {
           Napi::Object location = Napi::Object::New(env);

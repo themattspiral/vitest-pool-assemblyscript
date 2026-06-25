@@ -427,30 +427,19 @@ export interface SourceRange {
 export interface BranchEdgeDebugInfo {
   /** Target basic block index */
   targetBlockIndex: number;
-  /** Index of the expression that creates this branch (e.g., if condition) */
-  sourceExpressionIndex?: number;
 }
 
 /**
  * Expression debug info extracted from WASM binary
  *
  * Expressions are the smallest unit of execution in WASM.
- * In v2, each expression can be mapped to a source statement for line-level coverage.
+ * Each located expression maps to a source position for statement/line coverage.
  */
 export interface ExpressionDebugInfo {
   /** WASM expression type (e.g., "call", "if", "block") */
   type: string;
   /** Source location (POINT, not range) from source map */
   location?: SourceLocation;
-  /** Whether this expression is a branch point (if, switch, select) */
-  isBranch: boolean;
-  /** Number of branch paths (for branch coverage) */
-  branchPaths?: number;
-  /**
-   * Index into coverage memory counters
-   * v2 only: Propagated from containing BasicBlockDebugInfo by TS wrapper
-   */
-  coverageMemoryIndex?: number;
 }
 
 /**

@@ -14,7 +14,7 @@ const FILE = '/proj/assembly/math.ts';
 // ── Minimal builders for crafting debug info ──
 
 function expr(line: number, column: number): ExpressionDebugInfo {
-  return { type: 'Binary', isBranch: false, location: { filePath: FILE, line, column } };
+  return { type: 'Binary', location: { filePath: FILE, line, column } };
 }
 
 function block(
@@ -315,7 +315,7 @@ describe('buildBranchHits', () => {
     // under the home file and the arm lands inside its source range — not mis-filed
     // under the foreign file (which would make the arm never match → read 0).
     const FOREIGN = '/proj/assembly/other.ts';
-    const foreignExpr: ExpressionDebugInfo = { type: 'Const', isBranch: false, location: { filePath: FOREIGN, line: 99, column: 5 } };
+    const foreignExpr: ExpressionDebugInfo = { type: 'Const', location: { filePath: FOREIGN, line: 99, column: 5 } };
     const di = debugInfoFor([
       func(
         [foreignExpr, expr(10, 3), expr(12, 5)], // [0] foreign, [1] home then, [2] home else
@@ -342,7 +342,7 @@ describe('buildBranchHits', () => {
     // Rather than drop the arm, fall back to the foreign location (no worse than
     // before); the decision then files under the foreign file. Documents the edge.
     const FOREIGN = '/proj/assembly/other.ts';
-    const foreignThen: ExpressionDebugInfo = { type: 'Const', isBranch: false, location: { filePath: FOREIGN, line: 99, column: 5 } };
+    const foreignThen: ExpressionDebugInfo = { type: 'Const', location: { filePath: FOREIGN, line: 99, column: 5 } };
     const di = debugInfoFor([
       func(
         [foreignThen, expr(12, 5)], // [0] foreign-only then, [1] home else

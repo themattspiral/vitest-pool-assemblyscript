@@ -120,12 +120,7 @@ function convertExpression(
 ): ExpressionDebugInfo {
   const converted: ExpressionDebugInfo = {
     type: rawExpr.type,
-    isBranch: rawExpr.isBranch,
   };
-
-  if (rawExpr.branchPaths !== undefined) {
-    converted.branchPaths = rawExpr.branchPaths;
-  }
 
   if (rawExpr.location) {
     const convertedLocation = convertLocation(rawExpr.location, debugSourceFiles, projectRoot);
