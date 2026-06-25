@@ -1,6 +1,5 @@
 import { defineConfig, defineProject } from 'vitest/config';
 import { createAssemblyScriptPool } from 'vitest-pool-assemblyscript/config';
-import { defineAssemblyScriptConfig, defineAssemblyScriptProject } from 'vitest-pool-assemblyscript/v3/config';
 
 export default defineConfig({
   test: {
@@ -20,11 +19,13 @@ export default defineConfig({
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       
       include: [
-        '!*',
-        // 'src/**/*.{ts,js,mts,mjs}',
-        // 'test/js-example-src/**/*.ts',
+        'src/**/*.{ts,js,mts,mjs}',
       ],
-      exclude: [],
+      exclude: [
+        'src/index*.ts',
+        'src/config/',
+        'src/types/',
+      ],
       
       assemblyScriptInclude: [
         'assembly/**/*.ts',                                       // pool internals (instrumented for local visibility; ungated — gating deferred)
@@ -32,6 +33,7 @@ export default defineConfig({
         'test-generated/assembly-src/**/*.ts'                     // generated large fixture (100% coverage)
       ],
       assemblyScriptExclude: [
+        'assembly/index.ts',
         'test/assembly-src/**/*.meta*.ts',          // non-100% scenarios
         'test-generated/assembly-src/**/*.meta*.ts' // non-100% scenarios
       ],
@@ -64,9 +66,19 @@ export default defineConfig({
           ],
           exclude: [
             'test/assembly/**/*',
-            'test/meta-verify/**/*',  // meta-verify executed separately
-            'test/js-coverage-parity/**/*',
-          ]
+            'test/meta-verify/**/*',          // meta-verify executed separately
+            'test/js-coverage-parity/**/*',   // meta-verify coverage parity oracle
+            'test/pool-unit/native-instrumentation/dynamic-fixture-validation.test.ts',
+          ],
+        },
+      }),
+
+      defineProject({
+        test: {
+          name: { label: 'dynamic-fixture-validation', color: 'yellow' },
+          include: [
+            'test/pool-unit/native-instrumentation/dynamic-fixture-validation.test.ts',
+          ],
         }
       }),
 

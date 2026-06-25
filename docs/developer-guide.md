@@ -197,7 +197,7 @@ Some fixtures are too large to cleanly commit as source. The large function coun
 
 The fixture provides a large-scale workload for containment matching and pushes coverage counters past the one-page memory boundary: a **passing** test executes every instrumented function (with the default auto-sized coverage memory, the high-index counters in page ≥2 must store without trapping).
 
-> The `globalSetup` is wired into the external configs as well, so it falls under the [Three Parallel External Template Directories](#three-parallel-external-template-directories) rule — the `globalSetup` entry and the project that consumes the fixture must appear in all three external template dirs.
+> ℹ️ The `globalSetup` is wired into the external configs as well, so it falls under the [Three Parallel External Template Directories](#three-parallel-external-template-directories) rule — the `globalSetup` entry and the project that consumes the fixture must appear in all three external template dirs.
 
 ### Meta Test Verification
 
@@ -243,7 +243,9 @@ Verification tests live in `test/meta-verify/` and are organized by category:
 | [`test-external/vitest.pass.config.ts`](../test-external/vitest.pass.config.ts) (+ `test-external-v4/`, `test-external-v3/` variants) | External passing tests (v5 default, v4, v3) | `as-pool-passing` (AS passing tests with 100% coverage thresholds) |
 | [`test-external/vitest.meta.config.ts`](../test-external/vitest.meta.config.ts) (+ `test-external-v4/`, `test-external-v3/` variants) | External meta tests (v5 default, v4, v3) | `as-pool-meta` (AS meta tests), `js-coverage-parity` (JS/TS meta example fixtures) |
 
-> **External configs come in three parallel copies** — `test-external/` (v5), `test-external-v4/`, and `test-external-v3/` — each with its own `vitest.pass.config.ts` and `vitest.meta.config.ts`. A change to one must be made in all three. See [Three Parallel External Template Directories](#three-parallel-external-template-directories).
+> ℹ️ **External configs come in three parallel copies** — `test-external/` (v5), `test-external-v4/`, and `test-external-v3/` — each with its own `vitest.pass.config.ts` and `vitest.meta.config.ts`. A change to one must be made in all three. See [Three Parallel External Template Directories](#three-parallel-external-template-directories).
+
+> ℹ️ The `dynamic-fixture-validation` test is split into its own project so that it can be easily targeted or excluded. It parallelizes AssemblyScript compilation across threads via an in-test [Tinypool](https://github.com/tinylibs/tinypool) worker pool ([`validator-compile-worker.mjs`](../test/pool-unit/native-instrumentation/helpers/validator-compile-worker.mjs)). Each fixture is a `describe.concurrent` suite, and the per-fixture `beforeAll` compile-dispatches overlap and the pool runs them across threads.
 
 ### DX Command Reference
 
