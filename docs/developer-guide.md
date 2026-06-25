@@ -245,7 +245,7 @@ Verification tests live in `test/meta-verify/` and are organized by category:
 
 > ℹ️ **External configs come in three parallel copies** — `test-external/` (v5), `test-external-v4/`, and `test-external-v3/` — each with its own `vitest.pass.config.ts` and `vitest.meta.config.ts`. A change to one must be made in all three. See [Three Parallel External Template Directories](#three-parallel-external-template-directories).
 
-> ℹ️ The `dynamic-fixture-validation` test is split into its own project so that it can be easily targeted or excluded. It parallelizes AssemblyScript compilation across threads via an in-test [Tinypool](https://github.com/tinylibs/tinypool) worker pool ([`validator-compile-worker.mjs`](../test/pool-unit/native-instrumentation/helpers/validator-compile-worker.mjs)). Each fixture is a `describe.concurrent` suite, and the per-fixture `beforeAll` compile-dispatches overlap and the pool runs them across threads.
+> ℹ️ The `dynamic-fixture-validation` test is split into its own project so that it can be easily targeted or excluded. It parallelizes AssemblyScript compilation across threads via an in-test [Tinypool](https://github.com/tinylibs/tinypool) worker pool ([`validator-compile-worker.mjs`](../test/pool-unit/instrumentation/helpers/validator-compile-worker.mjs)). Each fixture is a `describe.concurrent` suite, and the per-fixture `beforeAll` compile-dispatches overlap and the pool runs them across threads.
 
 ### DX Command Reference
 

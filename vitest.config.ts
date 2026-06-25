@@ -68,7 +68,7 @@ export default defineConfig({
             'test/assembly/**/*',
             'test/meta-verify/**/*',          // meta-verify executed separately
             'test/js-coverage-parity/**/*',   // meta-verify coverage parity oracle
-            'test/pool-unit/native-instrumentation/dynamic-fixture-validation.test.ts',
+            'test/pool-unit/instrumentation/dynamic-fixture-validation.test.ts',
           ],
         },
       }),
@@ -77,7 +77,7 @@ export default defineConfig({
         test: {
           name: { label: 'dynamic-fixture-validation', color: 'yellow' },
           include: [
-            'test/pool-unit/native-instrumentation/dynamic-fixture-validation.test.ts',
+            'test/pool-unit/instrumentation/dynamic-fixture-validation.test.ts',
           ],
         }
       }),
