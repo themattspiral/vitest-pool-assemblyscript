@@ -71,9 +71,21 @@ All four Istanbul coverage types are produced from the WASM hit counters and the
 
 The native C++ addon ([`addon.cpp`](../src/instrumentation/native/addon.cpp)) runs on each compiled WASM binary during the compile phase. It performs three operations:
 
-1. **Debug extraction**: Walk WASM functions with source map data to extract function metadata (names, source positions, a representative source location per function) and basic-block metadata (each block's located expressions, whether it is a *decision* block, and its entry anchor)
-2. **Function and block instrumentation**: Inject `i32.load`/`i32.store` counter-increment operations at each function entry and also at each instrumented basic block, writing to a dedicated coverage memory. Counters use a **two-region layout**: function-entry counters occupy contiguous indices `0..F-1`, block counters follow at `F..F+B-1`
-3. **Source map regeneration**: Rebuild the source map with correct offsets, since byte offsets change when instructions are injected
+1. **Debug extraction**: Walk WASM functions with source map data to extract:
+    - Function metadata
+       - names
+       - source positions
+       - a [unique representative location](#representative-location) per function (except [generic monomorphizations](#notes-on-position-keys))
+    - Basic-block metadata
+       - each block's located expressions
+       - flag indicating whether it is a *decision* block (see [decision blocks](#decision-blocks))
+       - entry anchor expression
+
+2. **Function and block instrumentation**:
+- Inject `i32.load`/`i32.store` counter-increment operations at each function entry and also at each instrumented basic block, writing to a dedicated coverage memory.
+- Counters use a **two-region layout**: function-entry counters occupy contiguous indices `0..F-1`, block counters follow at `F..F+B-1`
+
+3. **Source map regeneration**: Rebuild the source map with correct offsets, since byte offsets change when instrumentation instructions are injected
 
 ### Coverage Memory (Multi-Memory)
 
@@ -95,6 +107,9 @@ The selection strategy examines the function body directly (not the full CFG exp
 - **All bodies**: Check the body expression's own debug location, which takes priority if available
 
 Earlier implementations walked all CFG expressions and filtered by "home file" (to exclude inlined code from other files), but this was simplified when it was determined that the body-level expressions checked are guaranteed to be local to the function.
+
+### Decision Blocks
+A block is marked a *decision* block when its CFG node has **two or more out-edges** (`bb->out.size() >= 2`) — branches are identified by this out-edge count, not by looking for `if`/`switch` expressions. That choice is forced by how Binaryen walks the code: its `CFGWalker` processes control-flow nodes like `If` internally and never hands them to the addon's per-expression visitor, so the addon never receives an `If` expression it could flag as a branch. (The only branch-like expression the walker *does* deliver is an unconditional `Break` — a plain jump, not a conditional — so a per-expression "is this a branch?" test would catch nothing useful.) Counting out-edges sidesteps this entirely: two or more successors is a real branch point, whichever expression produced it. This per-block `isDecision` flag, computed once, is the single source of truth — used both to allocate the decision's counter and to identify branches during [matching](#branch-matching).
 
 ### Output
 
@@ -188,7 +203,12 @@ When a test times out and execution resumes on a new thread, each suite initiali
 
 ### Accumulation Key Stability
 
-Accumulating across test files only works because every key is a **source position**, which is stable across binaries. The position-keyed maps (`functionHits`, `expressionHits`, `emptyCaseHits`) key on `filePath:line:column`, taken from the binary's `BinaryDebugInfo` — a function's `representativeLocation`, a block's located expression, or an empty case's label. `branchHits` keys each decision on a sorted composite of its arm *positions*, and `decisionPositions` is a per-file set of positions. Since the same source element compiled into different test binaries always maps back to the same source position, a module imported by many test files accumulates correctly regardless of which binary produced each hit — summed for the count-bearing structures, unioned for `decisionPositions`.
+Accumulating across test files works because every key is a **source position**, which is stable across binaries.
+- The position-keyed maps (`functionHits`, `expressionHits`, `emptyCaseHits`) key on `filePath:line:column`, taken from the binary's `BinaryDebugInfo` — a function's `representativeLocation`, a block's located expression, or an empty case's label
+- `branchHits` keys each decision on a sorted composite of its arm *positions*
+- `decisionPositions` is a per-file set of positions.
+
+Since the same source element compiled into different test binaries always maps back to the same source position, a module imported by many test files accumulates correctly regardless of which binary produced each hit — summed for the count-bearing structures, unioned for `decisionPositions`.
 
 ---
 
