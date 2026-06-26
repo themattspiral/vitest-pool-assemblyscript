@@ -40,7 +40,7 @@ function discoverFixtures(): Record<string, TestFixture> {
 
     for (const file of files) {
       if (typeof file !== 'string' ) continue;
-      if (!file.endsWith('.ts')) continue;
+      if (!file.endsWith('.test.ts')) continue;
 
       const name = basename(file, '.ts');
       const path = resolve(ASSEMBLY_DIR, file);
