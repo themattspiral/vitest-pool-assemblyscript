@@ -640,6 +640,15 @@ Vitest 3 uses the `ProcessPool` API with `collectTests()` and `runTests()` metho
 | Worker function | `runCompileAndDiscoverSpec` + `runFileSpec` | `runTestFile` (compile + discover + execute) |
 | Dispatch model | Separate compile and test dispatches | Single dispatch does everything |
 
+### Cross-Pool Scheduling
+
+The versions also schedule a **mixed-pool run** differently — one whose project tree pairs an AssemblyScript project on this pool with JavaScript projects on the built-in `threads`/`forks` pools:
+
+- **Vitest 3** groups specs by pool *name* and dispatches each distinct pool concurrently (a single `Promise.all` over the pools). Each is one independent `ProcessPool` with its own worker budget and **no shared cap**, so the distinct pools run at once at full individual parallelism — total workers are the *sum across distinct pools*. This is **per pool, not per project**: multiple projects sharing one pool resolve to a single `ProcessPool` instance and a single combined `runTests()` call bounded by that pool's own budget, so contention arises only between *different* pools, never between projects on the same pool. (Two AS projects — e.g. a default-runtime and an `incremental`-runtime variant — therefore share one instance and one bounded Tinypool.)
+- **Vitest 4 and 5** funnel every spec, regardless of pool, through a **single** pool with one shared `maxWorkers` budget (one `PoolWorker` per file), so mixed pools are interleaved and throttled together.
+
+The practical consequence is that **vitest 3 can oversubscribe the CPU** on a mixed run: a compile-heavy AssemblyScript workload competes with the *other* pools at full tilt, so timing-sensitive setup — an AS compilation in a `beforeAll`, say — can slow under contention and even trip a hook timeout. `sequence.groupOrder` is honored by both versions and runs groups sequentially (each finishes before the next starts); the effective lever on v3 is to group **by pool** — keeping same-pool projects together and separating the distinct pools — so they no longer run at once.
+
 ### Shared Components
 
 Both versions use the same:

@@ -43,6 +43,30 @@ export default defineConfig({
     projects: [
       defineProject({
         test: {
+          name: { label: 'ts-pool', color: 'blue' },
+          include: [
+            '../vitest-pool-assemblyscript/test/**/*.test.ts',
+          ],
+          exclude: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*',
+            '../vitest-pool-assemblyscript/test/meta-verify/**/*',          // meta-verify executed separately
+            '../vitest-pool-assemblyscript/test/js-coverage-parity/**/*',   // meta-verify coverage parity oracle
+            '../vitest-pool-assemblyscript/test/pool-unit/instrumentation/dynamic-fixture-validation.test.ts',
+          ],
+        },
+      }),
+
+      defineProject({
+        test: {
+          name: { label: 'dynamic-fixture-validation', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/pool-unit/instrumentation/dynamic-fixture-validation.test.ts',
+          ],
+        }
+      }),
+
+      defineProject({
+        test: {
           name: { label: 'as-pool-passing', color: 'green' },
           include: [
             '../vitest-pool-assemblyscript/test/assembly/**/*.test.ts',
