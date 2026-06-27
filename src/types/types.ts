@@ -376,12 +376,14 @@ export interface DecisionPositions {
 }
 
 /**
- * Coverage payload sent via RPC from worker to hybrid coverage provider
+ * The full set of AssemblyScript coverage data gathered for a test or suite.
  *
- * The __format marker distinguishes AS coverage from JS coverage in onAfterSuiteRun.
+ * Carried as a unit on the task meta (`meta.coverage`) and extended by the RPC
+ * payload, so the field set is defined once and cannot drift between the two.
+ * A plain-object bundle: it merges up the suite tree and across files via
+ * mergeCoverageBundle, and survives the timeout-resume thread boundary.
  */
-export interface AssemblyScriptCoveragePayload {
-  readonly __format: typeof COVERAGE_PAYLOAD_FORMATS.AssemblyScript;
+export interface CoverageBundle {
   /** Function-level hits (keyed by each function's representative source position). */
   functionHits: CoverageData;
   /** Statement/expression-level hits (block counters attributed to source positions). */
@@ -392,6 +394,17 @@ export interface AssemblyScriptCoveragePayload {
   emptyCaseHits: CoverageData;
   /** Source positions of binary decision blocks (for folded-branch detection). */
   decisionPositions: DecisionPositions;
+}
+
+/**
+ * Coverage payload sent via RPC from worker to hybrid coverage provider
+ *
+ * The __format marker distinguishes AS coverage from JS coverage in onAfterSuiteRun.
+ * Extends CoverageBundle so the coverage fields stay flat on the wire (the provider
+ * reads them directly) while sharing the single bundle field definition.
+ */
+export interface AssemblyScriptCoveragePayload extends CoverageBundle {
+  readonly __format: typeof COVERAGE_PAYLOAD_FORMATS.AssemblyScript;
   suiteLogLabel: string;
 }
 
@@ -676,32 +689,14 @@ export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
   defaultTestOptions: AssemblyScriptTestOptions;
   suitePreparedSent: boolean;
   resultFinal: boolean;
-  functionHits?: CoverageData;
   /**
-   * Statement/expression-level coverage: block counters attributed to source
-   * positions (per-instance MAX across a function instance's same-position
-   * blocks, then SUM across monomorphizations). Same shape as functionHits,
-   * so it merges up the suite tree via mergeCoverageData and survives the
-   * timeout-resume thread boundary as a plain object.
+   * All AssemblyScript coverage for this suite, accumulated from its tests and
+   * child suites via mergeCoverageBundle (each field by its own strategy — sum
+   * the count maps, union the decision positions). A plain-object bundle, so it
+   * merges up the suite tree and survives the timeout-resume thread boundary.
+   * Absent when coverage is disabled.
    */
-  expressionHits?: CoverageData;
-  /**
-   * Branch-level coverage: per-decision arm hit counts + decisionHits. Merges up
-   * the suite tree via mergeBranchHits (SUM across tests) and survives the
-   * timeout-resume thread boundary as a plain object.
-   */
-  branchHits?: BranchHits;
-  /**
-   * Empty fall-through switch-case entered counts, keyed by case-label position.
-   * Same CoverageData shape as expressionHits, so it merges up the suite tree via
-   * mergeCoverageData and survives the timeout-resume thread boundary.
-   */
-  emptyCaseHits?: CoverageData;
-  /**
-   * Source positions of binary decision blocks (for folded-branch detection).
-   * Structural — accumulated by UNION up the suite tree (mergeDecisionPositions).
-   */
-  decisionPositions?: DecisionPositions;
+  coverage?: CoverageBundle;
 }
 
 export interface AssemblyScriptTestTaskMeta extends TaskMeta {
@@ -713,19 +708,12 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   assertionsPassedCount: number;
   assertionsFailed: FailedAssertion[];
 
-  // coverage data
-  functionHits?: CoverageData;
   /**
-   * Statement/expression-level coverage (block counters attributed to source
-   * positions). Same shape as functionHits. See AssemblyScriptSuiteTaskMeta.
+   * All AssemblyScript coverage for this test (function/statement/branch/
+   * empty-case hits + decision positions). See CoverageBundle. Absent when
+   * coverage is disabled.
    */
-  expressionHits?: CoverageData;
-  /** Branch-level coverage (per-decision arm hits + decisionHits). See AssemblyScriptSuiteTaskMeta. */
-  branchHits?: BranchHits;
-  /** Empty fall-through switch-case entered counts (keyed by case-label position). See AssemblyScriptSuiteTaskMeta. */
-  emptyCaseHits?: CoverageData;
-  /** Source positions of binary decision blocks (for folded-branch detection). See AssemblyScriptSuiteTaskMeta. */
-  decisionPositions?: DecisionPositions;
+  coverage?: CoverageBundle;
 
   // internal logging only
   lastTimeoutTerminationTime?: number;

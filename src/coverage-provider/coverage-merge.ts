@@ -4,7 +4,7 @@
  * Functions for merging CoverageData and BranchHits objects
  */
 
-import type { BranchHits, BranchPathHits, CoverageData, DecisionPositions } from '../types/types.js';
+import type { BranchHits, BranchPathHits, CoverageBundle, CoverageData, DecisionPositions } from '../types/types.js';
 
 /**
  * Merge incoming CoverageData into accumulated CoverageData
@@ -140,4 +140,39 @@ export function mergeDecisionPositions(
       }
     }
   }
+}
+
+/**
+ * Create an empty CoverageBundle (all sub-structures initialized empty).
+ *
+ * Used to seed a suite's accumulated coverage before merging in its children.
+ */
+export function emptyCoverageBundle(): CoverageBundle {
+  return {
+    functionHits: { hitCountsByFileAndPosition: {} },
+    expressionHits: { hitCountsByFileAndPosition: {} },
+    branchHits: { hitsByFileAndDecision: {} },
+    emptyCaseHits: { hitCountsByFileAndPosition: {} },
+    decisionPositions: { positionsByFile: {} },
+  };
+}
+
+/**
+ * Merge an incoming CoverageBundle into an accumulated one, applying each field's
+ * own merge strategy: SUM for the position-keyed count maps (function/expression/
+ * empty-case hits), branch-merge for branchHits, and UNION for decisionPositions.
+ * Mutates the accumulated bundle in place.
+ *
+ * @param accumulated - Accumulated coverage bundle (mutated)
+ * @param incoming - New coverage bundle to merge in
+ */
+export function mergeCoverageBundle(
+  accumulated: CoverageBundle,
+  incoming: CoverageBundle
+): void {
+  mergeCoverageData(accumulated.functionHits, incoming.functionHits);
+  mergeCoverageData(accumulated.expressionHits, incoming.expressionHits);
+  mergeBranchHits(accumulated.branchHits, incoming.branchHits);
+  mergeCoverageData(accumulated.emptyCaseHits, incoming.emptyCaseHits);
+  mergeDecisionPositions(accumulated.decisionPositions, incoming.decisionPositions);
 }

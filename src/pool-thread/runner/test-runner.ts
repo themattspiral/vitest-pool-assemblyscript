@@ -46,7 +46,7 @@ import {
   updateTestResultAfterRun,
   isSuiteOwnFile
 } from '../../util/vitest-tasks.js';
-import { mergeCoverageData, mergeBranchHits, mergeDecisionPositions } from '../../coverage-provider/coverage-merge.js';
+import { mergeCoverageBundle, emptyCoverageBundle } from '../../coverage-provider/coverage-merge.js';
 import { failFile } from '../../util/vitest-file-tasks.js';
 import { buildEnhancedFileError } from '../../util/pool-errors.js';
 
@@ -259,11 +259,7 @@ export async function runSuite(
     }
 
     // initialize aggregated coverage data for suite, which gets updated as each subtask completes
-    suiteMeta.functionHits = { hitCountsByFileAndPosition: {} };
-    suiteMeta.expressionHits = { hitCountsByFileAndPosition: {} };
-    suiteMeta.branchHits = { hitsByFileAndDecision: {} };
-    suiteMeta.emptyCaseHits = { hitCountsByFileAndPosition: {} };
-    suiteMeta.decisionPositions = { positionsByFile: {} };
+    suiteMeta.coverage = emptyCoverageBundle();
     debug(`${suiteLogPrefix} - Initialized empty suite coverage data`);
 
     let tasksToRun: Task[] = getRunnableTasks(suite);
@@ -279,20 +275,8 @@ export async function runSuite(
         );
 
         // merge suite task coverage into parent suite coverage
-        if (suiteMeta.functionHits && suiteTaskMeta.functionHits) {
-          mergeCoverageData(suiteMeta.functionHits, suiteTaskMeta.functionHits);
-        }
-        if (suiteMeta.expressionHits && suiteTaskMeta.expressionHits) {
-          mergeCoverageData(suiteMeta.expressionHits, suiteTaskMeta.expressionHits);
-        }
-        if (suiteMeta.branchHits && suiteTaskMeta.branchHits) {
-          mergeBranchHits(suiteMeta.branchHits, suiteTaskMeta.branchHits);
-        }
-        if (suiteMeta.emptyCaseHits && suiteTaskMeta.emptyCaseHits) {
-          mergeCoverageData(suiteMeta.emptyCaseHits, suiteTaskMeta.emptyCaseHits);
-        }
-        if (suiteMeta.decisionPositions && suiteTaskMeta.decisionPositions) {
-          mergeDecisionPositions(suiteMeta.decisionPositions, suiteTaskMeta.decisionPositions);
+        if (suiteMeta.coverage && suiteTaskMeta.coverage) {
+          mergeCoverageBundle(suiteMeta.coverage, suiteTaskMeta.coverage);
         }
 
       } else {
@@ -358,20 +342,8 @@ export async function runSuite(
         }
 
         // merge test coverage into suite coverage
-        if (suiteMeta.functionHits && testTaskMeta.functionHits) {
-          mergeCoverageData(suiteMeta.functionHits, testTaskMeta.functionHits);
-        }
-        if (suiteMeta.expressionHits && testTaskMeta.expressionHits) {
-          mergeCoverageData(suiteMeta.expressionHits, testTaskMeta.expressionHits);
-        }
-        if (suiteMeta.branchHits && testTaskMeta.branchHits) {
-          mergeBranchHits(suiteMeta.branchHits, testTaskMeta.branchHits);
-        }
-        if (suiteMeta.emptyCaseHits && testTaskMeta.emptyCaseHits) {
-          mergeCoverageData(suiteMeta.emptyCaseHits, testTaskMeta.emptyCaseHits);
-        }
-        if (suiteMeta.decisionPositions && testTaskMeta.decisionPositions) {
-          mergeDecisionPositions(suiteMeta.decisionPositions, testTaskMeta.decisionPositions);
+        if (suiteMeta.coverage && testTaskMeta.coverage) {
+          mergeCoverageBundle(suiteMeta.coverage, testTaskMeta.coverage);
         }
       }
     }

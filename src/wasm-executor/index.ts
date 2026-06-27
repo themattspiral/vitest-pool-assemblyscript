@@ -352,27 +352,26 @@ export async function executeWASMTest(
       }
     }
 
-    meta.functionHits = coverage;
-
-    // Build statement/expression coverage from block counters (aggregation:
-    // per-instance MAX over same-position blocks, then SUM across monomorphizations).
-    meta.expressionHits = buildExpressionHits(compilation.debugInfo, extractedHitCounters);
-
-    // Build branch coverage from decision/arm block counters (per-decision arm
-    // hits + decisionHits; SUM across monomorphizations).
-    meta.branchHits = buildBranchHits(compilation.debugInfo, extractedHitCounters);
-
-    // Build empty fall-through switch-case coverage from post-anchored block
-    // counters (keyed by case-label position; not visible in expression/branch hits).
-    meta.emptyCaseHits = buildCaseHits(compilation.debugInfo, extractedHitCounters);
-
-    // Build decision-block positions (structural; for detecting folded branches).
-    meta.decisionPositions = buildDecisionPositions(compilation.debugInfo);
+    meta.coverage = {
+      // Function-level hits, keyed by each function's representative source position.
+      functionHits: coverage,
+      // Statement/expression coverage from block counters (aggregation: per-instance
+      // MAX over same-position blocks, then SUM across monomorphizations).
+      expressionHits: buildExpressionHits(compilation.debugInfo, extractedHitCounters),
+      // Branch coverage from decision/arm block counters (per-decision arm hits +
+      // decisionHits; SUM across monomorphizations).
+      branchHits: buildBranchHits(compilation.debugInfo, extractedHitCounters),
+      // Empty fall-through switch-case coverage from post-anchored block counters
+      // (keyed by case-label position; not visible in expression/branch hits).
+      emptyCaseHits: buildCaseHits(compilation.debugInfo, extractedHitCounters),
+      // Decision-block positions (structural; for detecting folded branches).
+      decisionPositions: buildDecisionPositions(compilation.debugInfo),
+    };
 
     debug(`${logPrefix} - Extracted coverage data | ${functionsHit} functions hit`
-      + ` | ${Object.keys(meta.expressionHits.hitCountsByFileAndPosition).length} file(s) with statement hits`
-      + ` | ${Object.keys(meta.branchHits.hitsByFileAndDecision).length} file(s) with branch hits`
-      + ` | ${Object.keys(meta.emptyCaseHits.hitCountsByFileAndPosition).length} file(s) with empty-case hits`);
+      + ` | ${Object.keys(meta.coverage.expressionHits.hitCountsByFileAndPosition).length} file(s) with statement hits`
+      + ` | ${Object.keys(meta.coverage.branchHits.hitsByFileAndDecision).length} file(s) with branch hits`
+      + ` | ${Object.keys(meta.coverage.emptyCaseHits.hitCountsByFileAndPosition).length} file(s) with empty-case hits`);
   }
 
   testTimings.fnfinal = performance.now();
