@@ -154,6 +154,7 @@ export function emptyCoverageBundle(): CoverageBundle {
     branchHits: { hitsByFileAndDecision: {} },
     emptyCaseHits: { hitCountsByFileAndPosition: {} },
     decisionPositions: { positionsByFile: {} },
+    loadedSourceFiles: [],
   };
 }
 
@@ -175,4 +176,13 @@ export function mergeCoverageBundle(
   mergeBranchHits(accumulated.branchHits, incoming.branchHits);
   mergeCoverageData(accumulated.emptyCaseHits, incoming.emptyCaseHits);
   mergeDecisionPositions(accumulated.decisionPositions, incoming.decisionPositions);
+
+  // UNION the loaded-file set (dedup); it is structural, not a count.
+  const seenLoaded = new Set(accumulated.loadedSourceFiles);
+  for (const filePath of incoming.loadedSourceFiles) {
+    if (!seenLoaded.has(filePath)) {
+      seenLoaded.add(filePath);
+      accumulated.loadedSourceFiles.push(filePath);
+    }
+  }
 }

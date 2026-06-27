@@ -348,6 +348,15 @@ export async function runSuite(
       }
     }
 
+    // The set of source files a binary loaded is a file-level property (the
+    // compilation's source map), identical for every test — so record it once on
+    // the file suite's bundle (the only bundle reported via onAfterSuiteRun).
+    // The provider uses it to mark module-level declarations covered for files
+    // that loaded but produce no runtime counter.
+    if (isSuiteOwnFile(suite) && suiteMeta.coverage && compilation.debugInfo) {
+      suiteMeta.coverage.loadedSourceFiles = compilation.debugInfo.absoluteDebugSourceFiles;
+    }
+
     // update suite result based on its tasks, report coverage data, report suite task result
     updateSuiteFinishedResult(suite, suiteLogPrefix);
     await reportSuiteFinished(rpc, suite, logModule, base, vitestVersion);

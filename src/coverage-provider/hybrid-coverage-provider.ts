@@ -49,6 +49,8 @@ export class HybridCoverageProvider implements CoverageProvider {
   private accumulatedBranchHits: BranchHits = { hitsByFileAndDecision: {} };
   private accumulatedEmptyCaseHits: CoverageData = { hitCountsByFileAndPosition: {} };
   private accumulatedDecisionPositions: DecisionPositions = { positionsByFile: {} };
+  /** Absolute paths of all source files loaded across the run (UNION of payloads). */
+  private accumulatedLoadedFiles: Set<string> = new Set();
   private projectRoot: string = '';
   private definedCoverageOptions: ResolvedCoverageOptions = {} as ResolvedCoverageOptions;
   private resolvedProviderOptions: ResolvedHybridProviderOptions = {} as ResolvedHybridProviderOptions;
@@ -91,7 +93,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     // Check for AssemblyScript format marker
     if (format === COVERAGE_PAYLOAD_FORMATS.AssemblyScript) {
       const payload = meta.coverage as AssemblyScriptCoveragePayload;
-      const { functionHits, expressionHits, branchHits, emptyCaseHits, decisionPositions, suiteLogLabel: label } = payload;
+      const { functionHits, expressionHits, branchHits, emptyCaseHits, decisionPositions, loadedSourceFiles, suiteLogLabel: label } = payload;
       suiteLogLabel = label;
 
       debug(() => {
@@ -107,6 +109,9 @@ export class HybridCoverageProvider implements CoverageProvider {
       mergeBranchHits(this.accumulatedBranchHits, branchHits);
       mergeCoverageData(this.accumulatedEmptyCaseHits, emptyCaseHits);
       mergeDecisionPositions(this.accumulatedDecisionPositions, decisionPositions);
+      for (const filePath of loadedSourceFiles) {
+        this.accumulatedLoadedFiles.add(filePath);
+      }
 
       debug(() => {
         const positionCount = Object.values(this.accumulatedExpressionHits.hitCountsByFileAndPosition)
@@ -178,6 +183,7 @@ export class HybridCoverageProvider implements CoverageProvider {
         const files = Object.keys(this.accumulatedFunctionHits.hitCountsByFileAndPosition).length;
         return `[HybridCoverageProvider] Accumulated coverage data has ${accumulatedPositionCount} unique positions hit across ${files} debug source files`;
       });
+      debug(`[HybridCoverageProvider] Accumulated loaded source files: ${this.accumulatedLoadedFiles.size}`);
 
       // parse source files with AST parser, then match to hits and convert to istanbul format
       const fileProcessingPromises = this.resolvedProviderOptions.globbedAssemblyScriptInclude.map(async (include: GlobResult) => {
@@ -319,6 +325,7 @@ export class HybridCoverageProvider implements CoverageProvider {
       this.accumulatedBranchHits = { hitsByFileAndDecision: {} };
       this.accumulatedEmptyCaseHits = { hitCountsByFileAndPosition: {} };
       this.accumulatedDecisionPositions = { positionsByFile: {} };
+      this.accumulatedLoadedFiles = new Set();
       debug('[HybridCoverageProvider] Cleaned all internal coverage data');
     }
 

@@ -394,6 +394,15 @@ export interface CoverageBundle {
   emptyCaseHits: CoverageData;
   /** Source positions of binary decision blocks (for folded-branch detection). */
   decisionPositions: DecisionPositions;
+  /**
+   * Absolute paths of the source files that were loaded — i.e. compiled into a
+   * binary that executed (the binary's absoluteDebugSourceFiles). A module's
+   * top-level declarations run when it loads, so the provider uses this to mark
+   * module-level declarations covered for files that loaded but produce no
+   * runtime counter (e.g. a const folded to a WASM global init expression).
+   * Per-file, not per-test; accumulated by UNION.
+   */
+  loadedSourceFiles: string[];
 }
 
 /**
