@@ -109,6 +109,15 @@ export abstract class ASTVisitor {
   protected functionDepth = 0;
 
   /**
+   * How many `{ }` blocks we are currently inside. 0 = a statement-list level that
+   * runs unconditionally at its scope's entry (the module/namespace body), since a
+   * conditionally- or loop-executed statement is always wrapped in a block. Combined
+   * with functionDepth === 0, this identifies statements that run unconditionally at
+   * module instantiation. Maintained by the Block case in visitNode.
+   */
+  protected blockDepth = 0;
+
+  /**
    * Visit all statements in a source file
    */
   visitSource(source: Source): void {
@@ -340,7 +349,9 @@ export abstract class ASTVisitor {
       // Statements with children
       case ASNodeKind.Block: {
         const stmt = node as BlockStatement;
+        this.blockDepth++;
         for (const s of stmt.statements) this.visitNode(s);
+        this.blockDepth--;
         break;
       }
       case ASNodeKind.Do: {

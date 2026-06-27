@@ -199,11 +199,14 @@ class FunctionExtractorVisitor extends ASTVisitor {
    */
   protected onStatement(node: Node): void {
     if (node.kind === ASNodeKind.Variable) {
-      // A module-scope variable declaration (not inside any function) runs at
-      // module instantiation. Flag it so the provider can credit its coverage
-      // when the file loaded but the declaration folded to a WASM global with
-      // no runtime counter (see the hybrid provider's synthesis).
-      const isModuleLevelDeclaration = this.functionDepth === 0;
+      // A module-scope variable declaration that runs UNCONDITIONALLY at module
+      // instantiation — not inside any function (functionDepth) and not inside any
+      // block (blockDepth), so it is a direct statement of the module or a namespace
+      // body. (A const/let placed conditionally is always wrapped in a block, so it
+      // is excluded.) Flag it so the provider can credit its coverage when the file
+      // loaded but the declaration folded to a WASM global with no runtime counter
+      // (see the hybrid provider's synthesis).
+      const isModuleLevelDeclaration = this.functionDepth === 0 && this.blockDepth === 0;
       const varStmt = node as VariableStatement;
       for (const decl of varStmt.declarations) {
         if (decl.initializer) {

@@ -85,6 +85,61 @@ describe('parseSource — statement extraction', () => {
     expect(flagByLine.get(6)).toBe(true);   // module-scope arrow binding (a variable decl)
     expect(flagByLine.get(7)).toBe(false);  // declaration inside the arrow body
   });
+
+  test('flags module-scope const AND let, but not declarations inside a block', () => {
+    const src = [
+      'let topLet = 1;',         // 1  module scope -> flagged
+      'const topConst = 2;',     // 2  module scope -> flagged
+      'if (topLet > 0) {',       // 3
+      '  const inBlock = 3;',    // 4  inside a module-level block -> NOT flagged
+      '  let alsoInBlock = 4;',  // 5  inside a module-level block -> NOT flagged
+      '}',                       // 6
+      '{',                       // 7  bare block
+      '  let inBareBlock = 5;',  // 8  inside a bare block -> NOT flagged
+      '}',                       // 9
+    ].join('\n');
+    const flagByLine = new Map(
+      parseSource(src, REL, ABS).statements.map((s) => [s.range.startLine, s.isModuleLevelDeclaration])
+    );
+    expect(flagByLine.get(1)).toBe(true);   // top-level let
+    expect(flagByLine.get(2)).toBe(true);   // top-level const
+    expect(flagByLine.get(4)).toBe(false);  // const in a module-level if-block
+    expect(flagByLine.get(5)).toBe(false);  // let in a module-level if-block
+    expect(flagByLine.get(8)).toBe(false);  // let in a bare block
+  });
+
+  test('flags namespace-level declarations (they run at module init)', () => {
+    const src = [
+      'namespace Config {',          // 1
+      '  export const SIZE = 1024;', // 2  namespace scope -> flagged
+      '}',                           // 3
+    ].join('\n');
+    const flagByLine = new Map(
+      parseSource(src, REL, ABS).statements.map((s) => [s.range.startLine, s.isModuleLevelDeclaration])
+    );
+    expect(flagByLine.get(2)).toBe(true);   // namespace-level const
+  });
+
+  test('expression-bodied arrow: only the module binding is flagged, not the body', () => {
+    // AS supports expression-bodied arrows and wraps the body in an
+    // ExpressionStatement (parser.ts parseFunctionExpressionCommon). So L1 yields
+    // TWO statements — the `const` binding (module scope, flagged) and the arrow
+    // body's ExpressionStatement (visited at functionDepth 1, NOT flagged) — hence
+    // we assert on the flagged set rather than by line.
+    const src = [
+      'const compute = (): i32 => 1 + 2;', // 1  binding flagged; arrow body (L1) not
+      'export function host(): i32 {',     // 2
+      '  const inner = compute();',        // 3  in-function -> not flagged
+      '  return inner;',                  // 4
+      '}',                                 // 5
+    ].join('\n');
+    const flaggedLines = parseSource(src, REL, ABS).statements
+      .filter((s) => s.isModuleLevelDeclaration)
+      .map((s) => s.range.startLine);
+    // Exactly one module-level declaration: the arrow binding on L1. The arrow's
+    // expression body and the in-function `inner` (L3) are not flagged.
+    expect(flaggedLines).toEqual([1]);
+  });
 });
 
 describe('parseSource — branch extraction (if / ternary)', () => {
