@@ -377,6 +377,8 @@ Most coverage is exact and matches what V8 reports for the equivalent JavaScript
 6. **`cond ? const : const` ternary** — when *both* arms are compile-time constants, AssemblyScript collapses the ternary to a single result constant — nothing is left in the compiled output to count — and reports `[0, 0]`; V8 reports `[1, 0]`. This is an "erased → blind" case: the same blindness as a folded `select` or a default argument. A ternary with a non-constant arm (`ok ? compute() : 0`) is reported correctly.
    - *Example:* `const label = ok ? "yes" : "no";` — both arms read `[0, 0]` (uncovered) in AssemblyScript, `[1, 0]` in V8.
 
+> **Switch case highlight location (presentation only — *not* a count divergence).** For `switch`, AssemblyScript locates each non-empty case arm at the case *body* (it highlights the executable code), while V8 locates every arm at the `case X:` label. Only the span the HTML report highlights differs — per-arm counts, covered/uncovered, branch %, and thresholds are all identical. (Empty fall-through cases already match V8 at the label, since their counter is attributed to the case-label position.)
+
 ---
 
 ## Verification & Parity Oracle
