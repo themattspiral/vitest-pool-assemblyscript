@@ -48,26 +48,12 @@ export default defineAssemblyScriptConfig({
             '../vitest-pool-assemblyscript/test/assembly/**/*',
             '../vitest-pool-assemblyscript/test/meta-verify/**/*',          // meta-verify executed separately
             '../vitest-pool-assemblyscript/test/js-coverage-parity/**/*',   // meta-verify coverage parity oracle
-            '../vitest-pool-assemblyscript/test/pool-unit/instrumentation/dynamic-fixture-validation.test.ts',
           ],
 
           // force it to run separately from AS projects (sequentially).
           // this is a necessary v3 exception because it executes all ProcessPools concurrently
           sequence: { groupOrder: 1 },
         },
-      }),
-
-      defineProject({
-        test: {
-          name: { label: 'dynamic-fixture-validation', color: 'yellow' },
-          include: [
-            '../vitest-pool-assemblyscript/test/pool-unit/instrumentation/dynamic-fixture-validation.test.ts',
-          ],
-
-          // force it to run separately from AS projects (sequentially)
-          // this is a necessary v3 exception because it executes all ProcessPools concurrently
-          sequence: { groupOrder: 1 },
-        }
       }),
 
       defineAssemblyScriptProject({

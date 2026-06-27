@@ -51,18 +51,8 @@ export default defineConfig({
             '../vitest-pool-assemblyscript/test/assembly/**/*',
             '../vitest-pool-assemblyscript/test/meta-verify/**/*',          // meta-verify executed separately
             '../vitest-pool-assemblyscript/test/js-coverage-parity/**/*',   // meta-verify coverage parity oracle
-            '../vitest-pool-assemblyscript/test/pool-unit/instrumentation/dynamic-fixture-validation.test.ts',
           ],
         },
-      }),
-
-      defineProject({
-        test: {
-          name: { label: 'dynamic-fixture-validation', color: 'yellow' },
-          include: [
-            '../vitest-pool-assemblyscript/test/pool-unit/instrumentation/dynamic-fixture-validation.test.ts',
-          ],
-        }
       }),
 
       defineProject({

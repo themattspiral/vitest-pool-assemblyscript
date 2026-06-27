@@ -169,7 +169,7 @@ External tests run against each supported vitest major version, and **each versi
 
 Each directory contains its own `vitest.pass.config.ts` and `vitest.meta.config.ts`. They are **parallel templates with no shared base config**, so any change to an external config (a new project, a glob, a `globalSetup`, etc.) must be replicated across **all three** directories. Note that the v3 configs use the v3 config API (`defineAssemblyScriptConfig` / `poolOptions`) rather than `createAssemblyScriptPool`, so the equivalent change there differs in form.
 
-> ℹ️ **v3 Exception — version-specific scheduling.** vitest 3 runs all distinct pools concurrently using `Promise.all`, with no shared worker cap (see [Cross-Pool Scheduling](pool-architecture.md#cross-pool-scheduling)). A multi-pool external run — the AS pool alongside the `threads`-pool `ts-pool` / `dynamic-fixture-validation` projects — can oversubscribe the CPU and trip a compile-heavy `beforeAll` hook timeout. Separating the pools with `sequence.groupOrder` is therefore a **`test-external-v3/`-only** change: vitest 4/5 already bound total concurrency through one shared pool, so the same setting there would only over-serialize.
+> ℹ️ **v3 Exception — version-specific scheduling.** vitest 3 runs all distinct pools concurrently using `Promise.all`, with no shared worker cap (see [Cross-Pool Scheduling](pool-architecture.md#cross-pool-scheduling)). A multi-pool external run — the AS pool alongside the `threads`-pool `ts-pool` project — can oversubscribe the CPU (the AS pool is compile- and execute-heavy), slowing the run and risking timeouts on timing-sensitive work. Separating the pools with `sequence.groupOrder` is therefore a **`test-external-v3/`-only** change: vitest 4/5 already bound total concurrency through one shared pool, so the same setting there would only over-serialize.
 
 This validates that dist output, package.json exports, entry points, prebuilt binaries, and bundled dependencies all work correctly in a real install scenario. These shortcuts are the most frequently used:
 
@@ -246,8 +246,6 @@ Verification tests live in `test/meta-verify/` and are organized by category:
 | [`test-external/vitest.meta.config.ts`](../test-external/vitest.meta.config.ts) (+ `test-external-v4/`, `test-external-v3/` variants) | External meta tests (v5 default, v4, v3) | `as-pool-meta` (AS meta tests), `js-coverage-parity` (JS/TS meta example fixtures) |
 
 > ℹ️ **External configs come in three parallel copies** — `test-external/` (v5), `test-external-v4/`, and `test-external-v3/` — each with its own `vitest.pass.config.ts` and `vitest.meta.config.ts`. A change to one must be made in all three. See [Three Parallel External Template Directories](#three-parallel-external-template-directories).
-
-> ℹ️ The `dynamic-fixture-validation` test is split into its own project so that it can be easily targeted or excluded. It parallelizes AssemblyScript compilation across threads via an in-test [Tinypool](https://github.com/tinylibs/tinypool) worker pool ([`validator-compile-worker.mjs`](../test/pool-unit/instrumentation/helpers/validator-compile-worker.mjs)). Each fixture is a `describe.concurrent` suite, and the per-fixture `beforeAll` compile-dispatches overlap and the pool runs them across threads.
 
 ### DX Command Reference
 
