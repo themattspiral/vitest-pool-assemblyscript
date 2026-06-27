@@ -69,22 +69,35 @@ try {
 }
 
 /**
- * Convert a raw location (0-indexed columns, path indexes) to
- * processed location (1-indexed columns, absolute path strings)
+ * Normalize a source-map file path to an absolute filesystem path, for consistent
+ * coverage key matching.
  *
  * Source map paths vary by import style and project structure:
  * - Relative imports: "assembly/compare.ts"
  * - Bare package imports: "~lib/vitest-pool-assemblyscript/assembly/compare.ts"
  * - Source outside project root: "../assembly/compare.ts" (e.g. test-external importing parent sources)
- *
- * All are normalized to absolute filesystem paths for consistent coverage key matching.
+ */
+function normalizeToAbsolutePath(filePath: string, projectRoot: string): string {
+  if (filePath.startsWith(INTERNAL_PATH_LIB_PREFIX)) {
+    // ~lib/vitest-pool-assemblyscript/assembly/X.ts -> projectRoot/assembly/X.ts
+    //  - the compiler prefixes these with ~lib because they are *not user source*
+    const relativePart = filePath.slice(INTERNAL_PATH_LIB_PREFIX.length);
+    return toForwardSlash(resolve(projectRoot, 'assembly', relativePart));
+  }
+  // Resolve relative path (handles both 'assembly/X.ts' and '../assembly/X.ts')
+  return toForwardSlash(resolve(projectRoot, filePath));
+}
+
+/**
+ * Convert a raw location (0-indexed columns, path indexes) to
+ * processed location (1-indexed columns, absolute path strings)
  */
 function convertLocation(
   rawLocation: NativeSourceLocation,
   debugSourceFiles: string[],
   projectRoot: string
 ): SourceLocation {
-  let filePath = debugSourceFiles[rawLocation.fileIndex];
+  const filePath = debugSourceFiles[rawLocation.fileIndex];
 
   if (!filePath) {
     throw createPoolError(
@@ -93,18 +106,8 @@ function convertLocation(
     );
   }
 
-  // Normalize to absolute path for consistent coverage key matching
-  if (filePath.startsWith(INTERNAL_PATH_LIB_PREFIX)) {
-    // ~lib/vitest-pool-assemblyscript/assembly/X.ts -> projectRoot/assembly/X.ts
-    const relativePart = filePath.slice(INTERNAL_PATH_LIB_PREFIX.length);
-    filePath = toForwardSlash(resolve(projectRoot, 'assembly', relativePart));
-  } else {
-    // Resolve relative path (handles both 'assembly/X.ts' and '../assembly/X.ts')
-    filePath = toForwardSlash(resolve(projectRoot, filePath));
-  }
-
   return {
-    filePath,
+    filePath: normalizeToAbsolutePath(filePath, projectRoot),
     line: rawLocation.line,
     column: rawLocation.column + 1,  // convert from 0-indexed to 1-indexed
   };
@@ -275,6 +278,7 @@ function transformDebugInfo(
 
   return {
     debugSourceFiles: raw.debugSourceFiles,
+    absoluteDebugSourceFiles: raw.debugSourceFiles.map(f => normalizeToAbsolutePath(f, projectRoot)),
     functionsByFileAndPosition,
     instrumentedFunctionCount,
     totalInstrumentationCounters: raw.totalInstrumentationCounters,

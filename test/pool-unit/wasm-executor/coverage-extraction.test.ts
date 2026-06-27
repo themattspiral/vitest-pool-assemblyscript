@@ -44,6 +44,7 @@ function func(
 function debugInfoFor(funcs: FunctionDebugInfo[], funcPositionKey = '1:1'): BinaryDebugInfo {
   return {
     debugSourceFiles: [FILE],
+    absoluteDebugSourceFiles: [FILE],
     functionsByFileAndPosition: { [FILE]: { [funcPositionKey]: funcs } },
     instrumentedFunctionCount: funcs.length,
     totalInstrumentationCounters: 32,
@@ -149,6 +150,7 @@ describe('buildExpressionHits', () => {
   test('returns empty map when there are no instrumented functions', () => {
     const di: BinaryDebugInfo = {
       debugSourceFiles: [],
+      absoluteDebugSourceFiles: [],
       functionsByFileAndPosition: {},
       instrumentedFunctionCount: 0,
       totalInstrumentationCounters: 0,
@@ -365,6 +367,7 @@ describe('buildBranchHits', () => {
   test('returns empty map when there are no instrumented functions', () => {
     const di: BinaryDebugInfo = {
       debugSourceFiles: [],
+      absoluteDebugSourceFiles: [],
       functionsByFileAndPosition: {},
       instrumentedFunctionCount: 0,
       totalInstrumentationCounters: 0,
@@ -446,6 +449,7 @@ describe('buildCaseHits', () => {
   test('returns empty map when there are no instrumented functions', () => {
     const di: BinaryDebugInfo = {
       debugSourceFiles: [],
+      absoluteDebugSourceFiles: [],
       functionsByFileAndPosition: {},
       instrumentedFunctionCount: 0,
       totalInstrumentationCounters: 0,

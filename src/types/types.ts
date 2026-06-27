@@ -511,6 +511,12 @@ export interface BinaryDebugInfo {
   /** All source files represented in extracted debug info (directly or inlined) */
   debugSourceFiles: string[];
   /**
+   * Same as debugSourceFiles, normalized to absolute filesystem paths (via
+   * normalizeToAbsolutePath). These match the absolute keys used throughout
+   * coverage data, so they identify which source files a binary loaded.
+   */
+  absoluteDebugSourceFiles: string[];
+  /**
    * Functions grouped by file path, then keyed by position ("line:column").
    * Position key enables stable identity across compilations.
    * Array value accommodates generic monomorphizations that share a source position.
