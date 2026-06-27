@@ -64,6 +64,27 @@ describe('parseSource — statement extraction', () => {
     expect(statements[0]!.range.filePath).toBe(ABS);
     expect(statements[0]!.range.startLine).toBe(2);
   });
+
+  test('flags module-scope variable declarations, not in-function ones', () => {
+    const src = [
+      'let topConst = 1024;',         // 1  module scope -> flagged
+      'export function f(): i32 {',   // 2
+      '  let local = 1;',             // 3  in-function -> not flagged
+      '  return local;',             // 4
+      '}',                            // 5
+      'let makeArrow = (): i32 => {', // 6  module-scope binding -> flagged
+      '  let inArrow = 2;',           // 7  inside arrow body -> not flagged
+      '  return inArrow;',           // 8
+      '};',                           // 9
+    ].join('\n');
+    const flagByLine = new Map(
+      parseSource(src, REL, ABS).statements.map((s) => [s.range.startLine, s.isModuleLevelDeclaration])
+    );
+    expect(flagByLine.get(1)).toBe(true);   // top-level const
+    expect(flagByLine.get(3)).toBe(false);  // declaration inside a function
+    expect(flagByLine.get(6)).toBe(true);   // module-scope arrow binding (a variable decl)
+    expect(flagByLine.get(7)).toBe(false);  // declaration inside the arrow body
+  });
 });
 
 describe('parseSource — branch extraction (if / ternary)', () => {

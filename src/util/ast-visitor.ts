@@ -101,12 +101,32 @@ const BRANCH_NODE_KINDS: ReadonlySet<number> = new Set<number>([
  */
 export abstract class ASTVisitor {
   /**
+   * How many function/method bodies we are currently inside. 0 = module scope
+   * (top level or inside a namespace). Maintained by visitFunctionBody, which all
+   * function-body recursion routes through, so subclasses can tell module-scope
+   * statements from in-function ones.
+   */
+  protected functionDepth = 0;
+
+  /**
    * Visit all statements in a source file
    */
   visitSource(source: Source): void {
     for (const stmt of source.statements) {
       this.visitNode(stmt);
     }
+  }
+
+  /**
+   * Visit a function/method body, tracking function-nesting depth. ALL descent
+   * into a function or method body must go through here (not visitNode directly)
+   * so functionDepth stays accurate — including the arrow-function body that the
+   * coverage parser visits manually.
+   */
+  protected visitFunctionBody(body: Node): void {
+    this.functionDepth++;
+    this.visitNode(body);
+    this.functionDepth--;
   }
 
   /**
@@ -436,7 +456,7 @@ export abstract class ASTVisitor {
       case ASNodeKind.FunctionDeclaration: {
         const decl = node as FunctionDeclaration;
         const shouldRecurse = this.onFunctionDeclaration(decl);
-        if (shouldRecurse && decl.body) this.visitNode(decl.body);
+        if (shouldRecurse && decl.body) this.visitFunctionBody(decl.body);
         break;
       }
       case ASNodeKind.InterfaceDeclaration: {
@@ -447,7 +467,7 @@ export abstract class ASTVisitor {
       case ASNodeKind.MethodDeclaration: {
         const decl = node as MethodDeclaration;
         const shouldRecurse = this.onMethodDeclaration(decl);
-        if (shouldRecurse && decl.body) this.visitNode(decl.body);
+        if (shouldRecurse && decl.body) this.visitFunctionBody(decl.body);
         break;
       }
       case ASNodeKind.NamespaceDeclaration: {

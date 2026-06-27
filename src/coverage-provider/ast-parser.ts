@@ -180,8 +180,10 @@ class FunctionExtractorVisitor extends ASTVisitor {
       }
 
       // Visit the function body manually since we're handling this specially
+      // Visit the body through visitFunctionBody so function-nesting depth stays
+      // accurate (its statements are inside a function, not module scope).
       if (funcDecl.body) {
-        this.visitNode(funcDecl.body);
+        this.visitFunctionBody(funcDecl.body);
       }
       return false; // Don't recurse again - we handled it
     }
@@ -197,10 +199,15 @@ class FunctionExtractorVisitor extends ASTVisitor {
    */
   protected onStatement(node: Node): void {
     if (node.kind === ASNodeKind.Variable) {
+      // A module-scope variable declaration (not inside any function) runs at
+      // module instantiation. Flag it so the provider can credit its coverage
+      // when the file loaded but the declaration folded to a WASM global with
+      // no runtime counter (see the hybrid provider's synthesis).
+      const isModuleLevelDeclaration = this.functionDepth === 0;
       const varStmt = node as VariableStatement;
       for (const decl of varStmt.declarations) {
         if (decl.initializer) {
-          this.statements.push({ range: this.buildRange(decl, null) });
+          this.statements.push({ range: this.buildRange(decl, null), isModuleLevelDeclaration });
         }
       }
       return;

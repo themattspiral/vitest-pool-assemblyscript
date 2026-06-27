@@ -650,6 +650,13 @@ export interface ParsedSourceStatementInfo {
   range: SourceRange;
   /** Statement type (e.g., "variable", "expression", "return") */
   statementType?: string;
+  /**
+   * True for a module-scope variable declaration (function-nesting depth 0).
+   * Such a declaration runs at module instantiation; if its initializer folds to
+   * a WASM global it produces no runtime counter, so the provider synthesizes its
+   * coverage for files known to have loaded. See the hybrid coverage provider.
+   */
+  isModuleLevelDeclaration?: boolean;
 }
 
 /**
