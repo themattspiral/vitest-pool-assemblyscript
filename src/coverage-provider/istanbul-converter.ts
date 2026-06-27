@@ -74,6 +74,7 @@ export async function convertToIstanbulFormat(
   fileBranchHits: Record<string, BranchPathHits>,
   fileEmptyCaseHits: Record<string, number>,
   fileDecisionPositions: string[],
+  fileLoaded: boolean,
   absoluteFilePath: string,
   istanbulDebugEnabled: boolean
 ): Promise<FileCoverageData> {
@@ -191,13 +192,21 @@ export async function convertToIstanbulFormat(
   // hotter body. Statements use their own index keyspace, independent of fnMap.
   const expressionHitsByLine = buildHitsByLine(fileExpressionHits);
   let stmtIdx = 0;
-  for (const { range } of fileFunctions.statements) {
+  for (const { range, isModuleLevelDeclaration } of fileFunctions.statements) {
     // Defensive: skip statements with invalid metadata
     if (range.startLine === 0) {
       continue;
     }
 
-    const hitCount = findStatementEntryHitCount(expressionHitsByLine, range);
+    let hitCount = findStatementEntryHitCount(expressionHitsByLine, range);
+
+    // A module-scope variable declaration runs at module instantiation, so if the
+    // file loaded it executed — even when its initializer folded to a WASM global
+    // with no runtime counter (findStatementEntryHitCount then reads 0). Credit it
+    // as covered to match V8, which counts the declaration when the module evaluates.
+    if (isModuleLevelDeclaration && fileLoaded && hitCount === 0) {
+      hitCount = 1;
+    }
 
     const stmtIdxStr = stmtIdx.toString();
     statementMap[stmtIdxStr] = toIstanbulRange(range);

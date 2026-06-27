@@ -52,23 +52,24 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — statement kinds', () =
     });
   });
 
-  // DOCUMENTED DIVERGENCE — module-level const-initialized Variable. A module-level
-  // `let sink = 0` is initialized via the WASM global's init expression (a constant),
-  // so AS emits no runtime block to count → reads 0. v8 instruments source and counts
-  // the declaration once. (A *function-local* `let x = 0` IS counted — a runtime
-  // assignment, see the loops/reachability themes — so this is specific to module
-  // scope.) Measurement-model "erased → blind" category; unlike the count divergences
-  // this one affects covered/uncovered.
-  describe('module-level const-init Variable (erased in AS)', () => {
-    test('let sink = 0 (L6): AS 0 (WASM global init expr, no block), v8 1', () => {
-      expect(statementHitsByLine(as, 7)).toEqual([0]);
+  // Module-level const-initialized Variable — now at PARITY with v8 (was a divergence).
+  // A module-level `let sink = 0` is initialized via the WASM global's init expression
+  // (a constant), so AS emits no runtime block and findStatementEntryHitCount reads 0.
+  // The declaration nonetheless runs at module instantiation, so the provider synthesizes
+  // coverage for module-scope declarations in any file that loaded — bringing AS to v8's
+  // value (which counts the declaration once). (A *function-local* `let x = 0` is counted
+  // directly as a runtime assignment — see the loops/reachability themes — so the
+  // synthesis is specific to module scope.)
+  describe('module-level const-init Variable (synthesized to match v8)', () => {
+    test('let sink = 0 (L7): AS 1 (synthesized — ran at module load) == v8 1', () => {
+      expect(statementHitsByLine(as, 7)).toEqual([1]);
       expect(statementHitsByLine(js, 7)).toEqual([1]);
     });
   });
 
-  // Parity on every in-function statement (the L6 module global is the one divergence).
+  // Full parity on every aligned statement (the module-level global now matches too).
   describe('parity with v8 (line-aligned twin)', () => {
-    const ALIGNED = [10, 11, 15, 16, 17, 18, 19, 23, 27, 28, 29, 30, 32, 33, 35, 37, 41, 42, 44];
+    const ALIGNED = [7, 10, 11, 15, 16, 17, 18, 19, 23, 27, 28, 29, 30, 32, 33, 35, 37, 41, 42, 44];
     test.each(ALIGNED)('line %i: AS statement hits == v8', (line) => {
       expect(statementHitsByLine(as, line)).toEqual(statementHitsByLine(js, line));
     });
