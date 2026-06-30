@@ -162,3 +162,23 @@ export function midDefault(n: i32): i32 {
       return 2;
   }
 }
+
+// Empty fall-through case WITHOUT an explicit default: the implicit "no case
+// matched" arm must be derived from the DISTINCT number of matched cases, not the
+// sum of per-case entered counts. case 1 (empty) falls into case 2's body, so case
+// 2's entered count already includes case 1's matches — counting both inflates the
+// "matched" total and under-derives the implicit default. The implicit default is
+// reached only when n matches no case.
+export function fallthroughNoDefault(n: i32): i32 {
+  let r: i32 = 0;
+  switch (n) {
+    case 1:
+    case 2:
+      r = 12;
+      break;
+    case 3:
+      r = 3;
+      break;
+  }
+  return r;
+}

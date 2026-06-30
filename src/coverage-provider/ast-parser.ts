@@ -32,11 +32,42 @@ import {
   TernaryExpression,
   BinaryExpression,
   SwitchStatement,
+  Statement,
 } from 'assemblyscript';
 
 import type { ParsedSourceFunctionInfo, ParsedSourceFunctions, ParsedSourceStatementInfo, ParsedSourceBranchInfo, SourceRange } from '../types/types.js';
 import { ASCommonFlags, ASNodeKind, ASToken } from '../types/constants.js';
 import { ASTVisitor } from '../util/ast-visitor.js';
+
+/**
+ * Whether a switch case's statement list unconditionally transfers control out of
+ * the case — so control does NOT fall through into the next clause. True when the
+ * last statement is a break/return/throw/continue, looking through a single trailing
+ * block (`case X: { …; break; }`).
+ *
+ * A CONDITIONAL break (`if (cond) break;`) is intentionally NOT recognized as
+ * terminating: control may still reach the next clause, so the case is treated as
+ * fall-through. This is a documented best-effort residual — for the few entries that
+ * conditionally break out, the implicit-default derivation is off by that runtime
+ * count (see computeBranchPathHits).
+ */
+function caseUnconditionallyTerminates(statements: Statement[]): boolean {
+  if (statements.length === 0) {
+    return false;
+  }
+  const last = statements[statements.length - 1]!;
+  switch (last.kind) {
+    case ASNodeKind.Break:
+    case ASNodeKind.Return:
+    case ASNodeKind.Throw:
+    case ASNodeKind.Continue:
+      return true;
+    case ASNodeKind.Block:
+      return caseUnconditionallyTerminates((last as BlockStatement).statements);
+    default:
+      return false;
+  }
+}
 
 /**
  * Visitor that extracts function information from AST nodes
@@ -248,6 +279,7 @@ class FunctionExtractorVisitor extends ASTVisitor {
         paths,
         implicitPathIndices,
         emptyCasePathIndices: [],
+        fallThroughCasePathIndices: [],
       });
     } else if (node.kind === ASNodeKind.Ternary) {
       const ternary = node as TernaryExpression;
@@ -258,6 +290,7 @@ class FunctionExtractorVisitor extends ASTVisitor {
         paths: [this.buildRange(ternary.ifThen, null), this.buildRange(ternary.ifElse, null)],
         implicitPathIndices: [],
         emptyCasePathIndices: [],
+        fallThroughCasePathIndices: [],
       });
     } else if (node.kind === ASNodeKind.Binary) {
       // Only logical operators (&& / ||) are branches (binary-expr); arithmetic
@@ -272,6 +305,7 @@ class FunctionExtractorVisitor extends ASTVisitor {
           paths: [this.buildRange(binary.left, null), this.buildRange(binary.right, null)],
           implicitPathIndices: [],
           emptyCasePathIndices: [],
+          fallThroughCasePathIndices: [],
         });
       }
     } else if (node.kind === ASNodeKind.Switch) {
@@ -280,6 +314,7 @@ class FunctionExtractorVisitor extends ASTVisitor {
       const paths: SourceRange[] = [];
       const implicitPathIndices: number[] = [];
       const emptyCasePathIndices: number[] = [];
+      const fallThroughCasePathIndices: number[] = [];
       let hasDefault = false;
 
       // Each case/default clause is an arm. Switch lowers to a comparison chain.
@@ -292,7 +327,15 @@ class FunctionExtractorVisitor extends ASTVisitor {
       // (keyed by the case-label position), so its path range is the clause range
       // (the `case X:` span) and its index is recorded in emptyCasePathIndices for
       // the matcher to read from emptyCaseHits instead of statement-entry.
-      for (const switchCase of sw.cases) {
+      //
+      // A case that falls through into a FOLLOWING clause (an empty case, or a body
+      // case with no terminating break/return/throw/continue) is recorded in
+      // fallThroughCasePathIndices: its matches are already folded into the entered
+      // count of the terminal case it flows into, so it is excluded from the
+      // "distinct matches" total used to derive a default-less switch's implicit
+      // default arm (see computeBranchPathHits).
+      for (let caseIndex = 0; caseIndex < sw.cases.length; caseIndex++) {
+        const switchCase = sw.cases[caseIndex]!;
         const statements = switchCase.statements;
         if (statements.length > 0) {
           paths.push(this.buildRange(statements[statements.length - 1]!, statements[0]!));
@@ -302,6 +345,10 @@ class FunctionExtractorVisitor extends ASTVisitor {
         }
         if (!switchCase.label) {
           hasDefault = true; // the default clause has no case label
+        }
+        const hasFollowingClause = caseIndex < sw.cases.length - 1;
+        if (hasFollowingClause && !caseUnconditionallyTerminates(statements)) {
+          fallThroughCasePathIndices.push(paths.length - 1);
         }
       }
       if (!hasDefault) {
@@ -316,6 +363,7 @@ class FunctionExtractorVisitor extends ASTVisitor {
         paths,
         implicitPathIndices,
         emptyCasePathIndices,
+        fallThroughCasePathIndices,
       });
     }
   }

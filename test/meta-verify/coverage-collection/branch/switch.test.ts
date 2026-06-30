@@ -26,7 +26,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — switch branches', () =
   // switch branches by source position:
   //   [0] category   [1] dayType    [2] classifySign  [3] firstOnly  [4] emptyTrailing
   //   [5] cumulative [6] signBucket [7] colorName     [8] grid-outer [9] grid-inner
-  //   [10] midDefault
+  //   [10] midDefault [11] fallthroughNoDefault
   const switches = (entry: FileCoverage): number[][] => branchHitsByType(entry, 'switch');
 
   test('category clean switch: case1 + default tested, case2 = 0', () => {
@@ -78,6 +78,22 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — switch branches', () =
     expect(switches(entry)[10]).toEqual([1, 1, 0]);
   });
 
+  test('fallthroughNoDefault empty fall-through + no default: implicit default derived from DISTINCT matches', () => {
+    // [case1(empty), case2(body), case3, implicit-default]
+    // case1 entered = 2 (matched twice); case2 entered = 2 (fall-through) + 1 = 3;
+    // case3 = 1; implicit default = 1 (only n=9 matched no case). The implicit arm is
+    // the # of switch entries that matched NO case, NOT switchReached − Σ(entered),
+    // which double-counts case1's matches (already folded into case2's entered count).
+    //
+    // The implicit default counts only group-TERMINAL cases (those that don't fall
+    // through into a successor) toward "distinct matches". Best-effort residual: a
+    // CONDITIONAL break (`if (c) break;`) makes a case's fall-through runtime-dependent
+    // while the classification is static, so the implicit default for such a case is
+    // off by the count that conditionally broke out — covered/uncovered of the explicit
+    // cases is unaffected. (Not exercised here; the empty/unconditional cases are exact.)
+    expect(switches(entry)[11]).toEqual([2, 3, 1, 1]);
+  });
+
   // v8-twin parity: js-coverage-parity-src/branch/switch.ts mirrors this fixture
   // construct-for-construct with identical inputs, so v8's switch coverage (delegated
   // to the same merged report) is the cross-check oracle. Arm hits match v8 for every
@@ -85,11 +101,11 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — switch branches', () =
   describe('v8-twin parity', () => {
     const js = (): number[][] => switches(jsEntry);
 
-    test('switch arms match v8 for every shape except the default-less switch', () => {
-      expect(switches(entry)).toHaveLength(11);
-      expect(js()).toHaveLength(11);
-      for (let i = 0; i < 11; i++) {
-        if (i === 2) continue; // classifySign — documented divergence below
+    test('switch arms match v8 for every shape except the default-less switches', () => {
+      expect(switches(entry)).toHaveLength(12);
+      expect(js()).toHaveLength(12);
+      for (let i = 0; i < 12; i++) {
+        if (i === 2 || i === 11) continue; // default-less switches — documented divergences below
         expect(switches(entry)[i], `switch #${i}`).toEqual(js()[i]);
       }
     });
@@ -101,6 +117,15 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — switch branches', () =
       // cases agree in both: case0 covered, case1 uncovered.
       expect(switches(entry)[2]).toEqual([1, 0, 1]);
       expect(js()[2]).toEqual([1, 0]);
+    });
+
+    test('default-less switch with fall-through (fallthroughNoDefault): explicit arms match v8; AS adds the implicit default', () => {
+      // The explicit cases agree with v8's "entered" counts (case1=2, case2=3, case3=1);
+      // AS additionally synthesizes the implicit-default arm (=1), which v8 omits — the
+      // same set-difference as classifySign, but with fall-through to guard the implicit
+      // default derivation against double-counting case1's matches.
+      expect(switches(entry)[11]).toEqual([2, 3, 1, 1]);
+      expect(js()[11]).toEqual([2, 3, 1]);
     });
 
     test('function coverage matches v8 exactly', () => {

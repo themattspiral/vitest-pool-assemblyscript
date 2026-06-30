@@ -300,5 +300,32 @@ describe('parseSource — branch extraction (if / ternary)', () => {
     expect(b[0]!.paths).toHaveLength(3); // case 1, case 2, implicit default
     expect(b[0]!.implicitPathIndices).toEqual([2]);
     expect(b[0]!.paths[2]).toEqual(b[0]!.range); // implicit default = construct range
+    expect(b[0]!.fallThroughCasePathIndices).toEqual([]); // both cases `return` → terminal
+  });
+
+  test('switch fall-through cases are flagged; terminated cases are not', () => {
+    const src = [
+      'export function f(n: i32): i32 {',  // 1
+      '  let r: i32 = 0;',                 // 2
+      '  switch (n) {',                    // 3
+      '    case 1:',                       // 4  empty → falls through to case 2
+      '    case 2:',                       // 5  body, break → terminal
+      '      r = 12;',                     // 6
+      '      break;',                      // 7
+      '    case 3:',                       // 8  body, NO break → falls through to case 4
+      '      r = 3;',                      // 9
+      '    case 4:',                       // 10 body, return → terminal (and last clause)
+      '      return 4;',                   // 11
+      '  }',                               // 12
+      '  return r;',                       // 13
+      '}',                                 // 14
+    ].join('\n');
+    const b = branches(src);
+    expect(b).toHaveLength(1);
+    // paths: [case1(empty), case2(body), case3(body,no-break), case4(body), implicit-default]
+    expect(b[0]!.paths).toHaveLength(5);
+    expect(b[0]!.emptyCasePathIndices).toEqual([0]);          // case 1 empty
+    expect(b[0]!.fallThroughCasePathIndices).toEqual([0, 2]); // case 1 (empty) + case 3 (no break)
+    expect(b[0]!.implicitPathIndices).toEqual([4]);           // no default
   });
 });

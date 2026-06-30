@@ -1,7 +1,7 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
 import {
   category, dayType, classifySign, firstOnly, emptyTrailing,
-  cumulative, signBucket, colorName, grid, midDefault,
+  cumulative, signBucket, colorName, grid, midDefault, fallthroughNoDefault,
 } from "../../../assembly-src/coverage-collection/branch/switch.meta";
 
 // Exercises the switch-branch fixtures with KNOWN inputs so each arm's "entered"
@@ -82,5 +82,19 @@ describe("switch branch fixtures", () => {
     expect(midDefault(1)).toBe(1);  // case 1
     expect(midDefault(5)).toBe(0);  // default; case 2 never
     // arms [case1, default, case2] = [1, 1, 0]
+  });
+
+  // Empty fall-through + no default: case 1 (empty) matched twice and falls into
+  // case 2's body; case 2 matched once; case 3 once; n=9 matches nothing (implicit
+  // default reached once).
+  test("fallthroughNoDefault: empty fall-through without a default", () => {
+    expect(fallthroughNoDefault(1)).toBe(12);  // case 1 (empty) → case 2 body
+    expect(fallthroughNoDefault(1)).toBe(12);  // case 1 again
+    expect(fallthroughNoDefault(2)).toBe(12);  // case 2
+    expect(fallthroughNoDefault(3)).toBe(3);   // case 3
+    expect(fallthroughNoDefault(9)).toBe(0);   // no match → implicit default
+    // arms [case1, case2, case3, implicit-default] = [2, 3, 1, 1]
+    //   case1 entered = 2 (matched twice); case2 entered = 2 (fall-through) + 1 = 3;
+    //   case3 = 1; implicit default = 1 (only n=9 matched no case).
   });
 });

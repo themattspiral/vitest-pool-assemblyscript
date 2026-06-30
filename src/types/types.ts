@@ -683,6 +683,18 @@ export interface ParsedSourceBranchInfo {
    * statement-entry used for body-bearing cases. Always empty for non-switch branches.
    */
   emptyCasePathIndices: number[];
+  /**
+   * Indices into paths[] for switch cases whose control falls through into a
+   * FOLLOWING case clause (an empty case, or a body case with no terminating
+   * break/return/throw/continue, that is not the last clause). Their matches are
+   * already counted in the entered count of the terminal case they flow into
+   * (entered counts telescope across a fall-through group), so only group-terminal
+   * cases contribute to the "distinct matches" total used to derive a switch's
+   * implicit-default arm. Always empty for non-switch branches. (A conditional break
+   * is treated as falling through — a documented best-effort residual; see
+   * computeBranchPathHits.)
+   */
+  fallThroughCasePathIndices: number[];
 }
 
 // ============================================================================

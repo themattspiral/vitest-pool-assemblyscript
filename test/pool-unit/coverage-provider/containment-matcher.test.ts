@@ -84,8 +84,9 @@ function branch(
   paths: SourceRange[],
   implicitPathIndices: number[] = [],
   emptyCasePathIndices: number[] = [],
+  fallThroughCasePathIndices: number[] = [],
 ): ParsedSourceBranchInfo {
-  return { range: whole, branchType, conditionRange, paths, implicitPathIndices, emptyCasePathIndices };
+  return { range: whole, branchType, conditionRange, paths, implicitPathIndices, emptyCasePathIndices, fallThroughCasePathIndices };
 }
 
 describe('buildArmsByLine', () => {
@@ -214,14 +215,28 @@ describe('computeBranchPathHits', () => {
     expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, caseHits, decided(b))).toEqual([0, 3]);
   });
 
-  test('switch empty case + implicit default: implicit = reached - sum(empty + body)', () => {
-    // discriminant reached 5×; empty case 0 = 1 (caseHits at 2:9), body case 1 = 1
-    // (exprHits at 4:7); implicit default = 5 - (1 + 1) = 3.
+  test('switch empty fall-through case + implicit default: empty case excluded from distinct matches', () => {
+    // discriminant reached 5×; empty case 0 (falls into case 1) entered 1 (caseHits
+    // at 2:9); body case 1 entered 1 (exprHits at 4:7 — case 0's match telescopes in).
+    // Distinct matches = terminal case 1 only = 1 (case 0 is fall-through, excluded),
+    // so implicit default = 5 - 1 = 4. Summing both (5 - (1+1) = 3) would double-count
+    // case 0's match — the under-derivation this fix corrects.
     const exprHits = buildHitsByLine({ '1:9': 5, '4:7': 1 });
     const caseHits = buildHitsByLine({ '2:9': 1 });
     const b = branch('switch', range(1, 1, 6, 2), range(1, 9, 1, 10),
-      [range(2, 5, 2, 11), range(4, 7, 5, 12), range(1, 1, 6, 2)], [2], [0]);
-    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, caseHits, decided(b))).toEqual([1, 1, 3]);
+      [range(2, 5, 2, 11), range(4, 7, 5, 12), range(1, 1, 6, 2)], [2], [0], [0]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, caseHits, decided(b))).toEqual([1, 1, 4]);
+  });
+
+  test('switch body fall-through + implicit default: a non-break case is excluded from distinct matches', () => {
+    // case 0 (body, no break → falls into case 1) entered 4; case 1 (body, break)
+    // entered 6 (case 0's 4 fall-through + 2 own matches); no default; reached 8×.
+    // Distinct matches = terminal case 1 entered = 6 (case 0 telescopes in), so the
+    // implicit default = 8 - 6 = 2 (NOT 8 - (4+6) clamped to 0).
+    const exprHits = buildHitsByLine({ '1:9': 8, '2:5': 4, '3:5': 6 });
+    const b = branch('switch', range(1, 1, 6, 2), range(1, 9, 1, 10),
+      [range(2, 5, 2, 20), range(3, 5, 3, 20), range(1, 1, 6, 2)], [2], [], [0]);
+    expect(computeBranchPathHits(b, buildArmsByLine({}), exprHits, noCaseHits, decided(b))).toEqual([4, 6, 2]);
   });
 
   test('binary-expr &&: left = condition-entry count, right = short-circuit arm', () => {

@@ -154,3 +154,20 @@ export function midDefault(n: number): number {
       return 2;
   }
 }
+
+// Empty fall-through case WITHOUT an explicit default. v8 reports the explicit case
+// arms (entered counts) but no implicit-default arm — the AS provider synthesizes
+// that arm, so this is a documented set-difference (like classifySign).
+export function fallthroughNoDefault(n: number): number {
+  let r = 0;
+  switch (n) {
+    case 1:
+    case 2:
+      r = 12;
+      break;
+    case 3:
+      r = 3;
+      break;
+  }
+  return r;
+}

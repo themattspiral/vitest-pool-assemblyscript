@@ -24,6 +24,7 @@
  */
 
 import type { BranchPathHits, ParsedSourceBranchInfo, ParsedSourceFunctionInfo, SourceRange } from '../types/types.js';
+import { debug } from '../util/debug.js';
 
 /**
  * Find the source function whose range contains the given position.
@@ -299,7 +300,15 @@ export function conditionRangeContainsDecision(
  *   read at its clause: a body-bearing case (and an explicit default) via
  *   statement-entry over its body range; an EMPTY fall-through case via the
  *   dedicated `caseHitsByLine` channel (its post-anchored counter, keyed by
- *   case-label position); an implicit default via `switchReached − Σ(explicit)`.
+ *   case-label position). A default-less switch's implicit "no case matched" arm is
+ *   `switchReached − Σ(entered counts of group-TERMINAL cases)`: a fall-through case
+ *   (`fallThroughCasePathIndices`) is excluded because its matches already telescope
+ *   into the entered count of the terminal case it flows into, so summing every case
+ *   would double-count the fall-through and under-derive the default.
+ *   *Residual (best-effort):* a CONDITIONAL break (`if (c) break;`) makes a case's
+ *   fall-through runtime-dependent, but the classification is static — so the implicit
+ *   default for such a case is off by the number of entries that conditionally broke
+ *   out. The explicit case arms and the v8-parity cases are unaffected.
  *
  * **Folded branches** (`if`/`cond-expr`/`binary-expr` with a compile-time-constant
  * condition): the compiler emits no decision block, so the condition range contains
@@ -323,7 +332,7 @@ export function computeBranchPathHits(
   caseHitsByLine: Map<number, LineHit[]>,
   decisionPositionsByLine: Map<number, number[]>
 ): number[] {
-  const { branchType, range, paths, conditionRange, implicitPathIndices, emptyCasePathIndices } = branch;
+  const { branchType, range, paths, conditionRange, implicitPathIndices, emptyCasePathIndices, fallThroughCasePathIndices } = branch;
 
   if (branchType === 'switch') {
     // Switch lowers to a comparison chain. Arm-matching can't be used: the chain's
@@ -336,11 +345,19 @@ export function computeBranchPathHits(
     //   - empty fall-through case: the dedicated caseHitsByLine channel (its
     //     post-anchored counter, keyed by the case-label position), read via the
     //     same entry-position lookup over the clause range.
-    // The switch-reached count (for an implicit default) is the discriminant's
-    // entry hit count.
+    //
+    // A default-less switch's implicit "no case matched" arm is switchReached minus
+    // the number of entries that matched SOME case (its DISTINCT matches), where
+    // switchReached is the discriminant's entry hit count. Distinct matches is the
+    // sum of the entered counts of group-TERMINAL cases only: a fall-through case's
+    // matches are already folded into the entered count of the terminal case it flows
+    // into (entered counts telescope across a fall-through group), so summing every
+    // case's entered count would double-count the fall-through and under-derive the
+    // default. fallThroughCasePathIndices marks the non-terminal cases to exclude.
     const switchImplicit = new Set(implicitPathIndices);
     const switchEmptyCases = new Set(emptyCasePathIndices);
-    let explicitSum = 0;
+    const switchFallThrough = new Set(fallThroughCasePathIndices);
+    let matchedSum = 0;
     const switchHits = paths.map((path, index) => {
       if (switchImplicit.has(index)) {
         return 0; // implicit default — filled below
@@ -348,13 +365,21 @@ export function computeBranchPathHits(
       const caseHits = switchEmptyCases.has(index)
         ? findStatementEntryHitCount(caseHitsByLine, path)
         : findStatementEntryHitCount(expressionHitsByLine, path);
-      explicitSum += caseHits;
+      if (!switchFallThrough.has(index)) {
+        matchedSum += caseHits; // only group-terminal cases count toward distinct matches
+      }
       return caseHits;
     });
 
     if (switchImplicit.size > 0) {
       const switchReached = findStatementEntryHitCount(expressionHitsByLine, conditionRange);
-      const implicitHits = Math.max(0, switchReached - explicitSum);
+      // A negative raw value signals a matching anomaly (a mis-located case arm, or a
+      // conditional-break case mis-classified as fall-through — a documented residual).
+      const rawImplicit = switchReached - matchedSum;
+      if (rawImplicit < 0) {
+        debug(() => `[containment-matcher] negative implicit-default derivation for switch at ${range.startLine}:${range.startColumn} (switchReached=${switchReached}, matchedSum=${matchedSum}) — clamped to 0`);
+      }
+      const implicitHits = Math.max(0, rawImplicit);
       for (const index of implicitPathIndices) {
         switchHits[index] = implicitHits;
       }
@@ -429,7 +454,13 @@ export function computeBranchPathHits(
     // (leftmost-atom) count when the decision block is uncounted (fused-logical)
     // or no explicit arm matched.
     const decisionHits = owningDecisionHits ?? findStatementEntryHitCount(expressionHitsByLine, conditionRange);
-    const implicitHits = Math.max(0, decisionHits - matchedArmSum);
+    // A negative raw value signals a matching anomaly (e.g. a mis-located arm whose
+    // hits were attributed elsewhere); surface it before clamping.
+    const rawImplicit = decisionHits - matchedArmSum;
+    if (rawImplicit < 0) {
+      debug(() => `[containment-matcher] negative implicit-arm derivation for ${branchType} at ${range.startLine}:${range.startColumn} (decisionHits=${decisionHits}, matchedArmSum=${matchedArmSum}) — clamped to 0`);
+    }
+    const implicitHits = Math.max(0, rawImplicit);
     for (const index of implicitPathIndices) {
       hits[index] = implicitHits;
     }
