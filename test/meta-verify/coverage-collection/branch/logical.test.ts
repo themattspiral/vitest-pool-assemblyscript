@@ -88,7 +88,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — logical branches', () 
     test('chained `a && b && c`: AS reports two nested 2-arm branches, v8 one flat 3-arm branch', () => {
       // Same per-operand evaluation counts (a=3, b=2, c=1), structured differently:
       // AS nests (a && b) && c → inner [a,b]=[3,2] + outer [(a&&b),c]=[3,1];
-      // v8 (like istanbul-lib-instrument) flattens the chain → one branch [a,b,c]=[3,2,1].
+      // v8 flattens the chain → one branch [a,b,c]=[3,2,1].
       // Covered/uncovered agrees (every operand evaluated > 0).
       const as = branchHitsByType(entry, 'binary-expr');
       const js = branchHitsByType(jsEntry, 'binary-expr');

@@ -1,7 +1,7 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
 import {
   category, dayType, classifySign, firstOnly, emptyTrailing,
-  cumulative, signBucket, colorName, grid, midDefault, fallthroughNoDefault,
+  cumulative, signBucket, colorName, grid, midDefault, fallthroughNoDefault, chainedEmpty,
 } from "../../../assembly-src/coverage-collection/branch/switch.meta";
 
 // Exercises the switch-branch fixtures with KNOWN inputs so each arm's "entered"
@@ -96,5 +96,19 @@ describe("switch branch fixtures", () => {
     // arms [case1, case2, case3, implicit-default] = [2, 3, 1, 1]
     //   case1 entered = 2 (matched twice); case2 entered = 2 (fall-through) + 1 = 3;
     //   case3 = 1; implicit default = 1 (only n=9 matched no case).
+  });
+
+  // Chained empty cases: case 0 (empty) → case 1 (empty) → case 2 (body). Entered
+  // counts telescope: case1 = own matches + case0 fall-through; case2 body = both + own.
+  test("chainedEmpty: two consecutive empty fall-through cases", () => {
+    expect(chainedEmpty(0)).toBe(10);  // case 0 (empty) → case 1 (empty) → case 2 body
+    expect(chainedEmpty(1)).toBe(10);  // case 1 (empty) → case 2 body
+    expect(chainedEmpty(1)).toBe(10);  // case 1 again
+    expect(chainedEmpty(2)).toBe(10);  // case 2 body
+    expect(chainedEmpty(3)).toBe(20);  // case 3 body
+    expect(chainedEmpty(9)).toBe(-1);  // default
+    // arms [case0, case1, case2, case3, default] = [1, 3, 4, 1, 1]
+    //   case0 = 1 (n=0); case1 = 2 (n=1×2) + 1 (case0 fall-through) = 3;
+    //   case2 body = 1 (n=2) + 3 (case1 fall-through) = 4; case3 = 1; default = 1.
   });
 });

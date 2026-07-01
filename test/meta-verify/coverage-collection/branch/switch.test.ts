@@ -26,7 +26,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — switch branches', () =
   // switch branches by source position:
   //   [0] category   [1] dayType    [2] classifySign  [3] firstOnly  [4] emptyTrailing
   //   [5] cumulative [6] signBucket [7] colorName     [8] grid-outer [9] grid-inner
-  //   [10] midDefault [11] fallthroughNoDefault
+  //   [10] midDefault [11] fallthroughNoDefault [12] chainedEmpty
   const switches = (entry: FileCoverage): number[][] => branchHitsByType(entry, 'switch');
 
   test('category clean switch: case1 + default tested, case2 = 0', () => {
@@ -94,6 +94,14 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — switch branches', () =
     expect(switches(entry)[11]).toEqual([2, 3, 1, 1]);
   });
 
+  test('chainedEmpty two consecutive empty cases: entered counts telescope down the chain', () => {
+    // [case0(empty), case1(empty), case2(body), case3(body), default]
+    // case0 = 1 (n=0); case1 = 2 (n=1×2) + 1 (case0 fall-through) = 3;
+    // case2 body = 1 (n=2) + 3 (case1 fall-through) = 4; case3 = 1; default = 1.
+    // Full v8 parity (has a default) — also checked in the parity loop below.
+    expect(switches(entry)[12]).toEqual([1, 3, 4, 1, 1]);
+  });
+
   // v8-twin parity: js-coverage-parity-src/branch/switch.ts mirrors this fixture
   // construct-for-construct with identical inputs, so v8's switch coverage (delegated
   // to the same merged report) is the cross-check oracle. Arm hits match v8 for every
@@ -102,17 +110,17 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — switch branches', () =
     const js = (): number[][] => switches(jsEntry);
 
     test('switch arms match v8 for every shape except the default-less switches', () => {
-      expect(switches(entry)).toHaveLength(12);
-      expect(js()).toHaveLength(12);
-      for (let i = 0; i < 12; i++) {
+      expect(switches(entry)).toHaveLength(13);
+      expect(js()).toHaveLength(13);
+      for (let i = 0; i < 13; i++) {
         if (i === 2 || i === 11) continue; // default-less switches — documented divergences below
         expect(switches(entry)[i], `switch #${i}`).toEqual(js()[i]);
       }
     });
 
     test('default-less switch (classifySign): AS adds the implicit-default arm, v8 omits it', () => {
-      // AS [case0, case1, implicit-default] = [1,0,1] — the "no case matched" path is a
-      // derived arm, matching istanbul-lib-instrument's source-instrumentation convention.
+      // AS [case0, case1, implicit-default] = [1,0,1] — AS synthesizes the "no case
+      // matched" path as a derived arm (as it does for an if-without-else);
       // v8's block-coverage→istanbul conversion does NOT emit that arm → [1,0]. The real
       // cases agree in both: case0 covered, case1 uncovered.
       expect(switches(entry)[2]).toEqual([1, 0, 1]);

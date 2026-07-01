@@ -1,7 +1,7 @@
 import { test, describe, expect } from 'vitest';
 import {
   category, dayType, classifySign, firstOnly, emptyTrailing,
-  cumulative, signBucket, colorName, grid, midDefault, fallthroughNoDefault,
+  cumulative, signBucket, colorName, grid, midDefault, fallthroughNoDefault, chainedEmpty,
 } from '../../js-coverage-parity-src/branch/switch.js';
 
 // Parity twin for the AS switch fixtures: identical inputs to switch.meta.test.ts
@@ -58,5 +58,13 @@ describe('switch branch parity twin', () => {
     expect(fallthroughNoDefault(2)).toBe(12);
     expect(fallthroughNoDefault(3)).toBe(3);
     expect(fallthroughNoDefault(9)).toBe(0);
+  });
+  test('chainedEmpty', () => {
+    expect(chainedEmpty(0)).toBe(10);
+    expect(chainedEmpty(1)).toBe(10);
+    expect(chainedEmpty(1)).toBe(10);
+    expect(chainedEmpty(2)).toBe(10);
+    expect(chainedEmpty(3)).toBe(20);
+    expect(chainedEmpty(9)).toBe(-1);
   });
 });

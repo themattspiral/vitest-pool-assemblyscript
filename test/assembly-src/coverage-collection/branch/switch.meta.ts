@@ -182,3 +182,23 @@ export function fallthroughNoDefault(n: i32): i32 {
   }
   return r;
 }
+
+// CHAINED empty fall-through: case 0 AND case 1 are both empty and fall into case 2's
+// body. An empty case's "entered" count telescopes down the chain — case 1 is entered
+// by its own matches PLUS case 0's fall-through, and case 2's body by both plus its own.
+export function chainedEmpty(n: i32): i32 {
+  let r: i32 = 0;
+  switch (n) {
+    case 0:
+    case 1:
+    case 2:
+      r = 10;
+      break;
+    case 3:
+      r = 20;
+      break;
+    default:
+      r = -1;
+  }
+  return r;
+}

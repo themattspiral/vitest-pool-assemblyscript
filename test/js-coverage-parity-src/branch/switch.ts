@@ -171,3 +171,22 @@ export function fallthroughNoDefault(n: number): number {
   }
   return r;
 }
+
+// Chained empty fall-through (case 0 + case 1 both empty → case 2 body); v8 "entered"
+// counts telescope down the chain, so this is a full-parity case (has a default).
+export function chainedEmpty(n: number): number {
+  let r = 0;
+  switch (n) {
+    case 0:
+    case 1:
+    case 2:
+      r = 10;
+      break;
+    case 3:
+      r = 20;
+      break;
+    default:
+      r = -1;
+  }
+  return r;
+}
