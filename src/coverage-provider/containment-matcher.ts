@@ -27,6 +27,52 @@ import type { BranchPathHits, ParsedSourceBranchInfo, ParsedSourceFunctionInfo, 
 import { debug } from '../util/debug.js';
 
 /**
+ * A binary hit position's column + count on a given line (bucketed for statement matching).
+ */
+interface LineHit {
+  column: number;
+  count: number;
+}
+
+/**
+ * A branch arm's column + hit count on a line, plus the decision it belongs to
+ * (decision key + that decision's evaluation count). Bucketed by line so source
+ * arm matching can scan only the lines a source arm range spans.
+ */
+interface ArmHit {
+  column: number;
+  armHits: number;
+  decisionKey: string;
+  /** The owning decision's evaluation count, or null when its block is uncounted (fused-logical). */
+  decisionHits: number | null;
+}
+
+/**
+ * Check if a position (line, column) falls within a source range.
+ *
+ * @param line - Target line number (1-based)
+ * @param column - Target column number (1-based)
+ * @param range - Source range to check against
+ * @returns true if position is within range (inclusive)
+ */
+function isPositionInRange(
+  line: number,
+  column: number,
+  range: SourceRange
+): boolean {
+  // Outside line range entirely
+  if (line < range.startLine || line > range.endLine) return false;
+
+  // On start line but before start column
+  if (line === range.startLine && column < range.startColumn) return false;
+
+  // On end line but after end column
+  if (line === range.endLine && column > range.endColumn) return false;
+
+  return true;
+}
+
+/**
  * Find the source function whose range contains the given position.
  *
  * For nested functions, uses "tightest fit" - returns the innermost function
@@ -62,39 +108,6 @@ export function findFunctionContainingPosition(
   }
 
   return bestMatch;
-}
-
-/**
- * Check if a position (line, column) falls within a source range.
- *
- * @param line - Target line number (1-based)
- * @param column - Target column number (1-based)
- * @param range - Source range to check against
- * @returns true if position is within range (inclusive)
- */
-export function isPositionInRange(
-  line: number,
-  column: number,
-  range: SourceRange
-): boolean {
-  // Outside line range entirely
-  if (line < range.startLine || line > range.endLine) return false;
-
-  // On start line but before start column
-  if (line === range.startLine && column < range.startColumn) return false;
-
-  // On end line but after end column
-  if (line === range.endLine && column > range.endColumn) return false;
-
-  return true;
-}
-
-/**
- * A binary hit position's column + count on a given line (bucketed for statement matching).
- */
-export interface LineHit {
-  column: number;
-  count: number;
 }
 
 /**
@@ -159,19 +172,6 @@ export function findStatementEntryHitCount(
   }
 
   return 0;
-}
-
-/**
- * A branch arm's column + hit count on a line, plus the decision it belongs to
- * (decision key + that decision's evaluation count). Bucketed by line so source
- * arm matching can scan only the lines a source arm range spans.
- */
-export interface ArmHit {
-  column: number;
-  armHits: number;
-  decisionKey: string;
-  /** The owning decision's evaluation count, or null when its block is uncounted (fused-logical). */
-  decisionHits: number | null;
 }
 
 /**
