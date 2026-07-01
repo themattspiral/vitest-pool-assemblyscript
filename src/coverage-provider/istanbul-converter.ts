@@ -4,15 +4,6 @@
  * Converts AssemblyScript coverage data to Istanbul's FileCoverageData format.
  * This enables integration with Vitest's coverage reporting system and standard
  * coverage tools like Codecov, Coveralls, etc.
- *
- * Current Implementation: Function + statement coverage
- * - Functions: containment matching (binary hit position → source function range)
- * - Statements: each source statement's count read at its entry position
- *   (smallest-position hit within its range) from block-level expression hits
- * - Branch coverage is 0% (no branches tracked yet)
- * - Line coverage derived from statement coverage
- *
- * Future Enhancement: Branch coverage
  */
 
 import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
