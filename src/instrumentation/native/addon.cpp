@@ -26,41 +26,35 @@
 
 using namespace wasm;
 
-// 32
+// i32 counter = 32 bits = 4 bytes
 const int32_t BYTES_PER_COUNTER = 4;
 
 // 1 page = 64KB / 4bytes (32bits) each = 16384 counters
 const int32_t COUNTERS_PER_PAGE = 16384;
 
-// TODO - pass these through the call stack as params instead
-// for now we don't expect them to  change between different calls
+// TODO - pass these through the call stack as params instead.
+// for now we don't expect them to change between different calls
 // in the same thread over the same vitest run, so it's safe to use this approach
 thread_local bool DEBUG = false;
 thread_local std::string LOG_PREFIX = "InstNative";
 
 struct SourceDebugLocation {
   bool exists = false;
-  int32_t fileIndex = 0;              // Debug location file index
-  int32_t lineNumber = 0;            // Debug location line number
-  int32_t columnNumber = 0;          // Debug location column number
+  int32_t fileIndex = 0;
+  int32_t lineNumber = 0;
+  int32_t columnNumber = 0;
 };
 
-/**
- * Structure to hold expression information during AST walk
- */
 struct ExpressionInfo {
-  std::string type;                    // Expression type name
-  int32_t fileIndex;                  // Debug location file index
-  int32_t lineNumber;                 // Debug location line number
-  int32_t columnNumber;               // Debug location column number
-  bool hasDebugLocation;               // Whether debug location exists
+  std::string type;
+  int32_t fileIndex;
+  int32_t lineNumber;
+  int32_t columnNumber;
+  bool hasDebugLocation;
 };
 
-/**
- * Structure to hold basic block information
- */
 struct BasicBlockInfo {
-  std::vector<size_t> expressionIndices;  // Indices into the flat expression array (located exprs only)
+  std::vector<size_t> expressionIndices;   // Indices into the flat expression array (located exprs only)
   std::vector<size_t> branches;            // Indices of blocks this block branches to
   bool isDecision = false;                 // out-degree >= 2: an Istanbul branch decision. Single source
                                            // of truth for both branch identification and counter allocation.
@@ -73,7 +67,6 @@ struct BasicBlockInfo {
                                            // increments exactly when control branches/falls to that block's end.
 };
 
-// Data structure to collect function info during instrumentation
 struct FunctionInfo {
   std::string name;
   int32_t coverageMemoryIndex;
@@ -92,10 +85,6 @@ struct BlockContent {
 
 /**
  * Walker to extract expression and basic block information using CFGWalker
- *
- * This walker traverses the AST in a single pass to collect:
- * 1. All expressions with their debug locations and types
- * 2. Basic block groupings with branch edges
  */
 struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExpressionVisitor<DebugInfoWalker>, BlockContent>> {
   Module* module;
@@ -111,7 +100,7 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
   // Block expression. An empty one (e.g. an empty switch case that branches to
   // the block's end) has no expression to anchor a counter on, so we post-anchor
   // the counter onto the Block it falls out of (captured in doEndBlock below).
-  std::map<BasicBlock*, Expression*> postAnchorByBB;
+  std::map<BasicBlock*, Expression*> postAnchorExprMap;
 
   explicit DebugInfoWalker(Module* m) : module(m) {}
 
@@ -123,7 +112,7 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
     BasicBlock* before = self->currBasicBlock;
     CFGWalker<DebugInfoWalker, UnifiedExpressionVisitor<DebugInfoWalker>, BlockContent>::doEndBlock(self, currp);
     if (self->currBasicBlock != nullptr && self->currBasicBlock != before) {
-      self->postAnchorByBB[self->currBasicBlock] = *currp;
+      self->postAnchorExprMap[self->currBasicBlock] = *currp;
     }
   }
 
@@ -158,7 +147,7 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
     expressions.clear();
     blocks.clear();
     blockIndexMap.clear();
-    postAnchorByBB.clear();
+    postAnchorExprMap.clear();
 
     // Walk the function using CFGWalker
     CFGWalker<DebugInfoWalker, UnifiedExpressionVisitor<DebugInfoWalker>, BlockContent>::doWalkFunction(func);
@@ -185,8 +174,8 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
       } else {
         // Empty block: if it's a fall-through created at the end of a named Block,
         // it can still be counted by post-anchoring a counter onto that Block.
-        auto pit = postAnchorByBB.find(bb.get());
-        if (pit != postAnchorByBB.end()) {
+        auto pit = postAnchorExprMap.find(bb.get());
+        if (pit != postAnchorExprMap.end()) {
           blockInfo.postAnchorExpr = pit->second;
         }
       }
@@ -453,13 +442,13 @@ Expression* makeCounterIncrement(
  * integer counter indices are assigned in between; the function-entry counter
  * prepend wraps the outer body without moving inner expressions.
  */
-struct CounterInjectionWalker : public PostWalker<CounterInjectionWalker, UnifiedExpressionVisitor<CounterInjectionWalker>> {
+struct BlockCounterInjectionWalker : public PostWalker<BlockCounterInjectionWalker, UnifiedExpressionVisitor<BlockCounterInjectionWalker>> {
   Builder& builder;
   Name coverageMemoryWasmName;
   const std::unordered_map<Expression*, int32_t>& anchorToCounterIndex;       // entry-anchored (counter before)
   const std::unordered_map<Expression*, int32_t>& postAnchorToCounterIndex;   // post-anchored (counter after)
 
-  CounterInjectionWalker(
+  BlockCounterInjectionWalker(
     Builder& b,
     const Name& memName,
     const std::unordered_map<Expression*, int32_t>& preMap,
@@ -505,13 +494,6 @@ struct CounterInjectionWalker : public PostWalker<CounterInjectionWalker, Unifie
 /**
  * Instrument WASM binary for coverage and regenerate source map
  *
- * This function:
- * 1. Reads WASM binary with source map
- * 2. Adds __coverage_memory import (multi-memory for coverage counters)
- * 3. Instruments each user function with coverage counter increment
- * 4. Extracts debug information
- * 5. Writes instrumented binary with regenerated source map
- *
  * @param wasmBuffer - Node.js Buffer containing WASM binary
  * @param sourceMapBuffer - Node.js Buffer containing source map JSON
  * @returns Object with { instrumentedWasm, sourceMap, debugInfo }
@@ -519,7 +501,6 @@ struct CounterInjectionWalker : public PostWalker<CounterInjectionWalker, Unifie
 Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
 
-  // Validate arguments
   if (info.Length() < 3) {
     Napi::TypeError::New(env, "Expected 3 arguments: wasmBuffer, sourceMapBuffer, instrumentationOptions")
         .ThrowAsJavaScriptException();
@@ -545,11 +526,9 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
   }
 
   try {
-    // Extract buffer data
     Napi::Buffer<char> wasmBuf = info[0].As<Napi::Buffer<char>>();
     Napi::Buffer<char> sourceMapBuf = info[1].As<Napi::Buffer<char>>();
 
-    // Extract options
     const Napi::Object options = info[2].As<Napi::Object>();
     
     // Extracted options
@@ -679,8 +658,6 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     Builder builder(module);
     int32_t coverageIndex = 0;
     std::vector<FunctionInfo> instrumentedFunctions;
-
-    // Enable multi-memory feature for coverage memory
     module.features.setMultiMemory(true);
 
     // secondary memory import used to store coverage counters
@@ -689,6 +666,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     // Create walker for debug info extraction
     DebugInfoWalker walker(&module);
 
+    // ── Function counter assignment (region 1) + injection ──
     ModuleUtils::iterDefinedFunctions(module, [&](Function* func) {
       std::string funcName = func->name.toString();
 
@@ -704,7 +682,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         return;
       }
 
-      // Determine the representative location and excluded-file status BEFORE
+      // Determine the representative location and excluded-file status before
       // the CFG walk, so excluded / unlocatable functions skip the walk
       // entirely. repLoc depends only on func->body + func->debugLocations
       // (populated by the binary reader, not the walk), so it is available here.
@@ -748,16 +726,16 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       funcInfo.blocks = walker.blocks;
       funcInfo.func = func;
 
-      // add to list
-      instrumentedFunctions.push_back(funcInfo);
-
       // Prepend function-entry counter increment to the function body
       func->body = builder.makeSequence(
         makeCounterIncrement(builder, coverageMemoryWasmName, coverageIndex),
         func->body,
         func->body->type
       );
-
+      
+      // add to list
+      instrumentedFunctions.push_back(funcInfo);
+      
       if (DEBUG) {
         std::cout << LOG_PREFIX << " -   INSTRUMENTED \"" << funcName << "\" | coverageMemoryIndex [" << coverageIndex << "]"
                   << " | reprLoc=" << representativeLocation.fileIndex << ":" << representativeLocation.lineNumber
@@ -769,9 +747,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
 
     // ── Block counter assignment (region 2) + injection ──
     // Function-entry counters occupy indices [0, coverageIndex) — region 1, with
-    // contiguous per-function indices. Block counters are assigned next, so
-    // function counter indices stay stable and the existing per-function read
-    // path is unaffected until the executor is updated to read the full array.
+    // contiguous per-function indices. Block counters are assigned next.
     const int32_t functionCounterCount = coverageIndex;
     for (auto& funcInfo : instrumentedFunctions) {
       std::unordered_map<Expression*, int32_t> anchorToCounterIndex;
@@ -801,7 +777,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       }
 
       if (!anchorToCounterIndex.empty() || !postAnchorToCounterIndex.empty()) {
-        CounterInjectionWalker injector(builder, coverageMemoryWasmName, anchorToCounterIndex, postAnchorToCounterIndex);
+        BlockCounterInjectionWalker injector(builder, coverageMemoryWasmName, anchorToCounterIndex, postAnchorToCounterIndex);
         injector.walkFunctionInModule(funcInfo.func, &module);
       }
     }
@@ -813,7 +789,6 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
 
     int32_t requiredCoverageMemoryPages = std::ceil(coverageIndex / static_cast<double>(COUNTERS_PER_PAGE));
 
-    // Add __coverage_memory import
     auto coverageMemory = Builder::makeMemory(coverageMemoryWasmName);
     coverageMemory->module = coverageMemoryModule;
     coverageMemory->base = coverageMemoryName;
