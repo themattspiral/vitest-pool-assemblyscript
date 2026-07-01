@@ -192,7 +192,7 @@ Some fixtures are too large to cleanly commit as source. The large function coun
 
 [`test/generators/global-setup-large-fixture.js`](../test/generators/global-setup-large-fixture.js) generates the large coverage fixture:
 
-- It is wired as a vitest [`globalSetup`](https://vitest.dev/config/#globalsetup) on the passing and meta configs, so it runs once before any test workers spawn and regenerates the fixture on every run.
+- It is wired as a vitest [`globalSetup`](https://vitest.dev/config/#globalsetup) on the passing configs, so it runs once before any test workers spawn and regenerates the fixture on every run.
 - It writes the AssemblyScript source (`test-generated/assembly-src/`) plus the test files that import it (`test-generated/assembly/`), all derived from a single function-count parameter (overridable via the `LARGE_FIXTURE_FN_COUNT` env var).
 - Paths resolve against the main repo via `import.meta.url`, so generation writes to the correct location even when vitest runs from the external sibling install directory (where its cwd differs).
 - `test-generated/` is gitignored, so the output never appears in the repo — only the generator is reviewed.

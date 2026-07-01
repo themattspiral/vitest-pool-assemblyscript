@@ -359,7 +359,7 @@ export async function runSuite(
 
     // update suite result based on its tasks, report coverage data, report suite task result
     updateSuiteFinishedResult(suite, suiteLogPrefix);
-    await reportSuiteFinished(rpc, suite, logModule, base, vitestVersion);
+    await reportSuiteFinished(rpc, suite, collectCoverage, logModule, base, vitestVersion);
 
     // ensure completed suite will not be run again if another test
     // times out later and the file worker thread gets re-launched

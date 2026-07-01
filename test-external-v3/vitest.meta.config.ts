@@ -50,6 +50,10 @@ export default defineConfig({
             '../vitest-pool-assemblyscript/test/js-coverage-parity/**/*.test.ts',
           ],
           exclude: [],
+
+          // force it to run separately from AS projects (sequentially).
+          // this is a necessary v3 exception because it executes all ProcessPools concurrently
+          sequence: { groupOrder: 1 },
         }
       }),
 

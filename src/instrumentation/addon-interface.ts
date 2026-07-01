@@ -280,7 +280,6 @@ function transformDebugInfo(
     debugSourceFiles: raw.debugSourceFiles,
     absoluteDebugSourceFiles: raw.debugSourceFiles.map(f => normalizeToAbsolutePath(f, projectRoot)),
     functionsByFileAndPosition,
-    instrumentedFunctionCount,
     totalInstrumentationCounters: raw.totalInstrumentationCounters,
   };
 }

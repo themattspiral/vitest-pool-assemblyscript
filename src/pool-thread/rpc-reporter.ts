@@ -120,6 +120,7 @@ export async function reportSuitePrepare(
 export async function reportSuiteFinished(
   rpc: WorkerRPC,
   suite: Suite,
+  collectCoverage: boolean,
   logModule: string,
   base: string,
   vitestVersion: VitestVersion = 'v4',
@@ -128,11 +129,10 @@ export async function reportSuiteFinished(
   const rpcLogPrefix = `[${logModule} RPC] ${suiteLabel}`;
   const meta = suite.meta as AssemblyScriptSuiteTaskMeta;
   const coverageBundle = meta.coverage;
-  const coverageKeys: number = Object.keys(coverageBundle?.functionHits.hitCountsByFileAndPosition ?? {}).length;
   let coveragePromise: Promise<void> = Promise.resolve();
 
-  // Report coverage if this is a file task, and coverage is available
-  if (isSuiteOwnFile(suite) && coverageBundle && coverageKeys > 0) {
+  // Report coverage if coverage is enabled and this is a file task
+  if (collectCoverage && isSuiteOwnFile(suite) && coverageBundle) {
     const coverage: AssemblyScriptCoveragePayload = {
       __format: COVERAGE_PAYLOAD_FORMATS.AssemblyScript,
       ...coverageBundle,
@@ -147,9 +147,7 @@ export async function reportSuiteFinished(
     );
     coveragePromise = rpc.onAfterSuiteRun(afterSuiteMeta);
 
-    debug(`${rpcLogPrefix} - onAfterSuiteRun: Reported suite coverage (${coverageKeys} unique positions)`);
-  } else if (coverageKeys === 0) {
-    debug(`${rpcLogPrefix} - onAfterSuiteRun: No suite coverage to report`);
+    debug(`${rpcLogPrefix} - onAfterSuiteRun: Reported suite coverage`);
   }
 
   // Report suite event (without the custom task meta so reporters won't log it)

@@ -532,11 +532,11 @@ export interface BinaryDebugInfo {
    */
   functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo[]>>;
 
-  instrumentedFunctionCount: number;
   /**
-   * Total coverage counter slots in coverage memory: function-entry counters
-   * (region 1, indices [0, instrumentedFunctionCount)) plus block counters
-   * (region 2). The executor reads this many counters once block counters are consumed.
+   * Total coverage counter slots in coverage memory:
+   * function-entry counters (region 1, indices [0, F))
+   * plus block counters (region 2).
+   * The executor reads this many counters once block counters are consumed.
    */
   totalInstrumentationCounters: number;
 }

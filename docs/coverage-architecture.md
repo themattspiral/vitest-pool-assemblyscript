@@ -153,7 +153,7 @@ After each test executes (in a dedicated WASM instance), the test runner reads t
 #### Notes on Position Keys:
 - Position keys use the format `"line:column"`
 - Functions in most cases will have a *unique* `representativeLocation` source position
-- In AssemblyScript, generic functions are monomorphized when compiled to WASM, which means the *same `representativeLocation`* source position is produced by multiple WASM functions, which all map back to the same generic AssemblyScript function. e.g. `closeTo<bool>` and `closeTo<u8>` are seaprate in WASM, but map back to the same `closeTo<T>` in AS. In this case, their counts are summed to produce the correct generic function hit total
+- In AssemblyScript, generic functions are monomorphized when compiled to WASM, which means the *same `representativeLocation`* source position is produced by multiple WASM functions, which all map back to the same generic AssemblyScript function. e.g. `closeTo<bool>` and `closeTo<u8>` are separate in WASM, but map back to the same `closeTo<T>` in AS. In this case, their counts are summed to produce the correct generic function hit total
 - `branchHits` carries per-arm count arrays *keyed by decision* rather than this position map
 
 ### Empty-Case & Decision-Position Channels
@@ -395,6 +395,6 @@ Our provider can report a *never-imported* AS source fully (all-uncovered, strai
 
 The same caveat applies to users: in a multi-project setup whose `coverage` config points at sources outside every project root, expect those files in the AS report but not necessarily in the merged JS report.
 
-The happens because vitest's V8 provider can only *transform* (strip types from) source files *inside a project's root*, because it must be in the root to be processed by vite. A source file referenced from outside all project roots — e.g. a file imported via a `../` path from a sibling install — is reported only when it is actually imported and executed (runtime coverage); a never-imported out-of-root file cannot be transformed and is dropped from V8's report.
+This happens because vitest's V8 provider can only *transform* (strip types from) source files *inside a project's root*, because it must be in the root to be processed by vite. A source file referenced from outside all project roots — e.g. a file imported via a `../` path from a sibling install — is reported only when it is actually imported and executed (runtime coverage); a never-imported out-of-root file cannot be transformed and is dropped from V8's report.
 
 `coverage.allowExternal: true` relaxes the *reporting* filter but not the transformer. The AssemblyScript provider is unaffected: it parses its included sources directly with the AssemblyScript parser, so uncovered AS sources are always reported regardless of their location relative to the project root.

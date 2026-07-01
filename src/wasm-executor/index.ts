@@ -309,14 +309,12 @@ export async function executeWASMTest(
       hitCountsByFileAndPosition: {},
     };
 
-    // Read all coverage counters (region 1: function-entry counters [0, F);
-    // region 2: block counters [F, total)). Function-coverage extraction below
-    // only indexes region-1 slots, so the longer read is transparent to it.
-    const counterCount = compilation.debugInfo.totalInstrumentationCounters
-      ?? compilation.debugInfo.instrumentedFunctionCount;
+    // Read all coverage counters
+    // region 1: function-entry counters [0, F)
+    // region 2: block counters [F, total))
+    const counterCount = compilation.debugInfo.totalInstrumentationCounters;
     const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, counterCount);
-    covDebug(`${logPrefix} - Read ${counterCount} coverage counters `
-      + `(${compilation.debugInfo.instrumentedFunctionCount} function-entry + block counters)`);
+    covDebug(`${logPrefix} - Read ${counterCount} coverage counters`);
 
     // Iterate all instrumented functions and build coverage data with hit counts extracted from coverage memory
     let functionsHit = 0;
