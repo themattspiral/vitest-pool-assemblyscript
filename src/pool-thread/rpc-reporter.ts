@@ -23,6 +23,7 @@ import type {
   AssemblyScriptCoveragePayload,
   AssemblyScriptSuiteTaskMeta,
   VitestVersion,
+  WASMCompilation,
   WorkerRPC
 } from '../types/types.js';
 import { debug } from '../util/debug.js';
@@ -121,6 +122,7 @@ export async function reportSuiteFinished(
   rpc: WorkerRPC,
   suite: Suite,
   collectCoverage: boolean,
+  compilation: WASMCompilation,
   logModule: string,
   base: string,
   vitestVersion: VitestVersion = 'v4',
@@ -133,6 +135,13 @@ export async function reportSuiteFinished(
 
   // Report coverage if coverage is enabled and this is a file task
   if (collectCoverage && isSuiteOwnFile(suite) && coverageBundle) {
+    // The set of source files that a binary loaded is a file-level property.
+    // Record it once on the file suite's bundle. The provider uses it to mark
+    // module-level declarations covered for files that loaded but produce no runtime counter.
+    if (compilation.debugInfo) {
+      coverageBundle.loadedSourceFiles = compilation.debugInfo.absoluteDebugSourceFiles;
+    }
+
     const coverage: AssemblyScriptCoveragePayload = {
       __format: COVERAGE_PAYLOAD_FORMATS.AssemblyScript,
       ...coverageBundle,
