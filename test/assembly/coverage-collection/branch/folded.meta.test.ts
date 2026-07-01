@@ -6,8 +6,7 @@ import {
 } from "../../../assembly-src/coverage-collection/branch/folded.meta";
 
 // Exercises each folded-branch fixture ONCE. The compiler removes the branch, so
-// coverage must still report the live arm covered and the eliminated arm 0. The
-// assertions live in test/meta-verify/coverage-collection/branches-folded.test.ts.
+// coverage must still report the live arm covered and the eliminated arm 0.
 describe("folded branch fixtures", () => {
   test("if(true) / if(false)", () => {
     expect(foldedIfTrue(0)).toBe(1);   // then live, else eliminated -> [1,0]

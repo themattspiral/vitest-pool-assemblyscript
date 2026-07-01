@@ -490,6 +490,11 @@ struct CounterInjectionWalker : public PostWalker<CounterInjectionWalker, Unifie
       Block* wrapped = builder.makeBlock();
       wrapped->list.push_back(*currp);
       wrapped->list.push_back(counterInc);
+      // finalize(curr->type) is safe here because post-anchoring only ever targets empty
+      // fall-through switch-case control blocks, which are always void — so curr->type is
+      // `none`, matching the void counter-store that is this block's last element. A
+      // value-producing block would need its result preserved across the counter; that
+      // shape never occurs.
       wrapped->finalize(curr->type);
       *currp = wrapped;
       return;

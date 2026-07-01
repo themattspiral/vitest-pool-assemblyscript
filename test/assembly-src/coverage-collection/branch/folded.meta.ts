@@ -6,9 +6,6 @@
  * decision-presence (a source branch whose condition range contains no binary
  * decision is folded), which catches non-literal folds (named consts, constant
  * comparisons, fused logicals) that AST-literal detection would miss.
- *
- * Each function is exercised ONCE in branch-folded.meta.test.ts. Assertions live in
- * test/meta-verify/coverage-collection/branches-folded.test.ts.
  */
 
 // if(true) / if(false): the live arm survives, the dead arm is eliminated.

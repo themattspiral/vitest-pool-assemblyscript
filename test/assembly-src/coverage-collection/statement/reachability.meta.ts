@@ -1,8 +1,8 @@
 // Reachability statement-coverage fixtures — taken vs not-taken bodies, early-
 // return dead paths, and the both-arms-return case where AS emits a trailing
 // Unreachable at the last statement's position (the per-position MAX keeps the live count).
-// Driven in reachability.meta.test.ts; assertions in meta-verify .../statement/
-// reachability.test.ts. KEEP LINE-ALIGNED with js-coverage-parity-src/statement/reachability.ts.
+// 
+// KEEP LINE-ALIGNED
 
 export function classify(n: i32): i32 {
   if (n > 0) {

@@ -1,7 +1,7 @@
 // Statement layout + line-coverage fixtures — a multi-line statement (its entry line
 // gets the hit), multiple statements on one line, a two-declarator Variable, and an
-// uncovered function (its body lines uncovered). Driven in layout.meta.test.ts;
-// assertions in .../statement/layout.test.ts. KEEP LINE-ALIGNED with the twin.
+// uncovered function (its body lines uncovered).
+// KEEP LINE-ALIGNED with the twin.
 
 export function multiLine(a: i32, b: i32): i32 {
   let sum = add(

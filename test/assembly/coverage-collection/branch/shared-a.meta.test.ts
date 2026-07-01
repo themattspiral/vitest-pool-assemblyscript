@@ -3,7 +3,7 @@ import { sharedBranch } from "../../../assembly-src/coverage-collection/branch/s
 
 // File A of the shared-source pair: exercises only the THEN arm of sharedBranch.
 // File B exercises the ELSE arm. The accumulated branch coverage of
-// branch-shared.meta.ts must sum both files' hits (see branches-shared.test.ts).
+// branch/shared.meta.ts must sum both files' hits
 describe("shared branch fixture (file A — then arm)", () => {
   test("sharedBranch: then arm twice", () => {
     expect(sharedBranch(5)).toBe(1);  // then

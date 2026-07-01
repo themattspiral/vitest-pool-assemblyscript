@@ -1,7 +1,7 @@
 // Loop statement-coverage fixtures — exercise the entry-position rule (a loop
-// is *reached* once; its body runs N times). Driven with known iteration counts in
-// loops.meta.test.ts; assertions in meta-verify/coverage-collection/statement/
-// loops.test.ts. KEEP LINE-ALIGNED with the twin js-coverage-parity-src/statement/loops.ts.
+// is *reached* once; its body runs N times). 
+// 
+// KEEP LINE-ALIGNED with the twin
 
 export function forSum(n: i32): i32 {
   let total = 0;

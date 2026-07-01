@@ -3,8 +3,7 @@
  * about. Each function is exercised with KNOWN inputs in branch-switch.meta.test.ts
  * so its per-arm branch hit counts are exactly hand-derivable and match v8's
  * "entered" branch semantics: an arm counts every time control ENTERS it, whether
- * by a matching case or by falling through into it. Assertions live in
- * test/meta-verify/coverage-collection/branches-switch.test.ts.
+ * by a matching case or by falling through into it.
  */
 
 // Clean switch: every case has its own body (no fall-through), explicit default.

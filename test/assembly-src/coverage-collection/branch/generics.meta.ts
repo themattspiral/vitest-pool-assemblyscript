@@ -3,8 +3,7 @@
  * compiled once per type argument, but a branch inside it is ONE source construct.
  * Its per-arm hit counts must SUM across all monomorphized instances (the decision
  * key is source-derived, so every instance keys to the same branch). Each function
- * here is instantiated at i32 and f64. Assertions live in
- * test/meta-verify/coverage-collection/branches-generics.test.ts.
+ * here is instantiated at i32 and f64.
  */
 
 // Generic if branch, monomorphized at i32 and f64: arm hits sum across instances.

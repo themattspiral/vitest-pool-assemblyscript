@@ -9,9 +9,6 @@
  * decision is filed under THIS file and the source branch matches. Without the fix
  * the decision was filed under the class file, this file's branch found no decision
  * in its bucket, and both arms read 0 (`[0,0]`).
- *
- * Each function is exercised in branch-filing.meta.test.ts; assertions live in
- * test/meta-verify/coverage-collection/branches-filing.test.ts.
  */
 import { Box } from "./filing-class.meta";
 

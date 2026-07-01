@@ -2,8 +2,7 @@
  * if/else and ternary (cond-expr) branch fixtures for meta-verify, covering the
  * real (non-folded) decision constructs. Each function is exercised with KNOWN
  * inputs in branch-if-ternary.meta.test.ts so its per-arm branch hit counts are
- * exactly hand-derivable and match v8 semantics. Assertions live in
- * test/meta-verify/coverage-collection/branches-if-ternary.test.ts.
+ * exactly hand-derivable and match v8 semantics.
  *
  * An if's then/else arms are counted directly when located; an if WITHOUT an else
  * has its implicit-else hits derived as decisionHits − then. An else-if chain is

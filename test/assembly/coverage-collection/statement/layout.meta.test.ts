@@ -4,8 +4,7 @@ import {
 } from "../../../assembly-src/coverage-collection/statement/layout.meta";
 
 // unusedPath is intentionally NEVER called — its body lines stay uncovered, exercising
-// the uncovered-line set. Assertions in
-// meta-verify/coverage-collection/statement/layout.test.ts.
+// the uncovered-line set.
 describe("statement layout / line-coverage fixtures", () => {
   test("multiLine(3,4): multi-line statement", () => {
     expect(multiLine(3, 4)).toBe(7);

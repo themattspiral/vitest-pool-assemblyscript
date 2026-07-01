@@ -4,8 +4,7 @@
  * body's statements are inlined into the caller in another file. The inlined statements
  * keep pointing back HERE, so their coverage is attributed to this source (genuinely-
  * executed @inline code is kept), even though the standalone function is never called
- * (0 function hits — the differentiator). Exercised by
- * statement/inline.meta-no-strip-inline.test.ts; assertions in .../statement/inline.test.ts.
+ * (0 function hits — the differentiator).
  */
 @inline
 export function computeStat(n: i32): i32 {

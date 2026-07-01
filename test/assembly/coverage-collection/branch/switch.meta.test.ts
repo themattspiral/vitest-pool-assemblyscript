@@ -5,8 +5,7 @@ import {
 } from "../../../assembly-src/coverage-collection/branch/switch.meta";
 
 // Exercises the switch-branch fixtures with KNOWN inputs so each arm's "entered"
-// hit count is hand-derivable. The assertions on the resulting branch hit counts
-// live in test/meta-verify/coverage-collection/branches-switch.test.ts.
+// hit count is hand-derivable.
 describe("switch branch fixtures", () => {
   // Clean switch: case 1 + default exercised; case 2 never.
   test("category: clean switch", () => {

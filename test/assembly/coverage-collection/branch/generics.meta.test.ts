@@ -4,8 +4,7 @@ import {
 } from "../../../assembly-src/coverage-collection/branch/generics.meta";
 
 // Exercises each generic branch fixture at BOTH i32 and f64 so the per-arm counts
-// summed across monomorphized instances are hand-derivable. The assertions live in
-// test/meta-verify/coverage-collection/branches-generics.test.ts.
+// summed across monomorphized instances are hand-derivable.
 describe("generic (monomorphized) branch fixtures", () => {
   // clampGeneric if (n < lo): i32 then + else, f64 then.
   test("clampGeneric: monomorphized if at i32 and f64", () => {

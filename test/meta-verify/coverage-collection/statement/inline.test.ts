@@ -25,8 +25,8 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — inlined statements (@i
     // statements still read 2 (the call count, from the inlined copy), attributed back
     // to the @inline source. Derived from the inputs, not observed output.
     expect(hitCount(entry, 'computeStat')).toBe(0);
-    expect(statementHitsByLine(entry, 12)).toEqual([2]); // let doubled = n * 2
-    expect(statementHitsByLine(entry, 13)).toEqual([2]); // let result = doubled + 1
-    expect(statementHitsByLine(entry, 14)).toEqual([2]); // return result
+    expect(statementHitsByLine(entry, 11)).toEqual([2]); // let doubled = n * 2
+    expect(statementHitsByLine(entry, 12)).toEqual([2]); // let result = doubled + 1
+    expect(statementHitsByLine(entry, 13)).toEqual([2]); // return result
   });
 });

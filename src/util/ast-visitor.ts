@@ -71,7 +71,6 @@ const STATEMENT_NODE_KINDS: ReadonlySet<number> = new Set<number>([
   ASNodeKind.Throw,
   ASNodeKind.Break,
   ASNodeKind.Continue,
-  ASNodeKind.Try,
   ASNodeKind.Void,
 ]);
 

@@ -4,9 +4,7 @@ import {
 } from "../../../assembly-src/coverage-collection/branch/logical.meta";
 
 // Exercises the logical-branch fixtures with KNOWN inputs so each operand arm's
-// per-evaluation hit count is hand-derivable. The assertions on the resulting
-// branch hit counts live in
-// test/meta-verify/coverage-collection/branches-logical.test.ts.
+// per-evaluation hit count is hand-derivable.
 describe("logical branch fixtures", () => {
   // Real `&&`: left always evaluated, right only when left is true.
   test("andCheck: && short-circuit", () => {

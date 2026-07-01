@@ -3,8 +3,7 @@
  * and "fused-logical" conditions (an `if` whose condition is a logical expression).
  * Each function is exercised with KNOWN inputs in branch-logical.meta.test.ts so
  * its per-arm branch hit counts are exactly hand-derivable and match v8's "entered"
- * branch semantics. Assertions live in
- * test/meta-verify/coverage-collection/branches-logical.test.ts.
+ * branch semantics.
  *
  * v8 logical (binary-expr) semantics: the LEFT operand is counted every time the
  * expression is evaluated; the RIGHT operand only when the left's value forces it

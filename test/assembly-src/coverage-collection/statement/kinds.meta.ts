@@ -1,7 +1,7 @@
 // Statement-KIND coverage — the coverable kinds not exercised by loops/reachability:
 // module + multi-declarator Variable, ExpressionStatement (assign/increment/call),
-// a void helper body, Continue, Break, and Throw (left uncovered). Driven in
-// kinds.meta.test.ts; assertions in .../statement/kinds.test.ts. KEEP LINE-ALIGNED.
+// a void helper body, Continue, Break, and Throw (left uncovered).
+// KEEP LINE-ALIGNED.
 
 // @ts-ignore
 let sink: i32 = 0;

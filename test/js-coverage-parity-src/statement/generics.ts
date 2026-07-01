@@ -1,7 +1,6 @@
 // Generic statement parity twin (v8 oracle) — mirrors the AS fixture line-for-line.
 // JS has no monomorphization, so clamp is ONE function called twice; v8's per-line
-// counts are the parity target for the AS SUM-across-instances. Compared in
-// .../statement/generics.test.ts. KEEP LINE-ALIGNED (header line count matches AS).
+// counts are the parity target for the AS SUM-across-instances.
 
 export function clamp(v: number, lo: number, hi: number): number {
   if (v < lo) {

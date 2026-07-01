@@ -5,8 +5,7 @@ import {
 
 // Exercises the loop fixtures with KNOWN iteration counts so each statement's hit
 // count is hand-derivable (the loop header is reached once per call; the body
-// runs N times). Assertions live in
-// meta-verify/coverage-collection/statement/loops.test.ts.
+// runs N times).
 describe("loop statement fixtures", () => {
   test("forSum(4): body runs 4x", () => {
     expect(forSum(4)).toBe(6); // 0 + 1 + 2 + 3

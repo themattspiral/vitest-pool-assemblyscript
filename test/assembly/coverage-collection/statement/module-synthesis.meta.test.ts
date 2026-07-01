@@ -3,8 +3,7 @@ import { ALWAYS_CONST, ALWAYS_LET, gate } from "../../../assembly-src/coverage-c
 
 // gate() is false, so the module-level `if` block never runs (ALWAYS_LET stays 20).
 // That leaves the in-block `const NEVER` genuinely uncovered — the case the synthesis
-// must NOT credit. Assertions in
-// meta-verify/coverage-collection/statement/module-synthesis.test.ts.
+// must NOT credit.
 describe("module-declaration synthesis", () => {
   test("unconditional decls usable; the conditional block did not run", () => {
     expect(ALWAYS_CONST).toBe(10);

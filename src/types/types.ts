@@ -468,7 +468,6 @@ export interface ExpressionDebugInfo {
  * Basic block debug info from CFG analysis
  *
  * Basic blocks are sequences of expressions with single entry/exit points.
- * In v2, counters are placed at basic block boundaries for efficient coverage.
  */
 export interface BasicBlockDebugInfo {
   /** Block index within the function */
@@ -649,15 +648,10 @@ export interface ParsedSourceFunctionInfo {
 
 /**
  * Statement info parsed from AssemblyScript source via AST
- *
- * v2 only: Used for line-level statement coverage.
- * Binary expression points are matched to source statement ranges.
  */
 export interface ParsedSourceStatementInfo {
   /** Source range for containment matching */
   range: SourceRange;
-  /** Statement type (e.g., "variable", "expression", "return") */
-  statementType?: string;
   /**
    * True for a module-scope variable declaration (function-nesting depth 0).
    * Such a declaration runs at module instantiation; if its initializer folds to
@@ -669,9 +663,6 @@ export interface ParsedSourceStatementInfo {
 
 /**
  * Branch info parsed from AssemblyScript source via AST
- *
- * v2 only: Used for branch coverage.
- * Binary branch expressions are matched to source branch ranges.
  */
 export interface ParsedSourceBranchInfo {
   /** Whole construct range (the Istanbul branch location) */

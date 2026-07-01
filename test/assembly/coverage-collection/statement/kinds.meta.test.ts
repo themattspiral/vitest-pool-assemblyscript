@@ -5,8 +5,7 @@ import {
 
 // Known inputs so each statement kind's hit count is hand-derivable. maybeThrow(5)
 // leaves the Throw uncovered (avoids the AS-abort vs JS-exception behavior split,
-// keeping parity on the throw statement). Assertions in
-// meta-verify/coverage-collection/statement/kinds.test.ts.
+// keeping parity on the throw statement).
 describe("statement-kind fixtures", () => {
   test("declarators: multi-declarator variable", () => {
     expect(declarators()).toBe(6); // 1 + 2 + 3

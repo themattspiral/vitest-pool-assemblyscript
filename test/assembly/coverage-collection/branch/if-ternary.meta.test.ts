@@ -5,8 +5,7 @@ import {
 } from "../../../assembly-src/coverage-collection/branch/if-ternary.meta";
 
 // Exercises the if/ternary branch fixtures with KNOWN inputs so each arm's hit
-// count is hand-derivable. The assertions on the resulting branch hit counts live
-// in test/meta-verify/coverage-collection/branches-if-ternary.test.ts.
+// count is hand-derivable.
 describe("if / ternary branch fixtures", () => {
   // Plain if/else: then twice, else once.
   test("absVal: if/else both arms", () => {

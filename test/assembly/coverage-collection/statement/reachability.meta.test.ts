@@ -7,7 +7,6 @@ import {
 // both arms (the both-return Unreachable case); earlyReturn(5) leaves the early-
 // return body genuinely uncovered next to covered post-if statements (the
 // matching-miss differentiator); guarded(true) covers the conditional body.
-// Assertions in meta-verify/coverage-collection/statement/reachability.test.ts.
 describe("reachability statement fixtures", () => {
   test("classify: both arms covered (if/else both return)", () => {
     expect(classify(5)).toBe(1);
