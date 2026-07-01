@@ -30,7 +30,6 @@ import {
   ForOfStatement,
   SwitchStatement,
   SwitchCase,
-  TryStatement,
   ThrowStatement,
   ReturnStatement,
   CallExpression,
@@ -400,17 +399,6 @@ export abstract class ASTVisitor {
       case ASNodeKind.Throw: {
         const stmt = node as ThrowStatement;
         this.visitNode(stmt.value);
-        break;
-      }
-      case ASNodeKind.Try: {
-        const stmt = node as TryStatement;
-        for (const s of stmt.bodyStatements) this.visitNode(s);
-        if (stmt.catchStatements) {
-          for (const s of stmt.catchStatements) this.visitNode(s);
-        }
-        if (stmt.finallyStatements) {
-          for (const s of stmt.finallyStatements) this.visitNode(s);
-        }
         break;
       }
       case ASNodeKind.Variable: {

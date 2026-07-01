@@ -202,15 +202,11 @@ class FunctionExtractorVisitor extends ASTVisitor {
         // Use variable name for the function
         const shortName = node.name.text;
         const qualifiedName = `${this.modulePath}/${shortName}`;
-
-        // Use the variable declaration's range (routed through buildRange so the
-        // lineAt/columnAt call-order contract lives in exactly one place)
         const range = this.buildRange(node, null);
 
         this.addFunction(qualifiedName, shortName, range);
       }
 
-      // Visit the function body manually since we're handling this specially
       // Visit the body through visitFunctionBody so function-nesting depth stays
       // accurate (its statements are inside a function, not module scope).
       if (funcDecl.body) {
