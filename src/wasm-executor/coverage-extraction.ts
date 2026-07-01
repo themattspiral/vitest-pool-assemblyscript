@@ -309,11 +309,11 @@ export function buildCaseHits(
     for (const funcInfos of Object.values(debugFunctions)) {
       for (const funcInfo of funcInfos) {
         for (const block of funcInfo.basicBlocks) {
-          // An empty fall-through case block: counted (post-anchored), with no
-          // located expression of its own, and not a decision (single out-edge).
-          if (block.coverageMemoryIndex === undefined
-            || block.expressionIndices.length > 0
-            || block.isDecision) {
+          // Only the addon's post-anchored empty fall-through switch cases feed
+          // emptyCaseHits — the flag identifies them by construction, so no structural
+          // inference here. (A post-anchored block always has a counter; the index
+          // check just narrows the type for the read below.)
+          if (!block.isPostAnchored || block.coverageMemoryIndex === undefined) {
             continue;
           }
 

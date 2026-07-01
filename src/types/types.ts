@@ -478,6 +478,14 @@ export interface BasicBlockDebugInfo {
    * Single source of truth for both branch identification and counter allocation.
    */
   isDecision: boolean;
+  /**
+   * Whether this block is a post-anchored empty fall-through switch case — a `case X:`
+   * with no statements of its own, whose counter is injected AFTER the named Block it
+   * falls out of (so it has a counter but no located expression). The addon post-anchors
+   * ONLY these blocks, so this flag identifies them by construction; it is the sole
+   * source of `emptyCaseHits` (see buildCaseHits).
+   */
+  isPostAnchored: boolean;
   /** Indices of expressions contained in this block */
   expressionIndices: number[];
   /** Outgoing branch edges */

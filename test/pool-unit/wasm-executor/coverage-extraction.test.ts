@@ -21,8 +21,9 @@ function block(
   index: number,
   coverageMemoryIndex: number | undefined,
   expressionIndices: number[],
+  isPostAnchored = false,
 ): BasicBlockDebugInfo {
-  return { index, isDecision: false, expressionIndices, branches: [], coverageMemoryIndex };
+  return { index, isDecision: false, isPostAnchored, expressionIndices, branches: [], coverageMemoryIndex };
 }
 
 function func(
@@ -168,6 +169,7 @@ function decisionBlock(
   return {
     index,
     isDecision: true,
+    isPostAnchored: false,
     expressionIndices,
     branches: targetBlockIndices.map(targetBlockIndex => ({ targetBlockIndex })),
     coverageMemoryIndex,
@@ -387,7 +389,7 @@ describe('buildCaseHits', () => {
         [
           decisionBlock(0, 9, [0, 1], [1, 2]), // comparison: case-label = last located (4:9)
           block(1, undefined, []),             // next comparison (not an empty case — no counter)
-          block(2, 5, []),                     // empty fall-through case (post-anchored)
+          block(2, 5, [], true),               // empty fall-through case (post-anchored)
         ],
       ),
     ]);
@@ -400,7 +402,7 @@ describe('buildCaseHits', () => {
   test('reports an untested empty case as 0 (instrumented, never entered)', () => {
     const di = debugInfoFor([
       func([expr(3, 10), expr(4, 9)],
-        [decisionBlock(0, 9, [0, 1], [1, 2]), block(1, undefined, []), block(2, 5, [])]),
+        [decisionBlock(0, 9, [0, 1], [1, 2]), block(1, undefined, []), block(2, 5, [], true)]),
     ]);
     const counters = new Array(32).fill(0); // counter 5 = 0
 
@@ -422,7 +424,7 @@ describe('buildCaseHits', () => {
 
   test('skips an empty case whose in-edge decision has no located expression', () => {
     const di = debugInfoFor([
-      func([], [decisionBlock(0, 9, [], [1, 2]), block(1, undefined, []), block(2, 5, [])]),
+      func([], [decisionBlock(0, 9, [], [1, 2]), block(1, undefined, []), block(2, 5, [], true)]),
     ]);
     const counters = new Array(32).fill(0);
     counters[5] = 1;
@@ -432,9 +434,9 @@ describe('buildCaseHits', () => {
 
   test('SUMs empty-case hits across monomorphizations of the same source switch', () => {
     const instanceA = func([expr(3, 10), expr(4, 9)],
-      [decisionBlock(0, 9, [0, 1], [1, 2]), block(1, undefined, []), block(2, 5, [])], 's<i32>');
+      [decisionBlock(0, 9, [0, 1], [1, 2]), block(1, undefined, []), block(2, 5, [], true)], 's<i32>');
     const instanceB = func([expr(3, 10), expr(4, 9)],
-      [decisionBlock(0, 10, [0, 1], [1, 2]), block(1, undefined, []), block(2, 6, [])], 's<f64>');
+      [decisionBlock(0, 10, [0, 1], [1, 2]), block(1, undefined, []), block(2, 6, [], true)], 's<f64>');
     const di = debugInfoFor([instanceA, instanceB], '1:1');
     const counters = new Array(32).fill(0);
     counters[5] = 1; // instance A empty case

@@ -912,6 +912,10 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
 
         blockObj.Set("index", Napi::Number::New(env, j));
         blockObj.Set("isDecision", Napi::Boolean::New(env, block.isDecision));
+        // Post-anchored: an empty fall-through switch case whose counter sits AFTER
+        // the named Block it falls out of (it has a counter but no located expression
+        // of its own). This is the sole source of emptyCaseHits.
+        blockObj.Set("isPostAnchored", Napi::Boolean::New(env, block.postAnchorExpr != nullptr));
         if (block.coverageMemoryIndex >= 0) {
           blockObj.Set("coverageMemoryIndex", Napi::Number::New(env, block.coverageMemoryIndex));
         }
