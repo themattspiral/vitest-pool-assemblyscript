@@ -124,6 +124,14 @@ function firstLocatedExpressionLocation(
  * Canonical decision key: the sorted composite of the decision's located
  * arm-target positions (e.g. "47:9|49:3"). Source-derived, so it is stable
  * across binaries and across monomorphizations of the same source branch.
+ *
+ * Stability across monomorphizations relies on an arm's target position coming
+ * from the arm's SOURCE content, which is identical for every specialization —
+ * so an arm doesn't drop from (or shift within) the key for some types only. Even
+ * a type-conditionally-folded inner construct keeps a located marker at its own
+ * source position (a folded `if (isInteger<T>()) {…}` still anchors the arm at the
+ * inner `if`), so a surviving decision's arms stay located in every instance and
+ * the per-instance keys match and merge.
  */
 function buildDecisionKey(targets: BranchTargetHits[]): string {
   return targets
