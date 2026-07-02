@@ -3,11 +3,11 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@vitest/coverage-v8": "~4.1.8",
-    "@vitest/runner": "~4.1.8",
-    "@vitest/utils": "~4.1.8",
+    "@vitest/coverage-v8": "~4.1.9",
+    "@vitest/runner": "~4.1.9",
+    "@vitest/utils": "~4.1.9",
     "assemblyscript": "0.28.19",
-    "vitest": "~4.1.8",
+    "vitest": "~4.1.9",
     "vitest-pool-assemblyscript": "file:vitest-pool-assemblyscript-0.0.0-semantically-released.tgz"
   },
   "scripts": {
