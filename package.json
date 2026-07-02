@@ -145,7 +145,7 @@
     "@vitest/coverage-v8": "5.0.0-beta.4",
     "@vitest/runner": "5.0.0-beta.4",
     "@vitest/utils": "5.0.0-beta.4",
-    "assemblyscript": "0.28.18",
+    "assemblyscript": "0.28.19",
     "conventional-changelog-conventionalcommits": "^9.1.0",
     "cross-env": "^10.1.0",
     "istanbul-lib-coverage": "^3.2.2",
@@ -156,8 +156,5 @@
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "vitest": "5.0.0-beta.4"
-  },
-  "allowScripts": {
-    "esbuild@0.28.0": true
   }
 }

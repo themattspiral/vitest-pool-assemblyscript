@@ -6,7 +6,7 @@
     "@vitest/coverage-v8": "5.0.0-beta.4",
     "@vitest/runner": "5.0.0-beta.4",
     "@vitest/utils": "5.0.0-beta.4",
-    "assemblyscript": "0.28.18",
+    "assemblyscript": "0.28.19",
     "vitest": "5.0.0-beta.4",
     "vitest-pool-assemblyscript": "file:vitest-pool-assemblyscript-0.0.0-semantically-released.tgz"
   },
