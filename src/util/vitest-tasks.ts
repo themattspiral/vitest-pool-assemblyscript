@@ -415,16 +415,8 @@ export function resetTestForRetry(test: Test, startTime: number): void {
   }
 
   const meta = test.meta as AssemblyScriptTestTaskMeta;
-
-  // clear any custom metadata associated with the immediate last run
+  
+  // clear runner metadata associated with the immediate last test run
   meta.assertionsPassedCount = 0;
   meta.assertionsFailed = [];
-  delete meta.lastError;
-  delete meta.lastErrorValuesProvided;
-  delete meta.lastErrorRawCallStack;
-  delete meta.lastErrorCallStackRef;
-  delete meta.lastTimeoutTerminationTime;
-  delete meta.coverageData;
 }
-
-

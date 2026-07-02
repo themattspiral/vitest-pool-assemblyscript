@@ -276,9 +276,9 @@ export async function compileAssemblyScript(
     const sourceMapBuffer = Buffer.from(wasmSourceMap);
 
     const instrumentResult = nativeAddon.instrumentForCoverage(wasmBuffer, sourceMapBuffer, options.instrumentationOptions!, logModule, logLabel);
-    const instCount = instrumentResult.debugInfo.instrumentedFunctionCount;
+    const instCount = instrumentResult.debugInfo.totalInstrumentationCounters;
 
-    debug(`${logPrefix} - TIMING Instrumented ${instCount} functions: ${(performance.now() - instrumentStart).toFixed(2)} ms`);
+    debug(`${logPrefix} - TIMING Instrumented ${instCount} items: ${(performance.now() - instrumentStart).toFixed(2)} ms`);
 
     compilationBinary = instrumentResult.instrumentedWasm;
     compilationSourceMap = instrumentResult.sourceMap;

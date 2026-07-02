@@ -13,13 +13,18 @@ export default defineConfig({
 
     coverage: {
       enabled: true,
+      allowExternal: true, // JS parity twins live in the main repo (../), outside this external root
       reportOnFailure: true,
       reportsDirectory: 'coverage/meta/',
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       
+      // Intentionally `**`-anchored (not `../vitest-pool-assemblyscript`) because coverage.include
+      // is matched against each file's absolute path, which never contains a `..` segment,
+      // so a `../`-prefixed glob can't match. Using `**/` absorbs the absolute prefix,
+      // and still matches the local relative path, so the same glob works local + external.
       include: [
-        '../vitest-pool-assemblyscript/test/js-example-meta-src'
+        '**/js-coverage-parity-src/**/*.ts'
       ],
 
       assemblyScriptInclude: [
@@ -43,9 +48,9 @@ export default defineConfig({
     // TS Meta examples (to combine with AS coverage results)
       defineProject({
         test: {
-          name: { label: 'ts-pool-meta-example', color: 'blue' },
+          name: { label: 'js-coverage-parity', color: 'blue' },
           include: [
-            '../vitest-pool-assemblyscript/test/js-example-meta/*.test.ts',
+            '../vitest-pool-assemblyscript/test/js-coverage-parity/**/*.test.ts',
           ],
           exclude: [],
         }
@@ -127,6 +132,38 @@ export default defineConfig({
           ],
           pool: createAssemblyScriptPool({
             testMemoryPagesMax: 1,
+          }),
+        }
+      }),
+
+      // AS Meta Alt Config - no strip-inline (honor @inline). Verifies that a branch
+      // inside an @inline function (inlined into a caller in another file) is still
+      // covered and attributed back to the @inline source.
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-no-strip-inline', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-no-strip-inline.test.ts'
+          ],
+          pool: createAssemblyScriptPool({
+            stripInline: false,
+          }),
+        }
+      }),
+
+      // AS Meta Alt Config - incremental runtime. Runs *.meta-incremental.test.ts under
+      // --runtime incremental, so that source's coverage accumulates with the default
+      // (stub) runtime run across two binaries -- the only way the runtime-dependent
+      // skip/drift coverage behavior manifests. Guards the breadth-first representative-
+      // location search and the per-function SUM combiner.
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-incremental', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-incremental.test.ts'
+          ],
+          pool: createAssemblyScriptPool({
+            extraCompilerFlags: ['--enable', 'simd', '--runtime', 'incremental'],
           }),
         }
       }),

@@ -30,7 +30,6 @@ import {
   ForOfStatement,
   SwitchStatement,
   SwitchCase,
-  TryStatement,
   ThrowStatement,
   ReturnStatement,
   CallExpression,
@@ -55,6 +54,39 @@ import {
 import { ASNodeKind } from '../types/constants.js';
 
 /**
+ * Node kinds that represent coverable statements (Istanbul statement granularity).
+ * Excludes Block / Empty and bare declarations, as well as ForOf / Try (not supported by AS).
+ * Variable statements fire here too; the consumer extracts per-declarator-with-initializer.
+ */
+const STATEMENT_NODE_KINDS: ReadonlySet<number> = new Set<number>([
+  ASNodeKind.Expression,
+  ASNodeKind.Variable,
+  ASNodeKind.Return,
+  ASNodeKind.If,
+  ASNodeKind.While,
+  ASNodeKind.Do,
+  ASNodeKind.For,
+  ASNodeKind.Switch,
+  ASNodeKind.Throw,
+  ASNodeKind.Break,
+  ASNodeKind.Continue,
+  ASNodeKind.Void,
+]);
+
+/**
+ * Node kinds that represent branch constructs (Istanbul branch granularity):
+ * if, ternary (cond-expr), switch, and logical &&/|| (binary-expr — the consumer
+ * filters Binary nodes to the logical operators). Loops are NOT branches
+ * (Istanbul treats them as statements).
+ */
+const BRANCH_NODE_KINDS: ReadonlySet<number> = new Set<number>([
+  ASNodeKind.If,
+  ASNodeKind.Ternary,
+  ASNodeKind.Switch,
+  ASNodeKind.Binary,
+]);
+
+/**
  * Abstract base class for AST visitors.
  *
  * Subclasses override hook methods to perform tasks during traversal:
@@ -67,6 +99,23 @@ import { ASNodeKind } from '../types/constants.js';
  */
 export abstract class ASTVisitor {
   /**
+   * How many function/method bodies we are currently inside. 0 = module scope
+   * (top level or inside a namespace). Maintained by visitFunctionBody, which all
+   * function-body recursion routes through, so subclasses can tell module-scope
+   * statements from in-function ones.
+   */
+  protected functionDepth = 0;
+
+  /**
+   * How many `{ }` blocks we are currently inside. 0 = a statement-list level that
+   * runs unconditionally at its scope's entry (the module/namespace body), since a
+   * conditionally- or loop-executed statement is always wrapped in a block. Combined
+   * with functionDepth === 0, this identifies statements that run unconditionally at
+   * module instantiation. Maintained by the Block case in visitNode.
+   */
+  protected blockDepth = 0;
+
+  /**
    * Visit all statements in a source file
    */
   visitSource(source: Source): void {
@@ -76,10 +125,37 @@ export abstract class ASTVisitor {
   }
 
   /**
+   * Visit a function/method body, tracking function-nesting depth. ALL descent
+   * into a function or method body must go through here (not visitNode directly)
+   * so functionDepth stays accurate — including the arrow-function body that the
+   * coverage parser visits manually.
+   */
+  protected visitFunctionBody(body: Node): void {
+    this.functionDepth++;
+    this.visitNode(body);
+    this.functionDepth--;
+  }
+
+  /**
    * Hook called before visiting each node.
    * Override to perform pre-visit tasks (e.g., stripping decorators).
    */
   protected beforeVisit(_node: Node): void {}
+
+  /**
+   * Hook called when visiting a coverable statement node (see STATEMENT_NODE_KINDS).
+   * Override to extract statement info. Fires before recursing into children, so
+   * nested statements each fire their own call.
+   */
+  protected onStatement(_node: Node): void {}
+
+  /**
+   * Hook called when visiting a branch construct node (see BRANCH_NODE_KINDS).
+   * Override to extract branch info. Fires before recursing, so nested branches
+   * each fire their own call. Binary nodes fire for ALL binary expressions — the
+   * consumer must filter to the logical operators (&&, ||).
+   */
+  protected onBranch(_node: Node): void {}
 
   /**
    * Hook called when entering a namespace declaration.
@@ -138,6 +214,18 @@ export abstract class ASTVisitor {
   visitNode(node: Node): void {
     // Call pre-visit hook
     this.beforeVisit(node);
+
+    // Statement extraction hook — fires for coverable statement kinds, before
+    // recursing, so nested statements each fire their own call.
+    if (STATEMENT_NODE_KINDS.has(node.kind)) {
+      this.onStatement(node);
+    }
+
+    // Branch extraction hook — fires for branch construct kinds (consumer filters
+    // Binary to logical operators).
+    if (BRANCH_NODE_KINDS.has(node.kind)) {
+      this.onBranch(node);
+    }
 
     // Recurse into children based on node kind
     switch (node.kind) {
@@ -259,7 +347,9 @@ export abstract class ASTVisitor {
       // Statements with children
       case ASNodeKind.Block: {
         const stmt = node as BlockStatement;
+        this.blockDepth++;
         for (const s of stmt.statements) this.visitNode(s);
+        this.blockDepth--;
         break;
       }
       case ASNodeKind.Do: {
@@ -309,17 +399,6 @@ export abstract class ASTVisitor {
       case ASNodeKind.Throw: {
         const stmt = node as ThrowStatement;
         this.visitNode(stmt.value);
-        break;
-      }
-      case ASNodeKind.Try: {
-        const stmt = node as TryStatement;
-        for (const s of stmt.bodyStatements) this.visitNode(s);
-        if (stmt.catchStatements) {
-          for (const s of stmt.catchStatements) this.visitNode(s);
-        }
-        if (stmt.finallyStatements) {
-          for (const s of stmt.finallyStatements) this.visitNode(s);
-        }
         break;
       }
       case ASNodeKind.Variable: {
@@ -375,7 +454,7 @@ export abstract class ASTVisitor {
       case ASNodeKind.FunctionDeclaration: {
         const decl = node as FunctionDeclaration;
         const shouldRecurse = this.onFunctionDeclaration(decl);
-        if (shouldRecurse && decl.body) this.visitNode(decl.body);
+        if (shouldRecurse && decl.body) this.visitFunctionBody(decl.body);
         break;
       }
       case ASNodeKind.InterfaceDeclaration: {
@@ -386,7 +465,7 @@ export abstract class ASTVisitor {
       case ASNodeKind.MethodDeclaration: {
         const decl = node as MethodDeclaration;
         const shouldRecurse = this.onMethodDeclaration(decl);
-        if (shouldRecurse && decl.body) this.visitNode(decl.body);
+        if (shouldRecurse && decl.body) this.visitFunctionBody(decl.body);
         break;
       }
       case ASNodeKind.NamespaceDeclaration: {

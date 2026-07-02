@@ -4,47 +4,72 @@
  * Converts AssemblyScript coverage data to Istanbul's FileCoverageData format.
  * This enables integration with Vitest's coverage reporting system and standard
  * coverage tools like Codecov, Coveralls, etc.
- *
- * Current Implementation: Function-level coverage only
- * - Uses containment matching: binary positions → source function ranges
- * - Each function maps to both a function entry AND a statement entry
- * - Statement coverage matches function coverage (function-level granularity)
- * - Branch coverage is 0% (no branches tracked yet)
- * - Line coverage derived from statement coverage
- *
- * Future Enhancement (v2): Block-level statement and branch coverage
  */
 
 import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
-import type { ParsedSourceFunctions } from '../types/types.js';
-import { findFunctionContainingPosition } from './containment-matcher.js';
+import type { CoverageBundle, ParsedSourceFunctions, SourceRange } from '../types/types.js';
+import {
+  findFunctionContainingPosition,
+  buildHitsByLine,
+  findStatementEntryHitCount,
+  buildArmsByLine,
+  buildDecisionPositionsByLine,
+  computeBranchPathHits,
+} from './containment-matcher.js';
 import { debugOverride, debug } from '../util/debug.js';
 
 /**
- * Convert AssemblyScript coverage data to Istanbul format for a single file
+ * Convert an internal 1-based-column SourceRange to an Istanbul Range (0-based columns).
+ */
+function toIstanbulRange(range: SourceRange): Range {
+  return {
+    start: { line: range.startLine, column: range.startColumn - 1 },
+    end: { line: range.endLine, column: range.endColumn - 1 },
+  };
+}
+
+/**
+ * Convert AssemblyScript coverage data to Istanbul format for a single file.
  *
- * Algorithm (containment matching):
- * 1. For each hit position in fileHitCountsByPosition:
- *    - Use containment matcher to find which source function contains this position
- *    - Record the hit count for that function
- * 2. For each function in allSourceFuncsByPosition (unique collection from fileFunctionsByLineSpan):
- *    - Add function mapping to fnMap
- *    - Add function hit count to f (from matched hits, or 0 if not hit)
- *    - Add corresponding statement mapping to statementMap
- *    - Add same hit count to s (statement coverage matches function coverage)
+ * Function coverage (fnMap / f): hit data is aggregated at two levels. Per-POSITION
+ * totals arrive already summed upstream (across monomorphizations in the executor,
+ * and across tests/binaries in mergeCoverageData). Here each source function is
+ * rolled up PER-FUNCTION: containment-match every position in fileFunctionHits to
+ * the source function whose range contains it, and the function takes the combined
+ * count of its position(s) — normally just its single representative location (or 0
+ * when never hit).
  *
- * @param fileFunctionsByLineSpan - Functions for a single file, indexed by every line they span (from AST parser)
- * @param fileHitCountsByPosition - Hit counts for this file, keyed by position "line:column" (from accumulated coverage)
- * @param absoluteFilePath - Absolute path to the source file (for Istanbul output)
+ * Statement coverage (statementMap / s): each source statement's count is read at
+ * its entry position — the smallest-position hit within its range, from
+ * fileExpressionHits (see findStatementEntryHitCount). Functions and statements
+ * use independent Istanbul index keyspaces.
+ *
+ * Branch coverage (branchMap / b): each source branch's arms are matched to binary
+ * decision arms by entry location; implicit arms and the logical left operand are
+ * derived from the decision's evaluation count (see computeBranchPathHits).
+ *
+ * @param fileFunctions - Parsed source functions + statements + branches for one file (from the AST parser)
+ * @param coverage - Accumulated run-level coverage bundle; the per-file view is sliced out by absoluteFilePath
+ * @param fileLoaded - Whether this file loaded (compiled into an executed binary); credits module-level declarations that produce no runtime counter
+ * @param absoluteFilePath - Absolute path to the source file (for Istanbul output + bundle slicing)
+ * @param istanbulDebugEnabled - Enable verbose conversion logging
  * @returns Istanbul FileCoverage object
  */
 export async function convertToIstanbulFormat(
   fileFunctions: ParsedSourceFunctions,
-  fileHitCountsByPosition: Record<string, number>,
+  coverage: CoverageBundle,
+  fileLoaded: boolean,
   absoluteFilePath: string,
   istanbulDebugEnabled: boolean
 ): Promise<FileCoverageData> {
   const startMatch = performance.now();
+
+  // Slice the per-file view out of the run-level bundle (each field is keyed by file first).
+  const fileFunctionHits = coverage.functionHits.hitCountsByFileAndPosition[absoluteFilePath] ?? {};
+  const fileExpressionHits = coverage.expressionHits.hitCountsByFileAndPosition[absoluteFilePath] ?? {};
+  const fileBranchHits = coverage.branchHits.hitsByFileAndDecision[absoluteFilePath] ?? {};
+  const fileEmptyCaseHits = coverage.emptyCaseHits.hitCountsByFileAndPosition[absoluteFilePath] ?? {};
+  const fileDecisionPositions = coverage.decisionPositions.positionsByFile[absoluteFilePath] ?? [];
 
   function istanbulDebug(...args: any[]): void {
     if (istanbulDebugEnabled) {
@@ -54,7 +79,7 @@ export async function convertToIstanbulFormat(
 
   istanbulDebug(() => {
     const sourceFunctionCount = Object.keys(fileFunctions.uniqueFunctions).length;
-    const uniqueHitPosCount = Object.keys(fileHitCountsByPosition).length;
+    const uniqueHitPosCount = Object.keys(fileFunctionHits).length;
     const coverageEstimate = sourceFunctionCount === 0 ? Infinity : ((uniqueHitPosCount * 100) / sourceFunctionCount).toFixed(2);
 
     return `[IstanbulConverter]   Processing source file: "${absoluteFilePath}"\n`
@@ -66,7 +91,7 @@ export async function convertToIstanbulFormat(
   const functionHitCounts = new Map<string, number>();
 
   // For each actual hit position in the binary, find which source function contains it
-  for (const [hitPositionKey, hitCount] of Object.entries(fileHitCountsByPosition)) {
+  for (const [hitPositionKey, hitCount] of Object.entries(fileFunctionHits)) {
     // Hit position key format is "line:column"
     const parts = hitPositionKey.split(':');
     const lineStr = parts[0];
@@ -82,14 +107,22 @@ export async function convertToIstanbulFormat(
       if (containingFunction) {
         istanbulDebug(`[IstanbulConverter]     Hit Position ${hitPositionKey} → function "${containingFunction.shortName}" in ${(performance.now() - containStart).toFixed(2)}ms`);
         
-        // Accumulate hits (in case multiple positions map to same function)
+        // Per-FUNCTION roll-up: a source function's count is the SUM of the
+        // position(s) that fall inside its range. Each `fileFunctionHits` entry is
+        // already the fully summed total for ONE source position (summed upstream
+        // across monomorphizations in the executor and across tests/binaries in
+        // mergeCoverageData). Normally a function maps to a single position, so this
+        // sets its count once. When more than one position maps to a function — e.g.
+        // its representative location differs between binaries (different `--runtime`
+        // lowerings, or ungrouped monomorphizations) — those positions are always
+        // distinct executions, so summing is correct and never double-counts; max
+        // would under-count by reporting only the largest.
         const existingHits = functionHitCounts.get(containingFunction.id);
-        const existingHitsCount = existingHits ?? 0;
-        const max = Math.max(existingHitsCount, hitCount);
-        functionHitCounts.set(containingFunction.id, max); // <-- TODO: Explain this max logic
+        const combined = (existingHits ?? 0) + hitCount;
+        functionHitCounts.set(containingFunction.id, combined);
 
         if (existingHits !== undefined) {
-          istanbulDebug(`[IstanbulConverter]     Hit Position ${hitPositionKey} → function "${containingFunction.shortName}" EXISTING HITS: ${existingHits} NEW COUNT: ${max}`);
+          istanbulDebug(`[IstanbulConverter]     Hit Position ${hitPositionKey} → function "${containingFunction.shortName}" EXISTING HITS: ${existingHits} NEW COUNT: ${combined}`);
         } else {
           istanbulDebug(`[IstanbulConverter]     Hit Position ${hitPositionKey} → function "${containingFunction.shortName}" (hits: ${hitCount})`);
         }
@@ -130,11 +163,7 @@ export async function convertToIstanbulFormat(
 
     // Create function mapping
     // Both 'decl' (declaration) and 'loc' (location) use the same range
-    // Internal ParsedSourceFunctionInfo uses 1-based columns, Istanbul expects 0-based
-    const istanbulRange: Range = {
-      start: { line: range.startLine, column: range.startColumn - 1 },
-      end: { line: range.endLine, column: range.endColumn - 1 }
-    };
+    const istanbulRange = toIstanbulRange(range);
 
     const idxStr = funcIdx.toString();
     fnMap[idxStr] = {
@@ -145,14 +174,63 @@ export async function convertToIstanbulFormat(
     };
     f[idxStr] = hitCount;
 
-    // Create corresponding statement mapping
-    // For function-level coverage, each function is one "statement"
-    // The statement range matches the function range
-    // This gives us statement coverage at function granularity
-    statementMap[idxStr] = istanbulRange;
-    s[idxStr] = hitCount;
-
     funcIdx++;
+  }
+
+  // Convert statement coverage to Istanbul format. Each source statement's hit
+  // count is read at its ENTRY position (the smallest-position hit within its
+  // range); for a compound statement this is the header/condition, never the
+  // hotter body. Statements use their own index keyspace, independent of fnMap.
+  const expressionHitsByLine = buildHitsByLine(fileExpressionHits);
+  let stmtIdx = 0;
+  for (const { range, isModuleLevelDeclaration } of fileFunctions.statements) {
+    // Defensive: skip statements with invalid metadata
+    if (range.startLine === 0) {
+      continue;
+    }
+
+    let hitCount = findStatementEntryHitCount(expressionHitsByLine, range);
+
+    // A module-scope variable declaration runs at module instantiation, so if the
+    // file loaded it executed — even when its initializer folded to a WASM global
+    // with no runtime counter (findStatementEntryHitCount then reads 0). Credit it
+    // as covered to match V8, which counts the declaration when the module evaluates.
+    if (isModuleLevelDeclaration && fileLoaded && hitCount === 0) {
+      hitCount = 1;
+    }
+
+    const stmtIdxStr = stmtIdx.toString();
+    statementMap[stmtIdxStr] = toIstanbulRange(range);
+    s[stmtIdxStr] = hitCount;
+    stmtIdx++;
+  }
+
+  // Convert branch coverage to Istanbul format. Each source branch's arms are
+  // matched to binary decision arms by entry location; implicit arms (else /
+  // default) and the logical left operand are derived from the decision's
+  // evaluation count (see computeBranchPathHits). Branches use their own index
+  // keyspace, independent of fnMap / statementMap.
+  const armsByLine = buildArmsByLine(fileBranchHits);
+  const caseHitsByLine = buildHitsByLine(fileEmptyCaseHits);
+  const decisionPositionsByLine = buildDecisionPositionsByLine(fileDecisionPositions);
+  let branchIdx = 0;
+  for (const branch of fileFunctions.branches) {
+    // Defensive: skip branches with invalid metadata
+    if (branch.range.startLine === 0) {
+      continue;
+    }
+
+    const pathHits = computeBranchPathHits(branch, armsByLine, expressionHitsByLine, caseHitsByLine, decisionPositionsByLine);
+
+    const branchIdxStr = branchIdx.toString();
+    branchMap[branchIdxStr] = {
+      type: branch.branchType,
+      loc: toIstanbulRange(branch.range),
+      locations: branch.paths.map(toIstanbulRange),
+      line: branch.range.startLine,
+    };
+    b[branchIdxStr] = pathHits;
+    branchIdx++;
   }
 
   const done = performance.now();

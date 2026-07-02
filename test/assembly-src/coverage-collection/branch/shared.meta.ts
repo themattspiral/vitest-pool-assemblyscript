@@ -1,0 +1,15 @@
+/**
+ * Shared-source branch fixture for meta-verify. This one function is imported by
+ * TWO test files (branch-shared-a / branch-shared-b), so it is compiled into two
+ * separate WASM binaries. Its branch hits must accumulate across both binaries by
+ * the source-derived decision key (the same source position yields the same key
+ * across binaries). File A exercises the THEN arm and file B the ELSE arm, so the
+ * accumulated [2,1] is only correct if both binaries' hits are summed.
+ */
+export function sharedBranch(n: i32): i32 {
+  if (n > 0) {
+    return 1;
+  } else {
+    return -1;
+  }
+}

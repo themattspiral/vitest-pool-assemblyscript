@@ -32,3 +32,9 @@ describe("suite with retry different than default", TestOptions.retry(5), () => 
     });
   });
 });
+
+describe('retry: data reset', () => {
+  test('last attempt status is reported', TestOptions.retry(2), (retryCount: i32) => {
+    expect(retryCount).toBeGreaterThanOrEqual(2);
+  });
+});

@@ -475,7 +475,7 @@ AssemblyScript is statically typed and compiles to WASM, where every value has a
 
 Because undefined-ness in AssemblyScript is a **compile-time** concern rather than a runtime one, referencing an undeclared name will always result in a hard compiler error (`TS2304: Cannot find name`). There is no way to even construct an undefined argument to `expect()` - the compiler rejects it earlier, and more strictly, than a runtime assertion could.
 
->ℹ️ AssemblyScript provides an `isDefined()` [builtin function](https://www.assemblyscript.org/stdlib/globals.html#builtins), which is a compile-time-only check of whether an expression *could* be compiled, and it allows an undefined name as input without failing compilation. While there is likely no real use case, it could be used in test assertions such as:
+> ℹ️ AssemblyScript provides an `isDefined()` [builtin function](https://www.assemblyscript.org/stdlib/globals.html#builtins), which is a compile-time-only check of whether an expression *could* be compiled, and it allows an undefined name as input without failing compilation. While there is likely no real use case, it could be used in test assertions such as:
 > ```typescript
 > expect(isDefined(42)).toBeTruthy();
 > expect(isDefined(nonexistent)).toBeFalsy();

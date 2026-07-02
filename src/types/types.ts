@@ -306,7 +306,7 @@ export interface WebAssemblyCallSite {
  * Coverage data collected during test execution
  *
  * Simple hit count storage using position-based keys for stable merging.
- * Note: Function source metadata (names, ranges) comes from ParsedSourceInfo.
+ * Note: Function source metadata (names, ranges) comes from the AST parser (ParsedSourceFunctions).
  *
  * Outer Record: keyed by absolute file path
  * Inner Record: keyed by position ("line:column") → hit count
@@ -316,13 +316,104 @@ export interface CoverageData {
 }
 
 /**
+ * Hit count for one branch arm (a decision's out-edge target block), plus the
+ * source location of that arm's entry expression.
+ *
+ * The location is the containment-match target that maps this binary arm to a
+ * source branch arm. Only LOCATED arm targets are emitted — an arm with
+ * source code has a located entry block; an arm with no source body (implicit
+ * else / implicit default) has no located block and is derived provider-side.
+ */
+export interface BranchTargetHits {
+  hits: number;
+  location: SourceLocation;
+}
+
+/**
+ * Hit counts for one binary branch decision (a CFG block with out-degree ≥ 2).
+ *
+ * - `decisionHits` — the decision's own evaluation count. `null` when the
+ *   decision block carries no counter: the fused-logical case, where an
+ *   `if`/loop/ternary branches on a synthetic `&&`/`||` result and so has no
+ *   located/anchored expression of its own. The provider then derives it from
+ *   the condition's leftmost-atom (= condition-range entry) hit count.
+ * - `targets` — per-arm hit counts of the decision's located out-edge targets.
+ */
+export interface BranchPathHits {
+  decisionHits: number | null;
+  targets: BranchTargetHits[];
+}
+
+/**
+ * Branch hit counts collected during test execution.
+ *
+ * Outer Record: keyed by absolute file path.
+ * Inner Record: keyed by a decision key — a canonical (sorted) composite of the
+ * decision's located arm-target positions (e.g. "47:9|49:3"). Source-derived, so
+ * it is stable across binaries, works when the decision block itself is unlocated,
+ * and makes identical positions across monomorphizations resolve to the same
+ * branch (correct cross-instance SUM, not a false collision).
+ */
+export interface BranchHits {
+  hitsByFileAndDecision: Record<string, Record<string, BranchPathHits>>;
+}
+
+/**
+ * Source positions of binary decision blocks, per file (each `"line:column"`).
+ *
+ * Used to detect compiler-folded branches: a source `if`/`cond-expr`/`binary-expr`
+ * whose condition range contains NO decision position was constant-folded (its
+ * condition is a compile-time constant) and produced no decision block. This is
+ * the robust folded signal — unlike "no arm matched", it can't be confused with a
+ * real branch whose arms are empty/unlocated (whose decision is dropped from
+ * branchHits).
+ *
+ * Purely structural — a decision block exists regardless of execution — so this is
+ * accumulated by UNION across tests/files, not summed.
+ */
+export interface DecisionPositions {
+  positionsByFile: Record<string, string[]>;
+}
+
+/**
+ * The full set of AssemblyScript coverage data gathered for a test or suite.
+ *
+ * Carried as a unit on the task meta (`meta.coverage`) and extended by the RPC
+ * payload, so the field set is defined once and cannot drift between the two.
+ * A plain-object bundle: it merges up the suite tree and across files via
+ * mergeCoverageBundle, and survives the timeout-resume thread boundary.
+ */
+export interface CoverageBundle {
+  /** Function-level hits (keyed by each function's representative source position). */
+  functionHits: CoverageData;
+  /** Statement/expression-level hits (block counters attributed to source positions). */
+  expressionHits: CoverageData;
+  /** Branch-level hits (per decision: decisionHits + per-arm target hits). */
+  branchHits: BranchHits;
+  /** Empty fall-through switch-case entered counts (keyed by case-label position). */
+  emptyCaseHits: CoverageData;
+  /** Source positions of binary decision blocks (for folded-branch detection). */
+  decisionPositions: DecisionPositions;
+  /**
+   * Absolute paths of the source files that were loaded — i.e. compiled into a
+   * binary that executed (the binary's absoluteDebugSourceFiles). A module's
+   * top-level declarations run when it loads, so the provider uses this to mark
+   * module-level declarations covered for files that loaded but produce no
+   * runtime counter (e.g. a const folded to a WASM global init expression).
+   * Per-file, not per-test; accumulated by UNION.
+   */
+  loadedSourceFiles: string[];
+}
+
+/**
  * Coverage payload sent via RPC from worker to hybrid coverage provider
  *
  * The __format marker distinguishes AS coverage from JS coverage in onAfterSuiteRun.
+ * Extends CoverageBundle so the coverage fields stay flat on the wire (the provider
+ * reads them directly) while sharing the single bundle field definition.
  */
-export interface AssemblyScriptCoveragePayload {
+export interface AssemblyScriptCoveragePayload extends CoverageBundle {
   readonly __format: typeof COVERAGE_PAYLOAD_FORMATS.AssemblyScript;
-  coverageData: CoverageData;
   suiteLogLabel: string;
 }
 
@@ -358,48 +449,49 @@ export interface SourceRange {
 export interface BranchEdgeDebugInfo {
   /** Target basic block index */
   targetBlockIndex: number;
-  /** Index of the expression that creates this branch (e.g., if condition) */
-  sourceExpressionIndex?: number;
 }
 
 /**
  * Expression debug info extracted from WASM binary
  *
  * Expressions are the smallest unit of execution in WASM.
- * In v2, each expression can be mapped to a source statement for line-level coverage.
+ * Each located expression maps to a source position for statement/line coverage.
  */
 export interface ExpressionDebugInfo {
   /** WASM expression type (e.g., "call", "if", "block") */
   type: string;
   /** Source location (POINT, not range) from source map */
   location?: SourceLocation;
-  /** Whether this expression is a branch point (if, switch, select) */
-  isBranch: boolean;
-  /** Number of branch paths (for branch coverage) */
-  branchPaths?: number;
-  /**
-   * Index into coverage memory counters
-   * v2 only: Propagated from containing BasicBlockDebugInfo by TS wrapper
-   */
-  coverageMemoryIndex?: number;
 }
 
 /**
  * Basic block debug info from CFG analysis
  *
  * Basic blocks are sequences of expressions with single entry/exit points.
- * In v2, counters are placed at basic block boundaries for efficient coverage.
  */
 export interface BasicBlockDebugInfo {
   /** Block index within the function */
   index: number;
+  /**
+   * Whether this block is a branch decision (CFG out-degree >= 2).
+   * Single source of truth for both branch identification and counter allocation.
+   */
+  isDecision: boolean;
+  /**
+   * Whether this block is a post-anchored empty fall-through switch case — a `case X:`
+   * with no statements of its own, whose counter is injected AFTER the named Block it
+   * falls out of (so it has a counter but no located expression). The addon post-anchors
+   * ONLY these blocks, so this flag identifies them by construction; it is the sole
+   * source of `emptyCaseHits` (see buildCaseHits).
+   */
+  isPostAnchored: boolean;
   /** Indices of expressions contained in this block */
   expressionIndices: number[];
   /** Outgoing branch edges */
   branches: BranchEdgeDebugInfo[];
   /**
-   * Index into coverage memory counters
-   * v2 only: Source of truth for block-level coverage
+   * Index into coverage memory counters.
+   * Source of truth for block-level coverage; absent when the block is not instrumented.
    */
   coverageMemoryIndex?: number;
 }
@@ -435,13 +527,24 @@ export interface BinaryDebugInfo {
   /** All source files represented in extracted debug info (directly or inlined) */
   debugSourceFiles: string[];
   /**
+   * Same as debugSourceFiles, normalized to absolute filesystem paths (via
+   * normalizeToAbsolutePath). These match the absolute keys used throughout
+   * coverage data, so they identify which source files a binary loaded.
+   */
+  absoluteDebugSourceFiles: string[];
+  /**
    * Functions grouped by file path, then keyed by position ("line:column").
    * Position key enables stable identity across compilations.
    * Array value accommodates generic monomorphizations that share a source position.
    */
   functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo[]>>;
 
-  instrumentedFunctionCount: number;
+  /**
+   * Total coverage counter slots in coverage memory. Sum of:
+   * - function-entry counters (region 1, indices [0, F))
+   * - block counters (region 2)
+   */
+  totalInstrumentationCounters: number;
 }
 
 /**
@@ -459,6 +562,8 @@ export interface NativeDebugInfoOutput {
   debugSourceFiles: string[];
   /** Flat list of all functions with their debug info */
   functions: NativeFunctionDebugInfo[];
+  /** Total coverage counter slots (function-entry + block counters) */
+  totalInstrumentationCounters: number;
 }
 
 export interface NativeFunctionDebugInfo extends Omit<FunctionDebugInfo, 'expressions' | 'representativeLocation'> {
@@ -514,6 +619,16 @@ export interface NativeAddon {
 export interface ParsedSourceFunctions {
   functionsByLineSpan: Record<number, ParsedSourceFunctionInfo[]>;
   uniqueFunctions: Record<string, ParsedSourceFunctionInfo>;
+  /**
+   * Coverable statements in the file (Istanbul statement granularity), in source
+   * order. Iterated source-side during containment matching.
+   */
+  statements: ParsedSourceStatementInfo[];
+  /**
+   * Branch constructs in the file (if, cond-expr, switch, binary-expr),
+   * in source order. Iterated source-side during arm-driven branch matching.
+   */
+  branches: ParsedSourceBranchInfo[];
 }
 
 /**
@@ -532,53 +647,52 @@ export interface ParsedSourceFunctionInfo {
 
 /**
  * Statement info parsed from AssemblyScript source via AST
- *
- * v2 only: Used for line-level statement coverage.
- * Binary expression points are matched to source statement ranges.
  */
 export interface ParsedSourceStatementInfo {
   /** Source range for containment matching */
   range: SourceRange;
-  /** Statement type (e.g., "variable", "expression", "return") */
-  statementType?: string;
+  /**
+   * True for a module-scope variable declaration (function-nesting depth 0).
+   * Such a declaration runs at module instantiation; if its initializer folds to
+   * a WASM global it produces no runtime counter, so the provider synthesizes its
+   * coverage for files known to have loaded. See the hybrid coverage provider.
+   */
+  isModuleLevelDeclaration?: boolean;
 }
 
 /**
  * Branch info parsed from AssemblyScript source via AST
- *
- * v2 only: Used for branch coverage.
- * Binary branch expressions are matched to source branch ranges.
  */
 export interface ParsedSourceBranchInfo {
-  /** Source range for containment matching */
+  /** Whole construct range (the Istanbul branch location) */
   range: SourceRange;
-  /** Type of branch construct */
-  branchType: 'if' | 'ternary' | 'switch' | 'logical';
-}
-
-/**
- * Complete parsed source info from AST parser
- *
- * Generated by coverage provider when processing coverage (not during compilation).
- * Provides the "what SHOULD be covered" view from source code.
- */
-export interface ParsedSourceInfo {
+  /** Branch construct type (Istanbul naming) */
+  branchType: 'if' | 'cond-expr' | 'switch' | 'binary-expr';
+  /** Condition range — the containment target for matching the decision */
+  conditionRange: SourceRange;
+  /** Per-arm ranges; an implicit else/default arm uses the construct range (Istanbul convention) */
+  paths: SourceRange[];
+  /** Indices into paths[] for arms with no source body (hits derived, not directly counted) */
+  implicitPathIndices: number[];
   /**
-   * Functions grouped by file path, then by start line for containment matching.
-   * Multiple functions can start on the same line, but limiting matching to checking
-   * only the functions grouped on the input position's line is very performant.
+   * Indices into paths[] for empty fall-through switch cases (a `case X:` with no
+   * statements of its own). Their entered counts live on post-anchored blocks
+   * surfaced in emptyCaseHits — read there during matching, not via the body-range
+   * statement-entry used for body-bearing cases. Always empty for non-switch branches.
    */
-  functionsByFileAndStartLine: Record<string, Record<number, ParsedSourceFunctionInfo[]>>;
+  emptyCasePathIndices: number[];
   /**
-   * Statements grouped by file path, then keyed by position ("line:column")
-   * v2 only: For line-level statement coverage
+   * Indices into paths[] for switch cases whose control falls through into a
+   * FOLLOWING case clause (an empty case, or a body case with no terminating
+   * break/return/throw/continue, that is not the last clause). Their matches are
+   * already counted in the entered count of the terminal case they flow into
+   * (entered counts telescope across a fall-through group), so only group-terminal
+   * cases contribute to the "distinct matches" total used to derive a switch's
+   * implicit-default arm. Always empty for non-switch branches. (A conditional break
+   * is treated as falling through — a documented best-effort residual; see
+   * computeBranchPathHits.)
    */
-  statementsByFileAndPosition: Record<string, Record<string, ParsedSourceStatementInfo>>;
-  /**
-   * Branches grouped by file path, then keyed by position ("line:column")
-   * v2 only: For branch coverage
-   */
-  branchesByFileAndPosition: Record<string, Record<string, ParsedSourceBranchInfo>>;
+  fallThroughCasePathIndices: number[];
 }
 
 // ============================================================================
@@ -607,21 +721,21 @@ export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
   defaultTestOptions: AssemblyScriptTestOptions;
   suitePreparedSent: boolean;
   resultFinal: boolean;
-  coverageData?: CoverageData;
+  coverage?: CoverageBundle;
 }
 
 export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   idxInParentTasks: number;
   fnIndex: number;
+  resultFinal: boolean;
+  
+  // assertion state
   assertionsPassedCount: number;
   assertionsFailed: FailedAssertion[];
-  resultFinal: boolean;
-  coverageData?: CoverageData;
-  lastError?: AssemblyScriptTestError;
-  lastErrorValuesProvided?: boolean;
-  lastErrorRawCallStack?: NodeJS.CallSite[];
-  lastErrorCallStackRef?: Error;
-  lastErrorUnexpected?: boolean;
+
+  coverage?: CoverageBundle;
+
+  // internal logging only
   lastTimeoutTerminationTime?: number;
 };
 

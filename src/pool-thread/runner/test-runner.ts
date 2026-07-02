@@ -46,7 +46,7 @@ import {
   updateTestResultAfterRun,
   isSuiteOwnFile
 } from '../../util/vitest-tasks.js';
-import { mergeCoverageData } from '../../coverage-provider/coverage-merge.js';
+import { mergeCoverageBundle, emptyCoverageBundle } from '../../coverage-provider/coverage-merge.js';
 import { failFile } from '../../util/vitest-file-tasks.js';
 import { buildEnhancedFileError } from '../../util/pool-errors.js';
 
@@ -259,7 +259,7 @@ export async function runSuite(
     }
 
     // initialize aggregated coverage data for suite, which gets updated as each subtask completes
-    suiteMeta.coverageData = { hitCountsByFileAndPosition: {} };
+    suiteMeta.coverage = emptyCoverageBundle();
     debug(`${suiteLogPrefix} - Initialized empty suite coverage data`);
 
     let tasksToRun: Task[] = getRunnableTasks(suite);
@@ -275,10 +275,10 @@ export async function runSuite(
         );
 
         // merge suite task coverage into parent suite coverage
-        if (suiteMeta.coverageData && suiteTaskMeta.coverageData) {
-          mergeCoverageData(suiteMeta.coverageData, suiteTaskMeta.coverageData);
+        if (suiteMeta.coverage && suiteTaskMeta.coverage) {
+          mergeCoverageBundle(suiteMeta.coverage, suiteTaskMeta.coverage);
         }
-        
+
       } else {
         const testLogPrefix = getTaskLogPrefix(logModule, base, task);
         const testTaskMeta = task.meta as AssemblyScriptTestTaskMeta;
@@ -342,15 +342,17 @@ export async function runSuite(
         }
 
         // merge test coverage into suite coverage
-        if (suiteMeta.coverageData && testTaskMeta.coverageData) {
-          mergeCoverageData(suiteMeta.coverageData, testTaskMeta.coverageData);
+        if (suiteMeta.coverage && testTaskMeta.coverage) {
+          mergeCoverageBundle(suiteMeta.coverage, testTaskMeta.coverage);
         }
       }
     }
 
-    // update suite result based on its tasks, report coverage data, report suite task result
+    // update suite result based on its tasks
     updateSuiteFinishedResult(suite, suiteLogPrefix);
-    await reportSuiteFinished(rpc, suite, logModule, base, vitestVersion);
+
+    // report coverage data, report suite task result
+    await reportSuiteFinished(rpc, suite, collectCoverage, compilation, logModule, base, vitestVersion);
 
     // ensure completed suite will not be run again if another test
     // times out later and the file worker thread gets re-launched

@@ -162,7 +162,7 @@ While relatively young, this project is stable and is being improved every day.
 All [listed features](#features) are working and unit-tested.
 - [`describe()` and `test()` APIs](#writing-tests): stable, no breaking changes expected
 - [`expect()` API](docs/matchers-api.md): stable, no breaking changes expected, main matcher set complete
-- Code Coverage / Instrumentation: function coverage stable [across platforms](#compatibility), branch & line coverage coming soon
+- Code Coverage / Instrumentation: all coverage types (function, branch, statement, line) stable [across platforms](#compatibility)
 - Hybrid Coverage Provider: stable v8 JS delegation, side-by-side JS coverage reporting, JS delegation to istanbul provider coming soon
 
 See Also:
@@ -197,7 +197,7 @@ See Also:
 - Source-mapped WASM error stack traces (accurate AssemblyScript source `function file:line:column`)
 - AssemblyScript console output captured and provided to vitest for display
 - AssemblyScript compiler errors output clearly to the console for debugging
-- AssemblyScript source code coverage based on WASM execution, including any uncovered source
+- AssemblyScript code coverage based on WASM execution: function, branch, statement, and line, including any uncovered source
 - No AssemblyScript boilerplate patterns like `run()`, `endTest()`, `fs.readFile`, `WebAssembly.Instance`, etc
 
 ### Performance & Customization
@@ -415,6 +415,30 @@ test.fails("expected failure with retry", TestOptions.retry(3), () => {
 });
 ```
 
+### Retry-Aware Tests (`retryCount`)
+
+The test callback optionally receives the current **retry count**: `0` on the first attempt, incrementing by `1` for each retry (so with `TestOptions.retry(n)`, the final attempt receives `n`).
+
+This matters because of WASM isolation: each retry runs in a **fresh WASM instance with fresh memory**, so module-level and global state is re-initialized on every attempt and can't carry information across retries. `retryCount` is supplied by the runner, making it the reliable way to vary behavior per attempt.
+
+```typescript
+// Module-level state is re-initialized on every retry attempt, 
+// so this counter is ALWAYS 1 (it cannot count attempts)
+let attempts: i32 = 0;
+test("each retry gets a fresh instance - attempts count fails", TestOptions.retry(2), () => {
+  attempts++;
+  expect(attempts).toBe(1);
+});
+
+// retryCount comes from the runner, so it reflects the attempt number
+test("passes only on the final attempt", TestOptions.retry(2), (retryCount: i32) => {
+  // retryCount is 0, then 1, then 2
+  expect(retryCount).toBeGreaterThanOrEqual(2);
+});
+```
+
+>ℹ️ The parameter is optional — tests that don't need it use a plain `() => { ... }` callback, exactly as before.
+
 ### Lifecycle Hooks (Setup & Teardown)
 
 Coming Soon!
@@ -434,16 +458,10 @@ See [Matchers API Documentation](docs/matchers-api.md) for details on the availa
 
 These are known limitations which are currently being worked on.
 
-- **Function-level coverage only**: No statement, branch, or line coverage yet
 - **No lifecycle hooks**: No setup/teardown hooks yet
 - **Watch mode handles specs only**: Re-runs test files when they are directly changed, but not yet based on changed source files
 
 ### Near Future Roadmap
-
-**Epic: Enhanced block-level coverage**
-- Block-level statement coverage (line granularity)
-- Branch coverage using CFG analysis
-- All 4 coverage types (function, statement, branch, line)
 
 **Epic: Testing DX**
 - Lifecycle hooks: `beforeEach`, `afterEach`, `beforeAll`, `afterAll`

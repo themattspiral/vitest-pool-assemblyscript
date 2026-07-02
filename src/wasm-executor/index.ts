@@ -21,6 +21,7 @@ import { enhanceTestError } from './wasm-errors.js';
 import { createPoolError, wrapPoolError } from '../util/pool-errors.js';
 import { failTestRuntimeError, getTaskLogLabel } from '../util/vitest-tasks.js';
 import { extractCallStack } from './source-maps.js';
+import { buildExpressionHits, buildBranchHits, buildCaseHits, buildDecisionPositions } from './coverage-extraction.js';
 
 const SIG_MISMATCH_ERROR_MSG = `WASM function signature type mismatch during test collection.`
   + ` This is most likely caused by passing a type-inferred, non-void callback to expect().`
@@ -225,11 +226,11 @@ export async function executeWASMTest(
     );
   }
 
-  let testFn: (() => void) | null | undefined;
+  let testFn: ((retryCount?: number) => void) | null | undefined;
   
   if (table && typeof table.get === 'function') {
     const idx = (test.meta as AssemblyScriptTestTaskMeta).fnIndex;
-    testFn = table.get(idx) as (() => void) | null;
+    testFn = table.get(idx) as ((retryCount?: number) => void) | null;
 
     if (!testFn) {
       throw createPoolError(
@@ -249,7 +250,7 @@ export async function executeWASMTest(
   try {
     // Execute this test
     testTimings.execStart = performance.now();
-    testFn();
+    testFn(test?.result?.retryCount);
     testTimings.execEnd = performance.now();
 
     // If we reach here, test passed, i.e. No abort occurred.
@@ -308,9 +309,12 @@ export async function executeWASMTest(
       hitCountsByFileAndPosition: {},
     };
 
-    // Read counters from coverage memory
-    const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, compilation.debugInfo.instrumentedFunctionCount);
-    covDebug(`${logPrefix} - Read coverage memory for ${compilation.debugInfo.instrumentedFunctionCount} instrumented functions`);
+    // Read all coverage counters
+    // region 1: function-entry counters [0, F)
+    // region 2: block counters [F, total))
+    const counterCount = compilation.debugInfo.totalInstrumentationCounters;
+    const extractedHitCounters = new Uint32Array(coverageMemory.buffer, 0, counterCount);
+    covDebug(`${logPrefix} - Read ${counterCount} coverage counters`);
 
     // Iterate all instrumented functions and build coverage data with hit counts extracted from coverage memory
     let functionsHit = 0;
@@ -346,8 +350,28 @@ export async function executeWASMTest(
       }
     }
 
-    meta.coverageData = coverage;
-    debug(`${logPrefix} - Extracted coverage data | ${functionsHit} functions hit`);
+    meta.coverage = {
+      // Function-level hits, keyed by each function's representative source position.
+      functionHits: coverage,
+      // Statement/expression coverage from block counters (aggregation: per-instance
+      // MAX over same-position blocks, then SUM across monomorphizations).
+      expressionHits: buildExpressionHits(compilation.debugInfo, extractedHitCounters),
+      // Branch coverage from decision/arm block counters (per-decision arm hits +
+      // decisionHits; SUM across monomorphizations).
+      branchHits: buildBranchHits(compilation.debugInfo, extractedHitCounters),
+      // Empty fall-through switch-case coverage from post-anchored block counters
+      // (keyed by case-label position; not visible in expression/branch hits).
+      emptyCaseHits: buildCaseHits(compilation.debugInfo, extractedHitCounters),
+      // Decision-block positions (structural; for detecting folded branches).
+      decisionPositions: buildDecisionPositions(compilation.debugInfo),
+      // Per-file property, not per-test — set on the file suite before sending to provider.
+      loadedSourceFiles: [],
+    };
+
+    debug(`${logPrefix} - Extracted coverage data | ${functionsHit} functions hit`
+      + ` | ${Object.keys(meta.coverage.expressionHits.hitCountsByFileAndPosition).length} file(s) with statement hits`
+      + ` | ${Object.keys(meta.coverage.branchHits.hitsByFileAndDecision).length} file(s) with branch hits`
+      + ` | ${Object.keys(meta.coverage.emptyCaseHits.hitCountsByFileAndPosition).length} file(s) with empty-case hits`);
   }
 
   testTimings.fnfinal = performance.now();

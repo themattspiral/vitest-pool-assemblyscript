@@ -18,8 +18,10 @@ export default defineConfig({
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       
       include: [ '!*' ],
+      
       assemblyScriptInclude: [
-        '../vitest-pool-assemblyscript/test/assembly-src/**/*.ts',
+        // scoped to the crafted 100% set (feature/shared source excluded)
+        '../vitest-pool-assemblyscript/test/assembly-src/coverage-collection/pass-100/**/*.ts',
         '../vitest-pool-assemblyscript/test-generated/assembly-src/**/*.ts'
       ],
       assemblyScriptExclude: [
@@ -29,14 +31,31 @@ export default defineConfig({
 
       debugIstanbul: false,
 
-      // we're reporting on our passing fixtures so these are all expected to be 100%
+      // the crafted pass-100 set + the generated fixture are 100% on all four types
       thresholds: {
         functions: 100,
+        statements: 100,
+        branches: 100,
+        lines: 100,
         perFile: true
       }
     },
 
     projects: [
+      defineProject({
+        test: {
+          name: { label: 'ts-pool', color: 'blue' },
+          include: [
+            '../vitest-pool-assemblyscript/test/**/*.test.ts',
+          ],
+          exclude: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*',
+            '../vitest-pool-assemblyscript/test/meta-verify/**/*',          // meta-verify executed separately
+            '../vitest-pool-assemblyscript/test/js-coverage-parity/**/*',   // meta-verify coverage parity oracle
+          ],
+        },
+      }),
+
       defineProject({
         test: {
           name: { label: 'as-pool-passing', color: 'green' },
@@ -55,7 +74,7 @@ export default defineConfig({
         }
       }),
       
-    // passing tests using the incremental runtime instead of default (stub)
+      // passing tests using the incremental runtime instead of default (stub)
       defineProject({
         test: {
           name: { label: 'as-pool-passing-incremental', color: 'green' },

@@ -1,3 +1,4 @@
+import { expect } from 'vitest';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
@@ -54,11 +55,24 @@ export interface MetaRunResults {
 
 // --- Coverage data types (from coverage-final.json / Istanbul format) ---
 
+export interface SourceSpan {
+  start: { line: number; column: number };
+  end: { line: number; column: number };
+}
+
 export interface FunctionInfo {
   name: string;
-  decl: { start: { line: number; column: number }; end: { line: number; column: number } };
-  loc: { start: { line: number; column: number }; end: { line: number; column: number } };
+  decl: SourceSpan;
+  loc: SourceSpan;
   line: number;
+}
+
+/** Istanbul branchMap entry: branch type + whole-construct loc + per-arm locations. */
+export interface BranchInfo {
+  type: string;
+  line: number;
+  loc: SourceSpan;
+  locations: SourceSpan[];
 }
 
 export interface FileCoverage {
@@ -67,8 +81,9 @@ export interface FileCoverage {
   f: Record<string, number>;
   statementMap: Record<string, unknown>;
   s: Record<string, number>;
-  branchMap: Record<string, unknown>;
-  b: Record<string, number>;
+  branchMap: Record<string, BranchInfo>;
+  /** Per-branch arm hit counts: one entry per branch id, each a per-arm count array. */
+  b: Record<string, number[]>;
 }
 
 export type CoverageMap = Record<string, FileCoverage>;
@@ -77,10 +92,10 @@ export interface CoverageResults {
   coverageMap: CoverageMap;
 }
 
-export const COV_DIR = 'coverage-collection-meta';
+export const COV_DIR = 'coverage-collection';
 
 export interface CoverageTableRow {
-  /** Directory-qualified path (e.g. 'assembly-src/coverage-collection-meta/math-helpers.meta.ts') */
+  /** Directory-qualified path (e.g. 'assembly-src/coverage-collection/function/counting.meta.ts') */
   filename: string;
   stmts: number;
   branch: number;
@@ -396,9 +411,9 @@ export function requireErrorBlock(parsed: ParsedCliOutput, fullTestPath: string)
 /**
  * Look up a coverage table row by path suffix with uniqueness validation.
  *
- * Searches directory-qualified keys (e.g. 'assembly-src/coverage-collection-meta/file.ts')
+ * Searches directory-qualified keys (e.g. 'assembly-src/coverage-collection/file.ts')
  * by suffix matching. Callers can pass just a filename for unique entries or
- * include directory context to disambiguate (e.g. 'edge/math-helpers.meta.ts').
+ * include directory context to disambiguate (e.g. 'function/edge/math-helpers.meta.ts').
  *
  * Throws on zero matches (not found) or multiple matches (ambiguous suffix).
  */
@@ -555,7 +570,7 @@ export function requireEntry(map: CoverageMap, pathSuffix: string): FileCoverage
       .join('\n');
     throw new Error(
       `No coverage entry found ending with "${pathSuffix}".\n` +
-      `Available coverage-collection-meta entries:\n${available}`
+      `Available coverage-collection entries:\n${available}`
     );
   }
   return entry;
@@ -604,4 +619,171 @@ export function totalFunctions(entry: FileCoverage): number {
  */
 export function functionInfo(entry: FileCoverage, funcName: string): FunctionInfo | undefined {
   return Object.values(entry.fnMap).find(fn => fn.name === funcName);
+}
+
+/**
+ * Assert a coverage entry's complete function-coverage picture against an expected
+ * map of `functionName → hitCount`. One call replaces the per-function `hitCount`
+ * boilerplate and enforces uniform rigor everywhere it's used:
+ *
+ *  - the tracked function-name SET matches exactly (no extra or missing functions);
+ *  - every function's hit count matches;
+ *  - the covered / uncovered / total tallies (derived from the expected map) match.
+ *
+ * The name-set check is intentionally exact (stronger than `arrayContaining`): a
+ * function that appears in coverage but isn't in `expected` — or vice versa — is a
+ * real discrepancy worth failing on. Functions AS does not track (e.g. an empty body
+ * with no source location) must simply be omitted from `expected`.
+ */
+export function expectFunctionCoverage(entry: FileCoverage, expected: Record<string, number>): void {
+  const actualNames = allFunctionNames(entry).slice().sort();
+  const expectedNames = Object.keys(expected).sort();
+  expect(actualNames, 'tracked function name set').toEqual(expectedNames);
+
+  for (const [name, count] of Object.entries(expected)) {
+    expect(hitCount(entry, name), `hit count for ${name}`).toBe(count);
+  }
+
+  const expectedCounts = Object.values(expected);
+  expect(totalFunctions(entry), 'total functions').toBe(expectedNames.length);
+  expect(coveredCount(entry), 'covered functions').toBe(expectedCounts.filter(c => c > 0).length);
+  expect(uncoveredCount(entry), 'uncovered functions').toBe(expectedCounts.filter(c => c === 0).length);
+}
+
+/** Options for {@link expectFunctionParityByLine} divergences. */
+export interface FunctionParityOptions {
+  /** Source start-lines whose function appears only in the AS fnMap (e.g. `@operator` overloads — no JS equivalent). */
+  asOnlyLines?: number[];
+  /** Source start-lines whose function appears only in the v8 fnMap (e.g. an empty body AS drops but v8 keeps). */
+  jsOnlyLines?: number[];
+  /**
+   * Start-lines where both sides track the function but the hit counts intentionally
+   * differ, keyed by line → `[expected AS hits, expected v8 hits]`. For documented count
+   * divergences — e.g. v8 reports a never-called static method as covered (1) while AS
+   * counts function entries and reports 0.
+   */
+  divergentHitLines?: Record<number, readonly [number, number]>;
+}
+
+/**
+ * Index an entry's functions by their fnMap start line. Pairing the twins by line
+ * (rather than by name) is robust to v8 method names that may be unqualified or differ
+ * from AS's `ClassName#method` form. Throws if two functions share a start line, since
+ * that makes the line an ambiguous pairing key — line-aligned twin fixtures must keep
+ * one function declaration per line.
+ */
+function functionsByStartLine(entry: FileCoverage): Map<number, { name: string; hits: number }> {
+  const byLine = new Map<number, { name: string; hits: number }>();
+  for (const [id, fn] of Object.entries(entry.fnMap)) {
+    const existing = byLine.get(fn.line);
+    if (existing) {
+      throw new Error(
+        `Two functions share start line ${fn.line} (${existing.name}, ${fn.name}); ` +
+        `line pairing requires one function declaration per line in twinned fixtures.`,
+      );
+    }
+    byLine.set(fn.line, { name: fn.name, hits: entry.f[id] ?? 0 });
+  }
+  return byLine;
+}
+
+/**
+ * Assert function-coverage parity between a line-aligned AS fixture and its v8 (JS)
+ * twin by pairing functions on their START LINE. For every line present on both sides
+ * the hit counts must match; lines present on only one side must be exactly the
+ * declared divergence sets — so an unexpected one-sided function fails rather than
+ * being silently tolerated.
+ */
+export function expectFunctionParityByLine(
+  asEntry: FileCoverage, jsEntry: FileCoverage, opts: FunctionParityOptions = {},
+): void {
+  const asByLine = functionsByStartLine(asEntry);
+  const jsByLine = functionsByStartLine(jsEntry);
+  const ascending = (a: number, b: number): number => a - b;
+
+  const actualAsOnly = [...asByLine.keys()].filter(l => !jsByLine.has(l)).sort(ascending);
+  const actualJsOnly = [...jsByLine.keys()].filter(l => !asByLine.has(l)).sort(ascending);
+  expect(actualAsOnly, 'AS-only function lines').toEqual([...(opts.asOnlyLines ?? [])].sort(ascending));
+  expect(actualJsOnly, 'v8-only function lines').toEqual([...(opts.jsOnlyLines ?? [])].sort(ascending));
+
+  const divergent = opts.divergentHitLines ?? {};
+  for (const [line, as] of asByLine) {
+    const js = jsByLine.get(line);
+    if (!js) continue; // a declared AS-only line, already validated above
+    const expectedDivergence = divergent[line];
+    if (expectedDivergence) {
+      expect(as.hits, `AS hits at divergent line ${line} (${as.name})`).toBe(expectedDivergence[0]);
+      expect(js.hits, `v8 hits at divergent line ${line} (${js.name})`).toBe(expectedDivergence[1]);
+    } else {
+      expect(as.hits, `hits at line ${line} (AS ${as.name} vs v8 ${js.name})`).toBe(js.hits);
+    }
+  }
+}
+
+/**
+ * Per-arm branch hit-count arrays for all branches of a given Istanbul branch
+ * type ('if', 'cond-expr', 'switch', 'binary-expr'), ordered by source position.
+ * Each element is that branch's `b` array (one count per arm, in source order),
+ * so multiple branches of the same type are distinguished by their position in
+ * the returned list.
+ *
+ * Ordering is a deterministic total order on the branch's whole-construct loc:
+ * start line, then start column, then end line, then end column. The start-column
+ * and end tiebreaks matter only for multiple same-type branches that share a start
+ * line — notably nested logicals like `a && b && c`, where the inner `a && b`
+ * (smaller range) sorts before the outer `(a && b) && c` (larger range).
+ */
+export function branchHitsByType(entry: FileCoverage, type: string): number[][] {
+  return Object.entries(entry.branchMap)
+    .filter(([, info]) => info.type === type)
+    .sort(([, a], [, b]) =>
+      a.loc.start.line - b.loc.start.line ||
+      a.loc.start.column - b.loc.start.column ||
+      a.loc.end.line - b.loc.end.line ||
+      a.loc.end.column - b.loc.end.column
+    )
+    .map(([id]) => entry.b[id] ?? []);
+}
+
+/**
+ * Hit counts of all statements whose START line === `line`, ordered by start column.
+ * Used to assert per-line statement coverage — e.g. that an inlined default-parameter
+ * `Const` (which lands on the signature line) did not pollute a body statement's count.
+ */
+export function statementHitsByLine(entry: FileCoverage, line: number): number[] {
+  type StatementRange = { start: { line: number; column: number } };
+  return Object.entries(entry.statementMap)
+    .filter(([, range]) => (range as StatementRange).start.line === line)
+    .sort(([, a], [, b]) => (a as StatementRange).start.column - (b as StatementRange).start.column)
+    .map(([id]) => entry.s[id] ?? 0);
+}
+
+/**
+ * Istanbul line coverage for a single line: the MAX hit count among statements whose
+ * range *starts* on that line (matching FileCoverage.getLineCoverage). Returns
+ * undefined when no statement starts on the line.
+ */
+export function lineHits(entry: FileCoverage, line: number): number | undefined {
+  const counts = statementHitsByLine(entry, line);
+  return counts.length === 0 ? undefined : Math.max(...counts);
+}
+
+/**
+ * Source lines that carry at least one statement but whose line coverage is 0
+ * (uncovered), sorted ascending — how Istanbul reporters derive uncovered lines from
+ * statement coverage (max hit count per start line).
+ */
+export function uncoveredLineNumbers(entry: FileCoverage): number[] {
+  type StatementRange = { start: { line: number; column: number } };
+  const maxByLine = new Map<number, number>();
+  for (const [id, range] of Object.entries(entry.statementMap)) {
+    const line = (range as StatementRange).start.line;
+    const count = entry.s[id] ?? 0;
+    const prev = maxByLine.get(line);
+    if (prev === undefined || prev < count) maxByLine.set(line, count);
+  }
+  return [...maxByLine.entries()]
+    .filter(([, c]) => c === 0)
+    .map(([l]) => l)
+    .sort((a, b) => a - b);
 }

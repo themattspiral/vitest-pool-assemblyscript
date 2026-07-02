@@ -23,7 +23,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — test execution scenari
   // the suite-level merge runs for every task (including completed ones) on resume,
   // re-populating coverage from individual task metas. This means explicit coverage
   // restoration is not needed — completed test/suite task objects retain their own
-  // meta.coverageData, which gets re-merged into the parent suite.
+  // meta.functionHits, which gets re-merged into the parent suite.
   //
   // The test file uses a nested suite structure to verify:
   //   - Completed sibling suite coverage preserved (merged into parent before timeout)
@@ -77,15 +77,10 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — test execution scenari
     });
   });
 
-  // Current behavior: only the last retry attempt's coverage is kept.
-  // resetTestForRetry() deletes meta.coverageData before each attempt,
-  // and executeWASMTest() replaces it with the current attempt's data.
+  // Note: resetTestForRetry() resets test result state before each attempt
+  // (result state and start time), but only the last retry attempt's coverage
+  // is kept because coverage is replaced for the individual test after each retry
   // The suite-level merge happens once after all retries complete.
-  //
-  // TODO: Compare this to vitest JS pool retry coverage behavior and
-  // make sure we mimic it. If vitest accumulates coverage across retry
-  // attempts, we should do the same.
-
   describe('retry-coverage: only last attempt coverage is kept', () => {
     let entry: FileCoverage;
 
@@ -101,12 +96,13 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — test execution scenari
       expect(hitCount(entry, 'retryHelper')).toBe(1);
     });
 
-    test('has exactly 2 functions tracked', () => {
-      expect(totalFunctions(entry)).toBe(2);
+    test('returnsTrueOnThirdExecution passes with last attempt data surfaced', () => {
+      expect(hitCount(entry, 'returnsTrueOnThirdExecution')).toBe(1);
     });
-
+    
     test('all functions covered', () => {
-      expect(coveredCount(entry)).toBe(2);
+      expect(totalFunctions(entry)).toBe(3);
+      expect(coveredCount(entry)).toBe(3);
       expect(uncoveredCount(entry)).toBe(0);
     });
   });

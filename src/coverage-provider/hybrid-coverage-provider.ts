@@ -23,12 +23,12 @@ const { createCoverageMap } = istanbulCoverage;
 import { convertToIstanbulFormat } from './istanbul-converter.js';
 import { parseFunctionsFromFile } from './ast-parser.js';
 import { globFiles } from './glob-utils.js';
-import { mergeCoverageData } from './coverage-merge.js';
+import { mergeCoverageBundle, emptyCoverageBundle } from './coverage-merge.js';
 import { debug } from '../util/debug.js';
 import { createPoolError } from '../util/pool-errors.js';
 import type {
   AssemblyScriptCoveragePayload,
-  CoverageData,
+  CoverageBundle,
   GlobResult,
   ResolvedHybridProviderOptions,
 } from '../types/types.js';
@@ -42,7 +42,7 @@ export class HybridCoverageProvider implements CoverageProvider {
   name = 'hybrid-assemblyscript-v8' as const;
 
   private v8Provider: CoverageProvider | undefined;
-  private accumulatedCoverageData: CoverageData = { hitCountsByFileAndPosition: {} };
+  private accumulatedCoverage: CoverageBundle = emptyCoverageBundle();
   private projectRoot: string = '';
   private definedCoverageOptions: ResolvedCoverageOptions = {} as ResolvedCoverageOptions;
   private resolvedProviderOptions: ResolvedHybridProviderOptions = {} as ResolvedHybridProviderOptions;
@@ -85,22 +85,37 @@ export class HybridCoverageProvider implements CoverageProvider {
     // Check for AssemblyScript format marker
     if (format === COVERAGE_PAYLOAD_FORMATS.AssemblyScript) {
       const payload = meta.coverage as AssemblyScriptCoveragePayload;
-      const { coverageData, suiteLogLabel: label } = payload;
-      suiteLogLabel = label;
+      suiteLogLabel = payload.suiteLogLabel;
 
       debug(() => {
-        const fileCount = Object.keys(coverageData.hitCountsByFileAndPosition).length;
-        const positionCount = Object.values(coverageData.hitCountsByFileAndPosition)
+        const fileCount = Object.keys(payload.functionHits.hitCountsByFileAndPosition).length;
+        const positionCount = Object.values(payload.functionHits.hitCountsByFileAndPosition)
           .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
         return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun - Suite payload: ${positionCount} unique positions over ${fileCount} source files`;
       });
 
-      // Merge incoming coverage data into accumulated (by position, summing hit counts)
-      mergeCoverageData(this.accumulatedCoverageData, coverageData);
+      // Merge the incoming payload into the accumulated bundle. The payload extends
+      // CoverageBundle, and each field applies its own strategy (SUM the count maps,
+      // branch-merge, UNION decisionPositions + loaded files).
+      mergeCoverageBundle(this.accumulatedCoverage, payload);
 
       debug(() => {
-        const fileCount = Object.keys(this.accumulatedCoverageData.hitCountsByFileAndPosition).length;
-        const positionCount = Object.values(this.accumulatedCoverageData.hitCountsByFileAndPosition)
+        const positionCount = Object.values(this.accumulatedCoverage.expressionHits.hitCountsByFileAndPosition)
+          .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
+        return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun - Accumulated statement hits: ${positionCount} unique positions`;
+      });
+
+      debug(() => {
+        const byFile = this.accumulatedCoverage.branchHits.hitsByFileAndDecision;
+        const decisionCount = Object.values(byFile)
+          .reduce((sum, decisions) => sum + Object.keys(decisions).length, 0);
+        const fileCount = Object.keys(byFile).length;
+        return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun - Accumulated branch coverage: ${decisionCount} decisions across ${fileCount} files`;
+      });
+
+      debug(() => {
+        const fileCount = Object.keys(this.accumulatedCoverage.functionHits.hitCountsByFileAndPosition).length;
+        const positionCount = Object.values(this.accumulatedCoverage.functionHits.hitCountsByFileAndPosition)
           .reduce((sum, positions) => sum + Object.keys(positions).length, 0);
         return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun - Accumulated coverage: ${positionCount} unique positions over ${fileCount} source files`;
       });
@@ -151,25 +166,39 @@ export class HybridCoverageProvider implements CoverageProvider {
     if (this.resolvedProviderOptions.globbedAssemblyScriptInclude.length > 0) {
       debug(`[HybridCoverageProvider] Building AS coverage map with ${this.resolvedProviderOptions.globbedAssemblyScriptInclude.length} source files `);
       debug(() => {
-        const accumulatedPositionCount = Object.values(this.accumulatedCoverageData.hitCountsByFileAndPosition)
+        const accumulatedPositionCount = Object.values(this.accumulatedCoverage.functionHits.hitCountsByFileAndPosition)
           .reduce((sum, positions) => sum + Object.keys(positions)?.length, 0);
-        const files = Object.keys(this.accumulatedCoverageData.hitCountsByFileAndPosition).length;
+        const files = Object.keys(this.accumulatedCoverage.functionHits.hitCountsByFileAndPosition).length;
         return `[HybridCoverageProvider] Accumulated coverage data has ${accumulatedPositionCount} unique positions hit across ${files} debug source files`;
       });
+      debug(`[HybridCoverageProvider] Accumulated loaded source files: ${this.accumulatedCoverage.loadedSourceFiles.length}`);
+
+      // Set for per-file "was this file loaded?" lookups
+      const loadedFilesSet = new Set(this.accumulatedCoverage.loadedSourceFiles);
 
       // parse source files with AST parser, then match to hits and convert to istanbul format
       const fileProcessingPromises = this.resolvedProviderOptions.globbedAssemblyScriptInclude.map(async (include: GlobResult) => {
         debug(`[HybridCoverageProvider] Parsing AS source for expected coverage: "${include.absolute}"`);
-        
+
         // Parse AS Source with AST parser
         const parsedFunctions = await parseFunctionsFromFile(include.absolute, include.projectRootRelative) || {};
         debug(`[HybridCoverageProvider] Parsed ${Object.keys(parsedFunctions.uniqueFunctions).length} AS source lines with functions in "${include.absolute}"`);
 
-        const fileHitCountsByPosition = this.accumulatedCoverageData.hitCountsByFileAndPosition[include.absolute] ?? {};
-        debug(`[HybridCoverageProvider] Accumulated AS coverage has ${Object.keys(fileHitCountsByPosition).length} positions for "${include.absolute}"`);
+        // Whether this file was compiled into a binary that executed — used to credit
+        // module-level declarations that produce no runtime counter (see the converter).
+        const fileLoaded = loadedFilesSet.has(include.absolute);
 
-        // Containment matching (binary hit position → source) is performed during istanbul conversion
-        return convertToIstanbulFormat(parsedFunctions, fileHitCountsByPosition, include.absolute, this.resolvedProviderOptions.debugIstanbul);
+        debug(() => {
+          const cov = this.accumulatedCoverage;
+          const fnCount = Object.keys(cov.functionHits.hitCountsByFileAndPosition[include.absolute] ?? {}).length;
+          const stmtCount = Object.keys(cov.expressionHits.hitCountsByFileAndPosition[include.absolute] ?? {}).length;
+          const branchCount = Object.keys(cov.branchHits.hitsByFileAndDecision[include.absolute] ?? {}).length;
+          return `[HybridCoverageProvider] Accumulated AS coverage has ${fnCount} function + ${stmtCount} statement positions + ${branchCount} branch decisions for "${include.absolute}"`;
+        });
+
+        // The converter slices the per-file view out of the bundle. Containment matching
+        // (binary hit position → source) is performed during istanbul conversion.
+        return convertToIstanbulFormat(parsedFunctions, this.accumulatedCoverage, fileLoaded, include.absolute, this.resolvedProviderOptions.debugIstanbul);
       });
 
       // Wait for all files to complete
@@ -288,7 +317,7 @@ export class HybridCoverageProvider implements CoverageProvider {
   async clean(clean: boolean = true): Promise<void> {
     debug('[HybridCoverageProvider] Clean coverage data - clean:', clean);
     if (clean) {
-      this.accumulatedCoverageData = { hitCountsByFileAndPosition: {} };
+      this.accumulatedCoverage = emptyCoverageBundle();
       debug('[HybridCoverageProvider] Cleaned all internal coverage data');
     }
 

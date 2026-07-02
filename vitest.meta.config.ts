@@ -19,7 +19,7 @@ export default defineConfig({
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       
       include: [
-        'test/js-example-meta-src'
+        'test/js-coverage-parity-src'
       ],
       
       assemblyScriptInclude: [
@@ -42,9 +42,9 @@ export default defineConfig({
     projects: [
       defineProject({
         test: {
-          name: { label: 'ts-pool-meta-example', color: 'blue' },
+          name: { label: 'js-coverage-parity', color: 'blue' },
           include: [
-            'test/js-example-meta/*.test.ts',
+            'test/js-coverage-parity/**/*.test.ts',
           ],
           exclude: [],
         }
@@ -113,6 +113,34 @@ export default defineConfig({
           include: ['test/assembly/**/*.meta-small-mem.test.ts'],
           pool: createAssemblyScriptPool({
             testMemoryPagesMax: 1,
+          }),
+        }
+      }),
+
+      // AS Meta Alt Config - no strip-inline (honor @inline). Verifies that a branch
+      // inside an @inline function (inlined into a caller in another file) is still
+      // covered and attributed back to the @inline source.
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-no-strip-inline', color: 'yellow' },
+          include: ['test/assembly/**/*.meta-no-strip-inline.test.ts'],
+          pool: createAssemblyScriptPool({
+            stripInline: false,
+          }),
+        }
+      }),
+
+      // AS Meta Alt Config - incremental runtime. Runs *.meta-incremental.test.ts under
+      // --runtime incremental, so that source's coverage accumulates with the default
+      // (stub) runtime run across two binaries -- the only way the runtime-dependent
+      // skip/drift coverage behavior manifests. Guards the breadth-first representative-
+      // location search and the per-function SUM combiner.
+      defineProject({
+        test: {
+          name: { label: 'as-pool-meta-incremental', color: 'yellow' },
+          include: ['test/assembly/**/*.meta-incremental.test.ts'],
+          pool: createAssemblyScriptPool({
+            extraCompilerFlags: ['--enable', 'simd', '--runtime', 'incremental'],
           }),
         }
       }),

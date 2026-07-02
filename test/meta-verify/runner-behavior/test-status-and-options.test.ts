@@ -195,8 +195,8 @@ describe('test options & result status verification', () => {
     });
 
     test('7 total tests: 3 passed, 4 failed', () => {
-      expect(file.assertionResults).toHaveLength(7);
-      expect(countByStatus(file, 'passed')).toBe(3);
+      expect(file.assertionResults).toHaveLength(8);
+      expect(countByStatus(file, 'passed')).toBe(4);
       expect(countByStatus(file, 'failed')).toBe(4);
     });
 
@@ -209,6 +209,21 @@ describe('test options & result status verification', () => {
       const t = requireTest(file, 'failing test with project config defaults [should fail]');
       expect(t.status).toBe('failed');
       expect(t.failureMessages).toHaveLength(1);
+    });
+
+    test('retried test that passes after initial failures is reported passed', () => {
+      const testName = 'retry: data reset > last attempt status is reported';
+      const t = requireTest(file, testName);
+      expect(t.status).toBe('passed');
+
+      // result set still has the 2 failures also
+      expect(t.failureMessages).toHaveLength(2);
+
+      const line = parsedCliOutput.testReportOutput
+        .split('\n')
+        .find(l => l.includes(testName));
+      expect(line).toBeDefined();
+      expect(line).toContain('(retry x2)');
     });
 
     test('suite-level retry(5) inherited: 6 failure messages (1 initial + 5 retries)', () => {

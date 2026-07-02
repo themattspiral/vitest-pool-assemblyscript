@@ -1,4 +1,3 @@
-import { TestCallback } from './test';
 import { TestOptions, DEFAULT_TEST_OPTIONS } from './options';
 
 /* 
@@ -21,17 +20,18 @@ declare function __begin_register_suite(
 @external("__as_pool_env__", "__end_register_suite")
 declare function __end_register_suite(name: string): void;
 
+export type SuiteCallback = () => void;
 
 /**
  * Register a test suite (a collection of tests and suites).
  */
-export function describe<T = TestCallback, U = TestOptions>(
+export function describe<T = SuiteCallback, U = TestOptions>(
   name: string,
   optionsOrFn: T,
   // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
   fnOrOptions: U = DEFAULT_TEST_OPTIONS  // defaults all undefined here, merged with config in JS
 ): void {
-  let fn: TestCallback;
+  let fn: SuiteCallback;
   let options: TestOptions;
 
   if (isFunction(optionsOrFn) && fnOrOptions instanceof TestOptions) {
@@ -58,14 +58,14 @@ export function describe<T = TestCallback, U = TestOptions>(
   __end_register_suite(name);
 }
 
-function describeWithMergedOption<T = TestCallback, U = TestOptions>(
+function describeWithMergedOption<T = SuiteCallback, U = TestOptions>(
   name: string,
   optionToMerge: TestOptions,
   optionsOrFn: T,
   // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
   fnOrOptions: U = DEFAULT_TEST_OPTIONS
 ): void {
-  let fn: TestCallback;
+  let fn: SuiteCallback;
   let options: TestOptions;
 
   if (isFunction(optionsOrFn) && fnOrOptions instanceof TestOptions) {
@@ -84,7 +84,7 @@ function describeWithMergedOption<T = TestCallback, U = TestOptions>(
 }
 
 export namespace describe {
-  export function skip<T = TestCallback, U = TestOptions>(
+  export function skip<T = SuiteCallback, U = TestOptions>(
     name: string,
     optionsOrFn: T,
     // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS
@@ -93,7 +93,7 @@ export namespace describe {
     return describeWithMergedOption(name, TestOptions.skip(), optionsOrFn, fnOrOptions);
   }
 
-  export function only<T = TestCallback, U = TestOptions>(
+  export function only<T = SuiteCallback, U = TestOptions>(
     name: string,
     optionsOrFn: T,
     // @ts-ignore: TS2322 ('U' could be instantiated with an arbitrary type) doesn't apply to AS

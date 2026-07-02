@@ -11,6 +11,7 @@
 #include <map>
 #include <unordered_set>
 #include <sstream>
+#include <queue>
 
 // Binaryen C++ API headers
 #include "wasm-binary.h"
@@ -18,59 +19,61 @@
 #include "wasm-builder.h"
 #include "ir/module-utils.h"
 #include "ir/names.h"
+#include "ir/iteration.h"
 #include "cfg/cfg-traversal.h"
 #include "support/name.h"
 #include "pass.h"
 
 using namespace wasm;
 
-// 32
+// i32 counter = 32 bits = 4 bytes
 const int32_t BYTES_PER_COUNTER = 4;
 
 // 1 page = 64KB / 4bytes (32bits) each = 16384 counters
 const int32_t COUNTERS_PER_PAGE = 16384;
 
-// TODO - pass these through the call stack as params instead
-// for now we don't expect them to  change between different calls
+// TODO - pass these through the call stack as params instead.
+// for now we don't expect them to change between different calls
 // in the same thread over the same vitest run, so it's safe to use this approach
 thread_local bool DEBUG = false;
 thread_local std::string LOG_PREFIX = "InstNative";
 
 struct SourceDebugLocation {
   bool exists = false;
-  int32_t fileIndex = 0;              // Debug location file index
-  int32_t lineNumber = 0;            // Debug location line number
-  int32_t columnNumber = 0;          // Debug location column number
+  int32_t fileIndex = 0;
+  int32_t lineNumber = 0;
+  int32_t columnNumber = 0;
 };
 
-/**
- * Structure to hold expression information during AST walk
- */
 struct ExpressionInfo {
-  std::string type;                    // Expression type name
-  int32_t fileIndex;                  // Debug location file index
-  int32_t lineNumber;                 // Debug location line number
-  int32_t columnNumber;               // Debug location column number
-  bool hasDebugLocation;               // Whether debug location exists
-  bool isBranch;                       // Whether this is a branch expression
-  int32_t branchPaths;                // Number of branch paths (if isBranch)
+  std::string type;
+  int32_t fileIndex;
+  int32_t lineNumber;
+  int32_t columnNumber;
+  bool hasDebugLocation;
 };
 
-/**
- * Structure to hold basic block information
- */
 struct BasicBlockInfo {
-  std::vector<size_t> expressionIndices;  // Indices into the flat expression array
+  std::vector<size_t> expressionIndices;   // Indices into the flat expression array (located exprs only)
   std::vector<size_t> branches;            // Indices of blocks this block branches to
+  bool isDecision = false;                 // out-degree >= 2: an Istanbul branch decision. Single source
+                                           // of truth for both branch identification and counter allocation.
+  Expression* anchorExpr = nullptr;        // First expression in the block (entry-anchor for counter injection).
+                                           // May be unlocated (e.g. an `if` consuming a logical result).
+  int32_t coverageMemoryIndex = -1;        // Assigned block counter slot (region 2); -1 = block not instrumented.
+  Expression* postAnchorExpr = nullptr;    // Empty fall-through blocks (e.g. an empty switch case) have no
+                                           // expression of their own. This is the named Block they fall out
+                                           // of; the counter is injected AFTER it (post-anchored), so it
+                                           // increments exactly when control branches/falls to that block's end.
 };
 
-// Data structure to collect function info during instrumentation
 struct FunctionInfo {
   std::string name;
   int32_t coverageMemoryIndex;
   SourceDebugLocation representativeLocation;
   std::vector<ExpressionInfo> expressions;
   std::vector<BasicBlockInfo> blocks;
+  Function* func = nullptr;                // Retained for the block-counter injection pass (after the function loop)
 };
 
 /**
@@ -82,10 +85,6 @@ struct BlockContent {
 
 /**
  * Walker to extract expression and basic block information using CFGWalker
- *
- * This walker traverses the AST in a single pass to collect:
- * 1. All expressions with their debug locations and types
- * 2. Basic block groupings with branch edges
  */
 struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExpressionVisitor<DebugInfoWalker>, BlockContent>> {
   Module* module;
@@ -97,68 +96,45 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
   // Map from BasicBlock pointer to block index for building branches
   std::map<BasicBlock*, size_t> blockIndexMap;
 
+  // Fall-through basic blocks created when a named Block ends, mapped to that
+  // Block expression. An empty one (e.g. an empty switch case that branches to
+  // the block's end) has no expression to anchor a counter on, so we post-anchor
+  // the counter onto the Block it falls out of (captured in doEndBlock below).
+  std::map<BasicBlock*, Expression*> postAnchorExprMap;
+
   explicit DebugInfoWalker(Module* m) : module(m) {}
 
+  // Override CFGWalker::doEndBlock to record the Block expression each new
+  // fall-through basic block falls out of. When a named Block with branches ends,
+  // the base creates a fresh basic block for the fall-through/branch targets; at
+  // that moment *currp is the Block and currBasicBlock is the new block.
+  static void doEndBlock(DebugInfoWalker* self, Expression** currp) {
+    BasicBlock* before = self->currBasicBlock;
+    CFGWalker<DebugInfoWalker, UnifiedExpressionVisitor<DebugInfoWalker>, BlockContent>::doEndBlock(self, currp);
+    if (self->currBasicBlock != nullptr && self->currBasicBlock != before) {
+      self->postAnchorExprMap[self->currBasicBlock] = *currp;
+    }
+  }
+
   /**
-   * Called for each expression during CFG walk
-   * Collects expression info and adds to current basic block
+   * Called for each expression during CFG walk.
+   *
+   * Retains EVERY non-Block expression in the current basic block (located or
+   * not). Two reasons we keep unlocated expressions now (previously skipped):
+   *   - block-counter injection needs an anchor even for unlocated decision
+   *     blocks (e.g. an `if` consuming a logical result has no located condition)
+   *   - the first-executed expression (the entry anchor) may itself be unlocated
+   *
+   * Located-expression extraction (for statement coverage) and branch/decision
+   * analysis happen in doWalkFunction, once the block structure is finalized.
    */
   void visitExpression(Expression* curr) {
-    // skip collecting expressions if:
-    //   - Not currently inside a basicBlock (`currBasicBlock` provided by CFGWalker)
-    //   - expression is a Block (Blocks are only containers and have no debug locations)
+    // Skip if not inside a basic block (CFGWalker state) or if a Block container
+    // (Blocks are only containers and have no source locations of their own).
     if (!currBasicBlock || curr->is<Block>()) {
       return;
     }
 
-    // Get debug location from function's debugLocations map
-    Function* func = getFunction();
-    ExpressionInfo info;
-    info.hasDebugLocation = false;
-
-    // Check debugLocations map
-    auto it = func->debugLocations.find(curr);
-    if (it != func->debugLocations.end() && it->second.has_value()) {
-      const auto& loc = it->second.value();
-      info.fileIndex = loc.fileIndex;
-      info.lineNumber = loc.lineNumber;
-      info.columnNumber = loc.columnNumber;
-      info.hasDebugLocation = true;
-    }
-
-    // skip expressions without debug locations
-    // TODO - determine if this will cause problems in branch coverage
-    if (!info.hasDebugLocation) {
-      return;
-    }
-
-    info.type = getExpressionName(curr);  // Expression type string
-
-    // Determine if this is a branch expression and count paths
-    info.isBranch = false;
-    info.branchPaths = 0;
-
-    // TODO - determine if we're missing any branch types (SIMDTernary?)
-    if (curr->is<If>()) {
-      info.isBranch = true;
-      auto* ifExpr = curr->cast<If>();
-      info.branchPaths = ifExpr->ifFalse ? 2 : 1;  // If/else = 2, if only = 1
-    } else if (curr->is<Break>()) {
-      info.isBranch = true;
-      info.branchPaths = 2;  // Branch taken or not (conditional break)
-    } else if (curr->is<Select>()) {
-      info.isBranch = true;
-      info.branchPaths = 2;  // True or false condition
-    } else if (curr->is<Switch>()) {
-      info.isBranch = true;
-      auto* switchExpr = curr->cast<Switch>();
-      info.branchPaths = switchExpr->targets.size() + 1;  // N targets + default
-    }
-
-    // Add to flat expressions array
-    expressions.push_back(info);
-
-    // Add expression to current basic block's content
     currBasicBlock->contents.expressions.push_back(curr);
   }
 
@@ -171,23 +147,57 @@ struct DebugInfoWalker : public WalkerPass<CFGWalker<DebugInfoWalker, UnifiedExp
     expressions.clear();
     blocks.clear();
     blockIndexMap.clear();
+    postAnchorExprMap.clear();
 
     // Walk the function using CFGWalker
     CFGWalker<DebugInfoWalker, UnifiedExpressionVisitor<DebugInfoWalker>, BlockContent>::doWalkFunction(func);
 
-    // After walk, build out basic block info with expression indices.
-    // `basicBlocks` provided by CFGWalker, now populated after the function walk
-    size_t exprIndex = 0;
-    for (auto& bb : basicBlocks) {  
+    // Build per-block info from the collected expressions. The flat expressions[]
+    // array and each block's expressionIndices are built together here (rather
+    // than during the walk), so the indices always reference the correct entries
+    // regardless of CFG vs. visit ordering.
+    for (auto& bb : basicBlocks) {
       BasicBlockInfo blockInfo;
 
       // Store the index for this block
       blockIndexMap[bb.get()] = blocks.size();
 
-      // Record expression indices for this block
-      size_t expressionCount = bb->contents.expressions.size();
-      for (size_t i = 0; i < expressionCount; i++) {
-        blockInfo.expressionIndices.push_back(exprIndex++);
+      // A decision block (out-degree >= 2) is the single source of truth for
+      // both branch identification (matcher) and counter allocation.
+      blockInfo.isDecision = (bb->out.size() >= 2);
+
+      // Entry-anchor: the block's first expression. CFGWalker extends PostWalker,
+      // so visit order == execution order, making [0] the first-executed
+      // expression. May be unlocated.
+      if (!bb->contents.expressions.empty()) {
+        blockInfo.anchorExpr = bb->contents.expressions[0];
+      } else {
+        // Empty block: if it's a fall-through created at the end of a named Block,
+        // it can still be counted by post-anchoring a counter onto that Block.
+        auto pit = postAnchorExprMap.find(bb.get());
+        if (pit != postAnchorExprMap.end()) {
+          blockInfo.postAnchorExpr = pit->second;
+        }
+      }
+
+      // Collect located expressions for statement coverage. Unlocated
+      // expressions are retained (above, for anchoring) but not emitted here.
+      for (Expression* curr : bb->contents.expressions) {
+        auto locIt = func->debugLocations.find(curr);
+        if (locIt == func->debugLocations.end() || !locIt->second.has_value()) {
+          continue;
+        }
+        const auto& loc = locIt->second.value();
+
+        ExpressionInfo info;
+        info.type = getExpressionName(curr);
+        info.fileIndex = loc.fileIndex;
+        info.lineNumber = loc.lineNumber;
+        info.columnNumber = loc.columnNumber;
+        info.hasDebugLocation = true;
+
+        blockInfo.expressionIndices.push_back(expressions.size());
+        expressions.push_back(info);
       }
 
       blocks.push_back(blockInfo);
@@ -279,46 +289,58 @@ bool shouldInstrumentFunction(
 }
 
 /**
- * Find a representative source location within a function's Block-type body by
- * scanning the block's direct child expressions in order and returning the
- * location of the first one that carries a debug location. Returns a
- * non-existent location if none of the body's expressions have one.
+ * Find a representative source location for a function by breadth-first search
+ * over its body expression tree, returning the location of the SHALLOWEST
+ * expression that carries a debug location. Returns a non-existent location if
+ * no expression in the body has one.
+ *
+ * Breadth-first (rather than only the body block's direct children) is required
+ * because some runtimes restructure a function's body: the incremental GC runtime
+ * injects unlocated allocation/barrier bookkeeping at the body's top level and
+ * nests the user's statements deeper, leaving every direct child unlocated. A
+ * direct-children-only scan would then find nothing and skip the function from
+ * instrumentation entirely (reading 0% coverage despite executing). Descending
+ * finds the user's real statement instead. Shallowest-first keeps the choice on a
+ * top-level statement and prefers it over a deeply-nested foreign location — e.g.
+ * an inlined default-parameter `Const` buried in a call's arguments, which points
+ * back to the parameter's definition in another file.
+ *
+ * The representative location only needs to fall inside the function's own source
+ * range so the coverage provider's containment matching attributes the function's
+ * entry counter correctly; it need not be perfectly identical across runtimes,
+ * because cross-binary hit counts are summed by position downstream.
  */
-SourceDebugLocation getRepresentativeLocationInBlockBody(
-  Block* blockBody,
-  const std::unordered_map<wasm::Expression*, std::optional<wasm::Function::DebugLocation>> debugLocations
+SourceDebugLocation findFirstLocatedExpression(
+  Expression* root,
+  const std::unordered_map<wasm::Expression*, std::optional<wasm::Function::DebugLocation>>& debugLocations
 ) {
   SourceDebugLocation repLoc;
-
-  if (DEBUG) {
-    std::cout << LOG_PREFIX << " -     Checking func Block body: " << blockBody->list.size() << " body expressions" << std::endl;
+  if (!root) {
+    return repLoc;
   }
-  
-  for (size_t i = 0; i < blockBody->list.size(); i++) {
-    Expression* exprInBlockBody = blockBody->list[i];
 
-    if (exprInBlockBody) {
-      auto it = debugLocations.find(exprInBlockBody);
-      if (it != debugLocations.end() && it->second.has_value()) {
-        const auto& loc = it->second.value();
+  std::queue<Expression*> toVisit;
+  toVisit.push(root);
 
-        repLoc.exists = true;
-        repLoc.fileIndex = loc.fileIndex;
-        repLoc.lineNumber = loc.lineNumber;
-        repLoc.columnNumber = loc.columnNumber;
+  while (!toVisit.empty()) {
+    Expression* expr = toVisit.front();
+    toVisit.pop();
+    if (!expr) {
+      continue;
+    }
 
-        if (DEBUG) {
-          std::cout << LOG_PREFIX << " -     Block body expr [" << i << "] (" << getExpressionName(exprInBlockBody) << ")="
-                    << loc.fileIndex << ":" << loc.lineNumber << ":" << loc.columnNumber << " - break" << std::endl;
-        }
+    auto it = debugLocations.find(expr);
+    if (it != debugLocations.end() && it->second.has_value()) {
+      const auto& loc = it->second.value();
+      repLoc.exists = true;
+      repLoc.fileIndex = loc.fileIndex;
+      repLoc.lineNumber = loc.lineNumber;
+      repLoc.columnNumber = loc.columnNumber;
+      return repLoc;
+    }
 
-        break;
-        
-      } else if (DEBUG) {
-        std::cout << LOG_PREFIX << " -     Block body expr [" << i << "] (" << getExpressionName(exprInBlockBody) << ") - No location" << std::endl;
-      }
-    } else if (DEBUG) {
-      std::cout << LOG_PREFIX << " -     WARNING: Block body expr [" << i << "] - EMPTY" << std::endl;
+    for (auto* child : ChildIterator(expr)) {
+      toVisit.push(child);
     }
   }
 
@@ -328,9 +350,7 @@ SourceDebugLocation getRepresentativeLocationInBlockBody(
 SourceDebugLocation getRepresentativeLocation(Function* func) {
   SourceDebugLocation repLoc;
 
-  // Get body expression debug location
   Expression* body = func->body;
-
   if (!body) {
     if (DEBUG) {
       std::cout << LOG_PREFIX << " -   Function has no body expression - No debug locations available to check" << std::endl;
@@ -338,62 +358,141 @@ SourceDebugLocation getRepresentativeLocation(Function* func) {
     return repLoc;
   }
 
-  const std::string bodyType = getExpressionName(body);
-
+  // Load/Store body: compiler-generated class member accessors (field value
+  // getters / setters) whose expressions carry no source locations. Skip them
+  // explicitly so they are not instrumented.
   if (body->is<Load>() || body->is<Store>()) {
-    // Load/Store body:
-    //   - Compiler-generated functions with no expressions with locations
-    //   - LOAD: Compiler-generated class member getters (field value getters, function member getters)
-    //   - STORE: Compiler-generated class member value setters (field value setters)
-    // 
-    // Note: compiler-generated class member function setters use a Block body also,
-    // but their expressions (Store+Call) have no locations
     if (DEBUG) {
-      std::cout << LOG_PREFIX << " -   Compiler-generated accessor function (body=" << bodyType << ") - No location" << std::endl;
+      std::cout << LOG_PREFIX << " -   Compiler-generated accessor function (body=" << getExpressionName(body) << ") - No location" << std::endl;
     }
     return repLoc;
-  } else if (body->is<Block>()) {
-    // Block body:
-    //   - Block expressions are only containers and have no source locations of their own
-    //   - Examine expressions within the block body to find location, if one exists
-    if (DEBUG) {
-      std::cout << LOG_PREFIX << " -   Checking function Block body expression list" << std::endl;
-    }
-
-    repLoc = getRepresentativeLocationInBlockBody(body->cast<Block>(), func->debugLocations);
   }
 
-  // use body expression's debug location if available
-  auto it = func->debugLocations.find(body);
-  if (it != func->debugLocations.end() && it->second.has_value()) {
-    const auto& loc = it->second.value();
-    repLoc.exists = true;
-    repLoc.fileIndex = loc.fileIndex;
-    repLoc.lineNumber = loc.lineNumber;
-    repLoc.columnNumber = loc.columnNumber;
-    
-    if (DEBUG) {
-      std::cout << LOG_PREFIX << " -   Using function body (" << bodyType << ")="
-                << repLoc.fileIndex << ":" << repLoc.lineNumber << ":" << repLoc.columnNumber << std::endl;
-    }
-  }
+  // Breadth-first search the body for the shallowest located expression.
+  repLoc = findFirstLocatedExpression(body, func->debugLocations);
 
-  if (!repLoc.exists && DEBUG) {
-    std::cout << LOG_PREFIX << " -     Warning: Location expected on function body (" << bodyType << ") - No location found" << std::endl;
+  if (DEBUG) {
+    if (repLoc.exists) {
+      std::cout << LOG_PREFIX << " -   Representative location=" << repLoc.fileIndex << ":"
+                << repLoc.lineNumber << ":" << repLoc.columnNumber << std::endl;
+    } else {
+      std::cout << LOG_PREFIX << " -     Warning: no located expression found in body (" << getExpressionName(body) << ")" << std::endl;
+    }
   }
 
   return repLoc;
 }
 
 /**
- * Instrument WASM binary for coverage and regenerate source map
+ * Build a coverage counter-increment sequence for a given counter slot:
+ *   counter = i32.load(addr, __coverage_memory)
+ *   i32.store(addr, counter + 1, __coverage_memory)
  *
- * This function:
- * 1. Reads WASM binary with source map
- * 2. Adds __coverage_memory import (multi-memory for coverage counters)
- * 3. Instruments each user function with coverage counter increment
- * 4. Extracts debug information
- * 5. Writes instrumented binary with regenerated source map
+ * Returns the store expression (which embeds the load + increment). Used for
+ * both function-entry counters and basic-block counters. Two distinct address
+ * Const nodes are built (one for the load, one for the store) so no IR node is
+ * aliased into two tree positions; the emitted WASM is identical either way.
+ */
+Expression* makeCounterIncrement(
+  Builder& builder,
+  const Name& coverageMemoryWasmName,
+  int32_t counterIndex
+) {
+  const int32_t counterAddressVal = counterIndex * BYTES_PER_COUNTER;
+
+  // Load current counter value
+  Expression* counterValue = builder.makeLoad(
+    BYTES_PER_COUNTER,  // bytes - size
+    false,              // signed - false, treat as unsigned (and no extension needed anyway)
+    0,                  // offset - none, we already calculate the address based on data size
+    BYTES_PER_COUNTER,  // align - we should always be aligned
+    builder.makeConstantExpression(Literal(counterAddressVal)),  // address
+    Type::i32,
+    coverageMemoryWasmName
+  );
+
+  // Increment counter
+  Expression* incrementedCounter = builder.makeBinary(
+    AddInt32,
+    counterValue,
+    builder.makeConst(1)
+  );
+
+  // Store incremented value back
+  return builder.makeStore(
+    BYTES_PER_COUNTER,  // bytes
+    0,                  // offset
+    BYTES_PER_COUNTER,  // align hint
+    builder.makeConstantExpression(Literal(counterAddressVal)),  // address
+    incrementedCounter, // value
+    Type::i32,
+    coverageMemoryWasmName
+  );
+}
+
+/**
+ * PostWalker that injects block coverage counters at pre-recorded anchor
+ * expressions. For each anchor, wraps it in a Block { counterIncrement, anchor },
+ * finalized to the anchor's type — so the value and type seen by the surrounding
+ * IR are unchanged, while the counter increments BEFORE the block's first
+ * expression executes (entry-anchored).
+ *
+ * The anchor->counterIndex map holds original IR expression pointers captured
+ * during the collection walk. They remain valid through injection because only
+ * integer counter indices are assigned in between; the function-entry counter
+ * prepend wraps the outer body without moving inner expressions.
+ */
+struct BlockCounterInjectionWalker : public PostWalker<BlockCounterInjectionWalker, UnifiedExpressionVisitor<BlockCounterInjectionWalker>> {
+  Builder& builder;
+  Name coverageMemoryWasmName;
+  const std::unordered_map<Expression*, int32_t>& anchorToCounterIndex;       // entry-anchored (counter before)
+  const std::unordered_map<Expression*, int32_t>& postAnchorToCounterIndex;   // post-anchored (counter after)
+
+  BlockCounterInjectionWalker(
+    Builder& b,
+    const Name& memName,
+    const std::unordered_map<Expression*, int32_t>& preMap,
+    const std::unordered_map<Expression*, int32_t>& postMap
+  ) : builder(b), coverageMemoryWasmName(memName),
+      anchorToCounterIndex(preMap), postAnchorToCounterIndex(postMap) {}
+
+  void visitExpression(Expression* curr) {
+    auto it = anchorToCounterIndex.find(curr);
+    if (it != anchorToCounterIndex.end()) {
+      Expression** currp = getCurrentPointer();
+      Expression* counterInc = makeCounterIncrement(builder, coverageMemoryWasmName, it->second);
+      // Entry-anchored: counter increment runs before the anchor expression.
+      Block* wrapped = builder.makeBlock();
+      wrapped->list.push_back(counterInc);
+      wrapped->list.push_back(*currp);
+      wrapped->finalize(curr->type);
+      *currp = wrapped;
+      return;
+    }
+
+    auto pit = postAnchorToCounterIndex.find(curr);
+    if (pit != postAnchorToCounterIndex.end()) {
+      Expression** currp = getCurrentPointer();
+      Expression* counterInc = makeCounterIncrement(builder, coverageMemoryWasmName, pit->second);
+      // Post-anchored: counter runs AFTER the (named) Block, so it increments when
+      // control branches/falls to that block's end (an empty fall-through case).
+      Block* wrapped = builder.makeBlock();
+      wrapped->list.push_back(*currp);
+      wrapped->list.push_back(counterInc);
+      // finalize(curr->type) is safe here because post-anchoring only ever targets empty
+      // fall-through switch-case control blocks, which are always void — so curr->type is
+      // `none`, matching the void counter-store that is this block's last element. A
+      // value-producing block would need its result preserved across the counter; that
+      // shape never occurs.
+      wrapped->finalize(curr->type);
+      *currp = wrapped;
+      return;
+    }
+  }
+};
+
+/**
+ * Instrument WASM binary for coverage and regenerate source map
  *
  * @param wasmBuffer - Node.js Buffer containing WASM binary
  * @param sourceMapBuffer - Node.js Buffer containing source map JSON
@@ -402,7 +501,6 @@ SourceDebugLocation getRepresentativeLocation(Function* func) {
 Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
 
-  // Validate arguments
   if (info.Length() < 3) {
     Napi::TypeError::New(env, "Expected 3 arguments: wasmBuffer, sourceMapBuffer, instrumentationOptions")
         .ThrowAsJavaScriptException();
@@ -428,11 +526,9 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
   }
 
   try {
-    // Extract buffer data
     Napi::Buffer<char> wasmBuf = info[0].As<Napi::Buffer<char>>();
     Napi::Buffer<char> sourceMapBuf = info[1].As<Napi::Buffer<char>>();
 
-    // Extract options
     const Napi::Object options = info[2].As<Napi::Object>();
     
     // Extracted options
@@ -562,8 +658,6 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     Builder builder(module);
     int32_t coverageIndex = 0;
     std::vector<FunctionInfo> instrumentedFunctions;
-
-    // Enable multi-memory feature for coverage memory
     module.features.setMultiMemory(true);
 
     // secondary memory import used to store coverage counters
@@ -572,6 +666,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     // Create walker for debug info extraction
     DebugInfoWalker walker(&module);
 
+    // ── Function counter assignment (region 1) + injection ──
     ModuleUtils::iterDefinedFunctions(module, [&](Function* func) {
       std::string funcName = func->name.toString();
 
@@ -587,13 +682,10 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         return;
       }
 
-      // Walk function to collect expressions and basic blocks
-      walker.walkFunctionInModule(func, &module);
-      
-      if (DEBUG) {
-        std::cout << LOG_PREFIX << " -   CFG Walked function - expressions with locations: " << walker.expressions.size() << std::endl;
-      }
-
+      // Determine the representative location and excluded-file status before
+      // the CFG walk, so excluded / unlocatable functions skip the walk
+      // entirely. repLoc depends only on func->body + func->debugLocations
+      // (populated by the binary reader, not the walk), so it is available here.
       const SourceDebugLocation representativeLocation = getRepresentativeLocation(func);
 
       // skip function if it has no representative location
@@ -615,7 +707,11 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         return;
       }
 
+      // Walk function to collect expressions and basic blocks
+      walker.walkFunctionInModule(func, &module);
+
       if (DEBUG) {
+        std::cout << LOG_PREFIX << " -   CFG Walked function - expressions with locations: " << walker.expressions.size() << std::endl;
         std::cout << LOG_PREFIX << " -   Selected reprLoc=" << representativeLocation.fileIndex << ":" << representativeLocation.lineNumber
                   << ":" << representativeLocation.columnNumber << " | Now instrumenting with coverageMemoryIndex [" << coverageIndex << "]"
                   << " | " << std::endl;
@@ -628,49 +724,18 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       funcInfo.coverageMemoryIndex = coverageIndex;
       funcInfo.expressions = walker.expressions;
       funcInfo.blocks = walker.blocks;
+      funcInfo.func = func;
 
+      // Prepend function-entry counter increment to the function body
+      func->body = builder.makeSequence(
+        makeCounterIncrement(builder, coverageMemoryWasmName, coverageIndex),
+        func->body,
+        func->body->type
+      );
+      
       // add to list
       instrumentedFunctions.push_back(funcInfo);
-
-      // Coverage instrumentation:
-      //   counter = i32.load(addr, __coverage_memory)
-      //   incremented = counter + 1
-      //   i32.store(addr, incremented, __coverage_memory)
-
-      const int32_t counterAddressVal = coverageIndex * BYTES_PER_COUNTER;
-      Expression* counterAddress = builder.makeConstantExpression(Literal(counterAddressVal));
-
-      // Load current counter value
-      Expression* counterValue = builder.makeLoad(
-        BYTES_PER_COUNTER,  // bytes - size
-        false,              // signed - false, treat as unsigned (and no extension needed anyway)
-        0,                  // offset - none, we already calculate the address based on data size
-        BYTES_PER_COUNTER,  // align - we should always be aligned
-        counterAddress,     // address
-        Type::i32,
-        coverageMemoryWasmName
-      );
-
-      // Increment counter
-      Expression* incrementedCounter = builder.makeBinary(
-        AddInt32,
-        counterValue,
-        builder.makeConst(1)
-      );
-
-      Expression* storeCounter = builder.makeStore(
-        BYTES_PER_COUNTER,  // bytes
-        0,                  // offset
-        BYTES_PER_COUNTER,  // align hint
-        counterAddress,     // address
-        incrementedCounter, // value
-        Type::i32,
-        coverageMemoryWasmName
-      );
-
-      // Prepend instrumentation to function body
-      func->body = builder.makeSequence(storeCounter, func->body, func->body->type);
-
+      
       if (DEBUG) {
         std::cout << LOG_PREFIX << " -   INSTRUMENTED \"" << funcName << "\" | coverageMemoryIndex [" << coverageIndex << "]"
                   << " | reprLoc=" << representativeLocation.fileIndex << ":" << representativeLocation.lineNumber
@@ -680,9 +745,50 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
       coverageIndex++;
     });
 
+    // ── Block counter assignment (region 2) + injection ──
+    // Function-entry counters occupy indices [0, coverageIndex) — region 1, with
+    // contiguous per-function indices. Block counters are assigned next.
+    const int32_t functionCounterCount = coverageIndex;
+    for (auto& funcInfo : instrumentedFunctions) {
+      std::unordered_map<Expression*, int32_t> anchorToCounterIndex;
+      std::unordered_map<Expression*, int32_t> postAnchorToCounterIndex;
+
+      for (auto& block : funcInfo.blocks) {
+        // Instrument a block if it has a located expression (statement coverage)
+        // OR is a decision (branch coverage needs the decision's hit count), via
+        // an entry anchor (the block's first expression).
+        const bool entryInstrument =
+          (!block.expressionIndices.empty() || block.isDecision) && block.anchorExpr != nullptr;
+        if (entryInstrument) {
+          block.coverageMemoryIndex = coverageIndex++;
+          anchorToCounterIndex[block.anchorExpr] = block.coverageMemoryIndex;
+          continue;
+        }
+
+        // An empty fall-through block (e.g. an empty switch case) has no entry
+        // anchor, but can be counted by post-anchoring onto the named Block it
+        // falls out of. (A fused-logical decision block — `if (a && b)`, whose
+        // condition is a control-flow construct CFGWalker never visits — is empty
+        // with no post-anchor and is still not counted here.)
+        if (block.postAnchorExpr != nullptr) {
+          block.coverageMemoryIndex = coverageIndex++;
+          postAnchorToCounterIndex[block.postAnchorExpr] = block.coverageMemoryIndex;
+        }
+      }
+
+      if (!anchorToCounterIndex.empty() || !postAnchorToCounterIndex.empty()) {
+        BlockCounterInjectionWalker injector(builder, coverageMemoryWasmName, anchorToCounterIndex, postAnchorToCounterIndex);
+        injector.walkFunctionInModule(funcInfo.func, &module);
+      }
+    }
+
+    if (DEBUG) {
+      std::cout << LOG_PREFIX << " - Counters: " << functionCounterCount << " function-entry + "
+                << (coverageIndex - functionCounterCount) << " block = " << coverageIndex << " total" << std::endl;
+    }
+
     int32_t requiredCoverageMemoryPages = std::ceil(coverageIndex / static_cast<double>(COUNTERS_PER_PAGE));
 
-    // Add __coverage_memory import
     auto coverageMemory = Builder::makeMemory(coverageMemoryWasmName);
     coverageMemory->module = coverageMemoryModule;
     coverageMemory->base = coverageMemoryName;
@@ -697,7 +803,7 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     module.addMemory(std::move(coverageMemory));
 
     if (DEBUG) {
-      std::cout << LOG_PREFIX << " - Instrumentation complete: " << coverageIndex << " functions instrumented" << std::endl;
+      std::cout << LOG_PREFIX << " - Instrumentation complete: " << functionCounterCount << " functions instrumented" << std::endl;
     }
 
     // Write instrumented module with source map regeneration
@@ -737,6 +843,10 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
     }
     debugInfo.Set("debugSourceFiles", debugSourceFiles);
 
+    // Total counter slots (function-entry + block). Used by the executor to size
+    // its read of coverage memory once it reads block counters.
+    debugInfo.Set("totalInstrumentationCounters", Napi::Number::New(env, coverageIndex));
+
     // Add function information
     Napi::Array functions = Napi::Array::New(env, instrumentedFunctions.size());
 
@@ -761,10 +871,6 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         Napi::Object exprObj = Napi::Object::New(env);
 
         exprObj.Set("type", Napi::String::New(env, expr.type));
-        exprObj.Set("isBranch", Napi::Boolean::New(env, expr.isBranch));
-        if (expr.isBranch) {
-          exprObj.Set("branchPaths", Napi::Number::New(env, expr.branchPaths));
-        }
 
         if (expr.hasDebugLocation) {
           Napi::Object location = Napi::Object::New(env);
@@ -785,6 +891,14 @@ Napi::Object InstrumentForCoverage(const Napi::CallbackInfo& info) {
         Napi::Object blockObj = Napi::Object::New(env);
 
         blockObj.Set("index", Napi::Number::New(env, j));
+        blockObj.Set("isDecision", Napi::Boolean::New(env, block.isDecision));
+        // Post-anchored: an empty fall-through switch case whose counter sits AFTER
+        // the named Block it falls out of (it has a counter but no located expression
+        // of its own). This is the sole source of emptyCaseHits.
+        blockObj.Set("isPostAnchored", Napi::Boolean::New(env, block.postAnchorExpr != nullptr));
+        if (block.coverageMemoryIndex >= 0) {
+          blockObj.Set("coverageMemoryIndex", Napi::Number::New(env, block.coverageMemoryIndex));
+        }
 
         Napi::Array exprIndices = Napi::Array::New(env, block.expressionIndices.size());
         for (size_t k = 0; k < block.expressionIndices.size(); k++) {

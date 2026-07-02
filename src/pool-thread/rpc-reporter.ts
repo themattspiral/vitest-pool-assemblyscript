@@ -23,6 +23,7 @@ import type {
   AssemblyScriptCoveragePayload,
   AssemblyScriptSuiteTaskMeta,
   VitestVersion,
+  WASMCompilation,
   WorkerRPC
 } from '../types/types.js';
 import { debug } from '../util/debug.js';
@@ -120,6 +121,8 @@ export async function reportSuitePrepare(
 export async function reportSuiteFinished(
   rpc: WorkerRPC,
   suite: Suite,
+  collectCoverage: boolean,
+  compilation: WASMCompilation,
   logModule: string,
   base: string,
   vitestVersion: VitestVersion = 'v4',
@@ -127,14 +130,21 @@ export async function reportSuiteFinished(
   const suiteLabel = getTaskLogLabel(base, suite);
   const rpcLogPrefix = `[${logModule} RPC] ${suiteLabel}`;
   const meta = suite.meta as AssemblyScriptSuiteTaskMeta;
-  const coverageKeys: number = Object.keys(meta.coverageData?.hitCountsByFileAndPosition ?? {}).length;
+  const coverageBundle = meta.coverage;
   let coveragePromise: Promise<void> = Promise.resolve();
-  
-  // Report coverage if this is a file task, and coverage is available
-  if (isSuiteOwnFile(suite) && coverageKeys > 0) {
+
+  // Report coverage if coverage is enabled and this is a file task
+  if (collectCoverage && isSuiteOwnFile(suite) && coverageBundle) {
+    // The set of source files that a binary loaded is a file-level property.
+    // Record it once on the file suite's bundle. The provider uses it to mark
+    // module-level declarations covered for files that loaded but produce no runtime counter.
+    if (compilation.debugInfo) {
+      coverageBundle.loadedSourceFiles = compilation.debugInfo.absoluteDebugSourceFiles;
+    }
+
     const coverage: AssemblyScriptCoveragePayload = {
       __format: COVERAGE_PAYLOAD_FORMATS.AssemblyScript,
-      coverageData: meta.coverageData!,
+      ...coverageBundle,
       suiteLogLabel: suiteLabel
     };
     
@@ -146,9 +156,7 @@ export async function reportSuiteFinished(
     );
     coveragePromise = rpc.onAfterSuiteRun(afterSuiteMeta);
 
-    debug(`${rpcLogPrefix} - onAfterSuiteRun: Reported suite coverage (${coverageKeys} unique positions)`);
-  } else if (coverageKeys === 0) {
-    debug(`${rpcLogPrefix} - onAfterSuiteRun: No suite coverage to report`);
+    debug(`${rpcLogPrefix} - onAfterSuiteRun: Reported suite coverage`);
   }
 
   // Report suite event (without the custom task meta so reporters won't log it)
