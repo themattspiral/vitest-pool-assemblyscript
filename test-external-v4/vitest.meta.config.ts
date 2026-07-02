@@ -19,6 +19,10 @@ export default defineConfig({
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
       
+      // Intentionally `**`-anchored (not `../vitest-pool-assemblyscript`) because coverage.include
+      // is matched against each file's absolute path, which never contains a `..` segment,
+      // so a `../`-prefixed glob can't match. Using `**/` absorbs the absolute prefix,
+      // and still matches the local relative path, so the same glob works local + external.
       include: [
         '**/js-coverage-parity-src/**/*.ts'
       ],
