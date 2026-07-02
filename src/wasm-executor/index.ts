@@ -364,7 +364,7 @@ export async function executeWASMTest(
       emptyCaseHits: buildCaseHits(compilation.debugInfo, extractedHitCounters),
       // Decision-block positions (structural; for detecting folded branches).
       decisionPositions: buildDecisionPositions(compilation.debugInfo),
-      // Per-file property, not per-test — set once on the file suite (see runSuite).
+      // Per-file property, not per-test — set on the file suite before sending to provider.
       loadedSourceFiles: [],
     };
 

@@ -16,9 +16,12 @@ export default defineAssemblyScriptConfig({
       reportsDirectory: 'coverage/',
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
+
+      // v3-specific override to use same coverage strategy as newer versions
       experimentalAstAwareRemapping: true,
       
       include: [ '!*' ],
+
       assemblyScriptInclude: [
         // scoped to the crafted 100% set (feature/shared source excluded)
         '../vitest-pool-assemblyscript/test/assembly-src/coverage-collection/pass-100/**/*.ts',

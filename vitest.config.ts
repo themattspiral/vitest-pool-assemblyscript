@@ -28,9 +28,9 @@ export default defineConfig({
       ],
       
       assemblyScriptInclude: [
-        'assembly/**/*.ts',                                       // pool internals (instrumented for local visibility; ungated — gating deferred)
         'test/assembly-src/coverage-collection/pass-100/**/*.ts', // the crafted 100% passing set (feature/shared source excluded)
-        'test-generated/assembly-src/**/*.ts'                     // generated large fixture (100% coverage)
+        'test-generated/assembly-src/**/*.ts',                    // generated large fixture (100% coverage)
+        'assembly/**/*.ts',                                       // pool internals instrumented for local visibility
       ],
       assemblyScriptExclude: [
         'assembly/index.ts',
@@ -41,11 +41,7 @@ export default defineConfig({
       debugIstanbul: false,
 
       // Local gate on JUST the crafted pass-100 source — a fast-feedback tripwire for
-      // statement/branch/line/function regressions in the deliberate set. The framework
-      // (assembly/) and the generated fixture stay ungated locally: framework gating is
-      // a separate deferred decision, and the generated fixture is gated by the external
-      // pass configs. The glob key scopes the threshold to the pass-100 files; files not
-      // matched by any glob have no threshold.
+      // statement/branch/line/function regressions in the deliberate set
       thresholds: {
         perFile: true,
         'test/assembly-src/coverage-collection/pass-100/**': {

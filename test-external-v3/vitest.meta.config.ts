@@ -18,6 +18,8 @@ export default defineConfig({
       reportsDirectory: 'coverage/meta/',
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
+
+      // v3-specific override to use same coverage strategy as newer versions
       experimentalAstAwareRemapping: true,
       
       // Intentionally `**`-anchored (not `../vitest-pool-assemblyscript`) because coverage.include

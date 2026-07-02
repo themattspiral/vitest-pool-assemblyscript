@@ -55,8 +55,8 @@ import { ASNodeKind } from '../types/constants.js';
 
 /**
  * Node kinds that represent coverable statements (Istanbul statement granularity).
- * Excludes Block / Empty / ForOf and bare declarations. Variable statements fire
- * here too; the consumer extracts per-declarator-with-initializer.
+ * Excludes Block / Empty and bare declarations, as well as ForOf / Try (not supported by AS).
+ * Variable statements fire here too; the consumer extracts per-declarator-with-initializer.
  */
 const STATEMENT_NODE_KINDS: ReadonlySet<number> = new Set<number>([
   ASNodeKind.Expression,

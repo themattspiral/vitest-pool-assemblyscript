@@ -540,10 +540,9 @@ export interface BinaryDebugInfo {
   functionsByFileAndPosition: Record<string, Record<string, FunctionDebugInfo[]>>;
 
   /**
-   * Total coverage counter slots in coverage memory:
-   * function-entry counters (region 1, indices [0, F))
-   * plus block counters (region 2).
-   * The executor reads this many counters once block counters are consumed.
+   * Total coverage counter slots in coverage memory. Sum of:
+   * - function-entry counters (region 1, indices [0, F))
+   * - block counters (region 2)
    */
   totalInstrumentationCounters: number;
 }
@@ -722,13 +721,6 @@ export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
   defaultTestOptions: AssemblyScriptTestOptions;
   suitePreparedSent: boolean;
   resultFinal: boolean;
-  /**
-   * All AssemblyScript coverage for this suite, accumulated from its tests and
-   * child suites via mergeCoverageBundle (each field by its own strategy — sum
-   * the count maps, union the decision positions). A plain-object bundle, so it
-   * merges up the suite tree and survives the timeout-resume thread boundary.
-   * Absent when coverage is disabled.
-   */
   coverage?: CoverageBundle;
 }
 
@@ -741,11 +733,6 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   assertionsPassedCount: number;
   assertionsFailed: FailedAssertion[];
 
-  /**
-   * All AssemblyScript coverage for this test (function/statement/branch/
-   * empty-case hits + decision positions). See CoverageBundle. Absent when
-   * coverage is disabled.
-   */
   coverage?: CoverageBundle;
 
   // internal logging only
