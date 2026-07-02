@@ -7,7 +7,7 @@
  */
 
 import type { FileCoverageData, Range, FunctionMapping, BranchMapping } from 'istanbul-lib-coverage';
-import type { BranchPathHits, ParsedSourceFunctions, SourceRange } from '../types/types.js';
+import type { CoverageBundle, ParsedSourceFunctions, SourceRange } from '../types/types.js';
 import {
   findFunctionContainingPosition,
   buildHitsByLine,
@@ -49,27 +49,27 @@ function toIstanbulRange(range: SourceRange): Range {
  * derived from the decision's evaluation count (see computeBranchPathHits).
  *
  * @param fileFunctions - Parsed source functions + statements + branches for one file (from the AST parser)
- * @param fileFunctionHits - Function-level hit counts, keyed by position "line:column"
- * @param fileExpressionHits - Statement/expression-level hit counts, keyed by position "line:column"
- * @param fileBranchHits - Branch hits keyed by decision key (located arm-target positions)
- * @param fileEmptyCaseHits - Empty fall-through switch-case hits, keyed by case-label position "line:column"
- * @param fileDecisionPositions - Source positions of binary decision blocks ("line:column"), for folded-branch detection
- * @param absoluteFilePath - Absolute path to the source file (for Istanbul output)
+ * @param coverage - Accumulated run-level coverage bundle; the per-file view is sliced out by absoluteFilePath
+ * @param fileLoaded - Whether this file loaded (compiled into an executed binary); credits module-level declarations that produce no runtime counter
+ * @param absoluteFilePath - Absolute path to the source file (for Istanbul output + bundle slicing)
  * @param istanbulDebugEnabled - Enable verbose conversion logging
  * @returns Istanbul FileCoverage object
  */
 export async function convertToIstanbulFormat(
   fileFunctions: ParsedSourceFunctions,
-  fileFunctionHits: Record<string, number>,
-  fileExpressionHits: Record<string, number>,
-  fileBranchHits: Record<string, BranchPathHits>,
-  fileEmptyCaseHits: Record<string, number>,
-  fileDecisionPositions: string[],
+  coverage: CoverageBundle,
   fileLoaded: boolean,
   absoluteFilePath: string,
   istanbulDebugEnabled: boolean
 ): Promise<FileCoverageData> {
   const startMatch = performance.now();
+
+  // Slice the per-file view out of the run-level bundle (each field is keyed by file first).
+  const fileFunctionHits = coverage.functionHits.hitCountsByFileAndPosition[absoluteFilePath] ?? {};
+  const fileExpressionHits = coverage.expressionHits.hitCountsByFileAndPosition[absoluteFilePath] ?? {};
+  const fileBranchHits = coverage.branchHits.hitsByFileAndDecision[absoluteFilePath] ?? {};
+  const fileEmptyCaseHits = coverage.emptyCaseHits.hitCountsByFileAndPosition[absoluteFilePath] ?? {};
+  const fileDecisionPositions = coverage.decisionPositions.positionsByFile[absoluteFilePath] ?? [];
 
   function istanbulDebug(...args: any[]): void {
     if (istanbulDebugEnabled) {
