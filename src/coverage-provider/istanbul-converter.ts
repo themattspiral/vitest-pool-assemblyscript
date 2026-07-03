@@ -17,6 +17,7 @@ import {
   computeBranchPathHits,
 } from './containment-matcher.js';
 import { debugOverride, debug } from '../util/debug.js';
+import { toPlatformPath } from '../util/path-utils.js';
 
 /**
  * Convert an internal 1-based-column SourceRange to an Istanbul Range (0-based columns).
@@ -244,7 +245,9 @@ export async function convertToIstanbulFormat(
   );
 
   return {
-    path: absoluteFilePath,
+    // Emit the key in the OS-native separator so it matches the v8-delegated JS
+    // entries in the merged report; internal matching above stays forward-slash.
+    path: toPlatformPath(absoluteFilePath),
     fnMap,
     f,
     statementMap,

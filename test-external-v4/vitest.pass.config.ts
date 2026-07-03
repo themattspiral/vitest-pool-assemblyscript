@@ -7,10 +7,6 @@ export default defineConfig({
     environment: 'node',
     reporters: ['verbose'],
 
-    globalSetup: [
-      '../vitest-pool-assemblyscript/test/generators/global-setup-large-fixture.js'
-    ],
-
     coverage: {
       enabled: true,
       reportsDirectory: 'coverage/',
