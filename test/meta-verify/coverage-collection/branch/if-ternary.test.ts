@@ -25,6 +25,7 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — if / ternary branches'
   // 'if' branches by source position:
   //   [0] absVal  [1] clampLow  [2] classify-outer  [3] classify-inner
   //   [4] clampRange-outer  [5] clampRange-inner  [6] gateThenOnly  [7] guardElseOnly
+  //   [8] gateAfterStmts  [9] countBelowThreshold  [10] gateAfterStmtsWithElse
   describe('if / else / else-if', () => {
     test('absVal if/else: then 2, else 1', () => {
       expect(branchHitsByType(entry, 'if')[0]).toEqual([2, 1]);
@@ -52,6 +53,22 @@ describe.runIf(COVERAGE_ENABLED)('coverage collection — if / ternary branches'
 
     test('guardElseOnly: untested then, derived implicit else -> [0,2]', () => {
       expect(branchHitsByType(entry, 'if')[7]).toEqual([0, 2]);
+    });
+
+    // Statement-preceded ifs (issue #37 regression): straight-line statements share
+    // the condition's basic block, so the decision position must come from the
+    // block's LAST located expression. When broken, the branch is misclassified as
+    // compiler-folded and the taken implicit else reads 0 — [1,0] and [2,0] below.
+    test('gateAfterStmts: statement-preceded if-without-else -> [1,1]', () => {
+      expect(branchHitsByType(entry, 'if')[8]).toEqual([1, 1]);
+    });
+
+    test('countBelowThreshold: statement-preceded if in loop body -> [2,2]', () => {
+      expect(branchHitsByType(entry, 'if')[9]).toEqual([2, 2]);
+    });
+
+    test('gateAfterStmtsWithElse: statement-preceded if/else -> [1,1]', () => {
+      expect(branchHitsByType(entry, 'if')[10]).toEqual([1, 1]);
     });
   });
 

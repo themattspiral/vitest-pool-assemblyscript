@@ -85,3 +85,46 @@ export function guardElseOnly(n: i32): i32 {
   }
   return n;
 }
+
+// if WITHOUT else PRECEDED by straight-line statements in the same basic block
+// (regression for issue #37): the decision block's located expressions start at
+// the preceding statements, not the condition, so folded-branch detection must
+// key on the block's LAST located expression — otherwise this real branch is
+// misclassified as compiler-folded and its taken implicit else reads 0.
+export function gateAfterStmts(n: i32): i32 {
+  const doubled = n * 2;
+  const shifted = doubled + 1;
+  if (doubled + shifted <= 10) {
+    return 1;
+  }
+  return 0;
+}
+
+// The same statement-preceded if-without-else shape inside a for-loop body (the
+// shape issue #37 was reported from): the loop-body block starts at the
+// assignment, not the condition.
+export function countBelowThreshold(limit: i32): i32 {
+  let count: i32 = 0;
+  let product: i32 = 0;
+
+  for (let i: i32 = 0; i < limit; i++) {
+    product = i * 3;
+
+    if (product < 6) {
+      count++;
+    }
+  }
+
+  return count;
+}
+
+// Statement-preceded if WITH an explicit else: both arms located. Pins that the
+// statement-preceded block shape stays correct when no arm needs deriving.
+export function gateAfterStmtsWithElse(n: i32): i32 {
+  const doubled = n * 2;
+  if (doubled > 4) {
+    return 1;
+  } else {
+    return 0;
+  }
+}

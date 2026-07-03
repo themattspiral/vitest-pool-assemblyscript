@@ -75,3 +75,39 @@ export function guardElseOnly(n: number): number {
   }
   return n;
 }
+
+// if WITHOUT else preceded by straight-line statements in the same basic block (issue #37).
+export function gateAfterStmts(n: number): number {
+  const doubled = n * 2;
+  const shifted = doubled + 1;
+  if (doubled + shifted <= 10) {
+    return 1;
+  }
+  return 0;
+}
+
+// The same statement-preceded if-without-else shape inside a for-loop body (issue #37).
+export function countBelowThreshold(limit: number): number {
+  let count = 0;
+  let product = 0;
+
+  for (let i = 0; i < limit; i++) {
+    product = i * 3;
+
+    if (product < 6) {
+      count++;
+    }
+  }
+
+  return count;
+}
+
+// Statement-preceded if WITH an explicit else.
+export function gateAfterStmtsWithElse(n: number): number {
+  const doubled = n * 2;
+  if (doubled > 4) {
+    return 1;
+  } else {
+    return 0;
+  }
+}

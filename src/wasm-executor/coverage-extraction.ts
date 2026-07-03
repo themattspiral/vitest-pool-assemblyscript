@@ -231,23 +231,41 @@ export function buildBranchHits(
 }
 
 /**
- * The last located expression in a block, in expression (≈ execution) order. For
- * a switch comparison decision (`day == <case-label>`), this is the case-label
- * `Const` — the discriminant `LocalGet` precedes it, and on the first comparison
- * the switch preamble precedes it too (the eq/br_if that follow carry no location).
- * Returns undefined for a block with no located expressions.
+ * The last located expression in a block that lies in the function's OWN (home)
+ * file, in expression (≈ execution) order — falling back to the last foreign
+ * location only when the block has no home-file expression at all. Returns
+ * undefined for a block with no located expressions.
+ *
+ * The home-file preference mirrors firstLocatedExpressionLocation (see its doc for
+ * the cross-file inlining rationale): a foreign location would file the result
+ * under the wrong file. The home file comes from `representativeLocation`, which
+ * is guaranteed local to the function.
+ *
+ * Because straight-line code shares a basic block with the branch that terminates
+ * it, a block's LAST located expression is the one nearest the branch — for a
+ * switch comparison decision (`day == <case-label>`) the case-label `Const` (the
+ * eq/br_if that follow carry no location), and for an `if`/ternary/logical
+ * decision the condition itself.
  */
 function lastLocatedExpressionLocation(
   funcInfo: FunctionDebugInfo,
   block: BasicBlockDebugInfo,
 ): SourceLocation | undefined {
+  const homeFile = funcInfo.representativeLocation.filePath;
+  let lastForeign: SourceLocation | undefined;
   for (let i = block.expressionIndices.length - 1; i >= 0; i--) {
     const location = funcInfo.expressions[block.expressionIndices[i]!]?.location;
-    if (location) {
+    if (!location) {
+      continue;
+    }
+    if (location.filePath === homeFile) {
       return location;
     }
+    if (!lastForeign) {
+      lastForeign = location;
+    }
   }
-  return undefined;
+  return lastForeign;
 }
 
 /**
@@ -343,12 +361,18 @@ export function buildCaseHits(
  * signal for detecting compiler-folded branches.
  *
  * For every decision block (CFG out-degree ≥ 2), record its representative source
- * position (the home-file-aware first located expression — the condition, or for a
- * fused-logical `&&`/`||` the located short-circuit operand). A source branch whose
- * condition range contains NONE of these positions was folded: a constant condition
- * is evaluated at compile time and emits no decision block. Unlike "no arm matched",
- * this can't be confused with a real branch whose empty/unlocated arms got its
- * decision dropped from branchHits.
+ * position: the home-file-aware LAST located expression — the expression nearest
+ * the branch, i.e. the condition itself. It must be the last, not the first:
+ * straight-line statements preceding a branch construct share its basic block, so
+ * the block's first located expression can belong to a statement BEFORE the
+ * construct — recording that position made such a branch undetectable within its
+ * condition range and mis-classified it as folded (reporting a taken implicit
+ * else as untaken).
+ *
+ * A source branch whose condition range contains NONE of these positions was
+ * folded: a constant condition is evaluated at compile time and emits no decision
+ * block. Unlike "no arm matched", this can't be confused with a real branch whose
+ * empty/unlocated arms got its decision dropped from branchHits.
  *
  * Purely structural — independent of execution (no counters). Deduplicated per file;
  * accumulated by UNION across tests and files (mergeDecisionPositions).
@@ -366,7 +390,7 @@ export function buildDecisionPositions(debugInfo: BinaryDebugInfo): DecisionPosi
           if (!block.isDecision) {
             continue;
           }
-          const location = firstLocatedExpressionLocation(funcInfo, block);
+          const location = lastLocatedExpressionLocation(funcInfo, block);
           if (!location) {
             continue;
           }

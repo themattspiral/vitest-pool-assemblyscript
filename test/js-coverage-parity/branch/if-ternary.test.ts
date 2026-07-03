@@ -1,7 +1,8 @@
 import { test, describe, expect } from 'vitest';
 import {
   absVal, clampLow, classify, clampRange, pickFirst, orDefault, sign,
-  gateThenOnly, guardElseOnly,
+  gateThenOnly, guardElseOnly, gateAfterStmts, countBelowThreshold,
+  gateAfterStmtsWithElse,
 } from '../../js-coverage-parity-src/branch/if-ternary.js';
 
 // Parity twin for the AS if/ternary fixtures: identical inputs to if-ternary.meta.test.ts
@@ -46,5 +47,16 @@ describe('if / ternary branch parity twin', () => {
   test('guardElseOnly', () => {
     expect(guardElseOnly(5)).toBe(5);
     expect(guardElseOnly(3)).toBe(3);
+  });
+  test('gateAfterStmts', () => {
+    expect(gateAfterStmts(1)).toBe(1);
+    expect(gateAfterStmts(5)).toBe(0);
+  });
+  test('countBelowThreshold', () => {
+    expect(countBelowThreshold(4)).toBe(2);
+  });
+  test('gateAfterStmtsWithElse', () => {
+    expect(gateAfterStmtsWithElse(3)).toBe(1);
+    expect(gateAfterStmtsWithElse(1)).toBe(0);
   });
 });
