@@ -188,18 +188,21 @@ npm run emtest    # External meta tests for debugging (setup + run - shortcut)
 
 ### Generated Fixtures
 
-Some fixtures are too large to cleanly commit as source. The large function count stress fixture, for instance, needs more instrumented functions than fit in a single coverage-memory page (>16,384) — roughly 34k lines of generated AssemblyScript. Rather than commit that output, we **commit a small parameterized generator and emit the fixture at test time** into the gitignored `test-generated/` directory. This is the same scaffolding-by-script approach used by [`scripts/setup-test-external.js`](../scripts/setup-test-external.js), which likewise produces its test inputs programmatically rather than committing them.
+Some fixtures are too large to cleanly commit as source. The large function count stress fixture, for instance, needs more instrumented functions than fit in a single coverage-memory page (>16,384) — roughly 34k lines of generated AssemblyScript. Rather than commit that output, we **commit a small parameterized generator and emit the fixture into the gitignored `test-generated/` directory before vitest runs**. This is the same scaffolding-by-script approach used by [`scripts/setup-test-external.js`](../scripts/setup-test-external.js), which likewise produces its test inputs programmatically rather than committing them.
 
-[`test/generators/global-setup-large-fixture.js`](../test/generators/global-setup-large-fixture.js) generates the large coverage fixture:
+Generators live in [`test/generators/`](../test/generators/); each default-exports a function that writes its fixture. [`scripts/generate-passing-fixtures.js`](../scripts/generate-passing-fixtures.js) discovers every generator in that directory (excluding `*.meta.{js,mjs}`), imports it, and awaits its default export. It is wired into the passing npm scripts (`test:pass`, `test:ext:pass`, and `test`) so it runs immediately **before** `vitest run`.
 
-- It is wired as a vitest [`globalSetup`](https://vitest.dev/config/#globalsetup) on the passing configs, so it runs once before any test workers spawn and regenerates the fixture on every run.
-- It writes the AssemblyScript source (`test-generated/assembly-src/`) plus the test files that import it (`test-generated/assembly/`), all derived from a single function-count parameter (overridable via the `LARGE_FIXTURE_FN_COUNT` env var).
-- Paths resolve against the main repo via `import.meta.url`, so generation writes to the correct location even when vitest runs from the external sibling install directory (where its cwd differs).
+> ⚠️ **Why before vitest, not a `globalSetup`.** Vitest resolves both the test-spec glob and the coverage-include glob from the filesystem *before* any `globalSetup` executes — it globs specs in `getRelevantTestSpecifications`, and our coverage provider globs `assemblyScriptInclude` in `resolveOptions`, both ahead of the `globalSetup` phase. A fixture generated inside a `globalSetup` therefore doesn't exist yet when those globs run, so it is silently skipped on the **first** run — which is *every* run in CI, since `test-generated/` is gitignored and each checkout is clean — and only picked up on a later local run. Generating ahead of `vitest run` guarantees the files are on disk when both globs run.
+
+[`test/generators/large-fixture.js`](../test/generators/large-fixture.js) generates the large coverage fixture:
+
+- It writes the AssemblyScript source (`test-generated/assembly-src/`) plus the test file that imports it (`test-generated/assembly/`), all derived from a single function-count parameter (overridable via the `LARGE_FIXTURE_FN_COUNT` env var).
+- Paths resolve against the main repo via `import.meta.url`, so generation writes to the correct location even though the executor may run while vitest ultimately runs from the external sibling install directory (where its cwd differs). The executor uses dynamic `import()` rather than bundling, so each generator's own `import.meta.url` stays accurate.
 - `test-generated/` is gitignored, so the output never appears in the repo — only the generator is reviewed.
 
 The fixture provides a large-scale workload for containment matching and pushes coverage counters past the one-page memory boundary: a **passing** test executes every instrumented function (with the default auto-sized coverage memory, the high-index counters in page ≥2 must store without trapping).
 
-> ℹ️ The `globalSetup` is wired into the external configs as well, so it falls under the [Three Parallel External Template Directories](#three-parallel-external-template-directories) rule — the `globalSetup` entry and the project that consumes the fixture must appear in all three external template dirs.
+> ℹ️ The external pass configs consume the fixture through their `assemblyScriptInclude` and their `as-pool-passing` project `include` (the `test-generated/**` globs), so those entries fall under the [Three Parallel External Template Directories](#three-parallel-external-template-directories) rule and must appear in all three external template dirs. The generator now runs from a main-repo script invoked by the npm scripts, so the external configs no longer carry a `globalSetup` entry for it.
 
 ### Meta Test Verification
 
