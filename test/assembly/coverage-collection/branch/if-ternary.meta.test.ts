@@ -1,7 +1,8 @@
 import { test, describe, expect } from "vitest-pool-assemblyscript/assembly";
 import {
   absVal, clampLow, classify, clampRange, pickFirst, orDefault, sign,
-  gateThenOnly, guardElseOnly,
+  gateThenOnly, guardElseOnly, gateAfterStmts, countBelowThreshold,
+  gateAfterStmtsWithElse,
 } from "../../../assembly-src/coverage-collection/branch/if-ternary.meta";
 
 // Exercises the if/ternary branch fixtures with KNOWN inputs so each arm's hit
@@ -74,5 +75,26 @@ describe("if / ternary branch fixtures", () => {
     expect(guardElseOnly(5)).toBe(5);  // implicit else
     expect(guardElseOnly(3)).toBe(3);  // implicit else
     // if arms [then, implicit-else] = [0, 2]
+  });
+
+  // statement-preceded if without else (issue #37): then once, implicit else once.
+  test("gateAfterStmts: statement-preceded if, both arms", () => {
+    expect(gateAfterStmts(1)).toBe(1);  // 2 + 3 <= 10 → then
+    expect(gateAfterStmts(5)).toBe(0);  // 10 + 11 > 10 → implicit else
+    // if arms [then, implicit-else] = [1, 1]
+  });
+
+  // statement-preceded if without else in a for-loop body (issue #37):
+  // limit=4 → products 0,3,6,9 → then for 0,3; implicit else for 6,9.
+  test("countBelowThreshold: statement-preceded if in loop, both arms", () => {
+    expect(countBelowThreshold(4)).toBe(2);
+    // if arms [then, implicit-else] = [2, 2]
+  });
+
+  // statement-preceded if WITH explicit else: then once, else once.
+  test("gateAfterStmtsWithElse: statement-preceded if/else, both arms", () => {
+    expect(gateAfterStmtsWithElse(3)).toBe(1);  // 6 > 4 → then
+    expect(gateAfterStmtsWithElse(1)).toBe(0);  // 2 > 4 false → else
+    // if arms [then, else] = [1, 1]
   });
 });
