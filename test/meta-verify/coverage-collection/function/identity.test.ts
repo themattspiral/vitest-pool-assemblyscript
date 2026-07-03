@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type FileCoverage, type CoverageMap, COV_DIR, COVERAGE_ENABLED,
-  loadCoverageResults, requireEntry, expectFunctionCoverage,
+  loadCoverageResults, requireEntry, expectFunctionCoverage, toForwardSlash,
 } from '../../helpers/shared.js';
 
 const COLLISION_A = `${COV_DIR}/function/name-collision-a.meta.ts`;
@@ -51,8 +51,10 @@ describe.runIf(COVERAGE_ENABLED)('function coverage — identity (same names acr
 
     test('main and edge math-helpers are distinct entries', () => {
       expect(main.path).not.toBe(edge.path);
-      expect(main.path).toContain('/function/math-helpers.meta.ts');
-      expect(edge.path).toContain('/function/edge/math-helpers.meta.ts');
+      // paths are OS-native in the report (backslash on Windows); normalize for the
+      // slash-agnostic structural check.
+      expect(toForwardSlash(main.path)).toContain('/function/math-helpers.meta.ts');
+      expect(toForwardSlash(edge.path)).toContain('/function/edge/math-helpers.meta.ts');
     });
 
     test('main file tracks add + mainOnly', () => {

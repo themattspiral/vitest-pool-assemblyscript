@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { toForwardSlash } from '../../../src/util/path-utils.js';
+
+// Re-exported so tests can normalize native (Windows-backslash) coverage `path`
+// values for slash-agnostic structural assertions.
+export { toForwardSlash };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -93,6 +98,7 @@ export interface CoverageResults {
 }
 
 export const COV_DIR = 'coverage-collection';
+export const JS_PARITY_DIR = 'js-coverage-parity';
 
 export interface CoverageTableRow {
   /** Directory-qualified path (e.g. 'assembly-src/coverage-collection/function/counting.meta.ts') */
@@ -542,7 +548,11 @@ export function countByStatus(testFile: TestFileResult, status: TestResult['stat
  * Throws if multiple entries match (ambiguous suffix).
  */
 export function findEntry(map: CoverageMap, pathSuffix: string): FileCoverage | null {
-  const matches = Object.keys(map).filter(k => k.endsWith(pathSuffix));
+  // Coverage keys are platform-native — backslash on Windows for the v8-delegated JS
+  // entries — while lookup suffixes are always forward-slash. Normalize both sides so
+  // suffix matching is slash-agnostic and works cross-platform.
+  const suffix = toForwardSlash(pathSuffix);
+  const matches = Object.keys(map).filter(k => toForwardSlash(k).endsWith(suffix));
 
   if (matches.length === 0) return null;
 
@@ -565,12 +575,12 @@ export function requireEntry(map: CoverageMap, pathSuffix: string): FileCoverage
   const entry = findEntry(map, pathSuffix);
   if (!entry) {
     const available = Object.keys(map)
-      .filter(k => k.includes(COV_DIR))
-      .map(k => `  - ${k}`)
+      .filter(k => k.includes(COV_DIR) || k.includes(JS_PARITY_DIR))
+      .map(k => `  - ${toForwardSlash(k)}`)
       .join('\n');
     throw new Error(
       `No coverage entry found ending with "${pathSuffix}".\n` +
-      `Available coverage-collection entries:\n${available}`
+      `Available coverage-collection / js-coverage-parity entries:\n${available}`
     );
   }
   return entry;
