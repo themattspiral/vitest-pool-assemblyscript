@@ -167,7 +167,7 @@
     "@vitest/coverage-v8": "5.0.0-beta.6",
     "@vitest/utils": "5.0.0-beta.6",
     "assemblyscript": "0.28.18",
-    "conventional-changelog-conventionalcommits": "^10.2.1",
+    "conventional-changelog-conventionalcommits": "^9.3.1",
     "cross-env": "^10.1.0",
     "istanbul-lib-coverage": "^3.2.2",
     "node-gyp": "^12.4.0",
