@@ -1,4 +1,4 @@
-import type { File, Suite, Test } from '@vitest/runner/types';
+import type { RunnerTestFile, RunnerTestSuite, RunnerTestCase } from 'vitest';
 
 import type {
   AssemblyScriptConsoleLogHandler,
@@ -70,13 +70,13 @@ function createUserWasmImports(
 export function createDiscoveryImports(
   memory: WebAssembly.Memory,
   module: WebAssembly.Module,
-  file: File,
+  file: RunnerTestFile,
   handleLog: AssemblyScriptConsoleLogHandler,
   logPrefix: string,
   coverageMemory?: WebAssembly.Memory,
   createWasmImports?: WasmImportsFactory,
 ): WebAssembly.Imports {
-  const suiteStack: Suite[] = [file];
+  const suiteStack: RunnerTestSuite[] = [file];
 
   const {
     userEnvImports,
@@ -188,7 +188,7 @@ export function createDiscoveryImports(
 export function createTestExecutionImports(
   memory: WebAssembly.Memory,
   module: WebAssembly.Module,
-  test: Test,
+  test: RunnerTestCase,
   handleLog: AssemblyScriptConsoleLogHandler,
   logPrefix: string,
   coverageMemory?: WebAssembly.Memory,

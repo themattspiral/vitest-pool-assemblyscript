@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
-import type { File, Test } from '@vitest/runner/types';
+import type { RunnerTestFile, RunnerTestCase } from 'vitest';
 
 import type {
   AssemblyScriptConsoleLogHandler,
@@ -82,7 +82,7 @@ export async function executeWASMDiscovery(
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   isBinaryInstrumented: boolean,
   handleLog: AssemblyScriptConsoleLogHandler,
-  file: File,
+  file: RunnerTestFile,
   moduleLabel: string,
   threadImports: ThreadImports,
 ): Promise<void> {
@@ -161,7 +161,7 @@ export async function executeWASMDiscovery(
  * Execute a single test with crash isolation
  */
 export async function executeWASMTest(
-  test: Test,
+  test: RunnerTestCase,
   compilation: WASMCompilation,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   collectCoverage: boolean,
@@ -170,7 +170,7 @@ export async function executeWASMTest(
   threadImports: ThreadImports,
   projectRoot: string,
   diffOptions?: SerializedDiffOptions,
-): Promise<{ test: Test, testTimings: WASMExecutorPerfTimings }> {
+): Promise<{ test: RunnerTestCase, testTimings: WASMExecutorPerfTimings }> {
   const testTimings: WASMExecutorPerfTimings = {
     fnInit: performance.now(),
     execStart: 0,

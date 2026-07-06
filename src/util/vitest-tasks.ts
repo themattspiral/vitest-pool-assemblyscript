@@ -1,4 +1,4 @@
-import type { File, RunMode, Suite, Task, Test } from '@vitest/runner/types';
+import type { RunnerTestFile, RunMode, RunnerTestSuite, RunnerTask, RunnerTestCase } from 'vitest';
 
 import type {
   AssemblyScriptCoveragePayload,
@@ -25,11 +25,11 @@ function positiveSum<T>(items: T[], getSummableValue: (_next: T) => number | und
   }, 0);
 }
 
-function hasNonFileParentSuite(suite: Suite): boolean {
+function hasNonFileParentSuite(suite: RunnerTestSuite): boolean {
   return !!suite.suite?.id && suite.suite.id !== suite.file.id;
 }
 
-function getSuiteHierarchyName(suite: Suite): string {
+function getSuiteHierarchyName(suite: RunnerTestSuite): string {
   let name = suite.name;
   let currentSuite = suite;
   
@@ -41,11 +41,11 @@ function getSuiteHierarchyName(suite: Suite): string {
   return name;
 }
 
-export function isSuiteOwnFile(suite: Suite): boolean {
+export function isSuiteOwnFile(suite: RunnerTestSuite): boolean {
   return suite.file.id === suite.id;
 }
 
-export function getTaskLogLabel(base: string, task: Task): string {
+export function getTaskLogLabel(base: string, task: RunnerTask): string {
   if (task.type === 'suite') {
     return isSuiteOwnFile(task) ?
       `${base}`
@@ -55,7 +55,7 @@ export function getTaskLogLabel(base: string, task: Task): string {
   }
 }
 
-export function getTaskLogPrefix(logModule: string, base: string, task: Task): string {
+export function getTaskLogPrefix(logModule: string, base: string, task: RunnerTask): string {
   return `[${logModule}] ${getTaskLogLabel(base, task)}`;
 }
 
@@ -90,7 +90,7 @@ export function getInitialTaskMode(options: AssemblyScriptTestOptions): RunMode 
 
 export function getInitialTestTaskMeta(
   fnIndex: number,
-  parentAfterAddingTask: Suite,
+  parentAfterAddingTask: RunnerTestSuite,
 ): AssemblyScriptTestTaskMeta {
   return {
     fnIndex,
@@ -102,7 +102,7 @@ export function getInitialTestTaskMeta(
 }
 
 export function getInitialSuiteTaskMeta(
-  parentAfterAddingTask: Suite,
+  parentAfterAddingTask: RunnerTestSuite,
   mergedOptions: AssemblyScriptTestOptions,
 ): AssemblyScriptSuiteTaskMeta {
   return {
@@ -121,12 +121,12 @@ function createTaskName(names: readonly (string | undefined)[], separator: strin
 export function createTestTask(
   name: string,
   fnIndex: number,
-  file: File,
-  parent: Suite,
+  file: RunnerTestFile,
+  parent: RunnerTestSuite,
   mergedOptions: AssemblyScriptTestOptions,
   vitestVersion: VitestVersion = 'v4',
-): Test {
-  const test: Test = {
+): RunnerTestCase {
+  const test: RunnerTestCase = {
     type: 'test',
     name,
     fullName: createTaskName([
@@ -173,14 +173,14 @@ export function createTestTask(
 
 export function createSuiteTask(
   name: string,
-  file: File,
-  parent: Suite,
+  file: RunnerTestFile,
+  parent: RunnerTestSuite,
   mergedOptions: AssemblyScriptTestOptions,
   vitestVersion: VitestVersion = 'v4',
-): Suite {
+): RunnerTestSuite {
   // const suiteIsFile = parent.file.id === parent.id;
   // const prefix = suiteIsFile ? parent.name : `${file.filepath}_${parent.name}`;
-  const suite: Suite = {
+  const suite: RunnerTestSuite = {
     type: 'suite',
     name,
     fullName: createTaskName([
@@ -216,7 +216,7 @@ export function createSuiteTask(
 // Dispatch Helpers
 // ============================================================================
 
-export function getRunnableTasks(suite: Suite): Task[] {
+export function getRunnableTasks(suite: RunnerTestSuite): RunnerTask[] {
   return suite.tasks.filter(t => t.mode === 'queued' || t.mode === 'run');
 }
 
@@ -225,7 +225,7 @@ export function getRunnableTasks(suite: Suite): Task[] {
 // Result Handling Helpers
 // ============================================================================
 
-export function shouldRetryTask(task: Task): boolean {
+export function shouldRetryTask(task: RunnerTask): boolean {
   const retry = retryCompat(task.retry);
   return task.result?.state === 'fail'
     && task.retry !== undefined
@@ -240,7 +240,7 @@ export function shouldRetryTask(task: Task): boolean {
 /**
  * Invert result if test configured as 'fails'.
  */
-export function checkFailsAndInvertResult(test: Test, logPrefix: string): void {
+export function checkFailsAndInvertResult(test: RunnerTestCase, logPrefix: string): void {
   if (test.fails) {
     if (test.result?.state === 'pass') {
       test.result.state = 'fail';
@@ -262,7 +262,7 @@ export function checkFailsAndInvertResult(test: Test, logPrefix: string): void {
   }
 }
 
-export function setTestResultForTestPrepare(test: Test, startTime: number): void {
+export function setTestResultForTestPrepare(test: RunnerTestCase, startTime: number): void {
   test.result = {
     state: 'run',
     startTime,
@@ -270,7 +270,7 @@ export function setTestResultForTestPrepare(test: Test, startTime: number): void
   };
 };
 
-export function updateTestResultAfterRun(test: Test, testTimings?: WASMExecutorPerfTimings): void {
+export function updateTestResultAfterRun(test: RunnerTestCase, testTimings?: WASMExecutorPerfTimings): void {
   // while failed tests are actively set to failed, a passed test
   // will still be in the prepared result state (run), so set it to pass
   if (test.result?.state === 'run') {
@@ -283,16 +283,16 @@ export function updateTestResultAfterRun(test: Test, testTimings?: WASMExecutorP
   }
 }
 
-export function flagTestTerminated(test: Test): void {
+export function flagTestTerminated(test: RunnerTestCase): void {
   (test.meta as AssemblyScriptTestTaskMeta).lastTimeoutTerminationTime = Date.now();
 }
 
-export function flagTestFinalized(test: Test): void {
+export function flagTestFinalized(test: RunnerTestCase): void {
   (test.meta as AssemblyScriptTestTaskMeta).resultFinal = true;
 }
 
 function failTest(
-  test: Test,
+  test: RunnerTestCase,
   testError: AssemblyScriptTestError,
 ): void {
   if (test.result) {
@@ -309,7 +309,7 @@ function failTest(
 }
 
 export function failTestRuntimeError(
-  test: Test,
+  test: RunnerTestCase,
   errorMessagePrefix: string,
   errorMessage: string,
 ): AssemblyScriptTestError {
@@ -325,7 +325,7 @@ export function failTestRuntimeError(
 }
 
 export function failTestAssertionError(
-  test: Test,
+  test: RunnerTestCase,
   assertion: FailedAssertion
 ): AssemblyScriptTestError {
   (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push(assertion);
@@ -345,7 +345,7 @@ export function failTestAssertionError(
   return testError;
 }
 
-export function failTestWithTimeoutError (test: Test, startTime: number, duration: number): void {
+export function failTestWithTimeoutError (test: RunnerTestCase, startTime: number, duration: number): void {
   const timeoutErr = createTestTimeoutError(test);
 
   if (test.result) {
@@ -371,7 +371,7 @@ export function failTestWithTimeoutError (test: Test, startTime: number, duratio
   }
 }
 
-export function setSuitePrepareResult(suite: Suite): void {
+export function setSuitePrepareResult(suite: RunnerTestSuite): void {
   if (suite.mode === 'skip') {
     suite.result = {
       state: 'skip',
@@ -385,7 +385,7 @@ export function setSuitePrepareResult(suite: Suite): void {
   }
 }
 
-export function updateSuiteFinishedResult(suite: Suite, logPrefix: string): void {
+export function updateSuiteFinishedResult(suite: RunnerTestSuite, logPrefix: string): void {
   if (suite.mode === 'skip') {
     suite.result = {
       state: 'skip',
@@ -404,11 +404,11 @@ export function updateSuiteFinishedResult(suite: Suite, logPrefix: string): void
   }
 }
 
-export function finalizeSuiteResult(suite: Suite): void {
+export function finalizeSuiteResult(suite: RunnerTestSuite): void {
   (suite.meta as AssemblyScriptSuiteTaskMeta).resultFinal = true;
 }
 
-export function resetTestForRetry(test: Test, startTime: number): void {
+export function resetTestForRetry(test: RunnerTestCase, startTime: number): void {
   if (test.result) {
     test.result!.state = 'run';
     test.result!.startTime = startTime;

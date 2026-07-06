@@ -3,7 +3,7 @@
  */
 
 import { basename, relative } from 'node:path';
-import type { File } from '@vitest/runner/types';
+import type { RunnerTestFile } from 'vitest';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
 
 import type {
@@ -46,7 +46,7 @@ import { buildEnhancedFileError } from '../../util/pool-errors.js';
 let threadCompilationCount: number = 0;
 
 export async function runCompileAndDiscover(
-  file: File,
+  file: RunnerTestFile,
   logModule: string,
   rpc: WorkerRPC,
   asPoolOptions: ResolvedAssemblyScriptPoolOptions,

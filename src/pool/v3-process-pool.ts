@@ -6,7 +6,7 @@ import { resolve, basename } from 'node:path';
 import { access } from 'node:fs/promises';
 import Tinypool from 'tinypool';
 import type { Vitest, ProcessPool, TestSpecification } from 'vitest/node';
-import type { Test } from '@vitest/runner/types';
+import type { RunnerTestCase } from 'vitest';
 
 import {
   AS_POOL_WORKER_MSG_FLAG,
@@ -48,8 +48,8 @@ async function dispatchFullWorkerRun(
   poolAbortSignal: AbortSignal,
   fileCache: Map<string, WASMCompilation>,
   testTimeoutCache: Map<string, TestRunRecord>,
-  previousTimedOutTest?: Test,
-): Promise<Test | undefined> {
+  previousTimedOutTest?: RunnerTestCase,
+): Promise<RunnerTestCase | undefined> {
   const fileRunStart = Date.now();
   const testFilePath: string = spec.moduleId; // absolute path
   const base = basename(testFilePath);
@@ -59,13 +59,13 @@ async function dispatchFullWorkerRun(
   let fileCompilation: WASMCompilation | undefined = fileCache.get(spec.moduleId);
   const isTimeoutRedispatch: boolean = !!previousTimedOutTest && !!fileCompilation;
 
-  let timedOutTestThisRun: Test | undefined;
+  let timedOutTestThisRun: RunnerTestCase | undefined;
 
   try {
     const fileAbortController = new AbortController();
     const file = isTimeoutRedispatch
       ? previousTimedOutTest!.file
-      : createInitialFileTask(spec.moduleId, spec.project.name, config.root, config.testTimeout, config.retry);
+      : createInitialFileTask(spec.moduleId, spec.project.name, config.root, config.testTimeout, config.retry, 'v3');
 
     const { workerPort, poolPort } = createWorkerRPCChannel(spec.project, isCollectTestsMode);
 

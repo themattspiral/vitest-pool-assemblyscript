@@ -2,8 +2,15 @@ import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 import { access } from 'node:fs/promises';
 import type { MessagePort } from 'node:worker_threads';
-import type { Test } from '@vitest/runner/types';
-import type { PoolWorker, PoolOptions, WorkerRequest, PoolTask, WorkerResponse } from 'vitest/node';
+import type { RunnerTestCase } from 'vitest';
+import type {
+  PoolOptions,
+  PoolTask,
+  PoolWorker,
+  WorkerRequest,
+  WorkerResponse,
+} from 'vitest/node';
+import { version } from 'vitest/node';
 import Tinypool from 'tinypool';
 
 import type {
@@ -20,7 +27,7 @@ import type {
   WorkerThreadInitData,
 } from '../types/types.js';
 import { toForwardSlash } from '../util/path-utils.js';
-import { createInitialFileTask } from '../util/vitest-file-tasks.js';
+import { createInitialFileTask, parseVitestVersion } from '../util/vitest-file-tasks.js';
 import { failTestWithTimeoutError, flagTestTerminated } from '../util/vitest-tasks.js';
 import {
   AS_POOL_WORKER_MSG_FLAG,
@@ -42,6 +49,10 @@ const POOL_THREAD_IDLE_TIMEOUT_MS = 3_600_000 as const;
 // path assumes that we're running from dist/
 const COMPILE_WORKER_PATH = resolve(import.meta.dirname, 'pool-thread/compile-worker-thread.mjs');
 const TEST_WORKER_PATH = resolve(import.meta.dirname, 'pool-thread/test-worker-thread.mjs');
+
+// vitest's file-id hash seed changed at v5; resolve the running major once so
+// createInitialFileTask reproduces the matching id (see vitest-file-tasks.ts).
+const VITEST_VERSION = parseVitestVersion(version);
 
 var GLOBAL_POOLS_PROMISE: Promise<GlobalThreadPools> | undefined;
 var GLOBAL_POOL_ABORT_CONTROLLER: AbortController | undefined;
@@ -174,7 +185,8 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
             this.config!.name ?? '',
             this.config!.root,
             this.config!.testTimeout,
-            this.config!.retry
+            this.config!.retry,
+            VITEST_VERSION
           )
         }));
 
@@ -387,7 +399,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   private async dispatchRunTests(
     spec: ThreadSpec,
     runPool: Tinypool,
-    timedOutTest?: Test,
+    timedOutTest?: RunnerTestCase,
   ): Promise<void> {
     const { workerPort, poolPort } = createWorkerRPCChannel(this.poolOptions.project, this.isCollectTestsMode);
 
@@ -418,7 +430,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     }
   }
 
-  private async orchestrateFileRuns(timedOutTest?: Test): Promise<void> {
+  private async orchestrateFileRuns(timedOutTest?: RunnerTestCase): Promise<void> {
     const modeStr = this.isCollectTestsMode ? 'collectTests' : 'runTests';
     const isResume: boolean = !!timedOutTest;
     const desc = `${modeStr} ${isResume ? '(RESUME)' : '(INITIAL)'}`;

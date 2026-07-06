@@ -1,4 +1,4 @@
-import type { Suite, Test } from '@vitest/runner/types';
+import type { RunnerTestSuite, RunnerTestCase } from 'vitest';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
 import type { RawSourceMap } from 'source-map';
 
@@ -122,7 +122,7 @@ export function createPoolError(
 }
 
 export function createTestTimeoutError(
-  test: Test
+  test: RunnerTestCase
 ): AssemblyScriptTestError {
   const message = `Test timed out after ${test.timeout}ms`;
   const err: AssemblyScriptTestError = {
@@ -134,7 +134,7 @@ export function createTestTimeoutError(
   return err;
 }
 
-export function createTestExpectedToFailError(test: Test): AssemblyScriptTestError {
+export function createTestExpectedToFailError(test: RunnerTestCase): AssemblyScriptTestError {
   const message = `Test is expected to fail, but all assertion(s) passed`;
   const err: AssemblyScriptTestError = {
     name: TEST_ERROR_NAMES.AssertionError,
@@ -161,7 +161,7 @@ export function getExpectedMessageOrAny(expectedMsgStr?: string): string {
 
 export async function buildEnhancedFileError(
   error: any,
-  task: Test | Suite,
+  task: RunnerTestCase | RunnerTestSuite,
   sourceMap: RawSourceMap | undefined,
   logPrefix: string,
   projectRoot: string,
