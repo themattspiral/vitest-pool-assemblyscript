@@ -7,16 +7,18 @@
 
 import type { MessagePort } from 'node:worker_threads';
 import { createBirpc } from 'birpc';
-import type { RunnerRPC, RuntimeRPC, UserConsoleLog } from 'vitest';
 import type {
-  File,
-  Suite,
-  Test,
-  Task,
-  TaskEventPack, 
-  TaskResultPack,
   CancelReason,
-} from '@vitest/runner/types';
+  RunnerRPC,
+  RuntimeRPC,
+  RunnerTask,
+  RunnerTaskEventPack,
+  RunnerTaskResultPack,
+  RunnerTestCase,
+  RunnerTestFile,
+  RunnerTestSuite,
+  UserConsoleLog,
+} from 'vitest';
 
 import type {
   AssemblyScriptConsoleLog,
@@ -58,7 +60,7 @@ export function createRpcClient(port: MessagePort): WorkerRPC {
 /** Report file as queued (before compilation & discovery starts) */
 export async function reportFileQueued(
   rpc: WorkerRPC,
-  fileTask: File,
+  fileTask: RunnerTestFile,
   logModule: string,
   logLabel: string,
 ): Promise<void> {
@@ -71,7 +73,7 @@ export async function reportFileQueued(
 /** Report file collection complete with full task tree */
 export async function reportFileCollected(
   rpc: WorkerRPC,
-  fileTask: File,
+  fileTask: RunnerTestFile,
   logModule: string,
   logLabel: string,
 ): Promise<void> {
@@ -84,12 +86,12 @@ export async function reportFileCollected(
 /** Report file-level error (compilation/discovery failure) as "suite-failed-early" */
 export async function reportFileError(
   rpc: WorkerRPC,
-  fileTask: File, 
+  fileTask: RunnerTestFile, 
   logModule: string,
   logLabel: string,
 ): Promise<void> {
-  const taskPack: TaskResultPack = [fileTask.id, fileTask.result, {}];
-  const eventPack: TaskEventPack = [fileTask.id, "suite-failed-early", undefined];
+  const taskPack: RunnerTaskResultPack = [fileTask.id, fileTask.result, {}];
+  const eventPack: RunnerTaskEventPack = [fileTask.id, "suite-failed-early", undefined];
   await rpc.onTaskUpdate([taskPack], [eventPack]);
 
   debug(`[${logModule} RPC] ${logLabel} - Reported "suite-failed-early" task update for "${fileTask.filepath}"`);
@@ -102,13 +104,13 @@ export async function reportFileError(
 /** Report suite-prepare event */
 export async function reportSuitePrepare(
   rpc: WorkerRPC,
-  suite: Suite,
+  suite: RunnerTestSuite,
   logModule: string,
   base: string,
 ): Promise<void> {
   // Report suite event (without the custom task meta so reporters won't log it)
-  const taskPack: TaskResultPack = [suite.id, suite.result, {}];
-  const eventPack: TaskEventPack = [suite.id, 'suite-prepare', undefined];
+  const taskPack: RunnerTaskResultPack = [suite.id, suite.result, {}];
+  const eventPack: RunnerTaskEventPack = [suite.id, 'suite-prepare', undefined];
 
   await rpc.onTaskUpdate([taskPack], [eventPack]);
 
@@ -120,7 +122,7 @@ export async function reportSuitePrepare(
 /** Report suite-finished event */
 export async function reportSuiteFinished(
   rpc: WorkerRPC,
-  suite: Suite,
+  suite: RunnerTestSuite,
   collectCoverage: boolean,
   compilation: WASMCompilation,
   logModule: string,
@@ -160,8 +162,8 @@ export async function reportSuiteFinished(
   }
 
   // Report suite event (without the custom task meta so reporters won't log it)
-  const taskPack: TaskResultPack = [suite.id, suite.result, {}];
-  const eventPack: TaskEventPack = [suite.id, "suite-finished", undefined];
+  const taskPack: RunnerTaskResultPack = [suite.id, suite.result, {}];
+  const eventPack: RunnerTaskEventPack = [suite.id, "suite-finished", undefined];
 
   await Promise.all([
     coveragePromise,
@@ -179,14 +181,14 @@ export async function reportSuiteFinished(
 
 async function reportTestTaskUpdate(
   rpc: WorkerRPC,
-  test: Test,
+  test: RunnerTestCase,
   logModule: string,
   base: string,
   updateEvent: 'test-prepare' | 'test-finished' | 'test-retried'
 ): Promise<void> {
   // Report test event (without the custom task meta so reporters won't log it)
-  const taskPack: TaskResultPack = [test.id, test.result, {}];
-  const eventPack: TaskEventPack = [test.id, updateEvent, undefined];
+  const taskPack: RunnerTaskResultPack = [test.id, test.result, {}];
+  const eventPack: RunnerTaskEventPack = [test.id, updateEvent, undefined];
 
   debug(`[${logModule} RPC] ${getTaskLogLabel(base, test)} - Reporting "${updateEvent}" task update...`
     + ` | state: "${test.result?.state}"`
@@ -202,7 +204,7 @@ async function reportTestTaskUpdate(
 /** Report test starting execution */
 export async function reportTestPrepare(
   rpc: WorkerRPC,
-  test: Test,
+  test: RunnerTestCase,
   logModule: string,
   base: string,
 ): Promise<void> {
@@ -212,7 +214,7 @@ export async function reportTestPrepare(
 /** Report test finished execution */
 export async function reportTestFinished(
   rpc: WorkerRPC,
-  test: Test,
+  test: RunnerTestCase,
   logModule: string,
   base: string,
 ): Promise<void> {
@@ -222,7 +224,7 @@ export async function reportTestFinished(
 /** Report test retried (sent when test failed and is going to be retried) */
 export async function reportTestRetried(
   rpc: WorkerRPC,
-  test: Test,
+  test: RunnerTestCase,
   logModule: string,
   base: string,
 ): Promise<void> {
@@ -239,7 +241,7 @@ export async function reportUserConsoleLogs(
   logs: AssemblyScriptConsoleLog[],
   logModule: string,
   base: string,
-  task: Task,
+  task: RunnerTask,
 ): Promise<void> {
   if (logs.length === 0) {
     return;

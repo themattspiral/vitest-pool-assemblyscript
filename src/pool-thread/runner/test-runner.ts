@@ -3,7 +3,7 @@
  */
 
 import type { MessagePort } from 'node:worker_threads';
-import type { File, Suite, Task, Test } from '@vitest/runner/types';
+import type { RunnerTestFile, RunnerTestSuite, RunnerTask, RunnerTestCase } from 'vitest';
 import type { SerializedDiffOptions } from '@vitest/utils/diff';
 
 import type {
@@ -53,7 +53,7 @@ import { buildEnhancedFileError } from '../../util/pool-errors.js';
 async function bailIfNeeded(
   rpc: WorkerRPC,
   bailConfig: number | undefined,
-  testWithResult: Test,
+  testWithResult: RunnerTestCase,
   logPrefix: string,
   logModule: string,
 ): Promise<void> {
@@ -72,7 +72,7 @@ async function bailIfNeeded(
 async function postProcessTestResult(
   rpc: WorkerRPC,
   bailConfig: number | undefined,
-  testWithResult: Test,
+  testWithResult: RunnerTestCase,
   logPrefix: string,
   logModule: string,
 ): Promise<void> {
@@ -83,7 +83,7 @@ async function postProcessTestResult(
   return bailIfNeeded(rpc, bailConfig, testWithResult, logPrefix, logModule);
 }
 
-function notifyTestStart(port: MessagePort, test: Test): void {
+function notifyTestStart(port: MessagePort, test: RunnerTestCase): void {
   port.postMessage({
     executionStart: Date.now(),
     test,
@@ -92,7 +92,7 @@ function notifyTestStart(port: MessagePort, test: Test): void {
   } satisfies TestExecutionStart);
 }
 
-function notifyTestEnd(port: MessagePort, test: Test): void {
+function notifyTestEnd(port: MessagePort, test: RunnerTestCase): void {
   port.postMessage({
     executionEnd: Date.now(),
     testTaskId: test.id,
@@ -107,7 +107,7 @@ async function runTest(
   base: string,
   collectCoverage: boolean,
   compilation: WASMCompilation,
-  test: Test,
+  test: RunnerTestCase,
   logModule: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   threadImports: ThreadImports,
@@ -221,7 +221,7 @@ export async function runSuite(
   base: string,
   collectCoverage: boolean,
   compilation: WASMCompilation,
-  suite: Suite | File,
+  suite: RunnerTestSuite | RunnerTestFile,
   logModule: string,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
   threadImports: ThreadImports,
@@ -229,8 +229,8 @@ export async function runSuite(
   projectRoot: string,
   bail?: number,
   diffOptions?: SerializedDiffOptions,
-  timedOutTest?: Test,
-): Promise<Suite> {
+  timedOutTest?: RunnerTestCase,
+): Promise<RunnerTestSuite> {
   const suiteStartPerf = performance.now();
   const suiteMeta = suite.meta as AssemblyScriptSuiteTaskMeta;
   const suiteLogPrefix = getTaskLogPrefix(logModule, base, suite);
@@ -262,7 +262,7 @@ export async function runSuite(
     suiteMeta.coverage = emptyCoverageBundle();
     debug(`${suiteLogPrefix} - Initialized empty suite coverage data`);
 
-    let tasksToRun: Task[] = getRunnableTasks(suite);
+    let tasksToRun: RunnerTask[] = getRunnableTasks(suite);
     debug(`${suiteLogPrefix} - Runnable tasks:`, tasksToRun.length);
 
     for (const task of tasksToRun) {

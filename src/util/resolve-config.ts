@@ -1,6 +1,5 @@
 import { availableParallelism } from 'node:os';
 import type { SerializedConfig } from 'vitest';
-import type { Retry, SerializableRetry } from '@vitest/runner';
 import type { Vitest } from 'vitest/node';
 
 import type {
@@ -57,7 +56,16 @@ export function resolvePoolOptions(userPoolOptions?: any): ResolvedAssemblyScrip
   return resolved;
 }
 
-export function retryCompat(retry?: SerializableRetry | Retry): number {
+/**
+ * The subset of vitest's `Retry` / `SerializableRetry` that we consume. vitest 4.1+
+ * allows an object form (`{ count, delay, condition }`); we only read `count`, and a
+ * plain `number` remains valid. Defined locally because vitest no longer publishes
+ * these types (`@vitest/runner` was inlined into `vitest` and unpublished in v5, and
+ * they were never re-exported from the `vitest` entry point).
+ */
+type RetryCompat = number | { count?: number };
+
+export function retryCompat(retry?: RetryCompat): number {
   return typeof retry === 'number' ? retry : retry?.count ?? 0;
 }
 

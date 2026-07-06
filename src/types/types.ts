@@ -4,10 +4,17 @@
 
 import type { MessagePort } from 'node:worker_threads';
 import type { BirpcReturn } from 'birpc';
-import type { RunnerRPC, RuntimeRPC, SerializedConfig } from 'vitest';
+import type {
+  RunnerRPC,
+  RuntimeRPC,
+  RunnerTestCase,
+  RunnerTestFile,
+  SerializedConfig,
+  TaskMeta,
+  TestOptions,
+} from 'vitest';
 import type { TestError } from '@vitest/utils';
 import type { ResolvedCoverageOptions } from 'vitest/node';
-import type { File, Test, TaskMeta, TestOptions } from '@vitest/runner/types';
 import type { RawSourceMap } from 'source-map';
 
 import {
@@ -213,7 +220,7 @@ export type AssemblyScriptTestOptions = Required<Pick<TestOptions, 'timeout' | '
 // Utility Types
 // ============================================================================
 
-export type VitestVersion = 'v3' | 'v4';
+export type VitestVersion = 'v3' | 'v4' | 'v5';
 
 export interface ThreadImports {
   createUserWasmImports?: WasmImportsFactory;
@@ -790,7 +797,7 @@ export interface TestFileCompiled extends AssemblyScriptPoolWorkerMessageBase {
 export interface TestExecutionStart extends AssemblyScriptPoolWorkerMessageBase {
   readonly type: 'execution-start';
   executionStart: number;
-  test: Test;
+  test: RunnerTestCase;
 }
 
 export interface TestExecutionEnd extends AssemblyScriptPoolWorkerMessageBase {
@@ -802,13 +809,13 @@ export interface TestExecutionEnd extends AssemblyScriptPoolWorkerMessageBase {
 export type AssemblyScriptPoolWorkerMessage = TestExecutionStart | TestExecutionEnd | TestFileCompiled;
 
 export interface TestRunRecord {
-  test: Test;
+  test: RunnerTestCase;
   executionStart: number;
   timeoutId: NodeJS.Timeout;
 }
 
 export interface ThreadSpec {
-  file: File;
+  file: RunnerTestFile;
   compilation?: WASMCompilation;
 }
 
@@ -816,7 +823,7 @@ export interface RunCompileAndDiscoverTask {
   dispatchStart: number;
   workerId: number;
   port: MessagePort;
-  file: File;
+  file: RunnerTestFile;
   config: SerializedConfigCompat;
   asPoolOptions: ResolvedAssemblyScriptPoolOptions;
   isCollectTestsMode: boolean;
@@ -826,21 +833,21 @@ export interface RunTestsTask {
   dispatchStart: number;
   workerId: number;
   port: MessagePort;
-  file: File;
+  file: RunnerTestFile;
   compilation: WASMCompilation;
   config: SerializedConfigCompat;
   asPoolOptions: ResolvedAssemblyScriptPoolOptions;
   isCollectTestsMode: boolean;
-  timedOutTest?: Test;
+  timedOutTest?: RunnerTestCase;
 }
 
 export interface ProcessPoolRunFileTask {
   dispatchStart: number;
   port: MessagePort;
-  file: File;
+  file: RunnerTestFile;
   config: SerializedConfigCompat;
   asPoolOptions: ResolvedAssemblyScriptPoolOptions;
   isCollectTestsMode: boolean;
-  timedOutTest?: Test;
+  timedOutTest?: RunnerTestCase;
   timedOutCompilation?: WASMCompilation;
 }

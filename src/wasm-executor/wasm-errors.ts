@@ -10,7 +10,7 @@ import { relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type ParsedStack } from '@vitest/utils';
 import { diff, type SerializedDiffOptions } from '@vitest/utils/diff';
-import type { Test, Suite } from '@vitest/runner/types';
+import type { RunnerTestCase, RunnerTestSuite } from 'vitest';
 import { type RawSourceMap, SourceMapConsumer } from 'source-map';
 
 import type { AssemblyScriptTestError, WebAssemblyCallSite } from '../types/types.js';
@@ -115,7 +115,7 @@ export async function processWASMErrorStack(
  */
 export async function enhanceTestError(
   testError: AssemblyScriptTestError,
-  task: Test | Suite,
+  task: RunnerTestCase | RunnerTestSuite,
   sourceMap: RawSourceMap | undefined,
   logPrefix: string,
   allowJS: boolean,
