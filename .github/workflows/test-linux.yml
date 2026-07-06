@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
         env:
-          VITEST_POOL_AS_SKIP_NATIVE_BUILD: 1
+          VITEST_AS_POOL_SKIP_NATIVE_BUILD: 1
 
       - name: Download Binaryen dependencies
         run: npm run setup-binaryen

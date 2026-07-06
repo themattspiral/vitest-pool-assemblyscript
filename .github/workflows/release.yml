@@ -29,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
         env:
-          VITEST_POOL_AS_SKIP_NATIVE_BUILD: 1
+          VITEST_AS_POOL_SKIP_NATIVE_BUILD: 1
 
       - name: Type check
         run: npm run tc
@@ -118,7 +118,7 @@ jobs:
         if: steps.prebuild-cache.outputs.cache-hit != 'true'
         run: npm ci
         env:
-          VITEST_POOL_AS_SKIP_NATIVE_BUILD: 1
+          VITEST_AS_POOL_SKIP_NATIVE_BUILD: 1
 
       - name: Download Binaryen dependencies
         if: steps.prebuild-cache.outputs.cache-hit != 'true' && steps.binaryen-cache.outputs.cache-hit != 'true'
@@ -210,7 +210,11 @@ jobs:
         
       - name: Test Meta Verify Suite Externally
         run: npm run test:ext:meta:verify
-      
+
+      - name: Test Meta Verify Suite Externally (istanbul)
+        if: (matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest') && matrix.node-version == '24'
+        run: npm run test:ext:meta:verify:istanbul
+
       - name: v4 - Setup External Test Directory
         run: npm run test:ext:setup:v4
 
@@ -219,7 +223,11 @@ jobs:
         
       - name: v4 - Test Meta Verify Suite Externally
         run: npm run test:ext:meta:verify
-      
+
+      - name: v4 - Test Meta Verify Suite Externally (istanbul)
+        if: (matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest') && matrix.node-version == '24'
+        run: npm run test:ext:meta:verify:istanbul
+
       - name: v3 - Setup External Test Directory
         run: npm run test:ext:setup:v3
 
@@ -228,6 +236,10 @@ jobs:
         
       - name: v3 - Test Meta Verify Suite Externally
         run: npm run test:ext:meta:verify
+
+      - name: v3 - Test Meta Verify Suite Externally (istanbul)
+        if: (matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest') && matrix.node-version == '24'
+        run: npm run test:ext:meta:verify:istanbul
 
   release:
     needs: [build, prebuild, test]
@@ -266,7 +278,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
         env:
-          VITEST_POOL_AS_SKIP_NATIVE_BUILD: 1
+          VITEST_AS_POOL_SKIP_NATIVE_BUILD: 1
 
       - name: Run semantic-release
         run: npx semantic-release ${{ inputs.dry-run == true && '--dry-run' || '' }}
