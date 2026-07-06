@@ -21,6 +21,18 @@ const isExternalContext = process.env.RUN_CONTEXT === 'external';
 export const COVERAGE_ENABLED = true;
 
 /**
+ * The built-in JS coverage provider the meta suite ran under, selected by the
+ * VITEST_AS_POOL_JS_PROVIDER env var the meta-verify flow sets (read directly
+ * from env, mirroring RUN_CONTEXT above — the meta run inherits the same env,
+ * so the two always agree; the value is also recorded in the results file for
+ * observability). Verification tests use it to pin the documented per-provider
+ * coverage divergences.
+ */
+export type JsCoverageProviderName = 'v8' | 'istanbul';
+export const JS_COVERAGE_PROVIDER: JsCoverageProviderName =
+  process.env.VITEST_AS_POOL_JS_PROVIDER === 'istanbul' ? 'istanbul' : 'v8';
+
+/**
  * Path prefix for test file paths in CLI output.
  * In external context, vitest runs from a sibling directory and reports file paths
  * relative to that directory, producing paths like '../vitest-pool-assemblyscript/test/...'.
@@ -664,13 +676,15 @@ export function expectFunctionCoverage(entry: FileCoverage, expected: Record<str
 export interface FunctionParityOptions {
   /** Source start-lines whose function appears only in the AS fnMap (e.g. `@operator` overloads — no JS equivalent). */
   asOnlyLines?: number[];
-  /** Source start-lines whose function appears only in the v8 fnMap (e.g. an empty body AS drops but v8 keeps). */
+  /** Source start-lines whose function appears only in the JS provider's fnMap (e.g. an empty body AS drops but the JS provider keeps). */
   jsOnlyLines?: number[];
   /**
    * Start-lines where both sides track the function but the hit counts intentionally
-   * differ, keyed by line → `[expected AS hits, expected v8 hits]`. For documented count
-   * divergences — e.g. v8 reports a never-called static method as covered (1) while AS
-   * counts function entries and reports 0.
+   * differ, keyed by line → `[expected AS hits, expected JS hits]`. For documented count
+   * divergences — e.g. under v8 a never-called static method is reported as covered (1)
+   * while AS counts function entries and reports 0. These values are provider-specific,
+   * so tests gate them on {@link JS_COVERAGE_PROVIDER} (the v8 static-method divergence
+   * does not occur under istanbul, whose counters agree with AS).
    */
   divergentHitLines?: Record<number, readonly [number, number]>;
 }
@@ -685,21 +699,23 @@ export interface FunctionParityOptions {
 function functionsByStartLine(entry: FileCoverage): Map<number, { name: string; hits: number }> {
   const byLine = new Map<number, { name: string; hits: number }>();
   for (const [id, fn] of Object.entries(entry.fnMap)) {
-    const existing = byLine.get(fn.line);
+    const line = fn.line ?? fn.decl.start.line;
+    const existing = byLine.get(line);
     if (existing) {
       throw new Error(
         `Two functions share start line ${fn.line} (${existing.name}, ${fn.name}); ` +
         `line pairing requires one function declaration per line in twinned fixtures.`,
       );
     }
-    byLine.set(fn.line, { name: fn.name, hits: entry.f[id] ?? 0 });
+    byLine.set(line, { name: fn.name, hits: entry.f[id] ?? 0 });
   }
   return byLine;
 }
 
 /**
- * Assert function-coverage parity between a line-aligned AS fixture and its v8 (JS)
- * twin by pairing functions on their START LINE. For every line present on both sides
+ * Assert function-coverage parity between a line-aligned AS fixture and its JS twin
+ * (v8 or istanbul, per the active provider) by pairing functions on their START LINE.
+ * For every line present on both sides
  * the hit counts must match; lines present on only one side must be exactly the
  * declared divergence sets — so an unexpected one-sided function fails rather than
  * being silently tolerated.
@@ -714,7 +730,7 @@ export function expectFunctionParityByLine(
   const actualAsOnly = [...asByLine.keys()].filter(l => !jsByLine.has(l)).sort(ascending);
   const actualJsOnly = [...jsByLine.keys()].filter(l => !asByLine.has(l)).sort(ascending);
   expect(actualAsOnly, 'AS-only function lines').toEqual([...(opts.asOnlyLines ?? [])].sort(ascending));
-  expect(actualJsOnly, 'v8-only function lines').toEqual([...(opts.jsOnlyLines ?? [])].sort(ascending));
+  expect(actualJsOnly, 'JS-only function lines').toEqual([...(opts.jsOnlyLines ?? [])].sort(ascending));
 
   const divergent = opts.divergentHitLines ?? {};
   for (const [line, as] of asByLine) {
@@ -723,9 +739,9 @@ export function expectFunctionParityByLine(
     const expectedDivergence = divergent[line];
     if (expectedDivergence) {
       expect(as.hits, `AS hits at divergent line ${line} (${as.name})`).toBe(expectedDivergence[0]);
-      expect(js.hits, `v8 hits at divergent line ${line} (${js.name})`).toBe(expectedDivergence[1]);
+      expect(js.hits, `JS hits at divergent line ${line} (${js.name})`).toBe(expectedDivergence[1]);
     } else {
-      expect(as.hits, `hits at line ${line} (AS ${as.name} vs v8 ${js.name})`).toBe(js.hits);
+      expect(as.hits, `hits at line ${line} (AS ${as.name} vs JS ${js.name})`).toBe(js.hits);
     }
   }
 }

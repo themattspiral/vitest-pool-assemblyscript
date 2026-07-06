@@ -39,6 +39,12 @@ export default async function setup(): Promise<() => Promise<void>> {
   const cwd = isExternal ? EXTERNAL_DIR : PROJECT_ROOT;
   const coverageEnabled = true;
 
+  // The delegated JS coverage provider the meta suite runs under. The suite
+  // inherits VITEST_AS_POOL_JS_PROVIDER through the spawned child's env, so its
+  // coverage config selects the matching entry point; recorded here so the
+  // verification run is self-describing.
+  const jsProvider = process.env.VITEST_AS_POOL_JS_PROVIDER === 'istanbul' ? 'istanbul' : 'v8';
+
   const args = ['-c', 'vitest.meta.config.ts'];
   if (!coverageEnabled) {
     args.push('--coverage.enabled=false');
@@ -53,14 +59,23 @@ export default async function setup(): Promise<() => Promise<void>> {
   console.log(`[Meta-Verify globalSetup] Meta suite run completed in ${duration}ms`);
   console.log(`[Meta-Verify globalSetup]   CLI Output: ${runLine}`);
   console.log(`[Meta-Verify globalSetup]   RUN_CONTEXT: ${context}`);
+  console.log(`[Meta-Verify globalSetup]   jsProvider: ${jsProvider}`);
   console.log(`[Meta-Verify globalSetup]   args: ${args.join(' ')}`);
   console.log(`[Meta-Verify globalSetup]   cwd: ${cwd}`);
+
+  if (!jsonOutput) {
+    throw new Error(
+      `[Meta-Verify globalSetup] Meta suite run produced no JSON output (exit ${exitCode}); `
+        + `it likely crashed before running any tests. Captured output:\n\n${cliOutput}`,
+    );
+  }
 
   await writeFile(RESULTS_PATH, JSON.stringify({
     jsonOutput,
     cliOutput,
     exitCode,
     cwd,
+    jsProvider,
   }));
 
   console.log(`[Meta-Verify globalSetup]   Captured results in: ${RESULTS_PATH}`);

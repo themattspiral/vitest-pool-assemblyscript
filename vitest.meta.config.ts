@@ -16,7 +16,12 @@ export default defineConfig({
       reportOnFailure: true,
       reportsDirectory: 'coverage/meta/',
       provider: 'custom',
-      customProviderModule: 'vitest-pool-assemblyscript/coverage',
+      // Config-time JS-provider selection: the meta-verify flow sets
+      // VITEST_AS_POOL_JS_PROVIDER (via cross-env) to run the same suite under
+      // either delegate. Default (unset) keeps the v8 entry.
+      customProviderModule: process.env.VITEST_AS_POOL_JS_PROVIDER === 'istanbul'
+        ? 'vitest-pool-assemblyscript/coverage-istanbul'
+        : 'vitest-pool-assemblyscript/coverage',
       
       include: [
         'test/js-coverage-parity-src'

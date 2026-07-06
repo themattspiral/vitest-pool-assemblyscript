@@ -17,7 +17,10 @@ export default defineConfig({
       reportOnFailure: true,
       reportsDirectory: 'coverage/meta/',
       provider: 'custom',
-      customProviderModule: 'vitest-pool-assemblyscript/coverage',
+      // Config-time JS-provider selection (see main vitest.meta.config.ts).
+      customProviderModule: process.env.VITEST_AS_POOL_JS_PROVIDER === 'istanbul'
+        ? 'vitest-pool-assemblyscript/coverage-istanbul'
+        : 'vitest-pool-assemblyscript/coverage',
 
       // v3-specific override to use same coverage strategy as newer versions
       experimentalAstAwareRemapping: true,
