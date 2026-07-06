@@ -69,7 +69,7 @@
 ### 1. Install
 
 ```bash
-npm install -D vitest vitest-pool-assemblyscript assemblyscript
+npm install -D vitest vitest-pool-assemblyscript assemblyscript @vitest/coverage-v8
 ```
 
 ### 2. Configure Vitest
@@ -88,7 +88,7 @@ export default defineConfig({
   },
   coverage: {
     provider: 'custom',
-    customProviderModule: 'vitest-pool-assemblyscript/coverage',
+    customProviderModule: 'vitest-pool-assemblyscript/coverage-v8',
     assemblyScriptInclude: ['assembly/**/*.ts'],
     enabled: true,
   },
@@ -104,7 +104,7 @@ export default defineAssemblyScriptConfig({
     include: ['test/assembly/**/*.as.test.ts'],
     pool: 'vitest-pool-assemblyscript/v3',
   },
-  // coverage configuration mirrors v4
+  // coverage configuration mirrors v5/v4
 });
 ```
 
@@ -163,7 +163,7 @@ All [listed features](#features) are working and unit-tested.
 - [`describe()` and `test()` APIs](#writing-tests): stable, no breaking changes expected
 - [`expect()` API](docs/matchers-api.md): stable, no breaking changes expected, main matcher set complete
 - Code Coverage / Instrumentation: all coverage types (function, branch, statement, line) stable [across platforms](#compatibility)
-- Hybrid Coverage Provider: stable v8 JS delegation, side-by-side JS coverage reporting, JS delegation to istanbul provider coming soon
+- Hybrid Coverage Provider: stable v8 and istanbul JS/TS delegation, side-by-side JS coverage reporting
 
 See Also:
 - [Current Limitations & Roadmap](#current-limitations--roadmap)
@@ -178,7 +178,7 @@ See Also:
 - Use familiar `vitest` commands, CLI spec and test filtering, watch mode
 - Works with Vitest UI, reporters, and coverage tools
 - Project (workspace) config allows coexisting AssemblyScript pools and JavaScript pools
-- Hybrid Coverage Provider unifies test reports (`html`, `lcov`, `json`, etc) from multiple pools (delegates to v8 provider for JS coverage)
+- Hybrid Coverage Provider unifies test reports (`html`, `lcov`, `json`, etc) from multiple pools and delegates JS/TS coverage to either vitest's v8 or istanbul provider
 - Supports vitest 3.2.x, 4.x, and 5.x
 
 ### Per-Test WASM Isolation

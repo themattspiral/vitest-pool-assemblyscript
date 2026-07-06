@@ -13,7 +13,7 @@ export default defineConfig({
       reportsDirectory: 'coverage/',
       provider: 'custom',
       customProviderModule: 'vitest-pool-assemblyscript/coverage',
-      
+
       include: [
         'src/**/*.{ts,js,mts,mjs}',
       ],

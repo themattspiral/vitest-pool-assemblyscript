@@ -1,7 +1,8 @@
 # Configuration Guide
 
 * [AssemblyScript Pool Options](#assemblyscript-pool-options)
-* [Supported Vitest Config Options](#supported-vitest-config-options)
+* [Supported Vitest `test` Options](#supported-vitest-test-options)
+* [`coverage` Configuration](#coverage-configuration)
 * [Config Templates](#config-templates)
     * [vitest 4.x and 5.x Multiple-Project Template](#vitest-4x-and-5x-multiple-project-template)
     * [vitest 4.x and 5.x Single-Project Template](#vitest-4x-and-5x-single-project-template)
@@ -10,7 +11,7 @@
 
 ## AssemblyScript Pool Options
 
-These options control how the pool processes and handles AssemblyScript. They're provided as an argument to `createAssemblyScriptPool()` (vitest v4+), or within the `poolOptions.assemblyScript` config section (vitest v3) - See [Config Templates](#config-templates) for placement.
+These options control how the pool processes and handles AssemblyScript. They're provided as an argument to `createAssemblyScriptPool()` (vitest v4/5), or within the `poolOptions.assemblyScript` config section (vitest v3) - See [Config Templates](#config-templates) for placement.
 
 - `stripInline` *(boolean)* — Strip `@inline` decorators during compilation so that inlined functions remain visible in coverage reports and source-mapped errors point to the correct lines. **Default: `true`**
 - `testMemoryPagesInitial` *(number)* — Initial WASM memory size in [pages](https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/Memory) (64 KiB each) allocated for each test instance. **Default: `1`**
@@ -36,30 +37,33 @@ The pool compiles AssemblyScript with the following base flags. The first group 
 - `--exportStart _start` — Export start function for explicit initialization control
 - `--exportTable` — Export function table for direct test execution
 
-## Supported Vitest Config Options
+## Supported Vitest `test` Options
 
 This is not an exhaustive list of all vitest options, but it details which ones are integrated specifically with the pool to allow controlling AssemblyScript test behavior.
 
-### `test` section
-
 - `bail` *(number)* — Stop the test run after this many test failures. Standard vitest option.
 - `retry` *(number)* — Number of retries to attempt after a test's initial failure. Can also be set per-test with `TestOptions.retry()`.
->⚠️ While this is a standard vitest option, the pool currently only supports a `number`-based retry count, rather than the [enhanced config](https://vitest.dev/config/retry) introduced in vitest 4.1.0
+> ⚠️ While this is a standard vitest option, the pool currently only supports a `number`-based retry count, rather than the [enhanced config](https://vitest.dev/config/retry) introduced in vitest 4.1.0
 - `testTimeout` *(number)* — Milliseconds to wait before terminating a test. Can also be set per-test with `TestOptions.timeout()`. Standard vitest option.
 - `allowOnly` *(boolean)* — Whether to respect `test.only` and `describe.only` modifiers. Standard vitest option.
 - `maxWorkers` *(number)* — Maximum concurrent file execution threads. **vitest 4.x and 5.x only** — for vitest 3.x, use pool option `maxThreadsV3` instead. Standard vitest option.
 >ℹ️ `maxWorkers` values above the machine's core count are effectively clamped for AssemblyScript test execution — the pool's internal run threads are capped at `availableParallelism()`, so excess concurrent file tasks queue rather than oversubscribe the CPU.
 
-### `coverage` section
+## `coverage` Configuration
 
-These options control how the "hybrid" coverage provider handles reporting coverage for *both* AssemblyScript tests AND JavaScript tests (and technically any other pools configured in your project). These options are provided within the `coverage` config section.
+These options control how to use the AssemblyScript pool's hybrid coverage provider to handle *both* AssemblyScript tests AND JavaScript/TypeScript tests (and any other pools configured in your project). These options are provided within the top-level-only `coverage` config section.
 
-- `provider` — Must be `'custom'` to use the hybrid coverage provider.
-- `customProviderModule` — Must be `'vitest-pool-assemblyscript/coverage'`.
+- `provider` — Must be `'custom'` to use the AssemblyScript pool's hybrid coverage provider.
+- `customProviderModule` — Selects the AS provider and determines which built-in vitest provider handles the JS/TS side of coverage
+    - `'vitest-pool-assemblyscript/coverage-v8'` — Native AS coverage + delegates JS/TS to **[v8](https://vitest.dev/guide/coverage.html#v8-provider)** (vitest's default)
+    - `'vitest-pool-assemblyscript/coverage-istanbul'` — Native AS coverage + delegates JS/TS to **[istanbul](https://vitest.dev/guide/coverage.html#istanbul-provider)**
+    - `'vitest-pool-assemblyscript/coverage'` — an alias for `coverage-v8`
 - `assemblyScriptInclude` *(string[])* — Glob patterns for AssemblyScript source files to include in coverage reporting. These are separate from the standard `include` patterns which apply to JS/TS files via v8.
 - `assemblyScriptExclude` *(string[])* — Glob patterns for AssemblyScript source files to exclude from coverage reporting.
 
-All other standard vitest v8 coverage options are passed through to the delegated v8 provider for JS/TS coverage. Common examples:
+> ℹ️ The selected provider's vitest package must be installed for proper reporting — `@vitest/coverage-v8` or `@vitest/coverage-istanbul`. This choice affects **JS/TS** coverage collection and prepares the combined final report. AssemblyScript coverage is always included in a compatible format regardless of which you choose. For more information see vitest's [coverage providers](https://vitest.dev/guide/coverage.html#coverage-providers) ([v8](https://vitest.dev/guide/coverage.html#v8-provider) vs [istanbul](https://vitest.dev/guide/coverage.html#istanbul-provider)).
+
+All other standard vitest coverage options are passed through to the selected JS provider (v8 or istanbul) for JS/TS coverage. Common examples:
 - `enabled` *(boolean)* — Enable coverage collection.
 - `cleanOnRerun` *(boolean)* — Clean coverage results before re-running in watch mode.
 - `reportsDirectory` *(string)* — Output directory for coverage reports.
@@ -127,19 +131,21 @@ export default defineConfig({
   },
 
   // Coverage config must be at root level (applies to all projects).
-  // The "hybrid" provider delegates JS to v8, and merges AS coverage into the final report
+  // The hybrid AS provider delegates JS/TS (to v8 or istanbul), and merges AS coverage into the final report
   coverage: {
     provider: 'custom',
-    customProviderModule: 'vitest-pool-assemblyscript/coverage',
+    customProviderModule: 'vitest-pool-assemblyscript/coverage-v8',  // or 'coverage-istanbul' for istanbul
     assemblyScriptInclude: ['assembly/**/*.ts'],      // example, include AS sources to report on
     assemblyScriptExclude: ['assembly/helpers/*.ts'], // example, exclude AS sources from reporting
     
-    // all other v8 coverage options will be passed through to delegated v8 provider
+    // all other coverage options will be passed through to delegated vitest provider
+    // and will impact JS coverage and combined reporting
     enabled: true,
     cleanOnRerun: true,
     reportsDirectory: './coverage',
     reporter: ['text', 'lcov', 'html'],
-    include: ['src/**/*.ts'],            // example, include JS/TS sources to report on
+    include: ['src/**/*.ts'],            // example, include JS/TS sources
+    exclude: ['src/helpers/*.ts'],       // example, exclude JS/TS sources
   },
 });
 ```

@@ -44,7 +44,7 @@ import {
 } from '../types/constants.js';
 import { warnIfASCoverageNotSupportedByNode, warnIfNativeBuildFailed } from '../util/feature-check.js';
 
-const HYBRID_PROVIDER_NAME = 'hybrid-assemblyscript-provider' as const;
+const HYBRID_PROVIDER_NAME = 'coverage-assemblyscript' as const;
 
 /** npm package that supplies each delegated JS coverage provider */
 const JS_PROVIDER_PACKAGES: Record<JsCoverageProvider, string> = {
@@ -121,7 +121,7 @@ export class HybridCoverageProvider implements CoverageProvider {
     if (!delegateInstalled) {
       throw createPoolError(
         POOL_ERROR_NAMES.HybridCoverageProviderError,
-        `JS coverage delegation requires the '${delegatePackage}' package (coverage.jsProvider: '${this.jsProvider}').`
+        `JS coverage delegation requires the '${delegatePackage}' package for the '${this.jsProvider}' provider.`
           + ` Install it with: npm i -D ${delegatePackage}`,
       );
     }
