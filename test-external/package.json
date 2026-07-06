@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
+    "@vitest/coverage-istanbul": "5.0.0-beta.4",
     "@vitest/coverage-v8": "5.0.0-beta.4",
     "@vitest/runner": "5.0.0-beta.4",
     "@vitest/utils": "5.0.0-beta.4",

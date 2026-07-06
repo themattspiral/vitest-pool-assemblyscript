@@ -1,6 +1,6 @@
 import { describe, test, beforeAll } from 'vitest';
 import {
-  type CoverageMap, COV_DIR, COVERAGE_ENABLED,
+  type CoverageMap, COV_DIR, COVERAGE_ENABLED, JS_COVERAGE_PROVIDER,
   loadCoverageResults, requireEntry, expectFunctionCoverage, expectFunctionParityByLine,
 } from '../../helpers/shared.js';
 
@@ -69,23 +69,26 @@ describe.runIf(COVERAGE_ENABLED)('function coverage — classes', () => {
   });
 
   // classes.ts mirrors classes.meta.ts line-for-line with the same instantiation
-  // pattern (the @operator case is AS-only and excluded), so v8's function coverage is
-  // the oracle. Pairing is by start line because v8 names methods bare and
+  // pattern (the @operator case is AS-only and excluded), so the JS twin's function
+  // coverage is the oracle. Pairing is by start line because v8 names methods bare and
   // disambiguates duplicates with _N suffixes (constructor, constructor_2, value,
   // value_2 …) — unusable as pairing keys. Constructor/method/getter/setter counts and
-  // the super()-driven Animal#constructor=7 all match v8; two divergences are pinned:
-  describe('v8-twin parity', () => {
-    test('function coverage matches v8 except two documented divergences', () => {
+  // the super()-driven Animal#constructor=7 all match the JS twin; the remaining
+  // divergences are provider-specific:
+  describe('JS-twin parity', () => {
+    test('function coverage matches the JS twin except documented divergences', () => {
       const as = requireEntry(coverageMap, CLASSES);
       const js = requireEntry(coverageMap, JS_CLASSES);
       expectFunctionParityByLine(as, js, {
         // Empty-body: Marker's empty constructor (line 84) has no source location for AS
-        // to instrument, so AS drops it; v8 keeps it (at 0).
+        // to instrument, so AS drops it; both JS providers keep it (at 0).
         jsOnlyLines: [84],
-        // Uncalled static method: Counter.make (line 32) is never called. v8 reports it
-        // as covered (1) — a never-called static still shows a hit, reproducibly — while
-        // AS counts function entries and reports the execution-accurate 0.
-        divergentHitLines: { 32: [0, 1] },
+        // Uncalled static method: Counter.make (line 32) is never called. Under v8 it is
+        // reported as covered (1) — a remapper quirk where a never-called static still
+        // shows a hit — while AS counts function entries and reports the execution-accurate
+        // 0. istanbul's counters are execution-accurate and agree with AS (0), so there is
+        // no divergence under istanbul.
+        divergentHitLines: JS_COVERAGE_PROVIDER === 'v8' ? { 32: [0, 1] } : {},
       });
     });
   });

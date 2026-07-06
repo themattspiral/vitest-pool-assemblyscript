@@ -17,7 +17,10 @@ export default defineConfig({
       reportOnFailure: true,
       reportsDirectory: 'coverage/meta/',
       provider: 'custom',
-      customProviderModule: 'vitest-pool-assemblyscript/coverage',
+      // Config-time JS-provider selection (see main vitest.meta.config.ts).
+      customProviderModule: process.env.VITEST_AS_POOL_JS_PROVIDER === 'istanbul'
+        ? 'vitest-pool-assemblyscript/coverage-istanbul'
+        : 'vitest-pool-assemblyscript/coverage',
       
       // Intentionally `**`-anchored (not `../vitest-pool-assemblyscript`) because coverage.include
       // is matched against each file's absolute path, which never contains a `..` segment,
