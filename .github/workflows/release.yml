@@ -61,7 +61,7 @@ jobs:
           - os: ubuntu-latest
             platform: linux-x64-musl
             container: node:24-alpine
-          - os: macos-15-intel
+          - os: macos-26-intel
             platform: darwin-x64
           - os: macos-latest
             platform: darwin-arm64
@@ -142,14 +142,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-latest, windows-latest, windows-11-arm]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-26-intel, macos-latest, windows-latest, windows-11-arm]
         node-version: ['22', '24']
         include:
           - os: ubuntu-latest
             prebuild-artifact: prebuild-linux-x64
           - os: ubuntu-24.04-arm
             prebuild-artifact: prebuild-linux-arm64
-          - os: macos-15-intel
+          - os: macos-26-intel
             prebuild-artifact: prebuild-darwin-x64
           - os: macos-latest
             prebuild-artifact: prebuild-darwin-arm64
