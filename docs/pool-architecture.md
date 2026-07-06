@@ -602,7 +602,7 @@ If the native build failed during install, the `.native-build-error` marker file
 The release workflow ([`.github/workflows/release.yml`](../.github/workflows/release.yml)) runs in four stages:
 
 ### 1. Build
-TypeScript compilation on Ubuntu. Produces `dist/` artifacts. Native build is skipped (`VITEST_POOL_AS_SKIP_NATIVE_BUILD=1`).
+TypeScript compilation on Ubuntu. Produces `dist/` artifacts. Native build is skipped (`VITEST_AS_POOL_SKIP_NATIVE_BUILD=1`).
 
 ### 2. Prebuild
 7-platform matrix builds native addon prebuilds via prebuildify. Each platform:
@@ -617,7 +617,8 @@ Matrix of platforms and Node versions runs external tests against the `npm pack`
 - Platforms: Linux (x64, arm64, musl), macOS (Intel, ARM), Windows (x64, arm64)
 - Node versions: 22, 24 (and 20 for Linux x64 no-coverage validation)
 - Prebuilds are downloaded and verified BEFORE `npm ci` — this ensures `node-gyp-build` finds them during install
-- Prebuild verification ([`scripts/verify-prebuild.js`](../scripts/verify-prebuild.js)) works around `actions/download-artifact@v4` issue #454, which can silently exit 0 with incomplete or empty downloads
+- Prebuild verification ([`scripts/verify-prebuild.js`](../scripts/verify-prebuild.js)) works around `actions/download-artifact` issue #454, which can silently exit 0 with incomplete or empty downloads
+- **istanbul JS coverage** runs on a gated subset — one linux (`ubuntu-latest`) + one Windows (`windows-latest`) cell, Node 24 — since provider choice is orthogonal to platform/Node, so the full matrix isn't duplicated; every other cell runs v8 only. The push/PR workflow ([`ci.yml`](../.github/workflows/ci.yml)) additionally runs istanbul meta-verify on linux-x64 on every push, alongside the v8 runs across all three vitest majors.
 
 ### 4. Release
 Downloads all prebuilds, runs semantic-release for versioning and changelog, publishes to npm with provenance.

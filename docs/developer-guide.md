@@ -155,7 +155,7 @@ The source-build path relies on npm (or your package manager) running a dependen
 - npm **≥ 11.16.0** (bundled with Node 24) flags un-approved dependency install scripts — `npm warn allow-scripts ... not yet covered by allowScripts`. Today this is **warn-but-run**: the script still executes, but its output is hidden by the default `foreground-scripts=false`, so a successful build prints nothing (which makes it *look* like the script never ran even though the addon is built)
 - The `--strict-allow-scripts` option makes npm **block** the install before any script runs (a preflight throws `ESTRICTALLOWSCRIPTS`).
 - In npm **≥ 12** strict mode will become the default, and a source-build-only external install would get **no addon → coverage disabled → the 100% coverage thresholds fail**
-- The [`ci.yml`](../.github/workflows/ci.yml) workflow runs `npm ci` with `VITEST_POOL_AS_SKIP_NATIVE_BUILD=1` (skip the redundant source build), then `setup-binaryen` + `build:prebuild`, **before** the external setup. `npm pack` then ships `prebuilds/`, so the external install loads the addon by unpacking alone
+- The [`ci.yml`](../.github/workflows/ci.yml) workflow runs `npm ci` with `VITEST_AS_POOL_SKIP_NATIVE_BUILD=1` (skip the redundant source build), then `setup-binaryen` + `build:prebuild`, **before** the external setup. `npm pack` then ships `prebuilds/`, so the external install loads the addon by unpacking alone
 
 #### Three Parallel External Template Directories
 
@@ -258,10 +258,12 @@ Verification tests live in `test/meta-verify/` and are organized by category:
 | `npm run ptest` | `npm run test:pass` | Run local passing tests |
 | `npm run mtest` | `npm run test:meta` | Run local meta tests |
 | `npm run mvtest` | `npm run test:meta:verify` | Run local meta output verification |
+| `npm run mvitest` | `npm run test:meta:verify:istanbul` | Run local meta output verification, delegating JS to istanbul |
 | - | `npm run test:ext:setup` | Prepare external test directory (v5) |
 | `npm run eptest` | `npm run test:ext:pass` | Run external passing tests (setup + run) |
 | `npm run emtest` | `npm run test:ext:meta` | Run external meta tests (setup + run) |
 | `npm run emvtest` | `npm run test:ext:meta:verify` | Run external meta output verification (setup + run) |
+| `npm run emvitest` | `npm run test:ext:setup && npm run test:ext:meta:verify:istanbul` | Run external istanbul meta output verification (setup + run) |
 | - | `npm run test:ext:setup:v4` | Prepare external test directory (v4) |
 | `npm run ep4test` | `npm run test:ext:setup:v4 && npm run test:ext:pass` | Run external v4 passing tests (setup + run) |
 | `npm run em4test` | `npm run test:ext:setup:v4 && npm run test:ext:meta` | Run external v4 meta tests (setup + run) |
@@ -275,6 +277,7 @@ Verification tests live in `test/meta-verify/` and are organized by category:
 | `npm run cptest` | `npm run build && npm run ptest` | Build + local passing tests |
 | `npm run cmtest` | `npm run build && npm run mtest` | Build + local meta tests |
 | `npm run cmvtest` | `npm run build && npm run mvtest` | Build + local meta output verification |
+| `npm run cmvitest` | `npm run build && npm run mvitest` | Build + local istanbul meta output verification |
 
 **Key source files:**
 - [`scripts/run-vitest-external.js`](../scripts/run-vitest-external.js) - vitest runner (interactive + capture modes)
