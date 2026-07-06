@@ -5,7 +5,7 @@ const SOUCE_MAP = true;
 
 export default defineConfig([{
   entry: [
-    // v4
+    // v5/v4
     'src/index.ts',
     'src/config/index.ts',
     'src/pool-thread/compile-worker-thread.ts',
@@ -17,7 +17,8 @@ export default defineConfig([{
     'src/pool-thread/v3-tinypool-thread.ts',
     
     // shared
-    'src/coverage-provider/index.ts',
+    'src/coverage-provider/coverage-v8.ts',
+    'src/coverage-provider/coverage-istanbul.ts',
     'src/compiler/transforms/strip-inline.mts',
     'src/compiler/transforms/deep-equals.mts',
     

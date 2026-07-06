@@ -1,21 +1,24 @@
 /**
  * Hybrid Coverage Provider
  *
- * This provider handles both AssemblyScript and JavaScript and coverage
+ * This provider handles both AssemblyScript and JavaScript coverage
  * - Converts AS coverage to Istanbul format
- * - Delegates JS coverage to Vitest's v8 provider
+ * - Delegates JS coverage to a built-in vitest provider (v8 or istanbul),
+ *   fixed per instance by the entry point that constructed it
+ *   (`/coverage-v8` or `/coverage-istanbul`)
  * - Merges both into a unified coverage report
  */
 
 import { basename, relative } from 'node:path';
 import type {
   CoverageProvider,
+  CoverageProviderModule,
   Vitest,
   ReportContext,
   ResolvedCoverageOptions,
 } from 'vitest/node';
+
 import type { AfterSuiteRunMeta } from 'vitest';
-import v8CoverageModule from '@vitest/coverage-v8';
 import type { CoverageMap } from 'istanbul-lib-coverage';
 import istanbulCoverage from 'istanbul-lib-coverage';
 const { createCoverageMap } = istanbulCoverage;
@@ -26,52 +29,139 @@ import { globFiles } from './glob-utils.js';
 import { mergeCoverageBundle, emptyCoverageBundle } from './coverage-merge.js';
 import { debug } from '../util/debug.js';
 import { createPoolError } from '../util/pool-errors.js';
+import { loadDelegateCoverageModule } from './delegate-loader.js';
 import type {
   AssemblyScriptCoveragePayload,
   CoverageBundle,
   GlobResult,
+  JsCoverageProvider,
   ResolvedHybridProviderOptions,
 } from '../types/types.js';
 import {
+  JS_COVERAGE_PROVIDERS,
   POOL_ERROR_NAMES,
   COVERAGE_PAYLOAD_FORMATS
 } from '../types/constants.js';
 import { warnIfASCoverageNotSupportedByNode, warnIfNativeBuildFailed } from '../util/feature-check.js';
 
-export class HybridCoverageProvider implements CoverageProvider {
-  name = 'hybrid-assemblyscript-v8' as const;
+const HYBRID_PROVIDER_NAME = 'hybrid-assemblyscript-provider' as const;
 
-  private v8Provider: CoverageProvider | undefined;
+/** npm package that supplies each delegated JS coverage provider */
+const JS_PROVIDER_PACKAGES: Record<JsCoverageProvider, string> = {
+  [JS_COVERAGE_PROVIDERS.V8]: '@vitest/coverage-v8',
+  [JS_COVERAGE_PROVIDERS.Istanbul]: '@vitest/coverage-istanbul',
+};
+
+/**
+ * Optional CoverageProvider hooks forwarded to the delegated provider.
+ *
+ * Attached dynamically in `initialize()` (rather than declared as class
+ * methods) so that hook EXISTENCE on the hybrid provider mirrors the selected
+ * delegate exactly: vitest existence-checks these hooks at their call sites
+ * (e.g. `onFileTransform` gates both the coverage transform plugin and
+ * module-cache invalidation), so a hook must not exist here when the delegate
+ * doesn't implement it.
+ *
+ * `mergeReports` is deliberately NOT forwarded: with this provider, blob-mode
+ * coverage payloads can include AssemblyScript-format entries the delegates
+ * can't parse, so `--merge-reports` coverage remains unsupported rather than
+ * failing mid-merge.
+ */
+const DELEGATED_OPTIONAL_HOOKS = [
+  'onFileTransform',
+  'onEnabled',
+  'requiresTransform',
+  'onTestRunStart',
+  'onTestFailure',
+] as const;
+
+type DelegatedOptionalHook = typeof DELEGATED_OPTIONAL_HOOKS[number];
+
+export class HybridCoverageProvider implements CoverageProvider {
+  name: string = HYBRID_PROVIDER_NAME;
+
+  private delegatedProvider: CoverageProvider | undefined;
   private accumulatedCoverage: CoverageBundle = emptyCoverageBundle();
   private projectRoot: string = '';
   private definedCoverageOptions: ResolvedCoverageOptions = {} as ResolvedCoverageOptions;
   private resolvedProviderOptions: ResolvedHybridProviderOptions = {} as ResolvedHybridProviderOptions;
 
+  // Optional CoverageProvider hooks — attached in initialize() when the
+  // selected delegate implements them (see DELEGATED_OPTIONAL_HOOKS)
+  onFileTransform?: CoverageProvider['onFileTransform'];
+  onEnabled?: CoverageProvider['onEnabled'];
+  requiresTransform?: CoverageProvider['requiresTransform'];
+  onTestRunStart?: CoverageProvider['onTestRunStart'];
+  onTestFailure?: CoverageProvider['onTestFailure'];
+
   /**
-   * Initialize the provider and get reference to v8 provider
+   * @param jsProvider Which built-in vitest provider handles JS/TS coverage.
+   *   Fixed by the entry point that constructed this instance (`/coverage-v8`
+   *   or `/coverage-istanbul`) — not read from user config.
+   */
+  constructor(private readonly jsProvider: JsCoverageProvider) {}
+
+  /**
+   * Initialize the provider and the delegated JS coverage provider it wraps
    */
   async initialize(ctx: Vitest): Promise<void> {
     this.projectRoot = ctx.config.root;
     this.definedCoverageOptions = ctx.config.coverage;
 
-    debug('[HybridCoverageProvider] Initializing Provider');
+    debug(`[HybridCoverageProvider] Initializing Provider (jsProvider: ${this.jsProvider})`);
 
-    // Get v8 provider from the coverage module
-    this.v8Provider = await v8CoverageModule.getProvider();
+    const delegatePackage = JS_PROVIDER_PACKAGES[this.jsProvider];
 
-    if (!this.v8Provider) {
+    // Preflight the selected delegate package: prompt to install it when
+    // missing (interactive TTY), honoring VITEST_SKIP_INSTALL_CHECKS. Vitest's
+    // own coverage preflight skips `provider: 'custom'` configs entirely, so
+    // this DX is on us. Mirrors vitest by passing its version so the installed
+    // delegate matches the running vitest major.
+    const delegateInstalled = await ctx.packageInstaller.ensureInstalled(delegatePackage, ctx.config.root, ctx.version);
+    if (!delegateInstalled) {
       throw createPoolError(
         POOL_ERROR_NAMES.HybridCoverageProviderError,
-        'initialize failed to get delegated v8 provider',
+        `JS coverage delegation requires the '${delegatePackage}' package (coverage.jsProvider: '${this.jsProvider}').`
+          + ` Install it with: npm i -D ${delegatePackage}`,
       );
     }
 
-    await this.v8Provider.initialize(ctx);
-    this.v8Provider.name = 'hybrid-assemblyscript-v8 (delegated v8 reporter)' as const;
-    debug('[HybridCoverageProvider] Initialized with delegated v8 provider');
+    // Load the selected delegate's coverage module dynamically — both delegate
+    // packages are optional peer dependencies, so only the selected one loads.
+    const delegateModule: CoverageProviderModule = await loadDelegateCoverageModule(this.jsProvider);
+
+    const delegatedProvider = await delegateModule.getProvider();
+
+    if (!delegatedProvider) {
+      throw createPoolError(
+        POOL_ERROR_NAMES.HybridCoverageProviderError,
+        `initialize failed to get delegated ${this.jsProvider} provider`,
+      );
+    }
+
+    await delegatedProvider.initialize(ctx);
+    delegatedProvider.name = `${HYBRID_PROVIDER_NAME} (delegated ${this.jsProvider} reporter)`;
+    this.delegatedProvider = delegatedProvider;
+
+    for (const hook of DELEGATED_OPTIONAL_HOOKS) {
+      this.attachDelegatedHook(delegatedProvider, hook);
+    }
+
+    debug(`[HybridCoverageProvider] Initialized with delegated ${this.jsProvider} provider`);
 
     warnIfASCoverageNotSupportedByNode();
     await warnIfNativeBuildFailed();
+  }
+
+  /**
+   * Attach one optional delegated hook when the delegate implements it, bound
+   * to the delegate so its internal state is preserved.
+   */
+  private attachDelegatedHook<H extends DelegatedOptionalHook>(delegate: CoverageProvider, hook: H): void {
+    const delegateHook = delegate[hook];
+    if (typeof delegateHook === 'function') {
+      this[hook] = delegateHook.bind(delegate) as this[H];
+    }
   }
 
   /**
@@ -120,16 +210,16 @@ export class HybridCoverageProvider implements CoverageProvider {
         return `[HybridCoverageProvider] ${suiteLogLabel} - onAfterSuiteRun - Accumulated coverage: ${positionCount} unique positions over ${fileCount} source files`;
       });
     } else {
-      // Delegate to v8 provider for all other formats (JS, etc.)
-      if (!this.v8Provider) {
+      // Delegate all other formats (JS, etc.) to the selected JS provider
+      if (!this.delegatedProvider) {
         throw createPoolError(
           POOL_ERROR_NAMES.HybridCoverageProviderError,
-          'onAfterSuiteRun failed to delegate to v8 provider',
+          'onAfterSuiteRun failed to delegate - delegated provider not initialized',
         );
       }
 
-      debug(`[HybridCoverageProvider] ${suiteLogLabel} - Delegating to v8 provider`);
-      await this.v8Provider.onAfterSuiteRun(meta);
+      debug(`[HybridCoverageProvider] ${suiteLogLabel} - Delegating to ${this.jsProvider} provider`);
+      await this.delegatedProvider.onAfterSuiteRun(meta);
     }
 
     debug(() => {
@@ -143,20 +233,20 @@ export class HybridCoverageProvider implements CoverageProvider {
    *
    * Flow:
    * 1. Parse included AS source files to get sourceDebugInfo (source of truth for line numbers)
-   * 1. Build merged CoverageData (all source functions + accumulated hit counts)
-   * 4. Convert merged CoverageData to Istanbul format
-   * 5. Get JS coverage from v8 provider
-   * 6. Merge AS coverage into JS coverage
+   * 2. Build merged CoverageData (all source functions + accumulated hit counts)
+   * 3. Convert merged CoverageData to Istanbul format
+   * 4. Get JS coverage from the delegated provider
+   * 5. Merge AS coverage into JS coverage
    */
   async generateCoverage(context: ReportContext): Promise<unknown> {
     const start = performance.now();
 
     debug('[HybridCoverageProvider] Generating coverage for test run');
 
-    if (!this.v8Provider) {
+    if (!this.delegatedProvider) {
       throw createPoolError(
         POOL_ERROR_NAMES.HybridCoverageProviderError,
-        'generateCoverage failed to delegate to v8 provider',
+        'generateCoverage failed to delegate - delegated provider not initialized',
       );
     }
 
@@ -217,9 +307,9 @@ export class HybridCoverageProvider implements CoverageProvider {
     const asGenerateEnd = performance.now();
     debug(`[HybridCoverageProvider] TIMING AS generateCoverage: ${(asGenerateEnd - start).toFixed(2)} ms`);
 
-    // Get JS coverage from v8 provider
-    debug('[HybridCoverageProvider] Getting JS coverage from v8 provider');
-    const jsCoverage = await this.v8Provider.generateCoverage(context) as CoverageMap;
+    // Get JS coverage from the delegated provider
+    debug(`[HybridCoverageProvider] Getting JS coverage from ${this.jsProvider} provider`);
+    const jsCoverage = await this.delegatedProvider.generateCoverage(context) as CoverageMap;
     debug(`[HybridCoverageProvider] JS coverage has ${Object.keys(jsCoverage.data).length} files`);
     debug(`[HybridCoverageProvider] TIMING JS generateCoverage: ${(performance.now() - asGenerateEnd).toFixed(2)} ms`);
 
@@ -241,47 +331,47 @@ export class HybridCoverageProvider implements CoverageProvider {
   }
 
   /**
-   * Report coverage - delegate to v8 provider
+   * Report coverage - delegate to the selected JS provider's reporters
    */
   async reportCoverage(coverageMap: unknown, context: ReportContext): Promise<void> {
-    if (!this.v8Provider) {
+    if (!this.delegatedProvider) {
       throw createPoolError(
         POOL_ERROR_NAMES.HybridCoverageProviderError,
-        'reportCoverage failed to delegate to v8 provider',
+        'reportCoverage failed to delegate - delegated provider not initialized',
       );
     }
 
     debug(`[HybridCoverageProvider] Reporting coverage (allTestsRun=${context.allTestsRun})`);
-    await this.v8Provider.reportCoverage(coverageMap, context);
+    await this.delegatedProvider.reportCoverage(coverageMap, context);
   }
 
   /**
    * Resolve options
    */
   resolveOptions(): ResolvedHybridProviderOptions {
-    if (!this.v8Provider) {
+    if (!this.delegatedProvider) {
       throw createPoolError(
         POOL_ERROR_NAMES.HybridCoverageProviderError,
-        'resolveOptions failed to delegate to v8 provider',
+        'resolveOptions failed to delegate - delegated provider not initialized',
       );
     }
-    
-    debug(`[HybridCoverageProvider] Resolving Coverage Options`);
-  
-    const resolvedV8Options = this.v8Provider.resolveOptions() as ResolvedCoverageOptions;
 
-    // For some reason the v8 provider builds its `excludes` values to include a null byte.
+    debug(`[HybridCoverageProvider] Resolving Coverage Options`);
+
+    const resolvedDelegatedOptions = this.delegatedProvider.resolveOptions() as ResolvedCoverageOptions;
+
+    // The delegated provider builds its `excludes` values to include a null byte.
     // Remove null bytes for logging purposes so tools like grep won't complain about binary content.
-    const sanitizedV8Options: ResolvedCoverageOptions = {
-      ...resolvedV8Options,
-      include: resolvedV8Options.include?.map(i => i.replace(/\0/g, '')) || undefined,
-      exclude: resolvedV8Options.exclude?.map(i => i.replace(/\0/g, '')) || undefined
+    const sanitizedDelegatedOptions: ResolvedCoverageOptions = {
+      ...resolvedDelegatedOptions,
+      include: resolvedDelegatedOptions.include?.map(i => i.replace(/\0/g, '')) || undefined,
+      exclude: resolvedDelegatedOptions.exclude?.map(i => i.replace(/\0/g, '')) || undefined
     };
 
     debug(`[HybridCoverageProvider] AS include: ${(this.definedCoverageOptions.assemblyScriptInclude || []).join(', ') || '(none)'}`);
     debug(`[HybridCoverageProvider] AS exclude: ${(this.definedCoverageOptions.assemblyScriptExclude || []).join(', ') || '(none)'}`);
-    debug(`[HybridCoverageProvider] JS include: ${(sanitizedV8Options.include || []).join(', ') || '(none)'}`);
-    debug(`[HybridCoverageProvider] JS exclude: ${(sanitizedV8Options.exclude || []).join(', ') || '(none)'}`);
+    debug(`[HybridCoverageProvider] JS include: ${(sanitizedDelegatedOptions.include || []).join(', ') || '(none)'}`);
+    debug(`[HybridCoverageProvider] JS exclude: ${(sanitizedDelegatedOptions.exclude || []).join(', ') || '(none)'}`);
 
     debug(`[HybridCoverageProvider] Globbing AS source files to include for coverage map basis`);
     const globbedAssemblyScriptInclude = globFiles(
@@ -290,25 +380,40 @@ export class HybridCoverageProvider implements CoverageProvider {
       this.projectRoot
     );
     debug(`[HybridCoverageProvider] Including ${globbedAssemblyScriptInclude.length} AS files in coverage map`);
-    
+
     const globbedAssemblyScriptExcludeOnly = globFiles(
       this.definedCoverageOptions.assemblyScriptExclude || [],
       [],
       this.projectRoot
     );
     debug(`[HybridCoverageProvider] Excluding ${globbedAssemblyScriptExcludeOnly.length} AS files from coverage map & instrumentation`);
-    
+
+    // Pass the user-configured coverage entry module straight through. Under
+    // entry-point selection the module the user points `customProviderModule` at
+    // IS the JS-provider selection (`/coverage-v8` — also the `/coverage` alias —
+    // or `/coverage-istanbul`). Vitest already pre-resolved it to an absolute
+    // path, and every worker (root and child projects, all vitest majors) loads
+    // that same module natively — so there is no redirection and no config
+    // mutation to reach workers.
+    const userCoverageModule = this.definedCoverageOptions.customProviderModule;
+    if (!userCoverageModule) {
+      throw createPoolError(
+        POOL_ERROR_NAMES.HybridCoverageProviderError,
+        'resolveOptions: coverage.customProviderModule is unexpectedly unset for the hybrid provider',
+      );
+    }
+
     const resolved: ResolvedHybridProviderOptions = {
-      ...resolvedV8Options,
+      ...resolvedDelegatedOptions,
       provider: 'custom',
-      customProviderModule: this.definedCoverageOptions.customProviderModule || '',
+      customProviderModule: userCoverageModule,
       debugIstanbul: this.definedCoverageOptions.debugIstanbul ?? false,
       assemblyScriptInclude: this.definedCoverageOptions.assemblyScriptInclude ?? [],
       assemblyScriptExclude: this.definedCoverageOptions.assemblyScriptExclude ?? [],
       globbedAssemblyScriptInclude,
       globbedAssemblyScriptProjectRelativeExcludeOnly : globbedAssemblyScriptExcludeOnly.map(gr => gr.projectRootRelative),
       isResolved: true
-    }; 
+    };
 
     this.resolvedProviderOptions = resolved;
     return resolved;
@@ -321,9 +426,9 @@ export class HybridCoverageProvider implements CoverageProvider {
       debug('[HybridCoverageProvider] Cleaned all internal coverage data');
     }
 
-    if (this.v8Provider) {
-      await this.v8Provider.clean(clean);
-      debug(`[HybridCoverageProvider] V8 provider finished clean(${clean})`);
+    if (this.delegatedProvider) {
+      await this.delegatedProvider.clean(clean);
+      debug(`[HybridCoverageProvider] Delegated ${this.jsProvider} provider finished clean(${clean})`);
     }
   }
 }

@@ -27,6 +27,17 @@ export const COVERAGE_PAYLOAD_FORMATS = {
   AssemblyScript: 'assemblyscript',
 } as const;
 
+/**
+ * Built-in vitest coverage providers the hybrid coverage provider can delegate
+ * JS/TS coverage to. Selected by which coverage entry point is configured as
+ * `coverage.customProviderModule` (`/coverage-v8` — also the `/coverage` alias —
+ * or `/coverage-istanbul`); internal, never a user-typed value.
+ */
+export const JS_COVERAGE_PROVIDERS = {
+  V8: 'v8',
+  Istanbul: 'istanbul',
+} as const;
+
 /** Prefix for AssemblyScript compiler strip-inline exclusions and instrumentation exclusions */
 export const ASSEMBLYSCRIPT_LIB_PREFIX = '~lib/' as const;
 

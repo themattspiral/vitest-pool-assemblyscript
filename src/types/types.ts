@@ -13,6 +13,7 @@ import type { RawSourceMap } from 'source-map';
 import {
   AS_POOL_WORKER_MSG_FLAG,
   COVERAGE_PAYLOAD_FORMATS,
+  JS_COVERAGE_PROVIDERS,
   POOL_ERROR_NAMES,
   TEST_ERROR_NAMES,
   AS_POOL_ERROR_FLAG,
@@ -119,7 +120,14 @@ export interface AssemblyScriptPoolOptions {
  * internally via `Required<HybridProviderOptions>` in
  * `ResolvedHybridProviderOptions`.
  */
+
+/** JS coverage provider name type derived from JS_COVERAGE_PROVIDERS values */
+export type JsCoverageProvider = typeof JS_COVERAGE_PROVIDERS[keyof typeof JS_COVERAGE_PROVIDERS];
+
 export interface HybridProviderOptions {
+  /**
+   * Enables verbose logging of the AssemblyScript coverage → Istanbul format conversion.
+   */
   debugIstanbul?: boolean;
 
   /**
