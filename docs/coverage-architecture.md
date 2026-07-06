@@ -185,21 +185,35 @@ When a test times out and execution resumes on a new thread, each suite initiali
 
 `HybridCoverageProvider` ([`hybrid-coverage-provider.ts`](../src/coverage-provider/hybrid-coverage-provider.ts)) implements vitest's `CoverageProvider` interface and serves as the unified coverage provider for mixed JS + AS projects.
 
+### JS Provider Selection (entry-point selection)
+
+The JS/TS side is delegated to a built-in vitest provider — **v8** (default) or **istanbul** — chosen by which coverage entry point the user sets as `coverage.customProviderModule`:
+
+- **`/coverage-v8`** → v8 *(and the legacy default `/coverage`, an alias for it)*
+- **`/coverage-istanbul`** → istanbul
+
+**The configured module *is* the selection** — there is no config option, env var, or path redirection:
+
+- vitest loads that module in **both** the core process (for `getProvider()`) and **every worker** (for the runtime `startCoverage` / `takeCoverage` / `stopCoverage` hooks), so the choice reaches all workers natively — across root and child projects, and on all vitest majors.
+- Each entry constructs the hybrid provider bound to its delegate. The delegate package (`@vitest/coverage-v8` / `@vitest/coverage-istanbul`) is an optional peer, dynamically imported after a preflight through **vitest's own package installer** (`ctx.packageInstaller.ensureInstalled`) — so a missing delegate prompts to install just like vitest's built-in coverage does, and honors `VITEST_SKIP_INSTALL_CHECKS`. (vitest skips this preflight for `provider: 'custom'`, so the hybrid provider runs it itself.)
+
+The selection affects **only JS/TS** coverage — AssemblyScript coverage is always converted to Istanbul format regardless. See the [Configuration Guide](configuration-guide.md#coverage-configuration) for user-facing setup.
+
 ### How It Works
 
-1. **Initialization**: Creates a delegated v8 coverage provider for JS/TS coverage. Checks for Node version compatibility and native build status, and displays user-facing console warnings if conditions will not allow coverage to actually be collected, despite being enabled.
+1. **Initialization**: Creates the delegated JS coverage provider (v8 or istanbul, per the selected entry point). Checks for Node version compatibility and native build status, and displays user-facing console warnings if conditions will not allow coverage to actually be collected, despite being enabled.
 
 2. **Accumulation** (`onAfterSuiteRun`): As test files complete:
    - AS payloads (identified by `__format: 'assemblyscript'`): merge `functionHits`/`expressionHits` into accumulated maps via `mergeCoverageData()` and `branchHits` via `mergeBranchHits()`, summing across all test files
-   - JS payloads: delegate directly to the v8 provider
+   - JS payloads: delegate directly to the selected JS provider
 
 3. **Report generation** (`generateCoverage`): Once all tests complete:
    - Parse AS source files (via AST parser) to get function, statement, and branch ranges — the source of truth for what should be covered
    - For each source file: match the accumulated hit positions to those source ranges and convert to Istanbul format (function, branch, statement, and line coverage)
-   - Get JS/TS coverage from the delegated v8 provider
+   - Get JS/TS coverage from the delegated JS provider
    - Merge AS Istanbul `CoverageMap` into JS `CoverageMap` → unified report
 
-4. **Report output** (`reportCoverage`): Delegates to the v8 provider's reporters (HTML, LCOV, JSON, text, etc.)
+4. **Report output** (`reportCoverage`): Delegates to the selected JS provider's reporters (HTML, LCOV, JSON, text, etc.)
 
 ### Accumulation Key Stability
 
@@ -362,7 +376,7 @@ All standard vitest v8 coverage provider options (thresholds, reporters, `includ
 
 AssemblyScript coverage is a **gcov-like, compiled-output measurement** (counts of executed WASM blocks), not source-level instrumentation. It is matched back to source ranges so it can be reported in Istanbul's format alongside JavaScript coverage, but the counts reflect what the *compiled* program actually executed. The **fidelity contract** is: covered-vs-uncovered is always correct; exact hit *counts* are best-effort where AssemblyScript's lowering diverges from source structure.
 
-Most coverage is exact and matches what V8 reports for the equivalent JavaScript. The known divergences are all verified against V8 and pinned in the meta-verify suite. These are the following:
+Most coverage is exact and matches what V8 and istanbul report for the equivalent JavaScript. The known divergences are all verified against equivalent JS fixtures covered by V8 and istanbul providers, and pinned in the meta-verify suite. These are the following:
 
 1. **`while` header count** — AssemblyScript counts the loop's condition block, which evaluates N+1 times for N iterations; V8 counts the statement once. Covered/uncovered agrees; only the count differs. This is specific to `while` because a `while` statement's *entry position is its condition*, so it inherits the condition's N+1 count. **`for` and `do-while` do *not* diverge:** `for`'s entry is the once-run init, and a `do-while`'s entry is the `do`/loop-entry (reached once) — its condition sits at the end and is not counted as a separate statement, so it matches V8.
    - *Example:* a `while (i < n) { i++; }` that runs 3 times reads **4** on the `while` line in AssemblyScript (3 passes + the final false check), **1** in V8.
@@ -373,6 +387,7 @@ Most coverage is exact and matches what V8 reports for the equivalent JavaScript
    - *Example:* `return a && b && c;` with `a` true 3×, `b` true 2×, `c` true 1× — AssemblyScript `[3, 2]` (inner `a && b`) + `[3, 1]` (outer), V8 one `[3, 2, 1]`.
 4. **`static` method hit count** — reports **0** in AssemblyScript (entry counting — execution-accurate), but the merged V8/JS report shows a JS static method's count as the *class-definition* count (≈1) regardless of its real call count. The `1` is **not** from V8 execution — raw V8 reports an uncalled method as 0 — it appears to be a bug in vitest's AST-aware coverage remapper (`ast-v8-to-istanbul`, the default in v4/v5): the remapper looks up a method's hit count at the `MethodDefinition` node's start offset, which for a `static` method is the `static` keyword. V8 starts a static method's coverage range at the method *name*, so the `static` keyword sits *outside* it, and the lookup falls through to the enclosing class/module range (executed once when the class is defined). The result: an uncalled static reads 1 (should be 0) **and** a static called N times reads ~1 (should be N). Instance methods, getters, and setters are unaffected (their ranges start at/before the lookup offset). AssemblyScript's value is the execution-accurate one.
    - *Example:* `class C { static make(): C { … } }` with `make` never called — AssemblyScript reports `C.make` as **0** (uncovered, correct); the merged report shows **1** (covered).
+   - **Provider-specific:** this is a v8-remapper (`ast-v8-to-istanbul`) artifact and does **not** occur under the **istanbul** provider — istanbul instruments the source directly, so its counter is execution-accurate and agrees with AssemblyScript (`0`). Under istanbul there is no divergence here.
 5. **`cond ? const : const` ternary** — when *both* arms are compile-time constants, AssemblyScript collapses the ternary to a single result constant — nothing is left in the compiled output to count — and reports `[0, 0]`; V8 reports `[1, 0]`. This is an "erased → blind" case: the same blindness as a folded `select` or a default argument. A ternary with a non-constant arm (`ok ? compute() : 0`) is reported correctly.
    - *Example:* `const label = ok ? "yes" : "no";` — both arms read `[0, 0]` (uncovered) in AssemblyScript, `[1, 0]` in V8.
 
