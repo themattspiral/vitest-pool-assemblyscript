@@ -167,6 +167,22 @@ export default defineConfig({
           pool: createAssemblyScriptPool(),
         }
       }),
+
+      // AS Meta Alt Config - small config-default timeouts. Fixtures here set NO
+      // explicit timeouts, so hangs trip these config values — proving the
+      // config-default resolution paths (testTimeout for test bodies, hookTimeout
+      // for hooks) with values distinct from each other and from every explicit
+      // per-test/per-hook value used elsewhere.
+      defineProject({
+        test: {
+          testTimeout: 200,
+          hookTimeout: 300,
+
+          name: { label: 'as-pool-meta-default-timeouts', color: 'yellow' },
+          include: ['test/assembly/**/*.meta-default-timeout.test.ts'],
+          pool: createAssemblyScriptPool(),
+        }
+      }),
     ]
   },
 });

@@ -11,10 +11,14 @@ import type {
   AssemblyScriptConsoleLogHandler,
   AssemblyScriptSuiteTaskMeta,
   AssemblyScriptTestTaskMeta,
+  ExecutionPhase,
   HookStateReporter,
+  PhaseNotifier,
   ResolvedAssemblyScriptPoolOptions,
   TestExecutionEnd,
   TestExecutionStart,
+  TestPhaseEnd,
+  TestPhaseStart,
   ThreadImports,
   VitestVersion,
   WASMCompilation,
@@ -103,6 +107,26 @@ function notifyTestEnd(port: MessagePort, test: RunnerTestCase): void {
   } satisfies TestExecutionEnd);
 }
 
+function notifyPhaseStart(port: MessagePort, test: RunnerTestCase, phase: ExecutionPhase, effectiveTimeout: number): void {
+  port.postMessage({
+    phaseStart: Date.now(),
+    testTaskId: test.id,
+    phase,
+    effectiveTimeout,
+    type: 'phase-start',
+    [AS_POOL_WORKER_MSG_FLAG]: true
+  } satisfies TestPhaseStart);
+}
+
+function notifyPhaseEnd(port: MessagePort, test: RunnerTestCase): void {
+  port.postMessage({
+    phaseEnd: Date.now(),
+    testTaskId: test.id,
+    type: 'phase-end',
+    [AS_POOL_WORKER_MSG_FLAG]: true
+  } satisfies TestPhaseEnd);
+}
+
 async function runTest(
   rpc: WorkerRPC,
   port: MessagePort,
@@ -147,7 +171,8 @@ async function runTest(
 
   // Track lifecycle hook group states on the test result and report vitest's
   // hook TaskUpdateEvents live as the executor runs each phase (mirrors
-  // vitest's updateSuiteHookState)
+  // vitest's updateSuiteHookState). Observability channel: awaited RPC to
+  // vitest core, per hook level — distinct from phaseNotifier below.
   const reportHookState: HookStateReporter = async (hookedTest, hookKey, state) => {
     if (!hookedTest.result) {
       return;
@@ -159,6 +184,16 @@ async function runTest(
     hookedTest.result.hooks[hookKey] = state;
 
     await reportTestHookState(rpc, hookedTest, hookKey, state, logModule, base);
+  };
+
+  // Post the control-port phase messages that drive the main thread's
+  // per-phase timeout windows (each hook fn and the test fn get their own).
+  // Enforcement channel: one-way postMessage to the pool main thread, nothing
+  // awaited, per fn — distinct from reportHookState above (awaited RPC to
+  // vitest core, per level).
+  const phaseNotifier: PhaseNotifier = {
+    phaseStart: (phase, effectiveTimeout) => notifyPhaseStart(port, test, phase, effectiveTimeout),
+    phaseEnd: () => notifyPhaseEnd(port, test),
   };
 
   const [_reported, { testTimings }] = await Promise.all([
@@ -173,7 +208,8 @@ async function runTest(
       threadImports,
       projectRoot,
       diffOptions,
-      reportHookState
+      reportHookState,
+      phaseNotifier
     )
   ]);
 

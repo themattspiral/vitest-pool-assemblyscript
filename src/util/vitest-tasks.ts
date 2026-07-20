@@ -6,6 +6,7 @@ import type {
   AssemblyScriptTestError,
   AssemblyScriptTestOptions,
   AssemblyScriptTestTaskMeta,
+  ExecutionPhase,
   FailedAssertion,
   HookChainLevel,
   TestHookChains,
@@ -14,7 +15,7 @@ import type {
 } from '../types/types.js';
 import { TEST_ERROR_NAMES } from '../types/constants.js';
 import { debug } from './debug.js';
-import { createTestExpectedToFailError, createTestTimeoutError } from './pool-errors.js';
+import { createTestExpectedToFailError, createTimeoutError } from './pool-errors.js';
 import { retryCompat } from './resolve-config.js';
 
 // ============================================================================
@@ -251,16 +252,16 @@ export function collectHookChainLevels(test: RunnerTestCase): TestHookChains {
   const beforeEach: HookChainLevel[] = lineage
     .map(s => ({
       suiteName: s.name,
-      fnIndexes: [...(s.meta as AssemblyScriptSuiteTaskMeta).hooks.beforeEach],
+      registrations: [...(s.meta as AssemblyScriptSuiteTaskMeta).hooks.beforeEach],
     }))
-    .filter(level => level.fnIndexes.length > 0);
+    .filter(level => level.registrations.length > 0);
 
   const afterEach: HookChainLevel[] = [...lineage].reverse()
     .map(s => ({
       suiteName: s.name,
-      fnIndexes: [...(s.meta as AssemblyScriptSuiteTaskMeta).hooks.afterEach].reverse(),
+      registrations: [...(s.meta as AssemblyScriptSuiteTaskMeta).hooks.afterEach].reverse(),
     }))
-    .filter(level => level.fnIndexes.length > 0);
+    .filter(level => level.registrations.length > 0);
 
   return { beforeEach, afterEach };
 }
@@ -390,8 +391,14 @@ export function failTestAssertionError(
   return testError;
 }
 
-export function failTestWithTimeoutError (test: RunnerTestCase, startTime: number, duration: number): void {
-  const timeoutErr = createTestTimeoutError(test);
+export function failTestWithTimeoutError (
+  test: RunnerTestCase,
+  startTime: number,
+  duration: number,
+  phase: ExecutionPhase,
+  effectiveTimeout: number,
+): void {
+  const timeoutErr = createTimeoutError(test, phase, effectiveTimeout);
 
   if (test.result) {
     test.result.state = 'fail';

@@ -7,6 +7,7 @@ import type {
   AssemblyScriptTestTaskMeta,
   FailedAssertion,
   PerPhaseCaptureState,
+  SuiteHookRegistration,
   WasmImportsFactory,
 } from '../types/types.js';
 import {
@@ -75,6 +76,7 @@ export function createDiscoveryImports(
   file: RunnerTestFile,
   handleLog: AssemblyScriptConsoleLogHandler,
   logPrefix: string,
+  configHookTimeout: number,
   coverageMemory?: WebAssembly.Memory,
   createWasmImports?: WasmImportsFactory,
 ): WebAssembly.Imports {
@@ -155,15 +157,20 @@ export function createDiscoveryImports(
       // called by beforeEach() / afterEach() to register lifecycle hook function indices
       __register_hook(
         kind: LifecycleHookKind,
-        fnIndex: number
+        fnIndex: number,
+        timeout: number
       ) {
         const parentSuite = suiteStack[suiteStack.length - 1]!;
         const suiteMeta = parentSuite.meta as AssemblyScriptSuiteTaskMeta;
 
+        // per-hook timeout arg when given, else the configured hookTimeout
+        const effectiveTimeout = timeout >= 0 ? timeout : configHookTimeout;
+        const registration: SuiteHookRegistration = { fnIndex, timeout: effectiveTimeout };
+
         if (kind === LifecycleHookKind.BeforeEach) {
-          suiteMeta.hooks.beforeEach.push(fnIndex);
+          suiteMeta.hooks.beforeEach.push(registration);
         } else if (kind === LifecycleHookKind.AfterEach) {
-          suiteMeta.hooks.afterEach.push(fnIndex);
+          suiteMeta.hooks.afterEach.push(registration);
         } else {
           throw createPoolError(
             POOL_ERROR_NAMES.WASMExecutionHarnessError,
@@ -172,7 +179,7 @@ export function createDiscoveryImports(
         }
 
         debug(`${logPrefix} - Registered ${kind === LifecycleHookKind.BeforeEach ? 'beforeEach' : 'afterEach'} hook`
-          + ` | fnIndex ${fnIndex} | suite: "${parentSuite.name}"`
+          + ` | fnIndex ${fnIndex} | timeout: ${effectiveTimeout} ms | suite: "${parentSuite.name}"`
         );
       },
 

@@ -52,9 +52,10 @@ describe('timeout scenarios verification', () => {
     test('test status is failed and message are correct', () => {
       const t = requireTest(file, 'simple timeout [should fail]');
       expect(t.status).toBe('failed');
-      
+
       const block = requireErrorBlock(parsedCliOutput, testPath('simple timeout [should fail]'));
-      expect(block).toContain('WASMExecutionTimeoutError: Test timed out after');
+      expect(block).toContain('WASMExecutionTimeoutError: Test timed out in 100ms.');
+      expect(block).toContain('If this is a long-running test, pass a timeout value using "TestOptions.timeout()" or configure it globally with "testTimeout".');
       expect(block).toContain('Test Timeout Exceeded (100ms)');
     });
   });
@@ -66,7 +67,7 @@ describe('timeout scenarios verification', () => {
       expect(t.failureMessages).toHaveLength(3);
 
       const block = requireErrorBlock(parsedCliOutput, testPath('timeout with retry [should fail]'));
-      expect(block).toContain('WASMExecutionTimeoutError: Test timed out after');
+      expect(block).toContain('WASMExecutionTimeoutError: Test timed out in 100ms.');
       expect(block).toContain('Test Timeout Exceeded (100ms)');
     });
   });

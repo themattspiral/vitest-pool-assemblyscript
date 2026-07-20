@@ -54,6 +54,7 @@ export async function runCompileAndDiscover(
   collectCoverage: boolean,
   relativeUserCoverageExclusions: string[],
   threadImports: ThreadImports,
+  configHookTimeout: number,
   diffOptions?: SerializedDiffOptions,
   testNamePattern?: RegExp,
   allowOnly?: boolean,
@@ -124,6 +125,7 @@ export async function runCompileAndDiscover(
       file,
       logModule,
       threadImports,
+      configHookTimeout,
     );
 
     // set skips when using only and/or user test name pattern, skip file task if all tests skipped

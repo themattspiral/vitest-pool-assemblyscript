@@ -79,7 +79,7 @@ describe('non-isolated batch dispatch verification', () => {
       expect(t.status).toBe('failed');
 
       const block = requireErrorBlock(parsedCliOutput, timeoutFileTestPath('batch timeout [should fail]'));
-      expect(block).toContain('WASMExecutionTimeoutError: Test timed out after');
+      expect(block).toContain('WASMExecutionTimeoutError: Test timed out in 100ms.');
       expect(block).toContain('Test Timeout Exceeded (100ms)');
     });
 

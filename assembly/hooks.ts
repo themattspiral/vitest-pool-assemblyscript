@@ -1,4 +1,4 @@
-import { LifecycleHookKind } from './portable/constants';
+import { LifecycleHookKind, TestOptionValue } from './portable/constants';
 
 /*
  * @external functions are imported to the
@@ -7,7 +7,7 @@ import { LifecycleHookKind } from './portable/constants';
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @external("__as_pool_env__", "__register_hook")
-declare function __register_hook(kind: LifecycleHookKind, fnIndex: u32): void;
+declare function __register_hook(kind: LifecycleHookKind, fnIndex: u32, timeout: i32): void;
 
 /**
  * A lifecycle hook callback.
@@ -38,13 +38,17 @@ export type HookCallback = () => void;
  *   test: remaining `beforeEach` hooks and the test body are skipped, while
  *   the `afterEach` chain still runs.
  * - `expect()` assertions work inside hooks and count toward the test.
+ * - Each hook runs in its own timeout window (vitest semantics): the optional
+ *   `timeout` argument (ms) sets this hook's window, defaulting to the
+ *   configured global `hookTimeout`. A hook that exceeds its window fails
+ *   the test with a hook-timeout error.
  *
  * Because each test executes in its own isolated WASM instance, hooks run
  * per-instance: there is no cross-test state to set up, and expensive setup
  * in a hook re-runs for every test.
  */
-export function beforeEach(fn: HookCallback): void {
-  __register_hook(LifecycleHookKind.BeforeEach, fn.index);
+export function beforeEach(fn: HookCallback, timeout: i32 = TestOptionValue.OptionUndefined): void {
+  __register_hook(LifecycleHookKind.BeforeEach, fn.index, timeout);
 }
 
 /**
@@ -63,12 +67,16 @@ export function beforeEach(fn: HookCallback): void {
  * - A failing `afterEach` (failed `expect()` or runtime error) fails the
  *   test — even one that passed — and stops the remaining `afterEach` chain.
  * - `expect()` assertions work inside hooks and count toward the test.
+ * - Each hook runs in its own timeout window (vitest semantics): the optional
+ *   `timeout` argument (ms) sets this hook's window, defaulting to the
+ *   configured global `hookTimeout`. A hook that exceeds its window fails
+ *   the test with a hook-timeout error.
  *
  * Runs inside the same WASM instance as the test, so module-level state
  * written by `beforeEach` and the test body is visible. The instance is
  * discarded afterwards — `afterEach` is for host-visible teardown (e.g.
  * user-provided WASM imports) and assertions, not for freeing WASM memory.
  */
-export function afterEach(fn: HookCallback): void {
-  __register_hook(LifecycleHookKind.AfterEach, fn.index);
+export function afterEach(fn: HookCallback, timeout: i32 = TestOptionValue.OptionUndefined): void {
+  __register_hook(LifecycleHookKind.AfterEach, fn.index, timeout);
 }

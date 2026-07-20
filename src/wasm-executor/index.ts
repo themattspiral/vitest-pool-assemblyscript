@@ -10,6 +10,7 @@ import type {
   CoverageData,
   HookChainLevel,
   HookStateReporter,
+  PhaseNotifier,
   ResolvedAssemblyScriptPoolOptions,
   SuiteHookKey,
   ThreadImports,
@@ -88,10 +89,11 @@ export async function executeWASMDiscovery(
   file: RunnerTestFile,
   moduleLabel: string,
   threadImports: ThreadImports,
+  configHookTimeout: number,
 ): Promise<void> {
   const base = basename(file.filepath);
   const logPrefix = `[${moduleLabel} Exec] ${getTaskLogLabel(base, file)}`;
-  
+
   try {
     const { testMemory, coverageMemory } = createExecutorMemories(compilation, poolOptions, isBinaryInstrumented);
 
@@ -101,6 +103,7 @@ export async function executeWASMDiscovery(
       file,
       handleLog,
       logPrefix,
+      configHookTimeout,
       coverageMemory,
       threadImports.createUserWasmImports
     );
@@ -174,6 +177,7 @@ export async function executeWASMTest(
   projectRoot: string,
   diffOptions?: SerializedDiffOptions,
   reportHookState?: HookStateReporter,
+  phaseNotifier?: PhaseNotifier,
 ): Promise<{ test: RunnerTestCase, testTimings: WASMExecutorPerfTimings }> {
   const testTimings: WASMExecutorPerfTimings = {
     fnInit: performance.now(),
@@ -336,14 +340,27 @@ export async function executeWASMTest(
    */
   async function runHookChain(levels: HookChainLevel[], hookKey: SuiteHookKey): Promise<boolean> {
     for (const level of levels) {
-      debug(`${logPrefix} - Running ${level.fnIndexes.length} ${hookKey} hook(s) for suite "${level.suiteName}"`);
+      debug(`${logPrefix} - Running ${level.registrations.length} ${hookKey} hook(s) for suite "${level.suiteName}"`);
       await reportHookState?.(test, hookKey, 'run');
 
-      for (const fnIndex of level.fnIndexes) {
+      for (const registration of level.registrations) {
+        // each hook fn gets its own main-thread timeout window (vitest wraps
+        // each hook individually); disarm immediately after the WASM call
+        // returns or unwinds, BEFORE error enhancement work
+        let thrown: any;
+        let didThrow = false;
+
+        phaseNotifier?.phaseStart(hookKey, registration.timeout);
         try {
-          getHookFn(fnIndex)();
+          getHookFn(registration.fnIndex)();
         } catch (error: any) {
-          const isSuccessUnwind = await capturePhaseError(error, hookKey);
+          thrown = error;
+          didThrow = true;
+        }
+        phaseNotifier?.phaseEnd();
+
+        if (didThrow) {
+          const isSuccessUnwind = await capturePhaseError(thrown, hookKey);
 
           if (!isSuccessUnwind) {
             await reportHookState?.(test, hookKey, 'fail');
@@ -372,13 +389,25 @@ export async function executeWASMTest(
   const beforeChainFailed = await runHookChain(hookChains.beforeEach, 'beforeEach');
 
   if (!beforeChainFailed) {
+    // the test fn gets its own full test.timeout window — the init window
+    // (armed at execution-start) and any hook windows never eat into it
+    let thrown: any;
+    let didThrow = false;
+
+    phaseNotifier?.phaseStart('test', test.timeout);
     try {
       // Execute this test
       testFn(test?.result?.retryCount);
 
       // If we reach here, test passed, i.e. No abort occurred.
     } catch (error: any) {
-      await capturePhaseError(error, 'test');
+      thrown = error;
+      didThrow = true;
+    }
+    phaseNotifier?.phaseEnd();
+
+    if (didThrow) {
+      await capturePhaseError(thrown, 'test');
     }
   }
 

@@ -293,21 +293,30 @@ describe('lifecycle hook semantics verification', () => {
     });
   });
 
-  describe('hung hooks (core-phase timeout attribution)', () => {
+  describe('hung hooks (per-hook timeout windows)', () => {
     let file: TestFileResult;
 
     beforeAll(() => {
       file = requireTestFile(metaRunResults, TIMEOUT_FILE);
     });
 
-    test('both hung-hook tests fail with the plain test-timeout message', () => {
+    // Each hook runs in its own window: the fixture's per-hook `timeout` arg is
+    // the window that trips, reported with vitest's hook-timeout message plus our
+    // phase-annotation prefix (timeout errors carry no source-mapped frame, so
+    // the prefix is the only signal of WHICH hook hung).
+    test('both hung-hook tests fail with the phase-annotated hook-timeout message', () => {
       expect(countByStatus(file, 'failed')).toBe(2);
 
-      const beforePath = `${FIXTURE_PATH_PREFIX}${TIMEOUT_FILE} > hung beforeEach > beforeEach hang trips the test timeout [should fail]`;
-      expect(requireErrorBlock(parsedCliOutput, beforePath)).toContain('Test timed out after 150ms');
+      const beforePath = `${FIXTURE_PATH_PREFIX}${TIMEOUT_FILE} > hung beforeEach > beforeEach hang trips the hook timeout [should fail]`;
+      const beforeBlock = requireErrorBlock(parsedCliOutput, beforePath);
+      expect(beforeBlock).toContain('WASMExecutionTimeoutError: in beforeEach hook: Hook timed out in 150ms.');
+      expect(beforeBlock).toContain('If this is a long-running hook, pass a timeout value as the last argument or configure it globally with "hookTimeout".');
+      expect(beforeBlock).toContain('Hook Timeout Exceeded (150ms)');
 
-      const afterPath = `${FIXTURE_PATH_PREFIX}${TIMEOUT_FILE} > hung afterEach > afterEach hang trips the test timeout after the body passed [should fail]`;
-      expect(requireErrorBlock(parsedCliOutput, afterPath)).toContain('Test timed out after 150ms');
+      const afterPath = `${FIXTURE_PATH_PREFIX}${TIMEOUT_FILE} > hung afterEach > afterEach hang trips the hook timeout after the body passed [should fail]`;
+      const afterBlock = requireErrorBlock(parsedCliOutput, afterPath);
+      expect(afterBlock).toContain('WASMExecutionTimeoutError: in afterEach hook: Hook timed out in 150ms.');
+      expect(afterBlock).toContain('Hook Timeout Exceeded (150ms)');
     });
   });
 });
