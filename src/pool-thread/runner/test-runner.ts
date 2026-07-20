@@ -11,6 +11,7 @@ import type {
   AssemblyScriptConsoleLogHandler,
   AssemblyScriptSuiteTaskMeta,
   AssemblyScriptTestTaskMeta,
+  HookStateReporter,
   ResolvedAssemblyScriptPoolOptions,
   TestExecutionEnd,
   TestExecutionStart,
@@ -25,6 +26,7 @@ import { debug } from '../../util/debug.js';
 import {
   reportTestPrepare,
   reportTestFinished,
+  reportTestHookState,
   reportTestRetried,
   reportUserConsoleLogs,
   reportSuitePrepare,
@@ -143,6 +145,22 @@ async function runTest(
   // inform pool of test task start so it can enforce timeouts
   notifyTestStart(port, test);
 
+  // Track lifecycle hook group states on the test result and report vitest's
+  // hook TaskUpdateEvents live as the executor runs each phase (mirrors
+  // vitest's updateSuiteHookState)
+  const reportHookState: HookStateReporter = async (hookedTest, hookKey, state) => {
+    if (!hookedTest.result) {
+      return;
+    }
+
+    if (!hookedTest.result.hooks) {
+      hookedTest.result.hooks = {};
+    }
+    hookedTest.result.hooks[hookKey] = state;
+
+    await reportTestHookState(rpc, hookedTest, hookKey, state, logModule, base);
+  };
+
   const [_reported, { testTimings }] = await Promise.all([
     testPreparePromise,
     executeWASMTest(
@@ -154,7 +172,8 @@ async function runTest(
       logModule,
       threadImports,
       projectRoot,
-      diffOptions
+      diffOptions,
+      reportHookState
     )
   ]);
 

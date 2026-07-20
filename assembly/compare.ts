@@ -101,6 +101,7 @@ export function equalsRtmNamesClear(): void {
  */
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @global
+// @ts-ignore: global functions appear unused
 function __vitest_assemblyscript_compare_equals_path_push(segment: string): void {
   equalsPathPush(segment);
 }
@@ -114,6 +115,7 @@ function __vitest_assemblyscript_compare_equals_path_push(segment: string): void
  */
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @global
+// @ts-ignore: global functions appear unused
 function __vitest_assemblyscript_compare_equals_path_pop(): void {
   equalsPathPop();
 }
@@ -828,7 +830,7 @@ export class MapEntry<K,V> {
   // index getter syntax: instance[key]
   // lets us type check using indexof<MapEntry>
   @operator('[]')
-  __get(k: K): V {
+  __get(_k: K): V {
     return this.entryVal;
   }
 
@@ -910,8 +912,9 @@ export function contains<T, U>(actual: T, expected: U, useEquals: bool): __vites
  * Returns __vitest_assemblyscript_EqualityResult so injected methods can propagate type mismatch information
  * from nested comparisons back to the top-level matcher.
  */
-// @ts-ignore
+// @ts-ignore: top level decorators are supported in AssemblyScript
 @global
+// @ts-ignore: global functions appear unused
 function __vitest_assemblyscript_compare_equals<T, U>(actual: T, expected: U): __vitest_assemblyscript_EqualityResult {
   return equals<T, U>(actual, expected);
 }

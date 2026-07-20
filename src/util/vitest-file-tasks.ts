@@ -66,6 +66,7 @@ export function createInitialFileTask(
     defaultTestOptions,
     suitePreparedSent: false,
     resultFinal: false,
+    hooks: { beforeEach: [], afterEach: [] },
   }
   file.meta = meta;
 

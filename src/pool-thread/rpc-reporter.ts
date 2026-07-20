@@ -24,6 +24,8 @@ import type {
   AssemblyScriptConsoleLog,
   AssemblyScriptCoveragePayload,
   AssemblyScriptSuiteTaskMeta,
+  SuiteHookKey,
+  SuiteHookState,
   VitestVersion,
   WASMCompilation,
   WorkerRPC
@@ -229,6 +231,54 @@ export async function reportTestRetried(
   base: string,
 ): Promise<void> {
   return reportTestTaskUpdate(rpc, test, logModule, base, 'test-retried');
+}
+
+/**
+ * vitest's hook TaskUpdateEvent names by hook kind: a `-start` event when a
+ * suite level's hook group begins ('run'), a `-end` event when it completes
+ * successfully ('pass'). These are the only hook events vitest's own runner
+ * emits — vitest is the consumer of this stream, so its observed behavior is
+ * the contract.
+ */
+const HOOK_UPDATE_EVENTS = {
+  beforeEach: { start: 'before-hook-start', end: 'before-hook-end' },
+  afterEach: { start: 'after-hook-start', end: 'after-hook-end' },
+} as const satisfies Record<SuiteHookKey, { start: RunnerTaskEventPack[1]; end: RunnerTaskEventPack[1] }>;
+
+/**
+ * Report a lifecycle hook group state change (`test.result.hooks` is updated
+ * by the runner before this is called; the task pack carries it).
+ *
+ * On 'fail', NO event is emitted — matching vitest's runner, which never sends
+ * a hook event after a hook throws (an end event would read as success to a
+ * consumer of the stream). Our recorded 'fail' state still reaches vitest
+ * inside the result carried by subsequent task packs ('test-finished' at
+ * minimum); vitest itself leaves the state stuck at 'run' in this case.
+ */
+export async function reportTestHookState(
+  rpc: WorkerRPC,
+  test: RunnerTestCase,
+  hookKey: SuiteHookKey,
+  state: SuiteHookState,
+  logModule: string,
+  base: string,
+): Promise<void> {
+  if (state === 'fail') {
+    debug(`[${logModule} RPC] ${getTaskLogLabel(base, test)} - Recorded ${hookKey} "fail" | no hook event emitted`);
+    return;
+  }
+
+  const eventName = state === 'run' ? HOOK_UPDATE_EVENTS[hookKey].start : HOOK_UPDATE_EVENTS[hookKey].end;
+
+  // Report hook event (without the custom task meta so reporters won't log it)
+  const taskPack: RunnerTaskResultPack = [test.id, test.result, {}];
+  const eventPack: RunnerTaskEventPack = [test.id, eventName, undefined];
+
+  await rpc.onTaskUpdate([taskPack], [eventPack]);
+
+  debug(`[${logModule} RPC] ${getTaskLogLabel(base, test)} - Reported "${eventName}" task update`
+    + ` | ${hookKey}: "${state}"`
+  );
 }
 
 // ============================================================================

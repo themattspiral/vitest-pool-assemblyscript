@@ -199,24 +199,28 @@ export function stringifyValue<T>(item: T, formatForDiff: bool = true, depth: i3
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @global
+// @ts-ignore: global functions appear unused
 function __vitest_assemblyscript_stringify_value<T>(item: T, formatForDiff: bool = true, depth: i32 = 0, budget: i32 = -1): string {
   return stringifyValue<T>(item, formatForDiff, depth, budget);
 }
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @global
+// @ts-ignore: global functions appear unused
 function __vitest_assemblyscript_escape_to_diff_string(str: string): string {
   return escapeToDiffString(str);
 }
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @global @inline
+// @ts-ignore: global functions appear unused
 function __vitest_assemblyscript_stringify_indent(depth: i32): string {
   return stringifyIndent(depth);
 }
 
 // @ts-ignore: top level decorators are supported in AssemblyScript
 @global @inline
+// @ts-ignore: global functions appear unused
 function __vitest_assemblyscript_stringify_exceeds_budget(used: i32, pieceLen: i32, sepLen: i32, truncMarkerLen: i32, budget: i32): bool {
   return exceedsBudget(used, pieceLen, sepLen, truncMarkerLen, budget);
 }

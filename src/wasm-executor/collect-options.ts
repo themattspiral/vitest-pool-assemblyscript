@@ -1,35 +1,33 @@
 import { AssemblyScriptTestOptions } from '../types/types.js';
-
-const TEST_OPTION_UNDEFINED: number = -1;
-const TEST_OPTION_TRUE: number = 1;
+import { TestOptionValue } from '../../assembly/portable/constants.js';
 
 export function mergeAssemblyScriptTestOptions(
   baseOptions: AssemblyScriptTestOptions,
   timeout: number,
   retry: number,
-  skip: number,
-  only: number,
-  fails: number,
+  skip: TestOptionValue,
+  only: TestOptionValue,
+  fails: TestOptionValue,
 ): AssemblyScriptTestOptions {
   const options: AssemblyScriptTestOptions = { ...baseOptions };
   
   // numerical options
-  if (timeout > TEST_OPTION_UNDEFINED) {
+  if (timeout >= 0) {
     options.timeout = timeout;
   }
-  if (retry > TEST_OPTION_UNDEFINED) {
+  if (retry >= 0) {
     options.retry = retry;
   }
 
   // boolean options
-  if (skip > TEST_OPTION_UNDEFINED) {
-    options.skip = skip === TEST_OPTION_TRUE ? true : false;
+  if (skip !== TestOptionValue.OptionUndefined) {
+    options.skip = skip === TestOptionValue.OptionTrue ? true : false;
   }
-  if (only > TEST_OPTION_UNDEFINED) {
-    options.only = only === TEST_OPTION_TRUE ? true : false;
+  if (only !== TestOptionValue.OptionUndefined) {
+    options.only = only === TestOptionValue.OptionTrue ? true : false;
   }
-  if (fails > TEST_OPTION_UNDEFINED) {
-    options.fails = fails === TEST_OPTION_TRUE ? true : false;
+  if (fails !== TestOptionValue.OptionUndefined) {
+    options.fails = fails === TestOptionValue.OptionTrue ? true : false;
   }
 
   return options;

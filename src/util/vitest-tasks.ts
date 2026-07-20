@@ -7,6 +7,8 @@ import type {
   AssemblyScriptTestOptions,
   AssemblyScriptTestTaskMeta,
   FailedAssertion,
+  HookChainLevel,
+  TestHookChains,
   VitestVersion,
   WASMExecutorPerfTimings
 } from '../types/types.js';
@@ -110,6 +112,7 @@ export function getInitialSuiteTaskMeta(
     defaultTestOptions: mergedOptions,
     suitePreparedSent: false,
     resultFinal: false,
+    hooks: { beforeEach: [], afterEach: [] },
   };
 }
 
@@ -218,6 +221,48 @@ export function createSuiteTask(
 
 export function getRunnableTasks(suite: RunnerTestSuite): RunnerTask[] {
   return suite.tasks.filter(t => t.mode === 'queued' || t.mode === 'run');
+}
+
+
+// ============================================================================
+// Lifecycle Hook Chains
+// ============================================================================
+
+/**
+ * Resolve a test's lifecycle hook chains from its suite ancestry, mirroring
+ * vitest's `callSuiteHook` recursion with the default `sequence.hooks: 'stack'`
+ * ordering:
+ * - `beforeEach`: outermost suite (file) first; within a suite, registration order
+ * - `afterEach`: innermost suite first; within a suite, REVERSED registration order
+ *
+ * Levels without hooks are omitted — vitest only surfaces hook state/events for
+ * suite levels that actually have hooks of that type.
+ */
+export function collectHookChainLevels(test: RunnerTestCase): TestHookChains {
+  // suite lineage from outermost (file) to innermost (test's parent)
+  const lineage: RunnerTestSuite[] = [];
+  let suite: RunnerTestSuite | undefined = test.suite ?? test.file;
+
+  while (suite) {
+    lineage.unshift(suite);
+    suite = isSuiteOwnFile(suite) ? undefined : (suite.suite ?? suite.file);
+  }
+
+  const beforeEach: HookChainLevel[] = lineage
+    .map(s => ({
+      suiteName: s.name,
+      fnIndexes: [...(s.meta as AssemblyScriptSuiteTaskMeta).hooks.beforeEach],
+    }))
+    .filter(level => level.fnIndexes.length > 0);
+
+  const afterEach: HookChainLevel[] = [...lineage].reverse()
+    .map(s => ({
+      suiteName: s.name,
+      fnIndexes: [...(s.meta as AssemblyScriptSuiteTaskMeta).hooks.afterEach].reverse(),
+    }))
+    .filter(level => level.fnIndexes.length > 0);
+
+  return { beforeEach, afterEach };
 }
 
 

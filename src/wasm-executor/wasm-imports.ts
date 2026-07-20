@@ -6,6 +6,7 @@ import type {
   AssemblyScriptTestError,
   AssemblyScriptTestTaskMeta,
   FailedAssertion,
+  PerPhaseCaptureState,
   WasmImportsFactory,
 } from '../types/types.js';
 import {
@@ -14,6 +15,7 @@ import {
   POOL_ERROR_NAMES,
   TEST_ERROR_NAMES
 } from '../types/constants.js';
+import { LifecycleHookKind, TestOptionValue } from '../../assembly/portable/constants.js';
 import { debug } from '../util/debug.js';
 import { abortWASMExecution, abortWASMExecutionOnSuccess, createPoolError, getExpectedMessageOrAny } from '../util/pool-errors.js';
 import { liftString } from '../util/assemblyscript/binding-helpers.js';
@@ -123,9 +125,9 @@ export function createDiscoveryImports(
         namePtr: number,
         timeout: number,
         retry: number,
-        skip: number,
-        only: number,
-        fails: number,
+        skip: TestOptionValue,
+        only: TestOptionValue,
+        fails: TestOptionValue,
       ) {
         const parentSuite = suiteStack[suiteStack.length - 1]!;
         const defaultTestOptions = (parentSuite.meta as AssemblyScriptSuiteTaskMeta).defaultTestOptions;
@@ -150,15 +152,39 @@ export function createDiscoveryImports(
         );
       },
 
+      // called by beforeEach() / afterEach() to register lifecycle hook function indices
+      __register_hook(
+        kind: LifecycleHookKind,
+        fnIndex: number
+      ) {
+        const parentSuite = suiteStack[suiteStack.length - 1]!;
+        const suiteMeta = parentSuite.meta as AssemblyScriptSuiteTaskMeta;
+
+        if (kind === LifecycleHookKind.BeforeEach) {
+          suiteMeta.hooks.beforeEach.push(fnIndex);
+        } else if (kind === LifecycleHookKind.AfterEach) {
+          suiteMeta.hooks.afterEach.push(fnIndex);
+        } else {
+          throw createPoolError(
+            POOL_ERROR_NAMES.WASMExecutionHarnessError,
+            `Unknown hook kind ${kind} during hook registration`
+          );
+        }
+
+        debug(`${logPrefix} - Registered ${kind === LifecycleHookKind.BeforeEach ? 'beforeEach' : 'afterEach'} hook`
+          + ` | fnIndex ${fnIndex} | suite: "${parentSuite.name}"`
+        );
+      },
+
       // called by test() to register test names and function indices
       __register_test(
         namePtr: number,
         fnIndex: number,
         timeout: number,
         retry: number,
-        skip: number,
-        only: number,
-        fails: number,
+        skip: TestOptionValue,
+        only: TestOptionValue,
+        fails: TestOptionValue,
       ) {
         const parentSuite = suiteStack[suiteStack.length - 1]!;
         const defaultTestOptions = (parentSuite.meta as AssemblyScriptSuiteTaskMeta).defaultTestOptions;
@@ -193,7 +219,11 @@ export function createTestExecutionImports(
   logPrefix: string,
   coverageMemory?: WebAssembly.Memory,
   createWasmImports?: WasmImportsFactory,
-): { imports: WebAssembly.Imports; provideFunctionTable: (table: WebAssembly.Table) => void; } {
+): {
+  imports: WebAssembly.Imports;
+  provideFunctionTable: (table: WebAssembly.Table) => void;
+  consumeAndResetPerPhaseCaptureState: () => PerPhaseCaptureState;
+} {
   // execution imports are created per-test, so these represent per-test state
   let lastFailedAssertion: FailedAssertion | undefined;
   let isExpectingError: boolean = false;
@@ -204,6 +234,25 @@ export function createTestExecutionImports(
     userEnvImports,
     userCustomEnvImports
   } = createUserWasmImports(createWasmImports, memory, module, logPrefix);
+
+  // Snapshot-and-clear the assertion/throw-expectation capture state. Called
+  // wherever a capture is consumed (abort handler, __end_expect_throw), and by
+  // the executor after any phase failure — a genuine VM trap (e.g. unreachable)
+  // bypasses the abort import entirely and would otherwise leave stale state
+  // behind for the afterEach chain that still runs in this instance.
+  function consumeAndResetPerPhaseCaptureState(): PerPhaseCaptureState {
+    const state: PerPhaseCaptureState = {
+      failedAssertion: lastFailedAssertion,
+      wasExpectingError: isExpectingError,
+      expectedErrorMsg: expectedErrorMsgStr,
+    };
+
+    lastFailedAssertion = undefined;
+    isExpectingError = false;
+    expectedErrorMsgStr = undefined;
+
+    return state;
+  }
 
   const imports = {
     env: {
@@ -218,35 +267,42 @@ export function createTestExecutionImports(
       abort(msgPtr: number, filePtr: number, line: number, column: number) {
         const { message, location } = decodeAbortInfo(memory, msgPtr, filePtr, line, column);
         const msgAtLoc = `${message}${location ? ` at ${location}` : ''}`;
-        
+
         debug(`${logPrefix} - Handling test execution abort: ${msgAtLoc}`);
 
+        // Consume the per-execution capture state before handling: the
+        // afterEach chain re-enters this instance after an abort, and a later
+        // hook abort must be classified from ITS own state, not this abort's
+        // leftovers.
+        const { failedAssertion, wasExpectingError, expectedErrorMsg } = consumeAndResetPerPhaseCaptureState();
+
         let failureMessage = message;
+        let assertionToFail = failedAssertion;
 
         // handle expected aborts for thrown errors
-        if (isExpectingError) {
+        if (wasExpectingError) {
           // TODO: decide if .includes is correct here or not
-          if (!expectedErrorMsgStr || message.includes(expectedErrorMsgStr)) {
+          if (!expectedErrorMsg || message.includes(expectedErrorMsg)) {
             // either no specifically expected error (any error), or error message matches
             (test.meta as AssemblyScriptTestTaskMeta).assertionsPassedCount++;
-            
+
             debug(`${logPrefix} - Thrown error matches expected - assertion passes`);
 
             // abort without failing the test
             throw abortWASMExecutionOnSuccess();
           } else {
-            const expected = getExpectedMessageOrAny(expectedErrorMsgStr);
+            const expected = getExpectedMessageOrAny(expectedErrorMsg);
 
             // error message mismatch
             failureMessage = `expected function to throw error ${expected}, but received error "${message}"`;
 
-            lastFailedAssertion = {
+            assertionToFail = {
               message: failureMessage,
               actualTypeName: 'string',
               expectedTypeName: 'string',
               valuesProvided: true,
               actual: message,
-              expected: expectedErrorMsgStr
+              expected: expectedErrorMsg
             };
 
             const errStr = `Thrown error does not match expected | Expected: ${expected} | Actual: "${message}"`;
@@ -254,8 +310,8 @@ export function createTestExecutionImports(
           }
         }
 
-        const testError = lastFailedAssertion
-          ? failTestAssertionError(test, lastFailedAssertion)
+        const testError = assertionToFail
+          ? failTestAssertionError(test, assertionToFail)
           : failTestRuntimeError(test, '', failureMessage);
 
         throw abortWASMExecution(testError, new Error());
@@ -270,6 +326,7 @@ export function createTestExecutionImports(
       __register_test() {},
       __begin_register_suite() {},
       __end_register_suite() {},
+      __register_hook() {},
 
       __assertion_pass() {
         (test.meta as AssemblyScriptTestTaskMeta).assertionsPassedCount++;
@@ -281,6 +338,8 @@ export function createTestExecutionImports(
         const expectedTypeName = liftString(memory, expectedTypeNamePtr) ?? '';
         let valuesMsg = ' | No Values Provided';
         
+        // recorded on test.meta.assertionsFailed by failTestAssertionError
+        // (the single choke point) when the subsequent abort() is handled
         lastFailedAssertion = {
           actualTypeName,
           expectedTypeName,
@@ -288,8 +347,6 @@ export function createTestExecutionImports(
           valuesProvided: Boolean(valuesProvided)
         };
 
-        (test.meta as AssemblyScriptTestTaskMeta).assertionsFailed.push(lastFailedAssertion);
-        
         if (valuesProvided && actualPtr && expectedPtr) {
           lastFailedAssertion.actual = liftString(memory, actualPtr);
           lastFailedAssertion.expected = liftString(memory, expectedPtr);
@@ -344,17 +401,19 @@ export function createTestExecutionImports(
 
       __end_expect_throw() {
         if (isExpectingError) {
-          const errStr = `Expected thrown error but got none | Expected: "${expectedErrorMsgStr}"`;
+          const { expectedErrorMsg } = consumeAndResetPerPhaseCaptureState();
+
+          const errStr = `Expected thrown error but got none | Expected: "${expectedErrorMsg}"`;
           debug(`${logPrefix} - Assertion failed: ${errStr}`);
-          
-          const failureMessage = `function did not throw, but was expected to throw error: ${getExpectedMessageOrAny(expectedErrorMsgStr)}`;
+
+          const failureMessage = `function did not throw, but was expected to throw error: ${getExpectedMessageOrAny(expectedErrorMsg)}`;
           const testError = failTestAssertionError(test, {
             message: failureMessage,
             actualTypeName: 'undefined',
             expectedTypeName: 'string',
             valuesProvided: true,
             actual: undefined,
-            expected: expectedErrorMsgStr
+            expected: expectedErrorMsg
           });
 
           // Must throw here to halt WASM execution on an assertion or runtime failure for this test.
@@ -374,5 +433,6 @@ export function createTestExecutionImports(
       debug(`${logPrefix} - Got WASM function table | length: ${table.length}`);
       wasmFunctionTable = table;
     },
+    consumeAndResetPerPhaseCaptureState,
   };
 }

@@ -51,8 +51,10 @@ export const POOL_INTERNAL_PATHS: string[] = [
   'assembly/compare.ts',
   'assembly/describe.ts',
   'assembly/expect.ts',
+  'assembly/hooks.ts',
   'assembly/index.ts',
   'assembly/options.ts',
+  'assembly/portable/constants.ts',
   'assembly/utils.ts',
   'assembly/test.ts',
 
@@ -60,10 +62,12 @@ export const POOL_INTERNAL_PATHS: string[] = [
   `${INTERNAL_PATH_LIB_PREFIX}compare.ts`,
   `${INTERNAL_PATH_LIB_PREFIX}describe.ts`,
   `${INTERNAL_PATH_LIB_PREFIX}expect.ts`,
+  `${INTERNAL_PATH_LIB_PREFIX}hooks.ts`,
   `${INTERNAL_PATH_LIB_PREFIX}index.ts`,
   `${INTERNAL_PATH_LIB_PREFIX}options.ts`,
-  `${INTERNAL_PATH_LIB_PREFIX}stringify.ts`,
+  `${INTERNAL_PATH_LIB_PREFIX}portable/constants.ts`,
   `${INTERNAL_PATH_LIB_PREFIX}test.ts`,
+  `${INTERNAL_PATH_LIB_PREFIX}utils.ts`,
 ] as const;
 
 /** Error names for AssemblyScript test failures reported to vitest */

@@ -731,11 +731,72 @@ export interface FailedAssertion {
   message: string;
 }
 
+/**
+ * Snapshot of the per-execution assertion/throw-expectation capture state,
+ * returned by consumeAndResetPerPhaseCaptureState. Consumed at each abort so
+ * that later phases in the same instance (the afterEach chain runs after
+ * failures) classify their own aborts from fresh state.
+ */
+export interface PerPhaseCaptureState {
+  failedAssertion?: FailedAssertion;
+  wasExpectingError: boolean;
+  expectedErrorMsg?: string;
+}
+
+/**
+ * Lifecycle hook function-table indices registered on a suite (or file) task.
+ * Plain number arrays so they survive structured clone across threads.
+ */
+export interface SuiteHookFnIndexes {
+  beforeEach: number[];
+  afterEach: number[];
+}
+
+/** The per-test lifecycle hook kinds supported (keys into vitest's `task.result.hooks`) */
+export type SuiteHookKey = 'beforeEach' | 'afterEach';
+
+/**
+ * State reported for one suite level's hook group. Mirrors vitest's
+ * `updateSuiteHookState` usage of TaskState ('run' before the group, 'pass'
+ * after), plus 'fail' — vitest leaves a failed group stuck at 'run', while we
+ * record the failure explicitly.
+ */
+export type SuiteHookState = 'run' | 'pass' | 'fail';
+
+/**
+ * One level of a test's resolved hook chain: the hooks of one kind registered
+ * on a single suite (or file) task, in execution order.
+ */
+export interface HookChainLevel {
+  /** Suite (or file) task name, for logging */
+  suiteName: string;
+  /** Function table indices in execution order for this level */
+  fnIndexes: number[];
+}
+
+/** A test's full resolved hook chains, in execution order (see collectHookChainLevels) */
+export interface TestHookChains {
+  beforeEach: HookChainLevel[];
+  afterEach: HookChainLevel[];
+}
+
+/**
+ * Callback the executor invokes around each hook level so the runner can
+ * track `test.result.hooks` state and report vitest's hook TaskUpdateEvents
+ * via RPC while phases execute.
+ */
+export type HookStateReporter = (
+  test: RunnerTestCase,
+  hookKey: SuiteHookKey,
+  state: SuiteHookState,
+) => Promise<void>;
+
 export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
   idxInParentTasks: number;
   defaultTestOptions: AssemblyScriptTestOptions;
   suitePreparedSent: boolean;
   resultFinal: boolean;
+  hooks: SuiteHookFnIndexes;
   coverage?: CoverageBundle;
 }
 
@@ -746,6 +807,12 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   
   // assertion state
   assertionsPassedCount: number;
+  /**
+   * Failed assertions recorded for this test — groundwork for future
+   * `expect.soft` accumulation. Pushed only by failTestAssertionError, the
+   * single choke point where a failed assertion becomes a test error (covers
+   * plain assertion failures and both toThrowError failure shapes).
+   */
   assertionsFailed: FailedAssertion[];
 
   coverage?: CoverageBundle;
