@@ -58,7 +58,7 @@ interface WasmImportsFactoryInfo {
 }
 ```
 
->ℹ️ Each individual `test()` runs in its own WASM instance, so the `WebAssembly.Memory` you're accessing here is only for one test's lifetime at a time.
+> ℹ️ Each individual `test()` runs in its own WASM instance, so the `WebAssembly.Memory` you're accessing here is only for one test's lifetime at a time.
 
 **Example User Imports Factory Function:**
 ```js
@@ -116,4 +116,4 @@ export default function createWasmImports({ utils }) {
 }
 ```
 
->ℹ️ This assumes no declarations in other files are explicitly looking for the **"my-file.as"** module - If they were, they could also access it.
+> ℹ️ This assumes no declarations in other files are explicitly looking for the **"my-file.as"** module - If they were, they could also access it.
