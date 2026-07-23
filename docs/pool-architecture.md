@@ -239,7 +239,7 @@ For each test execution:
 2. Provide fresh `WebAssembly.Memory` for test data
 3. Call `_start()` to initialize module globals (test registration callbacks are stubbed/no-op during execution)
 4. Run the test's phased execution via the exported function table: the `beforeEach` chain (outermost suite first), the test function (`table.get(test.fnIndex)()`), then the `afterEach` chain (innermost suite first, reverse registration order within each suite — vitest's default `sequence.hooks: 'stack'` ordering). All phases run in this one instance, so hooks share module-level state with the test.
-5. If a phase aborts, the thrown error is caught by the executor and reported — subsequent tests are unaffected because they get their own fresh instance. A failing `beforeEach` skips the remaining before-chain and the test fn; the `afterEach` chain always runs (re-entering an instance after an abort unwind is verified safe across the stub, minimal, and incremental runtimes), and a failing `afterEach` fails the test and stops the remaining after-chain
+5. If a phase aborts, the thrown error is caught by the executor and reported — subsequent tests are unaffected because they get their own fresh instance. A failing `beforeEach` skips the remaining before-chain and the test fn; the `afterEach` chain still runs (the executor re-enters the same instance after the abort unwind), and a failing `afterEach` fails the test and stops the remaining after-chain. A **timeout** is the exception: it terminates the worker thread, so no further phase — including the `afterEach` chain — runs for that attempt
 
 Instantiation overhead is minimal (~0.43ms per test) because `WebAssembly.compile()` is done once per file and the compiled module is reused.
 

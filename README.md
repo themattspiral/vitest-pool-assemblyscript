@@ -455,6 +455,7 @@ test("passes only on the final attempt", TestOptions.retry(2), (retryCount: i32)
 - **Suite-scoped and position-independent**: a hook applies to every test in its enclosing `describe` (or the whole file when registered at the top level), including tests in nested suites, regardless of where in the suite it is registered
 - **Ordering**: `beforeEach` chains run outermost-suite-first, in registration order within each suite; `afterEach` chains run innermost-suite-first, in *reverse* registration order within each suite (i.e. the same as vitest's default `sequence.hooks: 'stack'` behavior)
 - **Failure handling**: a failing `beforeEach` fails the test; the remaining `beforeEach` chain and the test body are skipped, while the `afterEach` chain still runs. A failing `afterEach` fails the test (even one that passed) and stops the remaining `afterEach` chain
+- **Timeouts are the exception to teardown**: a hook or test that exceeds its window terminates the WASM thread, so the `afterEach` chain does *not* run for that attempt
 - **Retries**: hooks re-run around every attempt, including each retry
 - **Timeouts**: each hook runs in its own timeout window, set per-hook with the optional `timeout` (ms) second argument, or globally with the standard vitest [`hookTimeout` config](docs/configuration-guide.md#supported-vitest-test-options) option
 - `expect()` assertions work inside hooks and count toward the test
