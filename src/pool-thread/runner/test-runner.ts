@@ -22,6 +22,7 @@ import type {
   ThreadImports,
   VitestVersion,
   WASMCompilation,
+  WASMExecutorPerfTimings,
   WorkerRPC,
 } from '../../types/types.js';
 import { AS_POOL_WORKER_MSG_FLAG } from '../../types/constants.js';
@@ -196,25 +197,36 @@ async function runTest(
     phaseEnd: () => notifyPhaseEnd(port, test),
   };
 
-  const [_reported, { testTimings }] = await Promise.all([
-    testPreparePromise,
-    executeWASMTest(
-      test,
-      compilation,
-      poolOptions,
-      collectCoverage,
-      handleLog,
-      logModule,
-      threadImports,
-      projectRoot,
-      diffOptions,
-      reportHookState,
-      phaseNotifier
-    )
-  ]);
+  let testTimings: WASMExecutorPerfTimings;
 
-  // inform pool of test task end to stop timeout if under threshold
-  notifyTestEnd(port, test);
+  try {
+    const [_reported, executed] = await Promise.all([
+      testPreparePromise,
+      executeWASMTest(
+        test,
+        compilation,
+        poolOptions,
+        collectCoverage,
+        handleLog,
+        logModule,
+        threadImports,
+        projectRoot,
+        diffOptions,
+        reportHookState,
+        phaseNotifier
+      )
+    ]);
+
+    testTimings = executed.testTimings;
+  } finally {
+    // inform pool of test task end to stop timeout if under threshold.
+    // In a finally so a harness-level throw before the first phase-start
+    // (memory creation, instantiation, _start(), table lookup) cannot leave
+    // the init window armed — the pool would otherwise keep a live timer for
+    // a test that is no longer running, and with `isolate: false` the same
+    // reused worker has no stop() in between files to clear it.
+    notifyTestEnd(port, test);
+  }
 
   // update run->pass if appropriate, accumulate duration using executor timings
   updateTestResultAfterRun(test, testTimings);
