@@ -13,6 +13,8 @@ const FAILS_MOD_FILE = 'lifecycle-hooks/hooks-fails-modifier.meta.test.ts';
 const TIMEOUT_FILE = 'lifecycle-hooks/hooks-timeout.meta.test.ts';
 const THROW_INTERPLAY_FILE = 'lifecycle-hooks/hooks-expect-throw-interplay.meta.test.ts';
 const FAIL_RETRY_FILE = 'lifecycle-hooks/hooks-fail-retry.meta.test.ts';
+const CROSS_LEVEL_FILE = 'lifecycle-hooks/hooks-fail-cross-level.meta.test.ts';
+const AFTEREACH_POSITION_FILE = 'lifecycle-hooks/hooks-aftereach-position.meta.test.ts';
 
 /**
  * Extract a test's captured stdout section from the test report output.
@@ -290,6 +292,62 @@ describe('lifecycle hook semantics verification', () => {
       expect(combined).toContain('unreachable');
       expect(combined).toContain('in afterEach hook: expected 2 to be 3');
       expect(combined).not.toContain('expected function to throw error');
+    });
+  });
+
+  describe('cross-level chain-failure stop', () => {
+    let file: TestFileResult;
+
+    beforeAll(() => {
+      file = requireTestFile(metaRunResults, CROSS_LEVEL_FILE);
+    });
+
+    test('both tests fail', () => {
+      expect(file.assertionResults).toHaveLength(2);
+      expect(countByStatus(file, 'failed')).toBe(2);
+    });
+
+    test('an OUTER beforeEach failure skips the INNER beforeEach and the body; both afterEach levels still run', () => {
+      const testPath = `${FIXTURE_PATH_PREFIX}${CROSS_LEVEL_FILE} > outer suite with a failing beforeEach > inner suite > outer beforeEach failure skips the inner beforeEach and the body [should fail]`;
+      const stdout = requireStdoutBlock(parsedCliOutput, testPath);
+      expect(stdout).toContain('cl:outer-before-ran');
+      // afterEach chain runs innermost-first, across both levels
+      expect(stdout).toContain('cl:inner-after-ran');
+      expect(stdout).toContain('cl:outer-after-ran');
+      // the inner-level beforeEach and the body are both skipped by the outer failure
+      expect(stdout).not.toContain('cl:inner-before-should-not-run');
+      expect(stdout).not.toContain('cl:body-should-not-run');
+    });
+
+    test('an INNER afterEach failure stops the OUTER afterEach', () => {
+      const testPath = `${FIXTURE_PATH_PREFIX}${CROSS_LEVEL_FILE} > outer suite whose afterEach should be stopped > inner suite with a failing afterEach > inner afterEach failure stops the outer afterEach [should fail]`;
+      const stdout = requireStdoutBlock(parsedCliOutput, testPath);
+      expect(stdout).toContain('cl:body-ran-2');
+      expect(stdout).toContain('cl:inner-after-ran-2');
+      // the outer-level afterEach (which runs after the inner one) is stopped by the failure
+      expect(stdout).not.toContain('cl:outer-after-should-not-run');
+    });
+  });
+
+  describe('afterEach position independence', () => {
+    let file: TestFileResult;
+
+    beforeAll(() => {
+      file = requireTestFile(metaRunResults, AFTEREACH_POSITION_FILE);
+    });
+
+    // The tag prints only if the below-registered afterEach ran (position
+    // independence) AND its state assertion passed (it observed the module
+    // state written by beforeEach + the body). A test pass with the tag present
+    // certifies both; the tag's absence would mean it never ran, a failed test
+    // would mean it saw wrong state.
+    test('the below-registered afterEach ran and observed the module state (test passes, tag present)', () => {
+      expect(file.status).toBe('passed');
+      expect(countByStatus(file, 'passed')).toBe(1);
+
+      const testPath = `${FIXTURE_PATH_PREFIX}${AFTEREACH_POSITION_FILE} > afterEach registered below still applies to this test`;
+      const stdout = requireStdoutBlock(parsedCliOutput, testPath);
+      expect(stdout).toContain('pos:after-ran-and-saw-15');
     });
   });
 

@@ -112,6 +112,14 @@ describe('collectHookChainLevels', () => {
   });
 });
 
+// Hook TaskUpdateEvents (before/after-hook-start/end) are verified here with a
+// mock RPC rather than end-to-end in meta-verify — unlike test-state events
+// (test-prepare/finished, suite states), which meta-verify confirms because they
+// land in the captured JSON and final CLI output. Hook events feed only vitest's
+// live TTY `summary` reporter (the "running hook" progress line); in a captured,
+// non-TTY `vitest run` they appear in no reporter output, so there is no stable
+// end-to-end observable to assert against. This unit test is the appropriate
+// coverage: it pins the exact pack per (kind, state) and the no-event-on-fail rule.
 describe('reportTestHookState', () => {
   function mockRpc(): { rpc: WorkerRPC; onTaskUpdate: ReturnType<typeof vi.fn> } {
     const onTaskUpdate = vi.fn(async () => {});

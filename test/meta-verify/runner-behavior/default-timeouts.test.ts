@@ -45,6 +45,15 @@ describe('config-default timeout resolution verification', () => {
     expect(t.status).toBe('passed');
   });
 
+  // NOTE (init-window attribution, deliberately not isolated): the test's own
+  // timeout arms TWO windows — the init window (execution-start, covering WASM
+  // instantiation + the _start() top-level re-run at execution) and the test-fn
+  // phase window — both attributed as a plain test timeout. This test exercises a
+  // hang in the test-fn phase; a hang isolated to the init segment is not tested
+  // separately because it can't be constructed: top-level code that hangs at
+  // execution also hangs it during discovery's _start(), which fails the file
+  // before any test runs. Both windows use the same timeout and the same
+  // attribution, so the message asserted below is identical either way.
   test('test-body hang trips the config-default testTimeout', () => {
     const t = requireTest(file, 'test-body hang trips the config-default testTimeout [should fail]');
     expect(t.status).toBe('failed');

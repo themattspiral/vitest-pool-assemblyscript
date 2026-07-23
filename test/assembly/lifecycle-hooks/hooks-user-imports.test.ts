@@ -11,9 +11,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // teardown side: afterEach calls into user imports without error (its
-  // execution is separately proven by the pass-100 hook coverage fixture)
-  fromHook = runUserFunction(fromHook);
+  // teardown side: an afterEach can also call a user import — assert its
+  // return value, not just that it executed. fromHook is 42 here (set by
+  // beforeEach), and myUserFunction adds 10, so the import returns 52.
+  expect(runUserFunction(fromHook)).toBe(52);
 });
 
 test("beforeEach can call a user-provided WASM import", () => {
