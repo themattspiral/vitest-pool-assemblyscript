@@ -379,9 +379,8 @@ export async function executeWASMTest(
 
   // Phased execution: beforeEach chain → test fn → afterEach chain, all within
   // this test's single fresh instance (hooks share module-level state with the
-  // test). Each phase catches its own abort so later phases still run —
-  // re-entering the instance after an abort unwind or a genuine trap is
-  // verified safe across the stub, minimal, and incremental runtimes.
+  // test). Each phase catches its own abort so later phases still run,
+  // re-entering the same instance after an abort unwind or a genuine trap.
   testTimings.execStart = performance.now();
 
   // vitest semantics: a beforeEach failure stops the remaining before-chain
@@ -411,10 +410,11 @@ export async function executeWASMTest(
     }
   }
 
-  // vitest semantics: the afterEach chain ALWAYS runs — after beforeEach
-  // failures, test-fn failures, and toThrowError success-unwinds alike; an
-  // afterEach failure fails the test (even a passed one) and stops the
-  // remaining after-chain
+  // vitest semantics: the afterEach chain runs after beforeEach failures,
+  // test-fn failures, and toThrowError success-unwinds alike; an afterEach
+  // failure fails the test (even a passed one) and stops the remaining
+  // after-chain. A timeout is the exception — it terminates this worker
+  // thread, so the chain below is never reached for that attempt.
   await runHookChain(hookChains.afterEach, 'afterEach');
 
   testTimings.execEnd = performance.now();

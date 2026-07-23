@@ -63,7 +63,9 @@ export function beforeEach(fn: HookCallback, timeout: i32 = TestOptionValue.Opti
  * - Chains run innermost-suite-first; multiple hooks in one suite run in
  *   *reverse* registration order (vitest's default `sequence.hooks: 'stack'`).
  * - Runs after every attempt of a test, including each retry — and it still
- *   runs when the `beforeEach` chain or the test body failed.
+ *   runs when the `beforeEach` chain or the test body failed. The exception is
+ *   a timeout, which terminates the worker thread: no `afterEach` runs for a
+ *   timed-out attempt.
  * - A failing `afterEach` (failed `expect()` or runtime error) fails the
  *   test — even one that passed — and stops the remaining `afterEach` chain.
  * - `expect()` assertions work inside hooks and count toward the test.

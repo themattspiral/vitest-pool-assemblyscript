@@ -55,8 +55,8 @@ export const POOL_INTERNAL_PATHS: string[] = [
   'assembly/index.ts',
   'assembly/options.ts',
   'assembly/portable/constants.ts',
-  'assembly/utils.ts',
   'assembly/test.ts',
+  'assembly/utils.ts',
 
   // AS compiler source maps these as library paths when running published version
   `${INTERNAL_PATH_LIB_PREFIX}compare.ts`,

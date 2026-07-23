@@ -460,6 +460,18 @@ export function finalizeSuiteResult(suite: RunnerTestSuite): void {
   (suite.meta as AssemblyScriptSuiteTaskMeta).resultFinal = true;
 }
 
+/**
+ * Reset a test's result state between retry attempts.
+ *
+ * `result.errors` is deliberately NOT cleared, matching vitest: its own retry
+ * reset only sets `state`/`retryCount`, and its `failTask` appends rather than
+ * replaces, so a test that fails early attempts and then passes ends up in the
+ * `pass` state while still carrying the earlier attempts' errors. Vitest's JSON
+ * reporter maps `result.errors` into `failureMessages` without checking state,
+ * so those errors surface there (the default terminal reporter shows only the
+ * passing state). Clearing them here would make our reported output diverge
+ * from vitest for the same test — revisit only if vitest changes upstream.
+ */
 export function resetTestForRetry(test: RunnerTestCase, startTime: number): void {
   if (test.result) {
     test.result!.state = 'run';
@@ -467,7 +479,7 @@ export function resetTestForRetry(test: RunnerTestCase, startTime: number): void
   }
 
   const meta = test.meta as AssemblyScriptTestTaskMeta;
-  
+
   // clear runner metadata associated with the immediate last test run
   meta.assertionsPassedCount = 0;
   meta.assertionsFailed = [];

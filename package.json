@@ -78,7 +78,7 @@
   "homepage": "https://github.com/themattspiral/vitest-pool-assemblyscript#readme",
   "scripts": {
     "//------------ Testing ------------": "",
-    "tc": "tsc --noEmit && tsc --noEmit -p tsconfig.as.json",
+    "tc": "tsc --noEmit -p assembly/portable/tsconfig.json && tsc --noEmit -p tsconfig.as.json && tsc --noEmit",
     "test": "npm run test:pass && npm run test:meta:verify",
     "test:pass": "node scripts/generate-passing-fixtures.js && vitest run",
     "test:meta": "vitest run -c vitest.meta.config.ts",
