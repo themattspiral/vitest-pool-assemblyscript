@@ -27,6 +27,8 @@ const EXTERNAL_DIR = resolve(PROJECT_ROOT, '..', EXTERNAL_DIR_NAME);
 const TMP_DIR = resolve(PROJECT_ROOT, 'tmp/');
 const RESULTS_PATH = resolve(TMP_DIR, '.meta-verify-results.json');
 
+const VITEST_RUN_BANNER_PATTERN = /RUN\s+v\S+\s+.+/;
+
 export default async function setup(): Promise<() => Promise<void>> {
   // remove any existing results file
   await unlink(RESULTS_PATH).catch(() => {});
@@ -54,7 +56,7 @@ export default async function setup(): Promise<() => Promise<void>> {
   const { jsonOutput, cliOutput, exitCode } = await runVitest({ cwd, args, capture: true });
   const duration = (performance.now() - start).toFixed(0);
 
-  const runLine = stripVTControlCharacters(cliOutput).match(/RUN\s+v[\d.]+\s+.+/)?.[0]?.trim() ?? 'unknown';
+  const runLine = stripVTControlCharacters(cliOutput).match(VITEST_RUN_BANNER_PATTERN)?.[0]?.trim() ?? 'unknown';
 
   console.log(`[Meta-Verify globalSetup] Meta suite run completed in ${duration}ms`);
   console.log(`[Meta-Verify globalSetup]   CLI Output: ${runLine}`);
