@@ -57,6 +57,20 @@ function verifyMemoryRequirements(
   }
 }
 
+/** Resolve a lifecycle hook callback from the WASM function table */
+function getHookFn(table: WebAssembly.Table, fnIndex: number): () => void {
+  const hookFn = table.get(fnIndex) as (() => void) | null;
+
+  if (!hookFn) {
+    throw createPoolError(
+      POOL_ERROR_NAMES.WASMExecutionHarnessError,
+      `Hook function at index ${fnIndex} not found in function table`
+    );
+  }
+
+  return hookFn;
+}
+
 function createExecutorMemories(
   compilation: WASMCompilation,
   poolOptions: ResolvedAssemblyScriptPoolOptions,
@@ -235,7 +249,7 @@ export async function executeWASMTest(
   }
 
   let testFn: ((retryCount?: number) => void) | null | undefined;
-  
+
   if (table && typeof table.get === 'function') {
     const idx = (test.meta as AssemblyScriptTestTaskMeta).fnIndex;
     testFn = table.get(idx) as ((retryCount?: number) => void) | null;
@@ -251,20 +265,6 @@ export async function executeWASMTest(
       POOL_ERROR_NAMES.WASMExecutionHarnessError,
       'Function table not found in WASM exports (missing --exportTable flag?)'
     );
-  }
-
-  // Resolve a lifecycle hook callback from the function table
-  function getHookFn(fnIndex: number): () => void {
-    const hookFn = table!.get(fnIndex) as (() => void) | null;
-
-    if (!hookFn) {
-      throw createPoolError(
-        POOL_ERROR_NAMES.WASMExecutionHarnessError,
-        `Hook function at index ${fnIndex} not found in function table`
-      );
-    }
-
-    return hookFn;
   }
 
   /**
@@ -352,7 +352,7 @@ export async function executeWASMTest(
 
         phaseNotifier?.phaseStart(hookKey, registration.timeout);
         try {
-          getHookFn(registration.fnIndex)();
+          getHookFn(table!, registration.fnIndex)();
         } catch (error: any) {
           thrown = error;
           didThrow = true;
