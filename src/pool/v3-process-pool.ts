@@ -30,6 +30,7 @@ import {
 import {
   failTestWithTimeoutError,
   flagTestTerminated,
+  isTimeoutEnforced,
 } from '../util/vitest-tasks.js';
 import { createInitialFileTask } from '../util/vitest-file-tasks.js';
 import { getCompatConfig, getConfigs } from '../util/resolve-config.js';
@@ -124,9 +125,12 @@ async function dispatchFullWorkerRun(
 
         const transitDuration = poolReceivedExecutionStart - executionStart;
         const adjustedTimeout = Math.max(test.timeout - transitDuration, 0);
+        const enforced = isTimeoutEnforced(test.timeout);
 
         debug(`[Pool] ${base} - "${test.name}": Received worker execution start (transit ${transitDuration} ms)`
-          + ` - Beginning init timeout window ${test.timeout} ms (adjusted timeout: ${adjustedTimeout} ms)`
+          + (enforced
+            ? ` - Beginning init timeout window ${test.timeout} ms (adjusted timeout: ${adjustedTimeout} ms)`
+            : ` - Skipping init timeout window (disabled: ${test.timeout})`)
         );
 
         // initial window covers the init segment (instantiation + _start());
@@ -136,7 +140,7 @@ async function dispatchFullWorkerRun(
           executionStart: executionStart,
           phase: 'test',
           phaseEffectiveTimeout: test.timeout,
-          timeoutId: setTimeout(() => firePhaseTimeout(test.id), adjustedTimeout),
+          timeoutId: enforced ? setTimeout(() => firePhaseTimeout(test.id), adjustedTimeout) : undefined,
         });
 
       } else if (msg.type === 'phase-start') {
@@ -149,13 +153,16 @@ async function dispatchFullWorkerRun(
 
           const transitDuration = poolReceivedPhaseStart - phaseStart;
           const adjustedTimeout = Math.max(effectiveTimeout - transitDuration, 0);
+          const enforced = isTimeoutEnforced(effectiveTimeout);
 
           record.phase = phase;
           record.phaseEffectiveTimeout = effectiveTimeout;
-          record.timeoutId = setTimeout(() => firePhaseTimeout(testTaskId), adjustedTimeout);
+          record.timeoutId = enforced ? setTimeout(() => firePhaseTimeout(testTaskId), adjustedTimeout) : undefined;
 
-          debug(`[Pool] ${base} - "${record.test.name}": Beginning ${phase} phase timeout window`
-            + ` ${effectiveTimeout} ms (adjusted timeout: ${adjustedTimeout} ms)`
+          debug(enforced
+            ? `[Pool] ${base} - "${record.test.name}": Beginning ${phase} phase timeout window`
+              + ` ${effectiveTimeout} ms (adjusted timeout: ${adjustedTimeout} ms)`
+            : `[Pool] ${base} - "${record.test.name}": Skipping ${phase} phase timeout window (disabled: ${effectiveTimeout})`
           );
         }
 

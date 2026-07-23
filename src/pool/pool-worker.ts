@@ -30,7 +30,7 @@ import type {
 } from '../types/types.js';
 import { toForwardSlash } from '../util/path-utils.js';
 import { createInitialFileTask, parseVitestVersion } from '../util/vitest-file-tasks.js';
-import { failTestWithTimeoutError, flagTestTerminated } from '../util/vitest-tasks.js';
+import { failTestWithTimeoutError, flagTestTerminated, isTimeoutEnforced } from '../util/vitest-tasks.js';
 import {
   AS_POOL_WORKER_MSG_FLAG,
   ASSEMBLYSCRIPT_POOL_NAME,
@@ -537,15 +537,20 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     // the initial window covers the init segment (WASM instantiation +
     // _start() module init, which re-runs user top-level code) with the
     // test's timeout; each phase-start then re-arms to its own phase window
+    const enforced = isTimeoutEnforced(test.timeout);
+
     this.currentTestRun = {
       test,
       executionStart,
       phase: 'test',
       phaseEffectiveTimeout: test.timeout,
-      timeoutId: setTimeout(() => this.handleTimeout(), adjustedTimeout)
+      timeoutId: enforced ? setTimeout(() => this.handleTimeout(), adjustedTimeout) : undefined
     };
 
-    debug(`[${this.logModuleWithId}] START init timeout window (${test.timeout} ms) for "${this.currentTestRun.test.name}"`);
+    debug(enforced
+      ? `[${this.logModuleWithId}] START init timeout window (${test.timeout} ms) for "${this.currentTestRun.test.name}"`
+      : `[${this.logModuleWithId}] SKIP init timeout window (disabled: ${test.timeout}) for "${this.currentTestRun.test.name}"`
+    );
   }
 
   private handleTestExecutionEnd(_msg: TestExecutionEnd): void {
@@ -564,11 +569,16 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     const transitDuration = Date.now() - msg.phaseStart;
     const adjustedTimeout = Math.max(msg.effectiveTimeout - transitDuration, 0);
 
+    const enforced = isTimeoutEnforced(msg.effectiveTimeout);
+
     this.currentTestRun.phase = msg.phase;
     this.currentTestRun.phaseEffectiveTimeout = msg.effectiveTimeout;
-    this.currentTestRun.timeoutId = setTimeout(() => this.handleTimeout(), adjustedTimeout);
+    this.currentTestRun.timeoutId = enforced ? setTimeout(() => this.handleTimeout(), adjustedTimeout) : undefined;
 
-    debug(`[${this.logModuleWithId}] START ${msg.phase} phase timeout window (${msg.effectiveTimeout} ms) for "${this.currentTestRun.test.name}"`);
+    debug(enforced
+      ? `[${this.logModuleWithId}] START ${msg.phase} phase timeout window (${msg.effectiveTimeout} ms) for "${this.currentTestRun.test.name}"`
+      : `[${this.logModuleWithId}] SKIP ${msg.phase} phase timeout window (disabled: ${msg.effectiveTimeout}) for "${this.currentTestRun.test.name}"`
+    );
   }
 
   private handleTestPhaseEnd(msg: TestPhaseEnd): void {

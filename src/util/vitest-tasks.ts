@@ -391,6 +391,17 @@ export function failTestAssertionError(
   return testError;
 }
 
+/**
+ * Determines whether a resolved timeout should be enforced.
+ *
+ * Mirrors vitest's `withTimeout`, which returns the function unwrapped when
+ * the timeout is `<= 0` or `Infinity`: both mean "no timeout" — the documented
+ * way to disable one — rather than an immediately-expired deadline.
+ */
+export function isTimeoutEnforced(timeoutMs: number): boolean {
+  return timeoutMs > 0 && Number.isFinite(timeoutMs);
+}
+
 export function failTestWithTimeoutError (
   test: RunnerTestCase,
   startTime: number,
