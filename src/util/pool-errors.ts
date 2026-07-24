@@ -5,6 +5,7 @@ import type { RawSourceMap } from 'source-map';
 import type {
   AssemblyScriptPoolError,
   AssemblyScriptTestError,
+  ExecutionPhase,
   PoolErrorName,
 } from '../types/types.js';
 import {
@@ -121,15 +122,40 @@ export function createPoolError(
   };
 }
 
-export function createTestTimeoutError(
-  test: RunnerTestCase
+/**
+ * Timeout error for an expired per-phase window, attributed to the phase that
+ * was armed when the main-thread timer fired.
+ *
+ * Messages mirror vitest's `makeTimeoutError` wording. The hook variant is
+ * word-for-word vitest (a hook's `timeout` really is its last argument) plus
+ * our standard hook phase-annotation prefix — timeout errors carry no
+ * source-mapped frame, so the prefix is the only signal of WHICH hook hung.
+ * The test variant adapts vitest's "pass a timeout value as the last argument"
+ * advice to our API, where the equivalent is `TestOptions.timeout()`.
+ */
+export function createTimeoutError(
+  test: RunnerTestCase,
+  phase: ExecutionPhase,
+  effectiveTimeout: number,
 ): AssemblyScriptTestError {
-  const message = `Test timed out after ${test.timeout}ms`;
+  let message: string;
+  let diff: string;
+
+  if (phase === 'test') {
+    message = `Test timed out in ${effectiveTimeout}ms.\nIf this is a long-running test, `
+      + `pass a timeout value using "TestOptions.timeout()" or configure it globally with "testTimeout".`;
+    diff = getYellowString(` Test Timeout Exceeded (${effectiveTimeout}ms)`);
+  } else {
+    message = `in ${phase} hook: Hook timed out in ${effectiveTimeout}ms.\nIf this is a long-running hook, `
+      + `pass a timeout value as the last argument or configure it globally with "hookTimeout".`;
+    diff = getYellowString(` Hook Timeout Exceeded (${effectiveTimeout}ms)`);
+  }
+
   const err: AssemblyScriptTestError = {
     name: POOL_ERROR_NAMES.WASMExecutionTimeoutError,
     message,
     stack: `${test.id}_${message}`,
-    diff: getYellowString(` Test Timeout Exceeded (${test.timeout}ms)`)
+    diff
   };
   return err;
 }

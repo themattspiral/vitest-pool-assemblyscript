@@ -30,6 +30,7 @@ import {
 import {
   failTestWithTimeoutError,
   flagTestTerminated,
+  isTimeoutEnforced,
 } from '../util/vitest-tasks.js';
 import { createInitialFileTask } from '../util/vitest-file-tasks.js';
 import { getCompatConfig, getConfigs } from '../util/resolve-config.js';
@@ -69,16 +70,47 @@ async function dispatchFullWorkerRun(
 
     const { workerPort, poolPort } = createWorkerRPCChannel(spec.project, isCollectTestsMode);
 
-    // Enforce test timeout using setTimeout() and worker messages.
-    //   1. worker sends a start message to indicate when the test has started
-    //   2. pool starts a timer using setTimeout() when worker start message is received
-    //   3. worker sends an end message to indicate when the test has completed
-    //     - if test completes before the timeout expires, the timer is cleared and everything proceeds
-    //     - if timeout expires, the test worker is actively aborted using the test-specific AbortController
+    // Enforce per-phase timeout windows using setTimeout() and worker messages.
+    //   1. worker sends execution-start when a test attempt begins — the pool arms an
+    //      initial window with the test's timeout (covers instantiation + _start() init)
+    //   2. worker sends phase-start/phase-end around each hook fn and the test fn — the
+    //      pool re-arms the timer to each phase's own window (per-hook effective timeout,
+    //      or the test's timeout for the test-fn phase)
+    //   3. worker sends execution-end when the attempt completes
+    //     - if each phase completes before its window expires, the timer is cleared and everything proceeds
+    //     - if a window expires, the test worker is actively aborted using the test-specific AbortController,
+    //       and the armed phase attributes the error (hook vs test timeout message)
     //
-    // Monitoring from the pool main thread and actively aborting the runner allows for accurate enforcement of the test timeout,
-    // which is much harder/impossible to control from within the worker thread itself, which is busy/blocked running 
+    // Monitoring from the pool main thread and actively aborting the runner allows for accurate enforcement of the timeout,
+    // which is much harder/impossible to control from within the worker thread itself, which is busy/blocked running
     // the long-running WASM test.
+    const firePhaseTimeout = (testTaskId: string): void => {
+      const poolTimeoutTime = Date.now();
+      const record = testTimeoutCache.get(testTaskId);
+      testTimeoutCache.delete(testTaskId);
+
+      if (record) {
+        const elapsedFromWorkerExecutionStart = poolTimeoutTime - record.executionStart;
+
+        failTestWithTimeoutError(
+          record.test,
+          record.executionStart,
+          elapsedFromWorkerExecutionStart,
+          record.phase,
+          record.phaseEffectiveTimeout
+        );
+
+        flagTestTerminated(record.test);
+
+        timedOutTestThisRun = record.test;
+        fileAbortController.abort(POOL_ERROR_NAMES.WASMExecutionTimeoutError);
+
+        debug(`[Pool] ${base} - "${record.test.name}" timed out in ${record.phase} phase (window ${record.phaseEffectiveTimeout} ms)`
+          + ` - Aborted worker job (duration before abort: ${elapsedFromWorkerExecutionStart} ms)`
+        );
+      }
+    };
+
     poolPort.on('message', event => {
       if (!event[AS_POOL_WORKER_MSG_FLAG]) return;
 
@@ -93,38 +125,56 @@ async function dispatchFullWorkerRun(
 
         const transitDuration = poolReceivedExecutionStart - executionStart;
         const adjustedTimeout = Math.max(test.timeout - transitDuration, 0);
+        const enforced = isTimeoutEnforced(test.timeout);
 
         debug(`[Pool] ${base} - "${test.name}": Received worker execution start (transit ${transitDuration} ms)`
-          + ` - Beginning test timeout timer ${test.timeout} ms (adjusted timeout: ${adjustedTimeout} ms)`
+          + (enforced
+            ? ` - Beginning init timeout window ${test.timeout} ms (adjusted timeout: ${adjustedTimeout} ms)`
+            : ` - Skipping init timeout window (disabled: ${test.timeout})`)
         );
-        
-        // Enforce test timeout
-        const testTimeoutId = setTimeout(async () => {
-          const poolTimeoutTime = Date.now();
-          const record = testTimeoutCache.get(test.id);
-          testTimeoutCache.delete(test.id);
 
-          if (record) {
-            const elapsedFromWorkerExecutionStart = poolTimeoutTime - record.executionStart;
-
-            failTestWithTimeoutError(record.test, poolTimeoutTime, elapsedFromWorkerExecutionStart);
-
-            flagTestTerminated(record.test);
-
-            timedOutTestThisRun = test;
-            fileAbortController.abort(POOL_ERROR_NAMES.WASMExecutionTimeoutError);
-
-            debug(`[Pool] ${base} - "${record.test.name}" timed out (threshold ${record.test.timeout} ms)`
-              + ` - Aborted worker job (duration before abort: ${elapsedFromWorkerExecutionStart} ms)`
-            );
-          }
-        }, adjustedTimeout);
-
+        // initial window covers the init segment (instantiation + _start());
+        // phase-start messages then re-arm to each phase's own window
         testTimeoutCache.set(test.id, {
           test: test,
           executionStart: executionStart,
-          timeoutId: testTimeoutId,
+          phase: 'test',
+          phaseEffectiveTimeout: test.timeout,
+          timeoutId: enforced ? setTimeout(() => firePhaseTimeout(test.id), adjustedTimeout) : undefined,
         });
+
+      } else if (msg.type === 'phase-start') {
+        const poolReceivedPhaseStart = Date.now();
+        const { phaseStart, testTaskId, phase, effectiveTimeout } = msg;
+        const record = testTimeoutCache.get(testTaskId);
+
+        if (record) {
+          clearTimeout(record.timeoutId);
+
+          const transitDuration = poolReceivedPhaseStart - phaseStart;
+          const adjustedTimeout = Math.max(effectiveTimeout - transitDuration, 0);
+          const enforced = isTimeoutEnforced(effectiveTimeout);
+
+          record.phase = phase;
+          record.phaseEffectiveTimeout = effectiveTimeout;
+          record.timeoutId = enforced ? setTimeout(() => firePhaseTimeout(testTaskId), adjustedTimeout) : undefined;
+
+          debug(enforced
+            ? `[Pool] ${base} - "${record.test.name}": Beginning ${phase} phase timeout window`
+              + ` ${effectiveTimeout} ms (adjusted timeout: ${adjustedTimeout} ms)`
+            : `[Pool] ${base} - "${record.test.name}": Skipping ${phase} phase timeout window (disabled: ${effectiveTimeout})`
+          );
+        }
+
+      } else if (msg.type === 'phase-end') {
+        const record = testTimeoutCache.get(msg.testTaskId);
+
+        if (record) {
+          clearTimeout(record.timeoutId);
+          record.timeoutId = undefined;
+
+          debug(`[Pool] ${base} - "${record.test.name}": Cleared ${record.phase} phase timeout window`);
+        }
 
       } else if (msg.type === 'execution-end') {
         const poolReceivedExecutionEnd = Date.now();

@@ -190,6 +190,7 @@ See Also:
 ### Familiar Developer Experience
 - Suite and test definition using `describe()` and `test()` in AssemblyScript
 - Inline test option configuration for common vitest options: `timeout`, `retry`, `skip`, `only`, `fails`
+- Lifecycle hooks `beforeEach` and `afterEach` with vitest runner semantics for ordering, failures, retries, and timeouts
 - Assertion matching API based on vitest/jest `expect()` API
   - `.not`, `toBe`, `toBeCloseTo`, `toEqual`, `toStrictEqual`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toHaveLength`, `toContain`, `toContainEqual`, `toThrowError`, `toBeTruthy`, `toBeFalsy`, `toBeNull`, `toBeNullable`, `toBeNaN`
   - See [Matchers API](docs/matchers-api.md) for details and differences from JavaScript
@@ -198,7 +199,7 @@ See Also:
 - AssemblyScript console output captured and provided to vitest for display
 - AssemblyScript compiler errors output clearly to the console for debugging
 - AssemblyScript code coverage based on WASM execution: function, branch, statement, and line, including any uncovered source
-- No AssemblyScript boilerplate patterns like `run()`, `endTest()`, `fs.readFile`, `WebAssembly.Instance`, etc
+- No AssemblyScript boilerplate patterns needed (`run()`, `endTest()`, `fs.readFile`, `WebAssembly.Instance`, etc)
 
 ### Performance & Customization
 - Parallel execution thread pools
@@ -270,7 +271,9 @@ More detailed information can be found in [Pool Architecture](docs/pool-architec
 <br/>
 **A:** Yes! It's a real vitest pool, not a clone of vitest - it hooks directly into the framework, receiving tests to run from vitest and reporting results back. The pool implements its own compilation, test execution, and [matchers in AS](docs/matchers-api.md), designed to mirror the [vitest expect() API](https://vitest.dev/api/expect.html). We don't use vite build integration, but that's the tradeoff of a custom pool - you can bring any execution environment to vitest.
 
-The overall goal is tight vitest experience integration - most CLI commands, reporters, UI, and project configurations should work as you'd expect, and test runner behavior should match vitest's JS pool runner for features we've implemented (retries, timeouts, skip, only, fails, etc.). Some features aren't implemented yet due to effort and prioritization, and others necessarily differ given AssemblyScript's static typing and execution model. See the [configuration guide](docs/configuration-guide.md) and [limitations / roadmap](#current-limitations--roadmap) for specifics.
+The overall goal is tight vitest experience integration - most CLI commands, reporters, UI, and project configurations should work as you'd expect, and test runner behavior should match the behavior of vitest's JavaScript execution pools: retries, timeouts, skip, only, fails, lifecycle hook ordering and failure semantics, etc.
+
+Some features aren't fully implemented yet, and a few necessarily differ given AssemblyScript's static typing and execution model. See the [configuration guide](docs/configuration-guide.md) and [limitations / roadmap](#current-limitations--roadmap) for specifics.
 
 **Q: Will this work on my machine / in my CI/CD environment?**
 <br/>
@@ -353,6 +356,12 @@ describe("a suite of math operations", () => {
   });
 });
 ```
+
+### Test Matchers
+
+See [Matchers API Documentation](docs/matchers-api.md) for details on the available `expect()` matchers you can use within your AssemblyScript tests.
+
+>ℹ️ We aim to follow the [vitest/jest `expect()` API](https://vitest.dev/api/expect.html) as closely as possible in surface and behavior, with some necessary differences given AssemblyScript's static-typing. See API docs for details.
 
 ### Inline Run Mode Modifiers: `.skip`, `.only`, `.fails`
 
@@ -441,14 +450,53 @@ test("passes only on the final attempt", TestOptions.retry(2), (retryCount: i32)
 
 ### Lifecycle Hooks (Setup & Teardown)
 
-Coming Soon!
+`beforeEach` and `afterEach` are supported, following vitest runner semantics:
 
-### Test Matchers
+- **Suite-scoped and position-independent**: a hook applies to every test in its enclosing `describe` (or the whole file when registered at the top level), including tests in nested suites, regardless of where in the suite it is registered
+- **Ordering**: `beforeEach` chains run outermost-suite-first, in registration order within each suite; `afterEach` chains run innermost-suite-first, in *reverse* registration order within each suite (i.e. the same as vitest's default `sequence.hooks: 'stack'` behavior)
+- **Failure handling**: a failing `beforeEach` fails the test; the remaining `beforeEach` chain and the test body are skipped, while the `afterEach` chain still runs. A failing `afterEach` fails the test (even one that passed) and stops the remaining `afterEach` chain
+- **Timeouts are the exception to teardown**: a hook or test that exceeds its window terminates the WASM thread, so the `afterEach` chain does *not* run for that attempt
+- **Retries**: hooks re-run around every attempt, including each retry
+- **Timeouts**: each hook runs in its own timeout window, set per-hook with the optional `timeout` (ms) second argument, or globally with the standard vitest [`hookTimeout` config](docs/configuration-guide.md#supported-vitest-test-options) option
+- `expect()` assertions work inside hooks and count toward the test
 
-See [Matchers API Documentation](docs/matchers-api.md) for details on the available `expect()` matchers you can use within your AssemblyScript tests.
+Because each test runs in its own isolated instance, and because AssemblyScript doesn't support closures, the most common uses for `beforeEach` setup in AS tests are things like:
+- directly initializing module-level variables uniformly before every test
+- calling module-level functions to modify global behavior
+- calling static methods to modify class behavior
 
->ℹ️ We aim to follow the [vitest/jest `expect()` API](https://vitest.dev/api/expect.html) as closely as possible in surface and behavior, with some necessary differences given AssemblyScript's static-typing. See API docs for details.
+```typescript
+import { test, describe, expect, beforeEach, afterEach } from "vitest-pool-assemblyscript/assembly";
 
+// Module-level state is how hooks share data with tests
+// (tests run isolated and AssemblyScript doesn't support JS-style closures)
+let list: i32[] = [];
+
+beforeEach(() => {
+  list = [1, 2, 3];  // top-level: applies to every test in the file
+});
+
+describe("a suite with hooks", () => {
+  beforeEach(() => {
+    list.push(4);    // suite-level: runs after the file-level hook
+  });
+
+  afterEach(() => {
+    expect(list.length).toBeGreaterThan(0);  // assertions work in hooks
+  });
+
+  test("hooks ran before this test", () => {
+    expect(list).toHaveLength(4);
+  });
+});
+
+// a long-running hook can set its own timeout window (in ms)
+beforeEach(() => { /* ... */ }, 500);
+```
+
+>ℹ️ **Per-test isolation applies to hooks too.** Each test runs in a fresh WASM instance, and its hooks run inside that same instance, so module-level state written by `beforeEach` is visible to the test body and to `afterEach`, but nothing carries across / between tests: setup and teardown re-run for every test.
+
+>ℹ️ **Why no `beforeAll`/`afterAll`?** Their purpose in vitest is to run once and share state with every test in the suite. With per-test WASM isolation, cross-test state sharing is physically impossible — providing them would only offer misleading parity (setup that silently re-runs per test). If you have a real use case for them, please [open an issue](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new).
 
 ---
 
@@ -458,13 +506,11 @@ See [Matchers API Documentation](docs/matchers-api.md) for details on the availa
 
 These are known limitations which are currently being worked on.
 
-- **No lifecycle hooks**: No setup/teardown hooks yet
 - **Watch mode handles specs only**: Re-runs test files when they are directly changed, but not yet based on changed source files
 
 ### Near Future Roadmap
 
 **Epic: Testing DX**
-- Lifecycle hooks: `beforeEach`, `afterEach`, `beforeAll`, `afterAll`
 - Watch mode: re-run applicable tests on source file changes
 - `describe.for/each` and `test.for/each`
 - `expect.soft` to prevent fail-fast behavior (accumulate assertion failures)

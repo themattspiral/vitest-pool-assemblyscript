@@ -58,6 +58,7 @@ export async function runCompileAndDiscoverSpec(data: RunCompileAndDiscoverTask)
       config.coverage.enabled && COVERAGE_SUPPORTED,
       asCoverageOptions.globbedAssemblyScriptProjectRelativeExcludeOnly ?? [],
       { createUserWasmImports } satisfies ThreadImports,
+      config.hookTimeout,
       diffOptions,
       config.testNamePattern,
       config.allowOnly,

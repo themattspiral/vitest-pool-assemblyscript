@@ -230,7 +230,7 @@ The `RUN_CONTEXT` environment variable (set via `cross-env` in the npm scripts) 
 `RUN_CONTEXT` also drives the `COVERAGE_ENABLED` and `TEST_FILE_PREFIX` constants exported from `shared.ts`, which verification tests use to conditionally run coverage assertions and construct correct lookup keys.
 
 Verification tests live in `test/meta-verify/` and are organized by category:
-- [`test/meta-verify/test-options.test.ts`](../test/meta-verify/test-options.test.ts) - test option behavior (skip, only, fails, retry) via JSON output
+- [`test/meta-verify/runner-behavior/test-status-and-options.test.ts`](../test/meta-verify/runner-behavior/test-status-and-options.test.ts) - test option behavior (skip, only, fails, retry) via JSON output
 - [`test/meta-verify/expect-matchers/`](../test/meta-verify/expect-matchers/) - matcher failure messages scoped to individual error blocks via CLI output
 - [`test/meta-verify/coverage-collection/`](../test/meta-verify/coverage-collection/) - coverage collection assertions, split by scenario type (basic, edge, structure, inheritance, modules, reexports, locations, execution, summary)
 

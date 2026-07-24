@@ -8,7 +8,11 @@ import type {
   AssemblyScriptTestError,
   AssemblyScriptTestTaskMeta,
   CoverageData,
+  HookChainLevel,
+  HookStateReporter,
+  PhaseNotifier,
   ResolvedAssemblyScriptPoolOptions,
+  SuiteHookKey,
   ThreadImports,
   WASMCompilation,
   WASMExecutorPerfTimings,
@@ -19,7 +23,7 @@ import { createMemory } from './wasm-memory.js';
 import { createDiscoveryImports, createTestExecutionImports } from './wasm-imports.js';
 import { enhanceTestError } from './wasm-errors.js';
 import { createPoolError, wrapPoolError } from '../util/pool-errors.js';
-import { failTestRuntimeError, getTaskLogLabel } from '../util/vitest-tasks.js';
+import { collectHookChainLevels, failTestRuntimeError, getTaskLogLabel } from '../util/vitest-tasks.js';
 import { extractCallStack } from './source-maps.js';
 import { buildExpressionHits, buildBranchHits, buildCaseHits, buildDecisionPositions } from './coverage-extraction.js';
 
@@ -51,6 +55,20 @@ function verifyMemoryRequirements(
       + ` (${poolOptions.testMemoryPagesMax}). Increase value, or remove for auto sizing.`,
     );
   }
+}
+
+/** Resolve a lifecycle hook callback from the WASM function table */
+function getHookFn(table: WebAssembly.Table, fnIndex: number): () => void {
+  const hookFn = table.get(fnIndex) as (() => void) | null;
+
+  if (!hookFn) {
+    throw createPoolError(
+      POOL_ERROR_NAMES.WASMExecutionHarnessError,
+      `Hook function at index ${fnIndex} not found in function table`
+    );
+  }
+
+  return hookFn;
 }
 
 function createExecutorMemories(
@@ -85,10 +103,11 @@ export async function executeWASMDiscovery(
   file: RunnerTestFile,
   moduleLabel: string,
   threadImports: ThreadImports,
+  configHookTimeout: number,
 ): Promise<void> {
   const base = basename(file.filepath);
   const logPrefix = `[${moduleLabel} Exec] ${getTaskLogLabel(base, file)}`;
-  
+
   try {
     const { testMemory, coverageMemory } = createExecutorMemories(compilation, poolOptions, isBinaryInstrumented);
 
@@ -98,6 +117,7 @@ export async function executeWASMDiscovery(
       file,
       handleLog,
       logPrefix,
+      configHookTimeout,
       coverageMemory,
       threadImports.createUserWasmImports
     );
@@ -170,6 +190,8 @@ export async function executeWASMTest(
   threadImports: ThreadImports,
   projectRoot: string,
   diffOptions?: SerializedDiffOptions,
+  reportHookState?: HookStateReporter,
+  phaseNotifier?: PhaseNotifier,
 ): Promise<{ test: RunnerTestCase, testTimings: WASMExecutorPerfTimings }> {
   const testTimings: WASMExecutorPerfTimings = {
     fnInit: performance.now(),
@@ -191,7 +213,7 @@ export async function executeWASMTest(
   const { testMemory, coverageMemory } = createExecutorMemories(compilation, poolOptions, collectCoverage);
 
   // Create import object with pool-side functions for capturing test execution results
-  const { imports, provideFunctionTable } = createTestExecutionImports(
+  const { imports, provideFunctionTable, consumeAndResetPerPhaseCaptureState } = createTestExecutionImports(
     testMemory,
     compilation.compiledModule,
     test,
@@ -227,7 +249,7 @@ export async function executeWASMTest(
   }
 
   let testFn: ((retryCount?: number) => void) | null | undefined;
-  
+
   if (table && typeof table.get === 'function') {
     const idx = (test.meta as AssemblyScriptTestTaskMeta).fnIndex;
     testFn = table.get(idx) as ((retryCount?: number) => void) | null;
@@ -245,18 +267,20 @@ export async function executeWASMTest(
     );
   }
 
-  // try-catch to ensure we capture known test errors to report
-  // as AssemblyScriptTestErrors to vitest
-  try {
-    // Execute this test
-    testTimings.execStart = performance.now();
-    testFn(test?.result?.retryCount);
-    testTimings.execEnd = performance.now();
-
-    // If we reach here, test passed, i.e. No abort occurred.
-    // Proceed below to prepare the test result
-  } catch (error: any) {
-    testTimings.execEnd = performance.now();
+  /**
+   * Capture, classify, annotate, and enhance an error thrown by one execution
+   * phase, so later phases can still run against this instance. Returns true
+   * when the unwind was a successful toThrowError expectation (phase completed
+   * successfully, not a failure). Hook failures land on the test result like
+   * test-fn failures, with a phase prefix on the message (intentional
+   * divergence — vitest leaves hook errors unprefixed).
+   */
+  async function capturePhaseError(error: any, phase: SuiteHookKey | 'test'): Promise<boolean> {
+    // a genuine VM trap (e.g. unreachable) bypasses the abort import, which
+    // would leave stale assertion/throw-expectation capture state behind for
+    // the phases that still run in this instance — always clear it
+    // (snapshot discarded: flagged errors already consumed theirs in the handler)
+    consumeAndResetPerPhaseCaptureState();
 
     let testError: AssemblyScriptTestError;
     let stack: NodeJS.CallSite[];
@@ -265,6 +289,13 @@ export async function executeWASMTest(
 
     if (error && error[AS_POOL_ERROR_FLAG]) {
       const wrapper = error as AssemblyScriptPoolError;
+
+      if (wrapper.name === POOL_ERROR_NAMES.WASMExecutionAbortSuccess) {
+        // successful toThrowError expectation — the unwind ends the phase early
+        // (code after the expect() does not run), and the phase passes
+        return true;
+      }
+
       testError = wrapper.testError;
       stack = wrapper.originalErrorRawStack;
       allowStackJS = wrapper.originalErrorMayContainJS;
@@ -281,6 +312,10 @@ export async function executeWASMTest(
       applyStackToTestErrorCause = false;
     }
 
+    if (phase !== 'test') {
+      testError.message = `in ${phase} hook: ${testError.message}`;
+    }
+
     await enhanceTestError(
       testError,
       test,
@@ -292,7 +327,97 @@ export async function executeWASMTest(
       stack,
       diffOptions
     );
+
+    return false;
   }
+
+  /**
+   * Run one lifecycle hook chain level-by-level, tracking `result.hooks` state
+   * and emitting vitest's hook TaskUpdateEvents per suite level via
+   * reportHookState. Returns true if a hook failure stopped the chain
+   * (vitest semantics: no per-hook catch — the first failing hook aborts the
+   * remaining chain, including outer levels).
+   */
+  async function runHookChain(levels: HookChainLevel[], hookKey: SuiteHookKey): Promise<boolean> {
+    for (const level of levels) {
+      debug(`${logPrefix} - Running ${level.registrations.length} ${hookKey} hook(s) for suite "${level.suiteName}"`);
+      await reportHookState?.(test, hookKey, 'run');
+
+      for (const registration of level.registrations) {
+        // each hook fn gets its own main-thread timeout window (vitest wraps
+        // each hook individually); disarm immediately after the WASM call
+        // returns or unwinds, BEFORE error enhancement work
+        let thrown: any;
+        let didThrow = false;
+
+        phaseNotifier?.phaseStart(hookKey, registration.timeout);
+        try {
+          getHookFn(table!, registration.fnIndex)();
+        } catch (error: any) {
+          thrown = error;
+          didThrow = true;
+        }
+        phaseNotifier?.phaseEnd();
+
+        if (didThrow) {
+          const isSuccessUnwind = await capturePhaseError(thrown, hookKey);
+
+          if (!isSuccessUnwind) {
+            await reportHookState?.(test, hookKey, 'fail');
+            return true;
+          }
+        }
+      }
+
+      await reportHookState?.(test, hookKey, 'pass');
+    }
+
+    return false;
+  }
+
+  const hookChains = collectHookChainLevels(test);
+
+  // Phased execution: beforeEach chain → test fn → afterEach chain, all within
+  // this test's single fresh instance (hooks share module-level state with the
+  // test). Each phase catches its own abort so later phases still run,
+  // re-entering the same instance after an abort unwind or a genuine trap.
+  testTimings.execStart = performance.now();
+
+  // vitest semantics: a beforeEach failure stops the remaining before-chain
+  // and skips the test fn (the afterEach chain still runs)
+  const beforeChainFailed = await runHookChain(hookChains.beforeEach, 'beforeEach');
+
+  if (!beforeChainFailed) {
+    // the test fn gets its own full test.timeout window — the init window
+    // (armed at execution-start) and any hook windows never eat into it
+    let thrown: any;
+    let didThrow = false;
+
+    phaseNotifier?.phaseStart('test', test.timeout);
+    try {
+      // Execute this test
+      testFn(test?.result?.retryCount);
+
+      // If we reach here, test passed, i.e. No abort occurred.
+    } catch (error: any) {
+      thrown = error;
+      didThrow = true;
+    }
+    phaseNotifier?.phaseEnd();
+
+    if (didThrow) {
+      await capturePhaseError(thrown, 'test');
+    }
+  }
+
+  // vitest semantics: the afterEach chain runs after beforeEach failures,
+  // test-fn failures, and toThrowError success-unwinds alike; an afterEach
+  // failure fails the test (even a passed one) and stops the remaining
+  // after-chain. A timeout is the exception — it terminates this worker
+  // thread, so the chain below is never reached for that attempt.
+  await runHookChain(hookChains.afterEach, 'afterEach');
+
+  testTimings.execEnd = performance.now();
 
   const meta = test.meta as AssemblyScriptTestTaskMeta;
 

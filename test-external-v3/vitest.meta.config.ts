@@ -224,7 +224,25 @@ export default defineConfig({
             '../vitest-pool-assemblyscript/test/assembly/**/*.meta-no-isolate.test.ts'
           ],
           pool: 'vitest-pool-assemblyscript/v3',
-          
+
+        }
+      }),
+
+      // AS Meta Alt Config - small config-default timeouts. Fixtures here set NO
+      // explicit timeouts, so hangs trip these config values — proving the
+      // config-default resolution paths (testTimeout for test bodies, hookTimeout
+      // for hooks) with values distinct from each other and from every explicit
+      // per-test/per-hook value used elsewhere.
+      defineAssemblyScriptProject({
+        test: {
+          testTimeout: 200,
+          hookTimeout: 300,
+
+          name: { label: 'as-pool-meta-default-timeouts', color: 'yellow' },
+          include: [
+            '../vitest-pool-assemblyscript/test/assembly/**/*.meta-default-timeout.test.ts'
+          ],
+          pool: 'vitest-pool-assemblyscript/v3',
         }
       })
     ]

@@ -19,7 +19,7 @@ These options control how the pool processes and handles AssemblyScript. They're
 - `wasmImportsFactory` *(string)* — Path to an ES module exporting a factory function that creates custom WASM imports. Path is relative to the vitest project root. See [Providing WASM Imports](providing-wasm-imports.md) for details.
 - `extraCompilerFlags` *(string[])* — Additional flags passed to the AssemblyScript compiler (`asc`). **Default: `[]`**
 - `maxThreadsV3` *(number)* — Maximum concurrent file execution threads. **vitest 3.x only** — for vitest 4.x and 5.x, use vitest's standard `test.maxWorkers` instead. **Default: `availableParallelism() - 1`**
->⚠️ `maxThreadsV3` is only configurable in the **top-level** config's `poolOptions.assemblyScript` section — the pool's shared thread pool is created once for the whole run, so values set in per-project `poolOptions` are ignored for thread sizing. (This mirrors vitest 3's own behavior, where `maxWorkers` and `poolOptions.*.maxThreads` only take effect from the root config.)
+> ⚠️ `maxThreadsV3` is only configurable in the **top-level** config's `poolOptions.assemblyScript` section — the pool's shared thread pool is created once for the whole run, so values set in per-project `poolOptions` are ignored for thread sizing. (This mirrors vitest 3's own behavior, where `maxWorkers` and `poolOptions.*.maxThreads` only take effect from the root config.)
 
 ### Default Compiler Options
 
@@ -45,9 +45,13 @@ This is not an exhaustive list of all vitest options, but it details which ones 
 - `retry` *(number)* — Number of retries to attempt after a test's initial failure. Can also be set per-test with `TestOptions.retry()`.
 > ⚠️ While this is a standard vitest option, the pool currently only supports a `number`-based retry count, rather than the [enhanced config](https://vitest.dev/config/retry) introduced in vitest 4.1.0
 - `testTimeout` *(number)* — Milliseconds to wait before terminating a test. Can also be set per-test with `TestOptions.timeout()`. Standard vitest option.
+- `hookTimeout` *(number)* — Milliseconds to wait before terminating a lifecycle hook. Each hook runs in its own timeout window. Can also be set per-hook via the optional `timeout` argument (which will override `hookTimeout`): `beforeEach(fn, timeout)` / `afterEach(fn, timeout)`. Standard vitest option.
+> ℹ️ **A timeout of `0` (or `Infinity`) disables it**, matching vitest — the test or hook runs with no time limit rather than failing immediately. This applies to `testTimeout` and `hookTimeout` alike, and to their inline equivalents: `TestOptions.timeout(0)`, `beforeEach(fn, 0)` / `afterEach(fn, 0)`.
 - `allowOnly` *(boolean)* — Whether to respect `test.only` and `describe.only` modifiers. Standard vitest option.
 - `maxWorkers` *(number)* — Maximum concurrent file execution threads. **vitest 4.x and 5.x only** — for vitest 3.x, use pool option `maxThreadsV3` instead. Standard vitest option.
->ℹ️ `maxWorkers` values above the machine's core count are effectively clamped for AssemblyScript test execution — the pool's internal run threads are capped at `availableParallelism()`, so excess concurrent file tasks queue rather than oversubscribe the CPU.
+> ℹ️ `maxWorkers` values above the machine's core count are effectively clamped for AssemblyScript test execution — the pool's internal run threads are capped at `availableParallelism()`, so excess concurrent file tasks queue rather than oversubscribe the CPU.
+
+> ⚠️ **Most `sequence.*` options are not honored by the AS pool.** Runner-level sequencing options (`sequence.shuffle`, `sequence.concurrent`, `sequence.hooks`) have no effect on AssemblyScript tests: tests run sequentially in registration order, and lifecycle hook ordering always follows vitest's default `sequence.hooks: 'stack'` behavior. (`sequence.groupOrder` still works as expected — project group scheduling is handled by vitest core, not by the pool.)
 
 ## `coverage` Configuration
 
@@ -103,6 +107,7 @@ export default defineConfig({
           bail: 2,            // stop test run after this many failures
           retry: 0,           // number of retries to attempt after initial failure
           testTimeout: 500,   // ms to wait before terminating test
+          hookTimeout: 500,   // ms to wait before terminating a lifecycle hook
           // allowOnly: true, // whether or not to respect test.only and describe.only
           // maxWorkers: 8,   // concurrent file execution threads (default: available parallelism)
 

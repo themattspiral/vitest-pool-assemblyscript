@@ -1,0 +1,9 @@
+{
+  "extends": "assemblyscript/std/portable.json",
+  "include": [
+    "./**/*.ts"
+  ],
+  "compilerOptions": {
+    "noEmit": true,
+  }
+}

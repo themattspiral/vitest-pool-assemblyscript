@@ -1,4 +1,4 @@
-import { test, expect, TestOptions, describe } from "vitest-pool-assemblyscript/assembly";
+import { test, expect, describe } from "vitest-pool-assemblyscript/assembly";
 import { add } from "../../assembly-src/quick-math";
 
 test("plain test implicitly skipped by only", () => {

@@ -1,3 +1,4 @@
+import { TestOptionValue } from './portable/constants';
 import { TestOptions, DEFAULT_TEST_OPTIONS } from './options';
 
 /* 
@@ -11,9 +12,9 @@ declare function __begin_register_suite(
   name: string,
   timeout: i32,
   retry: i32,
-  skip: i32,
-  only: i32,
-  fails: i32
+  skip: TestOptionValue,
+  only: TestOptionValue,
+  fails: TestOptionValue
 ): void;
 
 // @ts-ignore: top level decorators are supported in AssemblyScript

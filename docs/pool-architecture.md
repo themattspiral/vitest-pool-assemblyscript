@@ -238,8 +238,8 @@ For each test execution:
 1. Create a fresh `WebAssembly.Instance` from the compiled module (reusing the same compiled binary)
 2. Provide fresh `WebAssembly.Memory` for test data
 3. Call `_start()` to initialize module globals (test registration callbacks are stubbed/no-op during execution)
-4. Execute the specific test function via the exported function table: `table.get(test.fnIndex)()`
-5. If the test aborts, the thrown error is caught by the executor and reported — subsequent tests are unaffected because they get their own fresh instance
+4. Run the test's phased execution via the exported function table: the `beforeEach` chain (outermost suite first), the test function (`table.get(test.fnIndex)()`), then the `afterEach` chain (innermost suite first, reverse registration order within each suite — vitest's default `sequence.hooks: 'stack'` ordering). All phases run in this one instance, so hooks share module-level state with the test.
+5. If a phase aborts, the thrown error is caught by the executor and reported — subsequent tests are unaffected because they get their own fresh instance. A failing `beforeEach` skips the remaining before-chain and the test fn; the `afterEach` chain still runs (the executor re-enters the same instance after the abort unwind), and a failing `afterEach` fails the test and stops the remaining after-chain. A **timeout** is the exception: it terminates the worker thread, so no further phase — including the `afterEach` chain — runs for that attempt
 
 Instantiation overhead is minimal (~0.43ms per test) because `WebAssembly.compile()` is done once per file and the compiled module is reused.
 
@@ -252,6 +252,7 @@ Pool-specific callbacks are declared in WASM via `@external("__as_pool_env__", "
 | `__register_test(namePtr, fnIndex, timeout, retry, skip, only, fails)` | Register test during discovery (name + function table index + resolved test options) |
 | `__begin_register_suite(namePtr, timeout, retry, skip, only, fails)` | Push new suite onto suite stack during discovery (with suite-level default options) |
 | `__end_register_suite(namePtr)` | Pop suite from stack during discovery |
+| `__register_hook(kind, fnIndex, timeout)` | Register a `beforeEach`/`afterEach` lifecycle hook on the current suite during discovery (hook kind + function table index + per-hook timeout, resolved at registration against the config `hookTimeout` value) |
 | `__assertion_pass()` | Increment passed assertion counter |
 | `__assertion_fail(msgPtr, actualTypeNamePtr, expectedTypeNamePtr, valuesProvided, actualPtr?, expectedPtr?)` | Record failed assertion (message + typed actual/expected values for diff output) |
 | `__expect_throw(fnIndex, expectedErrorMsgPtr?)` | `toThrowError` support: invoke the function expected to abort; the abort handler then matches the thrown message against the expected one |
@@ -260,7 +261,7 @@ Pool-specific callbacks are declared in WASM via `@external("__as_pool_env__", "
 | `memory` | `WebAssembly.Memory` import — created in Node.js, shared with WASM via `--importMemory` |
 | `__coverage_memory` | Separate `WebAssembly.Memory` for coverage counters (when instrumented) |
 
-The registration callbacks (`__register_test`, `__begin/__end_register_suite`) are live during discovery and stubbed as no-ops during test execution; the assertion and throw-expectation callbacks are the reverse.
+The registration callbacks (`__register_test`, `__begin/__end_register_suite`, `__register_hook`) are live during discovery and stubbed as no-ops during test execution; the assertion and throw-expectation callbacks are the reverse.
 
 The `env` module additionally carries console-capture imports (so AssemblyScript `console.*` output is captured and reported to vitest), and any [user-provided WASM imports](providing-wasm-imports.md) (`wasmImportsFactory`) are merged in — user `env` entries can intentionally shadow the pool's console imports, and user-defined custom modules are passed through alongside.
 
@@ -330,23 +331,32 @@ The abort handler's behavior differs between discovery and test execution contex
 
 ## Timeout Architecture
 
-Test timeouts are enforced from the PoolWorker main thread, not from within the worker thread. This is necessary because a long-running or infinite-loop WASM execution blocks the worker thread's event loop, making in-thread timers impossible.
+Timeouts are enforced from the PoolWorker main thread, not from within the worker thread. This is necessary because a long-running or infinite-loop WASM execution blocks the worker thread's event loop, making in-thread timers impossible.
 
 ```
 test-worker-thread                  PoolWorker (main thread)
        │                                       │
-       ├─ postMessage(execution-start) ──────> │
-       │   { test, executionStart }            │  Start timeout timer
-       │                                       │  (adjusted for msg transit time)
-       │   ... test executing ...              │
+       ├─ postMessage(execution-start) ──────> │  Arm INIT window with the
+       │   { test, executionStart }            │  test's timeout (adjusted
+       │                                       │  for msg transit time)
+       │   ... instantiate + _start() ...      │
        │                                       │
-  ┌────┤  (A) Test completes normally          │
-  │    ├─ postMessage(execution-end) ─────────>│  Clear timeout timer
+       ├─ postMessage(phase-start) ──────────> │  Re-arm timer to this phase's
+       │   { phase, effectiveTimeout }         │  own window
+       │   ... hook fn / test fn executing ... │
+       ├─ postMessage(phase-end) ────────────> │  Disarm (no timer runs
+       │                                       │  between phases)
+       │   ... repeat per hook fn + test fn ...│
+       │                                       │
+  ┌────┤  (A) Attempt completes normally       │
+  │    ├─ postMessage(execution-end) ─────────>│  Clear timer + tracking record
   │    │                                       │
   │    │  OR                                   │
   │    │                                       │
-  │    │  (B) Timer fires (timeout!)           │
+  │    │  (B) Timer fires (window expired!)    │
   │    │                                       ├─ failTestWithTimeoutError()
+  │    │                                       │   (attributed by the armed phase:
+  │    │                                       │    hook vs test timeout message)
   │    │                                       ├─ flagTestTerminated()
   │    │                                       ├─ threadAbortController.abort()
   │    │<──────────── thread aborted ──────────┤
@@ -361,6 +371,17 @@ test-worker-thread                  PoolWorker (main thread)
        │   • Continue remaining tests          │
        │                                       │
 ```
+
+### Per-Phase Timeout Windows
+
+Each individually-timed unit of a test attempt gets its own window, matching vitest's semantics (where every hook is separately wrapped in its own timeout, and the test fn's budget is never shared with hooks):
+
+- **Init window**: `execution-start` arms a window with the test's timeout, covering WASM instantiation and `_start()` module init — which re-runs user top-level code per test and must stay hang-enforced. An expiry here is attributed as a plain test timeout.
+- **Per-phase windows**: the worker posts `phase-start`/`phase-end` around each `beforeEach`/`afterEach` hook fn and the test fn. A hook's window is its resolved effective timeout (the per-hook `timeout` argument if provided, otherwise the configured `hookTimeout` value); the test fn's window is the test's timeout. No timer runs between phases — that gap is pool-side JS (RPC reporting, error enhancement), which user code cannot hang.
+- **Attribution**: when a window expires, the phase recorded at arm-time selects the error — vitest's hook-timeout message (with an `in <kind> hook:` prefix identifying which chain, since timeout errors carry no source-mapped frame) versus the test-timeout message. Everything downstream — thread abort, resume, retry consumption — is identical for both.
+- The worker posts the `phase-end` disarm immediately after the WASM call returns or unwinds, *before* error-enhancement work, so a hook that fails near its window boundary is not misreported as timed out while the pool processes its actual error.
+
+Both timer paths implement the same protocol: the v4/v5 `PoolWorker` tracks its single active run's record, and the v3 `ProcessPool` keeps per-test records in a map (it dispatches all files concurrently from one pool object).
 
 ### Task Object Mutation & Hierarchy Preservation
 
@@ -404,6 +425,10 @@ Worker Thread                           Vitest Core
     ├─ onTaskUpdate(test) ─────────────────> │  Test starting
     │    state: 'run', event: test-prepare   │
     │                                        │
+    ├─ onTaskUpdate(test) ─────────────────> │  Hook group starting / finished
+    │    events: before-hook-start/end,      │  (per suite level with hooks —
+    │            after-hook-start/end        │   see note below)
+    │                                        │
     ├─ onTaskUpdate(test) ─────────────────> │  Test finished
     │    state: 'pass'|'fail'                │
     │    event: test-finished                │
@@ -428,6 +453,13 @@ Worker Thread                           Vitest Core
 | `onAfterSuiteRun(meta)` | File tests complete | Send coverage data to coverage provider |
 | `getCountOfFailedTests()` | After test failure | Query failure count for bail logic |
 | `onCancel(reason)` | Bail threshold hit | Request vitest cancel remaining tests |
+
+Lifecycle hook execution emits vitest's hook TaskUpdateEvents (`before-hook-start/end`, `after-hook-start/end`) through `onTaskUpdate`, per suite level that has hooks of that kind — matching vitest runner behavior:
+  - a start event when a level's hooks begin (`task.result.hooks` state `'run'`)
+  - an end event on success (`'pass'`)
+  - *no event* after a hook failure (vitest's runner emits none in this case, and we follow this behavior)
+  - One deliberate divergence: When a hook fails, vitest leaves `task.result.hooks` states stuck at `'run'`, while our AS pool records a failed group as `'fail'` (more informative, and invisible to vitest's event handling since it travels inside the result on subsequent task packs)
+  - Note: hooks are never tasks in the tree - they never appear in `onCollected`
 
 ### Responsibility Boundaries
 

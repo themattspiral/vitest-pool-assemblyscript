@@ -1,14 +1,12 @@
-export const TEST_OPTION_UNDEFINED: i32 = -1;
-export const TEST_OPTION_FALSE: i32 = 0;
-export const TEST_OPTION_TRUE: i32 = 1;
+import { TestOptionValue } from './portable/constants';
 
 @final
 export class TestOptions {
   _valueOfTimeout: i32;
   _valueOfRetry: i32;
-  _valueOfSkip: i32;
-  _valueOfOnly: i32;
-  _valueOfFails: i32;
+  _valueOfSkip: TestOptionValue;
+  _valueOfOnly: TestOptionValue;
+  _valueOfFails: TestOptionValue;
 
   /**
    * Create a new TestOptions instance.
@@ -18,11 +16,11 @@ export class TestOptions {
    * also with any suite-level options externally in pool functions.
    */
   constructor(
-    timeout: i32 = TEST_OPTION_UNDEFINED,
-    retry: i32 = TEST_OPTION_UNDEFINED,
-    skip: i32 = TEST_OPTION_UNDEFINED,
-    only: i32 = TEST_OPTION_UNDEFINED,
-    fails: i32 = TEST_OPTION_UNDEFINED,
+    timeout: i32 = TestOptionValue.OptionUndefined,
+    retry: i32 = TestOptionValue.OptionUndefined,
+    skip: TestOptionValue = TestOptionValue.OptionUndefined,
+    only: TestOptionValue = TestOptionValue.OptionUndefined,
+    fails: TestOptionValue = TestOptionValue.OptionUndefined,
   ) {
     this._valueOfTimeout = timeout;
     this._valueOfRetry = retry;
@@ -35,10 +33,10 @@ export class TestOptions {
   static timeout(timeoutMs: i32): TestOptions {
     return new TestOptions(
       timeoutMs,
-      TEST_OPTION_UNDEFINED,
-      TEST_OPTION_UNDEFINED,
-      TEST_OPTION_UNDEFINED,
-      TEST_OPTION_UNDEFINED
+      TestOptionValue.OptionUndefined,
+      TestOptionValue.OptionUndefined,
+      TestOptionValue.OptionUndefined,
+      TestOptionValue.OptionUndefined
     );
   }
   /** Set the timeout threshold (in ms) for a specific test. Other options remain unchanged. */
@@ -53,11 +51,11 @@ export class TestOptions {
    */
   static retry(retryCount: i32): TestOptions {
     return new TestOptions(
-      TEST_OPTION_UNDEFINED,
+      TestOptionValue.OptionUndefined,
       retryCount,
-      TEST_OPTION_UNDEFINED,
-      TEST_OPTION_UNDEFINED,
-      TEST_OPTION_UNDEFINED
+      TestOptionValue.OptionUndefined,
+      TestOptionValue.OptionUndefined,
+      TestOptionValue.OptionUndefined
     );
   }
   /**
@@ -77,11 +75,11 @@ export class TestOptions {
    */
   static skip(isSkipped: bool = true): TestOptions {
     return new TestOptions(
-      TEST_OPTION_UNDEFINED,
-      TEST_OPTION_UNDEFINED,
-      isSkipped ? TEST_OPTION_TRUE : TEST_OPTION_FALSE,
-      TEST_OPTION_UNDEFINED,
-      TEST_OPTION_UNDEFINED
+      TestOptionValue.OptionUndefined,
+      TestOptionValue.OptionUndefined,
+      isSkipped ? TestOptionValue.OptionTrue : TestOptionValue.OptionFalse,
+      TestOptionValue.OptionUndefined,
+      TestOptionValue.OptionUndefined
     );
   }
   /**
@@ -89,7 +87,7 @@ export class TestOptions {
    * but will not execute. Other options remain unchanged.
    */
   skip(isSkipped: bool = true): this {
-    this._valueOfSkip = isSkipped ? TEST_OPTION_TRUE : TEST_OPTION_FALSE;
+    this._valueOfSkip = isSkipped ? TestOptionValue.OptionTrue : TestOptionValue.OptionFalse;
     return this;
   }
   
@@ -102,11 +100,11 @@ export class TestOptions {
    */
   static only(isOnly: bool = true): TestOptions {
     return new TestOptions(
-      TEST_OPTION_UNDEFINED,
-      TEST_OPTION_UNDEFINED,
-      TEST_OPTION_UNDEFINED,
-      isOnly ? TEST_OPTION_TRUE : TEST_OPTION_FALSE,
-      TEST_OPTION_UNDEFINED
+      TestOptionValue.OptionUndefined,
+      TestOptionValue.OptionUndefined,
+      TestOptionValue.OptionUndefined,
+      isOnly ? TestOptionValue.OptionTrue : TestOptionValue.OptionFalse,
+      TestOptionValue.OptionUndefined
     );
   }
   /**
@@ -115,7 +113,7 @@ export class TestOptions {
    * Other options remain unchanged.
    */
   only(isOnly: bool = true): this {
-    this._valueOfOnly = isOnly ? TEST_OPTION_TRUE : TEST_OPTION_FALSE;
+    this._valueOfOnly = isOnly ? TestOptionValue.OptionTrue : TestOptionValue.OptionFalse;
     return this;
   }
 
@@ -127,11 +125,11 @@ export class TestOptions {
    */
   static fails(expectFailure: bool = true): TestOptions {
     return new TestOptions(
-      TEST_OPTION_UNDEFINED,
-      TEST_OPTION_UNDEFINED,
-      TEST_OPTION_UNDEFINED,
-      TEST_OPTION_UNDEFINED,
-      expectFailure ? TEST_OPTION_TRUE : TEST_OPTION_FALSE
+      TestOptionValue.OptionUndefined,
+      TestOptionValue.OptionUndefined,
+      TestOptionValue.OptionUndefined,
+      TestOptionValue.OptionUndefined,
+      expectFailure ? TestOptionValue.OptionTrue : TestOptionValue.OptionFalse
     );
   }
   /**
@@ -139,13 +137,13 @@ export class TestOptions {
    * one failing assertion. Other options remain unchanged.
    */
   fails(expectFailure: bool = true): this {
-    this._valueOfFails = expectFailure ? TEST_OPTION_TRUE : TEST_OPTION_FALSE;
+    this._valueOfFails = expectFailure ? TestOptionValue.OptionTrue : TestOptionValue.OptionFalse;
     return this;
   }
 
   private static mergeNullableInt(a: i32, b: i32, smallestWins: bool = false): i32 {
     if (a < 0 && b < 0) {
-      return TEST_OPTION_UNDEFINED;
+      return TestOptionValue.OptionUndefined;
     } else if (a >= 0 && b < 0) {
       return a;
     } else if (a < 0 && b >= 0) {

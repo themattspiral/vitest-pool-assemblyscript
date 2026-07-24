@@ -731,11 +731,116 @@ export interface FailedAssertion {
   message: string;
 }
 
+/**
+ * Snapshot of the per-execution assertion/throw-expectation capture state,
+ * returned by consumeAndResetPerPhaseCaptureState. Consumed at each abort so
+ * that later phases in the same instance (the afterEach chain runs after
+ * failures) classify their own aborts from fresh state.
+ */
+export interface PerPhaseCaptureState {
+  failedAssertion?: FailedAssertion;
+  wasExpectingError: boolean;
+  expectedErrorMsg?: string;
+}
+
+/**
+ * One lifecycle hook registered on a suite (or file) task: its function-table
+ * index plus its resolved effective timeout in ms (the per-hook `timeout` arg
+ * when given, else the config `hookTimeout` default — resolved once at
+ * registration; consumers never re-resolve).
+ */
+export interface SuiteHookRegistration {
+  fnIndex: number;
+  timeout: number;
+}
+
+/**
+ * Lifecycle hook registrations on a suite (or file) task, in registration
+ * order. Plain objects/arrays so they survive structured clone across threads.
+ */
+export interface SuiteHookRegistrations {
+  beforeEach: SuiteHookRegistration[];
+  afterEach: SuiteHookRegistration[];
+}
+
+/** The per-test lifecycle hook kinds supported (keys into vitest's `task.result.hooks`) */
+export type SuiteHookKey = 'beforeEach' | 'afterEach';
+
+/**
+ * One phase of a test attempt's phased execution (beforeEach chain → test fn →
+ * afterEach chain). Used for per-phase timeout windows and timeout attribution:
+ * the main-thread timer knows which window expired and reports the matching
+ * error (hook vs test timeout message).
+ */
+export type ExecutionPhase = SuiteHookKey | 'test';
+
+/**
+ * State reported for one suite level's hook group. Mirrors vitest's
+ * `updateSuiteHookState` usage of TaskState ('run' before the group, 'pass'
+ * after), plus 'fail' — vitest leaves a failed group stuck at 'run', while we
+ * record the failure explicitly.
+ */
+export type SuiteHookState = 'run' | 'pass' | 'fail';
+
+/**
+ * One level of a test's resolved hook chain: the hooks of one kind registered
+ * on a single suite (or file) task, in execution order.
+ */
+export interface HookChainLevel {
+  /** Suite (or file) task name, for logging */
+  suiteName: string;
+  /** Hook registrations (fn index + effective timeout) in execution order for this level */
+  registrations: SuiteHookRegistration[];
+}
+
+/** A test's full resolved hook chains, in execution order (see collectHookChainLevels) */
+export interface TestHookChains {
+  beforeEach: HookChainLevel[];
+  afterEach: HookChainLevel[];
+}
+
+/**
+ * Callback the executor invokes around each hook LEVEL (one suite's hook
+ * group) so the runner can track `test.result.hooks` state and report
+ * vitest's hook TaskUpdateEvents while phases execute.
+ *
+ * This is the vitest-OBSERVABILITY channel: awaited RPC to vitest core, at
+ * vitest's per-level event granularity. It is not duplicated work with
+ * PhaseNotifier — that is the timeout-enforcement channel to the pool's own
+ * main thread, which vitest core never sees.
+ */
+export type HookStateReporter = (
+  test: RunnerTestCase,
+  hookKey: SuiteHookKey,
+  state: SuiteHookState,
+) => Promise<void>;
+
+/**
+ * Callback the executor invokes around each individually-timed unit of phased
+ * execution (each hook fn, and the test fn) so the runner can post the
+ * control-port phase messages that drive the main thread's per-phase timeout
+ * windows.
+ *
+ * This is the timeout-ENFORCEMENT channel: a plain one-way postMessage on the
+ * control port to the pool's own main thread — the call returns immediately
+ * with nothing awaited and no response expected — at per-fn granularity
+ * because each hook gets its own timeout window. It is not duplicated work
+ * with HookStateReporter — that is the vitest-observability channel (awaited
+ * request/response RPC to vitest core, per-level granularity, and it never
+ * covers the test-fn phase). The main thread is not on the RPC path, so
+ * neither channel can be derived from the other.
+ */
+export interface PhaseNotifier {
+  phaseStart: (phase: ExecutionPhase, effectiveTimeout: number) => void;
+  phaseEnd: () => void;
+}
+
 export interface AssemblyScriptSuiteTaskMeta extends TaskMeta {
   idxInParentTasks: number;
   defaultTestOptions: AssemblyScriptTestOptions;
   suitePreparedSent: boolean;
   resultFinal: boolean;
+  hooks: SuiteHookRegistrations;
   coverage?: CoverageBundle;
 }
 
@@ -746,6 +851,12 @@ export interface AssemblyScriptTestTaskMeta extends TaskMeta {
   
   // assertion state
   assertionsPassedCount: number;
+  /**
+   * Failed assertions recorded for this test — groundwork for future
+   * `expect.soft` accumulation. Pushed only by failTestAssertionError, the
+   * single choke point where a failed assertion becomes a test error (covers
+   * plain assertion failures and both toThrowError failure shapes).
+   */
   assertionsFailed: FailedAssertion[];
 
   coverage?: CoverageBundle;
@@ -806,12 +917,47 @@ export interface TestExecutionEnd extends AssemblyScriptPoolWorkerMessageBase {
   testTaskId: string;
 }
 
-export type AssemblyScriptPoolWorkerMessage = TestExecutionStart | TestExecutionEnd | TestFileCompiled;
+/**
+ * Marks one individually-timed unit of phased execution starting (a single
+ * hook fn, or the test fn). The main thread re-arms its timeout timer to this
+ * window; the worker sends the already-resolved effective timeout so the main
+ * thread never resolves timeouts itself.
+ */
+export interface TestPhaseStart extends AssemblyScriptPoolWorkerMessageBase {
+  readonly type: 'phase-start';
+  phaseStart: number;
+  testTaskId: string;
+  phase: ExecutionPhase;
+  effectiveTimeout: number;
+}
+
+/** Marks the current phase unit completing — the main thread disarms its timer. */
+export interface TestPhaseEnd extends AssemblyScriptPoolWorkerMessageBase {
+  readonly type: 'phase-end';
+  phaseEnd: number;
+  testTaskId: string;
+}
+
+export type AssemblyScriptPoolWorkerMessage =
+  | TestExecutionStart
+  | TestExecutionEnd
+  | TestPhaseStart
+  | TestPhaseEnd
+  | TestFileCompiled;
 
 export interface TestRunRecord {
   test: RunnerTestCase;
   executionStart: number;
-  timeoutId: NodeJS.Timeout;
+  /**
+   * The currently-armed (or most recently armed) timeout window's phase and
+   * effective timeout — set to 'test' + test.timeout at execution-start (the
+   * init window covering instantiation + _start()), then updated by each
+   * phase-start. Read on expiry for timeout attribution.
+   */
+  phase: ExecutionPhase;
+  phaseEffectiveTimeout: number;
+  /** Armed timer for the current window; undefined between phase-end and the next phase-start */
+  timeoutId?: NodeJS.Timeout;
 }
 
 export interface ThreadSpec {

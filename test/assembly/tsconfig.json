@@ -4,9 +4,10 @@
     "./**/*.ts"
   ],
   "compilerOptions": {
+    "noEmit": true,
     "rootDir": "../..",
 
-    // Resolve package imports in IDE
+    // Resolve package imports in IDE locally
     //  - local project is not checked through node_modules resolution in AS like it would be with JS
     //  - applies to IDE only - For actual AS code, this is handled by the AS compiler
     //    (see readFile() implementation given to ascMain in compiler module)

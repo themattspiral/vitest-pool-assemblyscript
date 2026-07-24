@@ -59,6 +59,7 @@ describe("classes", () => {
 describe("edge cases", () => {
   test("inline function [should fail]", () => {
     const wontAssign = inlineFails();
+    expect(wontAssign).toBe(1);
   });
   
   test("single line function [should fail]", () => {

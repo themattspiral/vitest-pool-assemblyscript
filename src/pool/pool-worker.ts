@@ -2,7 +2,7 @@ import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 import { access } from 'node:fs/promises';
 import type { MessagePort } from 'node:worker_threads';
-import type { RunnerTestCase } from 'vitest';
+import type { RunnerTestCase, RunnerTestFile } from 'vitest';
 import type {
   PoolOptions,
   PoolTask,
@@ -15,6 +15,7 @@ import Tinypool from 'tinypool';
 
 import type {
   AssemblyScriptPoolWorkerMessage,
+  AssemblyScriptSuiteTaskMeta,
   ResolvedAssemblyScriptPoolOptions,
   ResolvedHybridProviderOptions,
   RunCompileAndDiscoverTask,
@@ -22,13 +23,15 @@ import type {
   SerializedConfigCompat,
   TestExecutionEnd,
   TestExecutionStart,
+  TestPhaseEnd,
+  TestPhaseStart,
   TestRunRecord,
   ThreadSpec,
   WorkerThreadInitData,
 } from '../types/types.js';
 import { toForwardSlash } from '../util/path-utils.js';
 import { createInitialFileTask, parseVitestVersion } from '../util/vitest-file-tasks.js';
-import { failTestWithTimeoutError, flagTestTerminated } from '../util/vitest-tasks.js';
+import { failTestWithTimeoutError, flagTestTerminated, isTimeoutEnforced } from '../util/vitest-tasks.js';
 import {
   AS_POOL_WORKER_MSG_FLAG,
   ASSEMBLYSCRIPT_POOL_NAME,
@@ -71,7 +74,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   private threadRunPromise: Promise<void> | undefined;
 
   private threadSpecs: ThreadSpec[] = [];
-  
+
   // cached data for possible timeout resume
   private currentTestRun: TestRunRecord | undefined;
   
@@ -372,23 +375,22 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     compilePool: Tinypool,
   ): Promise<void> {
     const { workerPort, poolPort } = createWorkerRPCChannel(this.poolOptions.project, this.isCollectTestsMode);
-    
-    const compilePromise: Promise<ThreadSpec> = compilePool.run({
-      dispatchStart: Date.now(),
-      workerId: this.currentWorkerId!,
-      port: workerPort,
-      file: spec.file,
-      config: this.config!,
-      asPoolOptions: this.asPoolOptions,
-      isCollectTestsMode: this.isCollectTestsMode,
-    } satisfies RunCompileAndDiscoverTask, {
-      name: 'runCompileAndDiscoverSpec',
-      transferList: [workerPort],
-      signal: AbortSignal.any([this.threadAbortController!.signal, GLOBAL_POOL_ABORT_CONTROLLER!.signal]),
-    });
 
     try {
-      const { compilation, file } = await compilePromise;
+      const { compilation, file }: ThreadSpec = await compilePool.run({
+        dispatchStart: Date.now(),
+        workerId: this.currentWorkerId!,
+        port: workerPort,
+        file: spec.file,
+        config: this.config!,
+        asPoolOptions: this.asPoolOptions,
+        isCollectTestsMode: this.isCollectTestsMode,
+      } satisfies RunCompileAndDiscoverTask, {
+        name: 'runCompileAndDiscoverSpec',
+        transferList: [workerPort],
+        signal: AbortSignal.any([this.threadAbortController!.signal, GLOBAL_POOL_ABORT_CONTROLLER!.signal]),
+      });
+
       spec.file = file;
       spec.compilation = compilation;
     } finally {
@@ -406,24 +408,29 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     this.threadControlPort = poolPort;
     this.threadControlPort.on('message', this.getWorkerThreadMessageHandler());
 
-    const runPromise: Promise<void> = !spec.compilation ? Promise.resolve() : runPool.run({
-      dispatchStart: Date.now(),
-      workerId: this.currentWorkerId!,
-      port: workerPort,
-      file: timedOutTest?.file ?? spec.file,
-      compilation: spec.compilation,
-      config: this.config!,
-      asPoolOptions: this.asPoolOptions,
-      isCollectTestsMode: this.isCollectTestsMode,
-      timedOutTest,
-    } satisfies RunTestsTask, {
-      name: 'runFileSpec',
-      transferList: [workerPort],
-      signal: AbortSignal.any([this.threadAbortController!.signal, GLOBAL_POOL_ABORT_CONTROLLER!.signal]),
-    });
-
     try {
-      return await runPromise;
+      // a spec without a compilation (its compile failed) has nothing to run
+      if (spec.compilation) {
+        const completedFile: RunnerTestFile = await runPool.run({
+          dispatchStart: Date.now(),
+          workerId: this.currentWorkerId!,
+          port: workerPort,
+          file: timedOutTest?.file ?? spec.file,
+          compilation: spec.compilation,
+          config: this.config!,
+          asPoolOptions: this.asPoolOptions,
+          isCollectTestsMode: this.isCollectTestsMode,
+          timedOutTest,
+        } satisfies RunTestsTask, {
+          name: 'runFileSpec',
+          transferList: [workerPort],
+          signal: AbortSignal.any([this.threadAbortController!.signal, GLOBAL_POOL_ABORT_CONTROLLER!.signal]),
+        });
+
+        // refresh the cached spec.file with the finished tree, specifically 
+        // including meta.resultFinal to ensure it won't be re-run after timeouts
+        spec.file = completedFile;
+      }
     } finally {
       this.threadControlPort.close();
       this.threadControlPort = undefined;
@@ -459,6 +466,12 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       // maxWorkers = 1 and isolate = false in the vitest project config, in which case we
       // get multiple threadspecs here all at once
       for (const spec of this.threadSpecs) {
+        // skip re-dispatching file that already finished (e.g. after timeout resume)
+        if ((spec.file.meta as AssemblyScriptSuiteTaskMeta).resultFinal) {
+          debug(`[${this.logModuleWithId}] orchestrateFileRuns: skipping already-completed spec "${spec.file.filepath}"`);
+          continue;
+        }
+
         const specTimedOutTest = timedOutTest?.file.filepath === spec.file.filepath ? timedOutTest : undefined;
         await this.dispatchRunTests(spec, runPool, specTimedOutTest);
       }
@@ -511,6 +524,12 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
           case 'execution-end':
             this.handleTestExecutionEnd(message);
             break;
+          case 'phase-start':
+            this.handleTestPhaseStart(message);
+            break;
+          case 'phase-end':
+            this.handleTestPhaseEnd(message);
+            break;
         }
 
         return;
@@ -520,19 +539,29 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
 
   private handleTestExecutionStart(msg: TestExecutionStart): void {
     if (!this.isWorkerRunning) return;
-    
+
     const { executionStart, test } = msg;
     const now = Date.now();
     const transitDuration = now - executionStart;
     const adjustedTimeout = Math.max(test.timeout - transitDuration, 0);
 
+    // the initial window covers the init segment (WASM instantiation +
+    // _start() module init, which re-runs user top-level code) with the
+    // test's timeout; each phase-start then re-arms to its own phase window
+    const enforced = isTimeoutEnforced(test.timeout);
+
     this.currentTestRun = {
       test,
       executionStart,
-      timeoutId: setTimeout(() => this.handleTimeout(), adjustedTimeout)
+      phase: 'test',
+      phaseEffectiveTimeout: test.timeout,
+      timeoutId: enforced ? setTimeout(() => this.handleTimeout(), adjustedTimeout) : undefined
     };
 
-    debug(`[${this.logModuleWithId}] START test timeout timer for "${this.currentTestRun.test.name}"`);
+    debug(enforced
+      ? `[${this.logModuleWithId}] START init timeout window (${test.timeout} ms) for "${this.currentTestRun.test.name}"`
+      : `[${this.logModuleWithId}] SKIP init timeout window (disabled: ${test.timeout}) for "${this.currentTestRun.test.name}"`
+    );
   }
 
   private handleTestExecutionEnd(_msg: TestExecutionEnd): void {
@@ -540,11 +569,43 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     this.currentTestRun = undefined;
   }
 
+  private handleTestPhaseStart(msg: TestPhaseStart): void {
+    if (!this.isWorkerRunning || !this.currentTestRun) return;
+    if (this.currentTestRun.test.id !== msg.testTaskId) return;
+
+    // re-arm the timer to this phase's own window (each hook fn and the test
+    // fn get a fresh window — vitest's per-hook withTimeout semantics)
+    clearTimeout(this.currentTestRun.timeoutId);
+
+    const transitDuration = Date.now() - msg.phaseStart;
+    const adjustedTimeout = Math.max(msg.effectiveTimeout - transitDuration, 0);
+
+    const enforced = isTimeoutEnforced(msg.effectiveTimeout);
+
+    this.currentTestRun.phase = msg.phase;
+    this.currentTestRun.phaseEffectiveTimeout = msg.effectiveTimeout;
+    this.currentTestRun.timeoutId = enforced ? setTimeout(() => this.handleTimeout(), adjustedTimeout) : undefined;
+
+    debug(enforced
+      ? `[${this.logModuleWithId}] START ${msg.phase} phase timeout window (${msg.effectiveTimeout} ms) for "${this.currentTestRun.test.name}"`
+      : `[${this.logModuleWithId}] SKIP ${msg.phase} phase timeout window (disabled: ${msg.effectiveTimeout}) for "${this.currentTestRun.test.name}"`
+    );
+  }
+
+  private handleTestPhaseEnd(msg: TestPhaseEnd): void {
+    if (!this.currentTestRun || this.currentTestRun.test.id !== msg.testTaskId) return;
+
+    debug(`[${this.logModuleWithId}] CLEAR ${this.currentTestRun.phase} phase timeout window for "${this.currentTestRun.test.name}"`);
+    clearTimeout(this.currentTestRun.timeoutId);
+    this.currentTestRun.timeoutId = undefined;
+  }
+
   private clearTestTimeoutTimer(): void {
     if (this.currentTestRun) {
       const elapsed = Date.now() - this.currentTestRun.executionStart;
       debug(`[${this.logModuleWithId}] CLEAR test timeout timer (${elapsed.toFixed(2)} ms) for "${this.currentTestRun?.test.name}"`);
       clearTimeout(this.currentTestRun.timeoutId);
+      this.currentTestRun.timeoutId = undefined;
     }
   }
 
@@ -563,7 +624,13 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     }
 
     const duration = Date.now() - this.currentTestRun.executionStart;
-    failTestWithTimeoutError(this.currentTestRun.test, this.currentTestRun.executionStart, duration);
+    failTestWithTimeoutError(
+      this.currentTestRun.test,
+      this.currentTestRun.executionStart,
+      duration,
+      this.currentTestRun.phase,
+      this.currentTestRun.phaseEffectiveTimeout
+    );
 
     // set termination time metadata for measuring resume latency
     flagTestTerminated(this.currentTestRun.test);

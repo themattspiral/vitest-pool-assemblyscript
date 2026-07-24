@@ -1,0 +1,38 @@
+{
+  "extends": "assemblyscript/std/assembly.json",
+  "include": [
+    "assembly/**/*.ts",
+
+    // TODO: cleanup errors and re-enable
+    // "test/assembly/**/*.test.ts",
+  ],
+  "compilerOptions": {
+    "noEmit": true,
+
+    // Strict type checking
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitOverride": true,
+    "noImplicitThis": true,
+    "noUncheckedIndexedAccess": true,
+    "noUncheckedSideEffectImports": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "strictFunctionTypes": true,
+    
+    // handled by AS compiler, generates noise here if enabled
+    "strictNullChecks": false,
+    "exactOptionalPropertyTypes": false,
+    "strictPropertyInitialization": false,
+
+    // Module compatibility
+    "allowArbitraryExtensions": true,
+    "allowImportingTsExtensions": true,
+    "allowSyntheticDefaultImports": true,
+    "experimentalDecorators": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+}
