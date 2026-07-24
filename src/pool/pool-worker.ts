@@ -2,7 +2,7 @@ import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 import { access } from 'node:fs/promises';
 import type { MessagePort } from 'node:worker_threads';
-import type { RunnerTestCase } from 'vitest';
+import type { RunnerTestCase, RunnerTestFile } from 'vitest';
 import type {
   PoolOptions,
   PoolTask,
@@ -15,6 +15,7 @@ import Tinypool from 'tinypool';
 
 import type {
   AssemblyScriptPoolWorkerMessage,
+  AssemblyScriptSuiteTaskMeta,
   ResolvedAssemblyScriptPoolOptions,
   ResolvedHybridProviderOptions,
   RunCompileAndDiscoverTask,
@@ -73,7 +74,7 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
   private threadRunPromise: Promise<void> | undefined;
 
   private threadSpecs: ThreadSpec[] = [];
-  
+
   // cached data for possible timeout resume
   private currentTestRun: TestRunRecord | undefined;
   
@@ -374,23 +375,22 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     compilePool: Tinypool,
   ): Promise<void> {
     const { workerPort, poolPort } = createWorkerRPCChannel(this.poolOptions.project, this.isCollectTestsMode);
-    
-    const compilePromise: Promise<ThreadSpec> = compilePool.run({
-      dispatchStart: Date.now(),
-      workerId: this.currentWorkerId!,
-      port: workerPort,
-      file: spec.file,
-      config: this.config!,
-      asPoolOptions: this.asPoolOptions,
-      isCollectTestsMode: this.isCollectTestsMode,
-    } satisfies RunCompileAndDiscoverTask, {
-      name: 'runCompileAndDiscoverSpec',
-      transferList: [workerPort],
-      signal: AbortSignal.any([this.threadAbortController!.signal, GLOBAL_POOL_ABORT_CONTROLLER!.signal]),
-    });
 
     try {
-      const { compilation, file } = await compilePromise;
+      const { compilation, file }: ThreadSpec = await compilePool.run({
+        dispatchStart: Date.now(),
+        workerId: this.currentWorkerId!,
+        port: workerPort,
+        file: spec.file,
+        config: this.config!,
+        asPoolOptions: this.asPoolOptions,
+        isCollectTestsMode: this.isCollectTestsMode,
+      } satisfies RunCompileAndDiscoverTask, {
+        name: 'runCompileAndDiscoverSpec',
+        transferList: [workerPort],
+        signal: AbortSignal.any([this.threadAbortController!.signal, GLOBAL_POOL_ABORT_CONTROLLER!.signal]),
+      });
+
       spec.file = file;
       spec.compilation = compilation;
     } finally {
@@ -408,24 +408,29 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
     this.threadControlPort = poolPort;
     this.threadControlPort.on('message', this.getWorkerThreadMessageHandler());
 
-    const runPromise: Promise<void> = !spec.compilation ? Promise.resolve() : runPool.run({
-      dispatchStart: Date.now(),
-      workerId: this.currentWorkerId!,
-      port: workerPort,
-      file: timedOutTest?.file ?? spec.file,
-      compilation: spec.compilation,
-      config: this.config!,
-      asPoolOptions: this.asPoolOptions,
-      isCollectTestsMode: this.isCollectTestsMode,
-      timedOutTest,
-    } satisfies RunTestsTask, {
-      name: 'runFileSpec',
-      transferList: [workerPort],
-      signal: AbortSignal.any([this.threadAbortController!.signal, GLOBAL_POOL_ABORT_CONTROLLER!.signal]),
-    });
-
     try {
-      return await runPromise;
+      // a spec without a compilation (its compile failed) has nothing to run
+      if (spec.compilation) {
+        const completedFile: RunnerTestFile = await runPool.run({
+          dispatchStart: Date.now(),
+          workerId: this.currentWorkerId!,
+          port: workerPort,
+          file: timedOutTest?.file ?? spec.file,
+          compilation: spec.compilation,
+          config: this.config!,
+          asPoolOptions: this.asPoolOptions,
+          isCollectTestsMode: this.isCollectTestsMode,
+          timedOutTest,
+        } satisfies RunTestsTask, {
+          name: 'runFileSpec',
+          transferList: [workerPort],
+          signal: AbortSignal.any([this.threadAbortController!.signal, GLOBAL_POOL_ABORT_CONTROLLER!.signal]),
+        });
+
+        // refresh the cached spec.file with the finished tree, specifically 
+        // including meta.resultFinal to ensure it won't be re-run after timeouts
+        spec.file = completedFile;
+      }
     } finally {
       this.threadControlPort.close();
       this.threadControlPort = undefined;
@@ -461,6 +466,12 @@ export class AssemblyScriptPoolWorker implements PoolWorker {
       // maxWorkers = 1 and isolate = false in the vitest project config, in which case we
       // get multiple threadspecs here all at once
       for (const spec of this.threadSpecs) {
+        // skip re-dispatching file that already finished (e.g. after timeout resume)
+        if ((spec.file.meta as AssemblyScriptSuiteTaskMeta).resultFinal) {
+          debug(`[${this.logModuleWithId}] orchestrateFileRuns: skipping already-completed spec "${spec.file.filepath}"`);
+          continue;
+        }
+
         const specTimedOutTest = timedOutTest?.file.filepath === spec.file.filepath ? timedOutTest : undefined;
         await this.dispatchRunTests(spec, runPool, specTimedOutTest);
       }

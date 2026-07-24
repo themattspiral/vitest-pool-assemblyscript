@@ -3,6 +3,7 @@
  */
 import { basename } from 'node:path';
 import { threadId } from 'node:worker_threads';
+import type { RunnerTestFile } from 'vitest';
 
 import type {
   RunTestsTask,
@@ -20,7 +21,7 @@ import { buildEnhancedFileError } from '../util/pool-errors.js';
 const logModule = `WorkerThread` as const;
 const COVERAGE_SUPPORTED = isNodeVersionSupportedForCoverage();
 
-export async function runFileSpec(data: RunTestsTask): Promise<void> {
+export async function runFileSpec(data: RunTestsTask): Promise<RunnerTestFile> {
   const {
     dispatchStart, workerId, file, port, config, asPoolOptions,
     isCollectTestsMode, compilation, timedOutTest
@@ -88,5 +89,5 @@ export async function runFileSpec(data: RunTestsTask): Promise<void> {
     debug(`[${logModuleWithId}] -------- ${mode} completed file test run --------`);
   }
 
-  return;
+  return file;
 }
