@@ -72,6 +72,7 @@ const SOURCE_ARCHIVE = path.join(import.meta.dirname, '..', 'binaryen-source.tar
 const THIRD_PARTY_DIR = path.join(import.meta.dirname, '..', 'third_party');
 const BINARYEN_DIR = path.join(THIRD_PARTY_DIR, 'binaryen');
 const TEMP_DIR = path.join(THIRD_PARTY_DIR, 'binaryen-temp');
+const STATIC_LIB_FILENAME = 'libbinaryen.a';
 
 console.log(`Setting up Binaryen ${BINARYEN_VERSION}...`);
 console.log(`Platform: ${PLATFORM}`);
@@ -163,6 +164,14 @@ function extractAndBuildFromSource() {
     // Build (only the binaryen library target, not CLI tools)
     console.log('  Building (this may take several minutes)...');
     execQuiet(`cmake --build "${buildDir}" --target binaryen -j${cpuCount}`);
+
+    // A build configured as shared still succeeds, so check for the static
+    // library here rather than letting it surface as a copy failure below
+    const builtLib = path.join(buildDir, 'lib', STATIC_LIB_FILENAME);
+    if (!fs.existsSync(builtLib)) {
+      throw new Error(`Built static library not found at ${builtLib}`);
+    }
+
     console.log('  ✓ Build complete');
     console.log('');
 
@@ -172,14 +181,10 @@ function extractAndBuildFromSource() {
     fs.mkdirSync(BINARYEN_DIR, { recursive: true });
 
     // Copy static library
-    const builtLib = path.join(buildDir, 'lib', 'libbinaryen.a');
-    if (!fs.existsSync(builtLib)) {
-      throw new Error(`Built static library not found at ${builtLib}`);
-    }
     const destLibDir = path.join(BINARYEN_DIR, 'lib');
     fs.mkdirSync(destLibDir, { recursive: true });
-    fs.cpSync(builtLib, path.join(destLibDir, 'libbinaryen.a'));
-    console.log('  ✓ Copied libbinaryen.a');
+    fs.cpSync(builtLib, path.join(destLibDir, STATIC_LIB_FILENAME));
+    console.log(`  ✓ Copied ${STATIC_LIB_FILENAME}`);
 
     // Copy C++ headers from source
     const sourceSrcDir = path.join(sourceDir, 'src');
