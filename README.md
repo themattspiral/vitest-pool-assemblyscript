@@ -319,9 +319,11 @@ Platforms with prebuilt native binaries for coverage instrumentation:
 | | x64 | arm64 |
 |---|---|---|
 | Linux (glibc) | ✓ | ✓ |
-| Linux (musl/Alpine) | ✓ | - |
+| Linux (musl/Alpine) | ✓ | -* |
 | macOS | ✓ | ✓ |
 | Windows | ✓ | ✓ |
+
+***Alpine on arm64:** GitHub Actions can't run JavaScript actions inside Alpine containers on arm64 runners, so this one binary can't be prebuilt alongside the others. Installs on this platform use the source-build fallback below - `apk add python3 make g++` provides the toolchain it needs. ([details](docs/pool-architecture.md#2-prebuild))
 
 >ℹ️ Platforms without prebuilds will fallback to using an installation script to compile the native component. This must be [explicitly allowed with newest versions of npm (>=11)](https://docs.npmjs.com/cli/v11/commands/npm-approve-scripts).
 
