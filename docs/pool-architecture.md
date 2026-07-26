@@ -593,7 +593,7 @@ On install, `node-gyp-build` checks the `prebuilds/` directory for a matching bi
 The native addon links against Binaryen's C++ API (static library). The download strategy differs by platform:
 
 - **Linux/Windows**: Download official prebuilt release (static library) + source tarball (C++ headers needed for compilation). Extract and combine into `third_party/binaryen/`.
-- **macOS**: Official macOS releases only ship `libbinaryen.dylib` (shared library), but we need `libbinaryen.a` (static) for linking into the `.node` addon. So macOS downloads the source and builds from scratch using cmake with `-DBUILD_STATIC_LIB=ON`.
+- **macOS**: Official macOS releases only ship `libbinaryen.dylib` (shared library), but we need `libbinaryen.a` (static) for linking into the `.node` addon. So macOS downloads the source and builds from scratch using cmake with `-DBUILD_SHARED_LIBS=OFF`.
 
 Binaryen version is pinned via the `BINARYEN_VERSION` file at the project root.
 
