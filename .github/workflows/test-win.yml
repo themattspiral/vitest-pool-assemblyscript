@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, windows-11-arm]
+        os: [windows-latest, windows-11-vs2026-arm]
         node-version: ['22', '24']
     steps:
       - name: Checkout code
@@ -56,7 +56,6 @@ jobs:
         
       - name: v4 - Test Meta Verify Suite Externally
         run: npm run test:ext:meta:verify
-        
 
       - name: v3 - Setup External Test Directory
         run: npm run test:ext:setup:v3
