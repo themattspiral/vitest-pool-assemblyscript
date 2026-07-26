@@ -166,7 +166,7 @@
     "@vitest/coverage-istanbul": "5.0.0-beta.7",
     "@vitest/coverage-v8": "5.0.0-beta.7",
     "@vitest/utils": "5.0.0-beta.7",
-    "assemblyscript": "0.28.18",
+    "assemblyscript": "0.28.20",
     "conventional-changelog-conventionalcommits": "^9.3.1",
     "cross-env": "^10.1.0",
     "istanbul-lib-coverage": "^3.2.2",

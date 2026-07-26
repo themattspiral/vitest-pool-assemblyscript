@@ -6,7 +6,7 @@
     "@vitest/coverage-istanbul": "~3.2.7",
     "@vitest/coverage-v8": "~3.2.7",
     "@vitest/utils": "~3.2.7",
-    "assemblyscript": "0.28.18",
+    "assemblyscript": "0.28.20",
     "vitest": "~3.2.7",
     "vitest-pool-assemblyscript": "file:vitest-pool-assemblyscript-0.0.0-semantically-released.tgz"
   },

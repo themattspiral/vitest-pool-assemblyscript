@@ -37,7 +37,8 @@ See the Readme's [Compatibility section](../README.md#compatibility) for informa
 Additionally for developers:
 
 **C++ build tools** (for native addon development):
-- C++20 compiler support required ([GCC 10+ or Clang 10+](https://en.cppreference.com/cpp/compiler_support/20))
+- **Linux / macOS:** C++20 compiler support required ([GCC 10+ or Clang 10+](https://en.cppreference.com/cpp/compiler_support/20))
+- **Windows: Visual Studio 2026 Build Tools (MSVC v14.5x).** VS 2022 (17.14 and earlier) will *not* link the addon — it statically links Binaryen's prebuilt library, which is compiled with the VS 2026 toolchain and references C++ STL vector-algorithm helpers (e.g. `__std_rotate`, `__std_find_last_not_ch_pos`, `__std_max_element_*u`) that VS 2022's runtime doesn't provide. The minimal install is the "Desktop development with C++" workload (MSVC toolset + Windows SDK); the CMake, testing, AddressSanitizer, and vcpkg components aren't needed.
 - Python 3.x (required by node-gyp)
 
 The distributed npm package includes prebuilt native binaries for [most platforms](../README.md#compatibility), so *end users* don't need C++ tools. These are only needed when developing the native addon or building from source.
