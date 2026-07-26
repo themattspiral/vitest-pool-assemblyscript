@@ -67,7 +67,7 @@ jobs:
             platform: darwin-arm64
           - os: windows-latest
             platform: win32-x64
-          - os: windows-11-arm
+          - os: windows-11-vs2026-arm
             platform: win32-arm64
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container || '' }}
@@ -142,7 +142,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-26-intel, macos-latest, windows-latest, windows-11-arm]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-26-intel, macos-latest, windows-latest, windows-11-vs2026-arm]
         node-version: ['22', '24']
         include:
           - os: ubuntu-latest
@@ -155,7 +155,7 @@ jobs:
             prebuild-artifact: prebuild-darwin-arm64
           - os: windows-latest
             prebuild-artifact: prebuild-win32-x64
-          - os: windows-11-arm
+          - os: windows-11-vs2026-arm
             prebuild-artifact: prebuild-win32-arm64
           # Uses '24-alpine' to avoid colliding with the ubuntu-latest + '24'
           # (also setup-node is skipped for container jobs).
