@@ -607,6 +607,8 @@ The addon requires C++20 with exceptions enabled ([`binding.gyp`](../binding.gyp
 | macOS | `-std=c++20 -fexceptions -O3`, `MACOSX_DEPLOYMENT_TARGET: 10.15` | Floor for C++17 standard-library support; the C++20 code in play uses no deployment-target-gated lib features |
 | Windows | `/std:c++20 /permissive /EHsc` | `/permissive` (lenient, NO dash) needed for Binaryen's C++ patterns that MSVC's strict conformance mode (`/permissive-`) rejects |
 
+> ℹ️ **Windows build toolchain:** building the addon requires **Visual Studio 2026 Build Tools (MSVC v14.5x)** — the prebuilt Binaryen static library it links is compiled with the VS 2026 STL, whose vector-algorithm helpers VS 2022 (17.14 and earlier) doesn't provide. See the [Developer Guide § Prerequisites](developer-guide.md#prerequisites) for the full explanation and minimal component set.
+
 ### Runtime Error Handling
 
 If the native build failed during install, the `.native-build-error` marker file records the failure stage (`binaryen-download` or `native-compile`) and a truncated error message. At runtime:
