@@ -582,7 +582,7 @@ The npm package ships prebuilt native addons for 7 platforms via prebuildify:
 | Platform | Architecture | Notes |
 |----------|-------------|-------|
 | Linux (glibc) | x64, arm64 | |
-| Linux (musl/Alpine) | x64 | |
+| Linux (musl/Alpine) | x64 | No arm64 prebuild — JS actions can't run in Alpine containers on arm64 runners ([details](#2-prebuild)); those users fall back to the install-time source build |
 | macOS | x64, arm64 | |
 | Windows | x64, arm64 | |
 
@@ -645,6 +645,16 @@ TypeScript compilation on Ubuntu. Produces `dist/` artifacts. Native build is sk
 - Uploads prebuild artifact
 
 Prebuilds are cached keyed on a hash of source files (`src/instrumentation/native/**`, `binding.gyp`, `BINARYEN_VERSION`, `setup-binaryen.js`, `package-lock.json`).
+
+#### Why arm64 musl/Alpine is absent from the matrix
+
+The matrix covers every [prebuild platform](#prebuilt-binaries) except arm64 musl/Alpine, which GitHub Actions cannot build the way every other cell is built.
+
+An Alpine cell works by running the job in a `container: node:*-alpine`, but GitHub ships the musl action-runtime Node for **x64 only**. On an arm64 runner that container fails at the very first step, `actions/checkout`, with *"JavaScript Actions in Alpine containers are only supported on x64 Linux runners."* Dropping checkout doesn't rescue it either — `upload-artifact` is a JavaScript action too, and the prebuild flow depends on it to return the binary.
+
+Producing that prebuild natively is possible, but only off the shared path: run the job on a **glibc** arm64 host (where JS actions work) and confine just the build and test steps to `docker run node:*-alpine` with the repo bind-mounted, so the artifact lands back on the host for upload. QEMU emulation on an x64 runner is the other route, at the cost of slow emulated compilation. Both mean a bespoke step-set for a single, small-audience cell, which is why neither is in place.
+
+The consequence for users is limited: an arm64-Alpine install finds no matching prebuild and falls back to the install-time source build, which needs a local toolchain (`apk add python3 make g++`). If that build fails, the package still installs and tests still run — only coverage is unavailable. See [Runtime Error Handling](#runtime-error-handling).
 
 ### 3. Test
 Matrix of platforms and Node versions runs external tests against the `npm pack`-ed package:
