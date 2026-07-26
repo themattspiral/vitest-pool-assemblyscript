@@ -283,9 +283,9 @@ If your platform isn't listed, the npm package installation will fallback to try
 
 **Q: Do you support older versions of AssemblyScript?**
 <br/>
-**A:** We test against 0.28.18 currently. Older versions might work but aren't actively tested.
+**A:** We test against 0.28.20 currently. The project has been developed since version 0.28.9, and is likely to work back to at least this version. Older versions might work but aren't actively tested.
 
-The project has been developed since version 0.28.9, and is likely to work back to at least this version. If you're stuck on an older version and run into issues, you're welcome to [open an issue](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new).
+If you're stuck on an older version and run into issues, you're welcome to [open an issue](https://github.com/themattspiral/vitest-pool-assemblyscript/issues/new).
 
 **Q: Is this an official vitest project?**
 <br/>
@@ -306,7 +306,7 @@ I began this as a hobby project to improve my own AssemblyScript testing workflo
 |---|---|
 | Node.js | (20*), 22, 24+ |
 | Vitest | 3.2.x, 4.x.x, 5.x.x-beta |
-| AssemblyScript | 0.28.18+ ([more?](#frequently-asked-questions)) |
+| AssemblyScript | 0.28.9 - 0.28.20+ ([more?](#frequently-asked-questions)) |
 
 ***Node 20 Support:** If you don't need code coverage, Node 20 should continue to work for test execution, though it is no longer tested because it reached EOL on April 30, 2026.
 
