@@ -86,7 +86,7 @@ if (IS_MACOS) {
   // macOS: Build Binaryen from source to produce libbinaryen.a
   // The official macOS prebuilt release only ships libbinaryen.dylib (shared),
   // which cannot be statically linked into our .node addon. Building from source
-  // with BUILD_STATIC_LIB=ON produces the .a file our binding.gyp expects.
+  // with BUILD_SHARED_LIBS=OFF produces the .a file our binding.gyp expects.
   setupMacOS();
 } else {
   // Linux/Windows: Download prebuilt static library + source headers
@@ -151,7 +151,7 @@ function extractAndBuildFromSource() {
       '-B', buildDir,
       ...generatorArgs,
       '-DCMAKE_BUILD_TYPE=Release',
-      '-DBUILD_STATIC_LIB=ON',
+      '-DBUILD_SHARED_LIBS=OFF',
       '-DBUILD_TESTS=OFF',
       '-DBUILD_TOOLS=OFF',
       '-DENABLE_WERROR=OFF',
