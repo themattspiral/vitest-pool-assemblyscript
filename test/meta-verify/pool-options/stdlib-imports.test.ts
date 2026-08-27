@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, type Assertion } from 'vitest';
+import { describe, test, expect, beforeAll } from 'vitest';
 import {
   loadParsedCliOutput, TEST_FILE_PREFIX,
 } from '../helpers/shared.js';
@@ -14,12 +14,12 @@ const FIXTURE_PATH = `${TEST_FILE_PREFIX}test/assembly/${FIXTURE_FILE}`;
  *   "stdout | filepath > testname"  or  "stderr | filepath > testname"
  * followed by the content on the next line(s)
  */
-function expectConsoleOutput<T>(
+function expectConsoleOutput(
   lines: string[],
   testName: string,
   stream: 'stdout' | 'stderr',
   nextLinesToCompare: number = 1,
-): Assertion<T> {
+) {
   const suiteName = 'AssemblyScript console stdlib interface - pool provided functions';
   const fullTestName = `${FIXTURE_PATH} > ${suiteName} > ${testName}`;
   const attribution = `${stream} | ${fullTestName}`;

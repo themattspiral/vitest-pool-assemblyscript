@@ -13,5 +13,12 @@ export default defineConfig({
       'test/meta-verify/**/*.test.ts',
     ],
     exclude: [],
+
+    // meta verify tests only read the pre-generated meta run results file
+    // and keep no mutable in-process state (vi stubs, no global/env writes),
+    // so reusing workers across files can't leak state between them.
+    // This avoids the per-file worker-spawn cost (vitest's isolate diagnostic 
+    // estimates ~1-2s savings)
+    isolate: false,
   },
 });
