@@ -163,9 +163,9 @@
     "@types/istanbul-lib-coverage": "^2.0.6",
     "@types/node": "^24.13.3",
     "@types/source-map": "~0.5.2",
-    "@vitest/coverage-istanbul": "5.0.0-beta.7",
-    "@vitest/coverage-v8": "5.0.0-beta.7",
-    "@vitest/utils": "5.0.0-beta.7",
+    "@vitest/coverage-istanbul": "5.0.0-rc.2",
+    "@vitest/coverage-v8": "5.0.0-rc.2",
+    "@vitest/utils": "5.0.0-rc.2",
     "assemblyscript": "0.28.20",
     "conventional-changelog-conventionalcommits": "^9.3.1",
     "cross-env": "^10.1.0",
@@ -176,6 +176,6 @@
     "tsdown": "^0.22.14",
     "tsx": "^4.23.1",
     "typescript": "^6.0.3",
-    "vitest": "5.0.0-beta.7"
+    "vitest": "5.0.0-rc.2"
   }
 }

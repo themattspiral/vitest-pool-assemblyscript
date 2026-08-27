@@ -3,11 +3,11 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@vitest/coverage-istanbul": "5.0.0-beta.7",
-    "@vitest/coverage-v8": "5.0.0-beta.7",
-    "@vitest/utils": "5.0.0-beta.7",
+    "@vitest/coverage-istanbul": "5.0.0-rc.2",
+    "@vitest/coverage-v8": "5.0.0-rc.2",
+    "@vitest/utils": "5.0.0-rc.2",
     "assemblyscript": "0.28.20",
-    "vitest": "5.0.0-beta.7",
+    "vitest": "5.0.0-rc.2",
     "vitest-pool-assemblyscript": "file:vitest-pool-assemblyscript-0.0.0-semantically-released.tgz"
   },
   "scripts": {

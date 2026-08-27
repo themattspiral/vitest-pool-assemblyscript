@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, type Assertion } from 'vitest';
+import { describe, test, expect, beforeAll } from 'vitest';
 import {
   type ParsedCliOutput, type MetaRunResults,
   loadParsedCliOutput, loadMetaRunResults, 
@@ -48,7 +48,7 @@ function expectStackFrames(
   parsedCli: ParsedCliOutput,
   fullTestPath: string,
   expectedCount: number,
-): Assertion<string[]> {
+) {
   const frames = extractStackFrames(parsedCli, fullTestPath);
 
   expect(frames, `Stack frame count for "${fullTestPath}"`)
